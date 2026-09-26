@@ -10,8 +10,11 @@ import { cacheService } from './CacheService.js';
 
 function getProxyUrl(rawUrl) {
   if (!rawUrl) return '';
+  if (rawUrl.includes('/api/proxy') || rawUrl.includes('/proxy?target=')) return rawUrl;
+  if (typeof window !== 'undefined' && (window.location.protocol === 'https:' || (!window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1')))) {
+    return `${window.location.origin}/api/proxy?target=${encodeURIComponent(rawUrl)}`;
+  }
   const port = (typeof window !== 'undefined' && window.IPTV_PROXY_PORT) ? window.IPTV_PROXY_PORT : 7878;
-  if (rawUrl.includes(`localhost:${port}/proxy`)) return rawUrl;
   if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
     return `http://localhost:${port}/proxy?target=${encodeURIComponent(rawUrl)}`;
   }
@@ -205,28 +208,23 @@ class PlayerService {
       manifestLoadingMaxRetry: 1,
       levelLoadingMaxRetry: 1,
       xhrSetup: (xhr, reqUrl) => {
-        const port = (typeof window !== 'undefined' && window.IPTV_PROXY_PORT) ? window.IPTV_PROXY_PORT : 7878;
         let targetUrl = reqUrl;
 
         // Si Hls.js resolvió una URL relativa contra localhost, redirigirla al servidor remoto original
-        if (targetUrl.includes(`localhost:${port}`) || targetUrl.includes('127.0.0.1')) {
-          if (targetUrl.includes('/proxy?target=')) {
-            return;
-          }
-          try {
-            const parsed = new URL(targetUrl);
-            if (remoteOrigin) {
-              targetUrl = remoteOrigin + parsed.pathname + parsed.search;
-            }
-          } catch {}
-        } else if (targetUrl.startsWith('/')) {
+        if (targetUrl.includes('/proxy?target=')) {
+          return;
+        }
+        if (targetUrl.startsWith('/') && !targetUrl.startsWith('//')) {
           if (remoteOrigin) {
             targetUrl = remoteOrigin + targetUrl;
           }
         }
 
-        if ((targetUrl.startsWith('http://') || targetUrl.startsWith('https://')) && !targetUrl.includes(`localhost:${port}/proxy`)) {
-          xhr.open('GET', `http://localhost:${port}/proxy?target=${encodeURIComponent(targetUrl)}`, true);
+        if (targetUrl.startsWith('http://') || targetUrl.startsWith('https://')) {
+          const proxied = getProxyUrl(targetUrl);
+          if (proxied !== targetUrl) {
+            xhr.open('GET', proxied, true);
+          }
         }
       }
     });

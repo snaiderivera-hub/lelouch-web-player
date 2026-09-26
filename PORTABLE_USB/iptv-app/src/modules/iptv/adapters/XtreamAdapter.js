@@ -34,15 +34,24 @@ import { IPTVError } from '../types/iptv.types.js';
 const DEFAULT_TIMEOUT_MS = 20000;
 
 function getProxyBase() {
-  const port = (typeof window !== 'undefined' && window.IPTV_PROXY_PORT) ? window.IPTV_PROXY_PORT : 7878;
-  return `http://localhost:${port}/proxy`;
+  if (typeof window !== 'undefined') {
+    if (window.location.protocol === 'https:' || (window.location.hostname && !window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1'))) {
+      return `${window.location.origin}/api/proxy`;
+    }
+    const port = window.IPTV_PROXY_PORT || 7878;
+    return `http://localhost:${port}/proxy`;
+  }
+  return '/api/proxy';
 }
 
 /**
- * Determina si las peticiones deben ir por el proxy local.
- * Se activa cuando el servidor usa HTTP (no HTTPS) para evitar CORS.
+ * Determina si las peticiones deben ir por el proxy.
+ * En Vercel / HTTPS siempre se activa para evitar bloqueo de contenido mixto y CORS.
  */
 function shouldUseProxy(serverBaseUrl) {
+  if (typeof window !== 'undefined' && (window.location.protocol === 'https:' || (!window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1')))) {
+    return true;
+  }
   return serverBaseUrl.startsWith('http://');
 }
 

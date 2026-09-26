@@ -1,6 +1,7 @@
 {
   "cleanUrls": true,
   "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/$1" },
     { "source": "/", "destination": "/iptv-app/index.html" },
     { "source": "/src/(.*)", "destination": "/iptv-app/src/$1" },
     { "source": "/(.*)", "destination": "/iptv-app/$1" }

@@ -359,8 +359,13 @@ export class ChannelHealthService {
     const startTime = performance.now();
 
     try {
-      const port = (typeof window !== 'undefined' && window.IPTV_PROXY_PORT) ? window.IPTV_PROXY_PORT : 7878;
-      const proxyUrl = `http://localhost:${port}/proxy?target=${encodeURIComponent(targetUrl)}`;
+      let proxyUrl = targetUrl;
+      if (typeof window !== 'undefined' && (window.location.protocol === 'https:' || (!window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1')))) {
+        proxyUrl = `${window.location.origin}/api/proxy?target=${encodeURIComponent(targetUrl)}`;
+      } else {
+        const port = (typeof window !== 'undefined' && window.IPTV_PROXY_PORT) ? window.IPTV_PROXY_PORT : 7878;
+        proxyUrl = `http://localhost:${port}/proxy?target=${encodeURIComponent(targetUrl)}`;
+      }
 
       const response = await fetch(proxyUrl, {
         method: 'GET',

@@ -9,8 +9,11 @@ import { playerService } from '../modules/iptv/services/PlayerService.js';
 
 function getProxyUrl(rawUrl) {
   if (!rawUrl) return '';
+  if (rawUrl.includes('/api/proxy') || rawUrl.includes('/proxy?target=')) return rawUrl;
+  if (typeof window !== 'undefined' && (window.location.protocol === 'https:' || (!window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1')))) {
+    return `${window.location.origin}/api/proxy?target=${encodeURIComponent(rawUrl)}`;
+  }
   const port = (typeof window !== 'undefined' && window.IPTV_PROXY_PORT) ? window.IPTV_PROXY_PORT : 7878;
-  if (rawUrl.includes(`localhost:${port}/proxy`)) return rawUrl;
   if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
     return `http://localhost:${port}/proxy?target=${encodeURIComponent(rawUrl)}`;
   }
@@ -209,9 +212,8 @@ export class PlayerModal {
               : 'http://liontv.es:80';
             resolved = `${origin}${resolved}`;
           }
-          const port = (typeof window !== 'undefined' && window.IPTV_PROXY_PORT) ? window.IPTV_PROXY_PORT : 7878;
-          if (resolved.startsWith('http://') && !resolved.includes(`localhost:${port}/proxy`)) {
-            const proxied = `http://localhost:${port}/proxy?target=${encodeURIComponent(resolved)}`;
+          const proxied = getProxyUrl(resolved);
+          if (proxied !== resolved) {
             xhr.open('GET', proxied, true);
           }
         }
