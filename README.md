@@ -1,4 +1,4 @@
-# IPTV Data Architect & Web Player
+# Lelouch IPTV Web Player
 
 Aplicación moderna para gestión, reproducción y análisis de catálogos IPTV (M3U, Xtream Codes y HLS).
 
