@@ -59,10 +59,36 @@ function escHtml(s) {
     .replace(/"/g, '&quot;');
 }
 
+function getProxyUrl(rawUrl) {
+  if (!rawUrl) return '';
+  if (rawUrl.includes('/api/proxy') || rawUrl.includes('/proxy?target=')) return rawUrl;
+  if (typeof window !== 'undefined' && (window.location.protocol === 'https:' || (!window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1')))) {
+    return `${window.location.origin}/api/proxy?target=${encodeURIComponent(rawUrl)}`;
+  }
+  const port = (typeof window !== 'undefined' && window.IPTV_PROXY_PORT) ? window.IPTV_PROXY_PORT : 7878;
+  if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
+    return `http://localhost:${port}/proxy?target=${encodeURIComponent(rawUrl)}`;
+  }
+  return rawUrl;
+}
+
 function createPosterPlaceholderSvg(title, category = '', icon = '🎬') {
-  const safeTitle = String(title || 'Título').slice(0, 26).replace(/[<>&"']/g, '');
-  const safeCat = String(category || '').slice(0, 22).replace(/[<>&"']/g, '');
-  return `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="240" height="360" viewBox="0 0 240 360"><defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="%231e293b"/><stop offset="50%" stop-color="%230f172a"/><stop offset="100%" stop-color="%23020617"/></linearGradient></defs><rect width="240" height="360" fill="url(%23g)" rx="10"/><circle cx="120" cy="130" r="38" fill="%231e293b" stroke="%23334155" stroke-width="2"/><text x="120" y="142" font-family="Arial,sans-serif" font-size="28" text-anchor="middle" fill="%2338bdf8">${icon}</text><text x="120" y="210" font-family="Arial,sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="%23f1f5f9">${encodeURIComponent(safeTitle)}</text><text x="120" y="230" font-family="Arial,sans-serif" font-size="10" text-anchor="middle" fill="%2394a3b8">${encodeURIComponent(safeCat)}</text><text x="120" y="275" font-family="Arial,sans-serif" font-size="9" text-anchor="middle" fill="%2364748b">PORTADA NO DISPONIBLE</text></svg>`;
+  const safeTitle = String(title || 'Título').slice(0, 24).replace(/[<>&"]/g, '');
+  const safeCat = String(category || '').slice(0, 20).replace(/[<>&"]/g, '');
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="360" viewBox="0 0 240 360">` +
+    `<defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#1e293b"/><stop offset="50%" stop-color="#0f172a"/><stop offset="100%" stop-color="#020617"/></linearGradient></defs>` +
+    `<rect width="240" height="360" fill="url(#g)" rx="10"/>` +
+    `<circle cx="120" cy="130" r="38" fill="#1e293b" stroke="#334155" stroke-width="2"/>` +
+    `<text x="120" y="142" font-family="system-ui,sans-serif" font-size="28" text-anchor="middle" fill="#38bdf8">${icon}</text>` +
+    `<text x="120" y="205" font-family="system-ui,sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#f1f5f9">${safeTitle}</text>` +
+    `<text x="120" y="225" font-family="system-ui,sans-serif" font-size="10" text-anchor="middle" fill="#94a3b8">${safeCat}</text>` +
+    `<text x="120" y="270" font-family="system-ui,sans-serif" font-size="9" text-anchor="middle" fill="#64748b" letter-spacing="1">PORTADA NO DISPONIBLE</text>` +
+    `</svg>`;
+  try {
+    return 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg)));
+  } catch (e) {
+    return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+  }
 }
 
 function debounce(fn, ms) {
@@ -940,11 +966,17 @@ function renderMoviesPage() {
 
     const rawPoster = (movie.logo || movie.poster || '').trim();
     const fallbackSvg = createPosterPlaceholderSvg(movie.name, movie.categoryName, '🎬');
-    const posterSrc = rawPoster ? escHtml(rawPoster) : fallbackSvg;
+    let posterSrc = rawPoster;
+    if (posterSrc && typeof window !== 'undefined' && window.location.protocol === 'https:' && posterSrc.startsWith('http://')) {
+      posterSrc = getProxyUrl(posterSrc);
+    }
+    if (!posterSrc) {
+      posterSrc = fallbackSvg;
+    }
 
     card.innerHTML = `
       <div class="poster-img-wrap">
-        <img class="poster-img" src="${posterSrc}" alt="${escHtml(movie.name)}" loading="lazy" onerror="this.onerror=null;this.src='${fallbackSvg}'"/>
+        <img class="poster-img" src="${escHtml(posterSrc)}" alt="${escHtml(movie.name)}" loading="lazy" onerror="this.onerror=null;this.src='${fallbackSvg}';"/>
         ${ratingHtml}
         ${yearHtml}
       </div>
@@ -1050,11 +1082,17 @@ function renderSeriesPage() {
 
     const rawPoster = (s.logo || s.poster || '').trim();
     const fallbackSvg = createPosterPlaceholderSvg(s.name, s.categoryName, '🎭');
-    const posterSrc = rawPoster ? escHtml(rawPoster) : fallbackSvg;
+    let posterSrc = rawPoster;
+    if (posterSrc && typeof window !== 'undefined' && window.location.protocol === 'https:' && posterSrc.startsWith('http://')) {
+      posterSrc = getProxyUrl(posterSrc);
+    }
+    if (!posterSrc) {
+      posterSrc = fallbackSvg;
+    }
 
     card.innerHTML = `
       <div class="poster-img-wrap">
-        <img class="poster-img" src="${posterSrc}" alt="${escHtml(s.name)}" loading="lazy" onerror="this.onerror=null;this.src='${fallbackSvg}'"/>
+        <img class="poster-img" src="${escHtml(posterSrc)}" alt="${escHtml(s.name)}" loading="lazy" onerror="this.onerror=null;this.src='${fallbackSvg}';"/>
         ${ratingHtml}
         ${yearHtml}
       </div>

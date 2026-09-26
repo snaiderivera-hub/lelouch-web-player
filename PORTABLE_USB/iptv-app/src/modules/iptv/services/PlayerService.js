@@ -42,8 +42,10 @@ class PlayerService {
     this._retryTimer = null;
     this._progressThrottleTimer = null;
     this._listeners = new Set();
-    // Modo de emisión: 'ts' (MPEG-TS directo, recomendado para Xtream) | 'auto' | 'hls'
-    this.streamFormat = (typeof localStorage !== 'undefined' && localStorage.getItem('iptv_stream_format')) || 'ts';
+    // Modo de emisión: 'auto' (recomendado en web/Vercel con fallback inteligente) | 'hls' | 'ts'
+    const isWebHosted = typeof window !== 'undefined' && (window.location.protocol === 'https:' || !window.location.hostname.includes('localhost'));
+    const savedFormat = typeof localStorage !== 'undefined' && localStorage.getItem('iptv_stream_format');
+    this.streamFormat = savedFormat || (isWebHosted ? 'auto' : 'ts');
   }
 
   /**
@@ -156,40 +158,40 @@ class PlayerService {
 
     let rawUrl = media.url;
 
-    // Adaptación según el formato preferido por el usuario
+    // Adaptación según el formato preferido por el usuario y el entorno de red
+    const isWebHosted = typeof window !== 'undefined' && (window.location.protocol === 'https:' || !window.location.hostname.includes('localhost'));
     if (media.type === 'live') {
-      if (this.streamFormat === 'ts' && rawUrl.includes('.m3u8')) {
-        rawUrl = rawUrl.replace(/\.m3u8$/, '.ts').replace(/output=m3u8/, 'output=ts');
-      } else if (this.streamFormat === 'hls' && rawUrl.includes('.ts')) {
-        rawUrl = rawUrl.replace(/\.ts$/, '.m3u8').replace(/output=ts/, 'output=m3u8');
+      if (this.streamFormat === 'ts') {
+        if (rawUrl.includes('.m3u8')) rawUrl = rawUrl.replace(/\.m3u8$/, '.ts').replace(/output=m3u8/, 'output=ts');
+      } else if (this.streamFormat === 'hls' || (this.streamFormat === 'auto' && isWebHosted)) {
+        if (rawUrl.includes('.ts')) rawUrl = rawUrl.replace(/\.ts$/, '.m3u8').replace(/output=ts/, 'output=m3u8');
       }
-      // En modo 'auto': se utiliza el formato nativo del canal (.m3u8 o .ts).
-      // Si HLS tiene 502/503 o fragmentos caídos, conmuta en milisegundos a MPEG-TS (.ts).
-      // Si MPEG-TS sufre error MSE de códec (como MP3), conmuta en milisegundos a HLS (.m3u8).
     }
 
     const proxiedUrl = getProxyUrl(rawUrl);
 
-    // 1. Si el usuario eligió MPEG-TS (.ts) o el stream es .ts directo
-    if (media.type === 'live' && (this.streamFormat === 'ts' || (this.streamFormat !== 'hls' && rawUrl.includes('.ts')))) {
+    // 1. Si es formato HLS (.m3u8) o modo Auto en entorno web
+    if (window.Hls && window.Hls.isSupported() && (rawUrl.includes('.m3u8') || rawUrl.includes('output=m3u8') || (this.streamFormat === 'auto' && isWebHosted))) {
+      this._playHls(proxiedUrl, media);
+      return;
+    }
+
+    // 2. Si el usuario eligió MPEG-TS (.ts) o el stream es .ts directo
+    if (media.type === 'live' && (this.streamFormat === 'ts' || rawUrl.includes('.ts'))) {
       if (window.mpegts && window.mpegts.isSupported()) {
         this._playMpegts(proxiedUrl, media);
         return;
       }
     }
 
-    // 2. Si es formato HLS (.m3u8) o modo Auto
-    if (window.Hls && window.Hls.isSupported() && (rawUrl.includes('.m3u8') || rawUrl.includes('output=m3u8'))) {
+    // 3. Fallback a HLS
+    if (window.Hls && window.Hls.isSupported()) {
       this._playHls(proxiedUrl, media);
+      return;
     }
-    // 3. Fallback a MPEG-TS o Live
-    else if (window.mpegts && window.mpegts.isSupported() && (rawUrl.includes('.ts') || media.type === 'live')) {
-      this._playMpegts(proxiedUrl, media);
-    }
+
     // 4. Fallback a HTML5 Video directo (mp4, mkv)
-    else {
-      this._playHtml5(proxiedUrl, media);
-    }
+    this._playHtml5(proxiedUrl, media);
   }
 
   _playHls(url, media) {
@@ -326,7 +328,10 @@ class PlayerService {
             return;
           } else {
             console.warn('[PlayerService] Tanto MPEG-TS como HLS están caídos en el servidor remoto.');
-            this._notify(PlayerState.ERROR, `Canal caído en el servidor (${errDetail || '502 Bad Gateway'}).`);
+            const friendlyErr = (errDetail && errDetail.includes('HttpStatus')) 
+              ? 'Canal fuera de línea en el servidor del proveedor (HTTP Status Inválido / Caído)' 
+              : `Canal caído en el servidor (${errDetail || '502 Bad Gateway'}).`;
+            this._notify(PlayerState.ERROR, friendlyErr);
             return;
           }
         }
