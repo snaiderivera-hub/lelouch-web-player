@@ -255,7 +255,10 @@ class PlayerService {
             return;
           } else {
             console.warn('[PlayerService] Tanto HLS como MPEG-TS están caídos en el servidor remoto.');
-            this._notify(PlayerState.ERROR, `Canal caído en el servidor (502 Bad Gateway).`);
+            const msg = (statusCode === 403 || statusCode === 401)
+              ? 'Límite de conexiones simultáneas alcanzado en tu cuenta IPTV (o acceso denegado - HTTP 403).'
+              : 'Canal caído o no disponible en el servidor remoto (502 Bad Gateway).';
+            this._notify(PlayerState.ERROR, msg);
             return;
           }
         }
@@ -328,9 +331,12 @@ class PlayerService {
             return;
           } else {
             console.warn('[PlayerService] Tanto MPEG-TS como HLS están caídos en el servidor remoto.');
-            const friendlyErr = (errDetail && errDetail.includes('HttpStatus')) 
-              ? 'Canal fuera de línea en el servidor del proveedor (HTTP Status Inválido / Caído)' 
-              : `Canal caído en el servidor (${errDetail || '502 Bad Gateway'}).`;
+            const isLimit = (errDetail && (errDetail.includes('403') || errDetail.includes('401')));
+            const friendlyErr = isLimit
+              ? 'Límite de conexiones simultáneas alcanzado en tu cuenta IPTV (o acceso restringido por el servidor - HTTP 403).'
+              : (errDetail && errDetail.includes('HttpStatus')) 
+                ? 'Canal fuera de línea en el servidor del proveedor (HTTP Status Inválido / Caído)' 
+                : `Canal caído en el servidor (${errDetail || '502 Bad Gateway'}).`;
             this._notify(PlayerState.ERROR, friendlyErr);
             return;
           }

@@ -23,6 +23,19 @@ function toast(msg, type = 'info', dur = 3000) {
   setTimeout(() => el.classList.remove('show'), dur);
 }
 
+function getProxyUrl(rawUrl) {
+  if (!rawUrl) return '';
+  if (rawUrl.includes('/api/proxy') || rawUrl.includes('/proxy?target=')) return rawUrl;
+  if (typeof window !== 'undefined' && (window.location.protocol === 'https:' || (!window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1')))) {
+    return `${window.location.origin}/api/proxy?target=${encodeURIComponent(rawUrl)}`;
+  }
+  const port = (typeof window !== 'undefined' && window.IPTV_PROXY_PORT) ? window.IPTV_PROXY_PORT : 7878;
+  if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
+    return `http://localhost:${port}/proxy?target=${encodeURIComponent(rawUrl)}`;
+  }
+  return rawUrl;
+}
+
 export class MediaDetailModal {
   constructor() {
     this._modalEl = null;
@@ -59,7 +72,11 @@ export class MediaDetailModal {
     const body = document.getElementById('media-detail-body');
     const info = vodInfo?.info || {};
 
-    const backdrop = info.backdrop_path && info.backdrop_path.length > 0 ? info.backdrop_path[0] : (vodData.poster || vodData.logo || '');
+    const rawBackdrop = info.backdrop_path && info.backdrop_path.length > 0 ? info.backdrop_path[0] : (vodData.poster || vodData.logo || '');
+    const backdrop = (rawBackdrop && rawBackdrop.startsWith('http://') && typeof window !== 'undefined' && window.location.protocol === 'https:')
+      ? getProxyUrl(rawBackdrop)
+      : rawBackdrop;
+
     const rating = info.rating || vodData.rating || 'N/A';
     const duration = info.duration || 'N/A';
     const genre = info.genre || vodData.categoryName || 'Variado';
@@ -67,7 +84,10 @@ export class MediaDetailModal {
     const cast = info.cast || 'N/A';
     const plot = info.plot || vodData.description || 'Sin descripción disponible para este título.';
     const title = vodData.name || vodData.title || 'Película';
-    const posterUrl = vodData.poster || vodData.logo || '';
+    const rawPoster = vodData.poster || vodData.logo || '';
+    const posterUrl = (rawPoster && rawPoster.startsWith('http://') && typeof window !== 'undefined' && window.location.protocol === 'https:')
+      ? getProxyUrl(rawPoster)
+      : rawPoster;
     const itemId = String(vodData.id || vodData.stream_id || '');
 
     const isFav = itemId ? await cacheService.isFavorite(itemId) : false;
@@ -148,7 +168,10 @@ export class MediaDetailModal {
     const info = seriesInfo?.info || {};
     const seasons = seriesInfo?.episodes || {};
     const title = seriesData.name || seriesData.title || 'Serie';
-    const coverUrl = seriesData.poster || seriesData.cover || seriesData.logo || '';
+    const rawCover = seriesData.poster || seriesData.cover || seriesData.logo || '';
+    const coverUrl = (rawCover && rawCover.startsWith('http://') && typeof window !== 'undefined' && window.location.protocol === 'https:')
+      ? getProxyUrl(rawCover)
+      : rawCover;
     const itemId = String(seriesData.id || seriesData.series_id || '');
 
     const seasonKeys = Object.keys(seasons);

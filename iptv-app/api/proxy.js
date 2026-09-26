@@ -5,6 +5,7 @@
  * - Intelligent M3U8 manifest rewriting to resolve relative chunk URLs and route through proxy.
  * - HTTP Range request forwarding for video seek/scrubbing.
  * - Anti-SSRF private/loopback protection.
+ * - IPTV Whitelisted User-Agent spoofing to prevent 403 Forbidden blocks.
  */
 import { Readable } from 'node:stream';
 
@@ -31,7 +32,11 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Parámetro target requerido' });
   }
 
-  const targetUrl = decodeURIComponent(target);
+  let targetUrl = decodeURIComponent(target);
+  // Asegurar que si vino con %40 en el path de usuario (@), se preserve como literal @ para Xtream Nginx
+  if (targetUrl.includes('%40')) {
+    targetUrl = targetUrl.replace(/%40/g, '@');
+  }
 
   try {
     const parsed = new URL(targetUrl);
@@ -50,8 +55,9 @@ export default async function handler(req, res) {
       abortController.abort();
     });
 
+    // Enviar User-Agent compatible con paneles IPTV para evitar bloqueos 403
     const forwardHeaders = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      'User-Agent': 'IPTVSmartersPlayer / VLC 3.0.18 LibVLC',
       'Accept': '*/*',
     };
     if (req.headers['range']) {

@@ -51,6 +51,10 @@ export function buildApiUrl(serverBaseUrl, username, password, action = null) {
   return url;
 }
 
+function formatPathCredential(val) {
+  return encodeURIComponent(String(val ?? '')).replace(/%40/g, '@');
+}
+
 /**
  * Construye la URL de stream para un canal live.
  * @param {string} serverBaseUrl
@@ -61,7 +65,7 @@ export function buildApiUrl(serverBaseUrl, username, password, action = null) {
  * @returns {string}
  */
 export function buildLiveStreamUrl(serverBaseUrl, username, password, streamId, extension = 'm3u8') {
-  return `${serverBaseUrl}/live/${encodeURIComponent(username)}/${encodeURIComponent(password)}/${streamId}.${extension}`;
+  return `${serverBaseUrl}/live/${formatPathCredential(username)}/${formatPathCredential(password)}/${streamId}.${extension}`;
 }
 
 /**
@@ -74,7 +78,7 @@ export function buildLiveStreamUrl(serverBaseUrl, username, password, streamId, 
  * @returns {string}
  */
 export function buildVodStreamUrl(serverBaseUrl, username, password, streamId, extension = 'mp4') {
-  return `${serverBaseUrl}/movie/${encodeURIComponent(username)}/${encodeURIComponent(password)}/${streamId}.${extension}`;
+  return `${serverBaseUrl}/movie/${formatPathCredential(username)}/${formatPathCredential(password)}/${streamId}.${extension}`;
 }
 
 /**
@@ -87,5 +91,5 @@ export function buildVodStreamUrl(serverBaseUrl, username, password, streamId, e
  * @returns {string}
  */
 export function buildSeriesStreamUrl(serverBaseUrl, username, password, streamId, extension = 'mp4') {
-  return `${serverBaseUrl}/series/${encodeURIComponent(username)}/${encodeURIComponent(password)}/${streamId}.${extension}`;
+  return `${serverBaseUrl}/series/${formatPathCredential(username)}/${formatPathCredential(password)}/${streamId}.${extension}`;
 }

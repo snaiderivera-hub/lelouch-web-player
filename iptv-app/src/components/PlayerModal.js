@@ -269,9 +269,9 @@ export class PlayerModal {
     else if (window.mpegts && window.mpegts.isSupported() && (rawStreamUrl.includes('.ts') || streamData.type === 'live')) {
       this.fallbackMpegts(proxiedStreamUrl, badgeEl, spinner);
     } 
-    // 3. VOD (MP4 / MKV) -> HTML5 Nativo (Sin proxy, directo para permitir Range Requests y buffering fluido)
+    // 3. VOD (MP4 / MKV) -> HTML5 Nativo mediante proxy seguro (evita bloqueo de Contenido Mixto en HTTPS)
     else {
-      this._videoEl.src = rawStreamUrl;
+      this._videoEl.src = proxiedStreamUrl;
       this._videoEl.play().then(() => {
         spinner.classList.add('hidden');
         badgeEl.textContent = rawStreamUrl.endsWith('.mkv') ? 'MKV' : 'MP4';
