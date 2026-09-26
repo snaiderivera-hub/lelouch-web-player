@@ -1,0 +1,26 @@
+﻿==================================================
+  NEXUS IPTV PLAYER — MODO PORTABLE PARA USB
+==================================================
+
+INSTRUCCIONES DE USO EN CUALQUIER COMPUTADORA (WINDOWS):
+
+1. COMO INICIAR:
+   Haz doble clic en:
+    INICIAR IPTV PORTABLE.bat
+   
+   Esto abrira automaticamente la aplicacion en tu navegador
+   (Brave, Chrome, Edge o el navegador predeterminado).
+
+2. SINCRONIZACION CON LA NUBE:
+   Tus listas y cuentas se cargan automaticamente desde Supabase Cloud.
+   No necesitas configurar nada de nuevo.
+
+3. COMO CERRAR DE FORMA SEGURA:
+   Antes de desconectar tu memoria USB, haz doble clic en:
+   CERRAR IPTV.bat
+   
+   Esto libera los puertos y permite expulsar la USB con seguridad.
+
+REQUISITOS:
+- Cualquier computadora con Windows 7, 8, 10 u 11.
+- Conexion a internet activa.

@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <meta name="description" content="LELOUCH IPTV Reproductor Web — Reproductor IPTV profesional de alto rendimiento con TV en Vivo, Películas, Series, Guía EPG y Gestión de Listas." />
+  <title>LELOUCH IPTV Reproductor Web</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="src/styles/main.css?v=2.5" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <script src="src/proxy-config.js"></script>
+  <script src="src/libs/hls.min.js"></script>
+  <script src="src/libs/mpegts.min.js"></script>
+</head>
+<body>
+
+<div id="app" class="app-container">
+
+  <!-- ════════════ HEADER SUPERIOR COMPACTO (54px) ════════════ -->
+  <header id="top-header" class="top-header">
+    <div class="header-left">
+      <div class="brand-logo" id="brand-logo-btn">
+        <span class="brand-bolt">⚡</span>
+        <div class="brand-info">
+          <span class="brand-name">LELOUCH</span>
+          <span class="brand-tag">REPRODUCTOR WEB</span>
+        </div>
+      </div>
+
+      <nav class="main-nav" id="main-nav">
+        <button class="nav-btn active" data-page="home" id="nav-home">
+          <span class="nav-icon"><i class="ph-fill ph-house"></i></span>
+          <span>Inicio</span>
+        </button>
+        <button class="nav-btn" data-page="live" id="nav-live">
+          <span class="nav-icon"><i class="ph-fill ph-television"></i></span>
+          <span>TV en Vivo</span>
+          <span class="nav-pill-badge" id="badge-live">0</span>
+        </button>
+        <button class="nav-btn" data-page="movies" id="nav-movies">
+          <span class="nav-icon"><i class="ph-fill ph-film-strip"></i></span>
+          <span>Películas</span>
+          <span class="nav-pill-badge" id="badge-movies">0</span>
+        </button>
+        <button class="nav-btn" data-page="series" id="nav-series">
+          <span class="nav-icon"><i class="ph-fill ph-monitor-play"></i></span>
+          <span>Series</span>
+          <span class="nav-pill-badge" id="badge-series">0</span>
+        </button>
+        <button class="nav-btn" data-page="settings" id="nav-settings">
+          <span class="nav-icon"><i class="ph-fill ph-gear"></i></span>
+          <span>Ajustes</span>
+        </button>
+      </nav>
+    </div>
+
+    <div class="header-center">
+      <!-- BÚSQUEDA GLOBAL -->
+      <div class="global-search-container" id="global-search-box">
+        <span class="search-lens"><i class="ph ph-magnifying-glass"></i></span>
+        <input
+          type="text"
+          id="global-search-input"
+          class="global-search-input"
+          placeholder="Buscar canal, película, serie (mín. 2 letras)..."
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <button id="search-clear-btn" class="search-clear-btn hidden" title="Limpiar">&times;</button>
+
+        <!-- Dropdown / Overlay de resultados instantáneos XALB -->
+        <div id="global-search-dropdown" class="search-dropdown hidden">
+          <div class="search-dropdown-content" id="search-dropdown-content"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="header-right">
+      <!-- INDICADOR PLAYLIST ACTIVA -->
+      <div class="header-pl-pill" id="header-active-pl-pill" title="Playlist activa en uso">
+        <span class="pl-pill-icon">📡</span>
+        <span class="pl-pill-name" id="header-active-pl-name">Sin playlist</span>
+      </div>
+
+      <!-- BOTÓN CONTROL PARENTAL -->
+      <button id="btn-header-parental" class="btn-parental-pill" title="Control Parental: Categorías para adultos (+18)">
+        <span id="parental-status-icon">🔒</span>
+        <span id="parental-status-label">+18 Bloqueado</span>
+      </button>
+
+      <div class="account-pill-xalb" id="header-account-pill" title="Suscripción activa">
+        <span class="account-dot" id="account-status-dot"></span>
+        <span class="account-status-label" id="account-pill-user">Activa</span>
+        <span class="account-status-sep">—</span>
+        <span class="account-status-date" id="account-pill-expiry">—</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ════════════ CONTENIDO PRINCIPAL ════════════ -->
+  <main id="main-content" class="main-content">
+
+    <!-- ─── PÁGINA: HOME (ESTILO XALB) ─── -->
+    <section id="page-home" class="page-view active">
+      <div class="xalb-home-wrapper">
+        
+        <!-- HERO CENTRAL LIMPIO -->
+        <div class="xalb-hero">
+          <div class="xalb-hero-badge">
+            <span class="live-pulse"></span>
+            <span>TODO TU ENTRETENIMIENTO</span>
+          </div>
+          <h1 class="xalb-hero-title">REPRODUCTOR LELOUCH</h1>
+          <p class="xalb-hero-subtitle">M3U · XTREAM CODES · HLS</p>
+
+          <div class="xalb-hero-controls">
+            <div class="xalb-playlist-chip">
+              <span class="chip-icon">🌐</span>
+              <span id="hero-playlist-name" class="chip-name">LionTV (Principal)</span>
+            </div>
+            <button id="hero-reload-btn" class="xalb-btn-reload" title="Recargar catálogo completo">
+              <span class="reload-icon">🔄</span>
+              <span>RECARGAR</span>
+            </button>
+            <div class="xalb-subscription-note">
+              Vence: <span id="home-account-expiry" class="highlight-date">—</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- TARJETAS PRINCIPALES IPTV (GLOWING BLUE CARDS — ESTILO DEL USUARIO) -->
+        <div class="iptv-hero-cards-grid">
+          
+          <!-- TARJETA 1: LIVE TV -->
+          <div class="iptv-cat-card" id="card-nav-live" title="Ver Canales de TV en Vivo">
+            <span class="iptv-card-count" id="count-live-home">0</span>
+            <div class="iptv-card-icon-wrap">
+              <svg class="iptv-card-svg" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <linearGradient id="tvScreenGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stop-color="#38bdf8" />
+                    <stop offset="50%" stop-color="#0ea5e9" />
+                    <stop offset="100%" stop-color="#0284c7" />
+                  </linearGradient>
+                  <linearGradient id="tvBodyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" stop-color="#FFFFFF" />
+                    <stop offset="100%" stop-color="#dbeafe" />
+                  </linearGradient>
+                </defs>
+                <line x1="42" y1="26" x2="26" y2="9" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round" />
+                <circle cx="26" cy="9" r="3.2" fill="#38bdf8" />
+                <line x1="54" y1="26" x2="70" y2="9" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round" />
+                <circle cx="70" cy="9" r="3.2" fill="#38bdf8" />
+                <line x1="30" y1="74" x2="23" y2="84" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round" />
+                <line x1="66" y1="74" x2="73" y2="84" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round" />
+                <rect x="12" y="24" width="72" height="52" rx="12" fill="url(#tvBodyGrad)" stroke="#bae6fd" stroke-width="1.5" />
+                <rect x="18" y="30" width="48" height="40" rx="8" fill="url(#tvScreenGrad)" />
+                <path d="M21 33 Q42 30 63 36 Q42 43 21 45 Z" fill="#FFFFFF" opacity="0.35" />
+                <circle cx="75" cy="40" r="3.5" fill="#0369a1" />
+                <circle cx="75" cy="52" r="3.5" fill="#0369a1" />
+                <rect x="71" y="62" width="8" height="2.5" rx="1.25" fill="#0369a1" />
+                <rect x="71" y="66" width="8" height="2.5" rx="1.25" fill="#0369a1" />
+              </svg>
+            </div>
+            <span class="iptv-card-title">TV EN VIVO</span>
+          </div>
+
+          <!-- TARJETA 2: MOVIES -->
+          <div class="iptv-cat-card" id="card-nav-movies" title="Ver Catálogo de Películas VOD">
+            <span class="iptv-card-count" id="count-movies-home">0</span>
+            <div class="iptv-card-icon-wrap">
+              <svg class="iptv-card-svg" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <linearGradient id="movBodyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" stop-color="#FFFFFF" />
+                    <stop offset="100%" stop-color="#e0f2fe" />
+                  </linearGradient>
+                  <linearGradient id="movPlayGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stop-color="#0284c7" />
+                    <stop offset="100%" stop-color="#082f64" />
+                  </linearGradient>
+                </defs>
+                <g transform="rotate(-15 16 35)">
+                  <rect x="14" y="19" width="68" height="15" rx="4" fill="#FFFFFF" stroke="#bae6fd" stroke-width="1.2" />
+                  <path d="M25 19 L32 19 L26 34 L19 34 Z" fill="#0a2558" />
+                  <path d="M40 19 L47 19 L41 34 L34 34 Z" fill="#0a2558" />
+                  <path d="M55 19 L62 19 L56 34 L49 34 Z" fill="#0a2558" />
+                  <path d="M70 19 L77 19 L71 34 L64 34 Z" fill="#0a2558" />
+                </g>
+                <rect x="14" y="37" width="68" height="46" rx="8" fill="url(#movBodyGrad)" stroke="#bae6fd" stroke-width="1.5" />
+                <path d="M43 50 L60 60 L43 70 Z" fill="url(#movPlayGrad)" stroke="#38bdf8" stroke-width="1" stroke-linejoin="round" />
+              </svg>
+            </div>
+            <span class="iptv-card-title">PELÍCULAS</span>
+          </div>
+
+          <!-- TARJETA 3: SERIES -->
+          <div class="iptv-cat-card" id="card-nav-series" title="Ver Catálogo de Series y Episodios">
+            <span class="iptv-card-count" id="count-series-home">0</span>
+            <div class="iptv-card-icon-wrap">
+              <svg class="iptv-card-svg" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <linearGradient id="reelGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stop-color="#FFFFFF" />
+                    <stop offset="60%" stop-color="#e0f2fe" />
+                    <stop offset="100%" stop-color="#bae6fd" />
+                  </linearGradient>
+                  <radialGradient id="reelHoleGrad" cx="50%" cy="50%" r="50%">
+                    <stop offset="0%" stop-color="#040b17" />
+                    <stop offset="100%" stop-color="#091b38" />
+                  </radialGradient>
+                </defs>
+                <path d="M46 75 C64 75 80 71 82 55 C83 45 76 39 70 39" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round" fill="none" />
+                <path d="M46 75 C64 75 80 71 82 55 C83 45 76 39 70 39" stroke="#082a5c" stroke-width="3" stroke-linecap="round" fill="none" />
+                <circle cx="44" cy="45" r="30" fill="url(#reelGrad)" stroke="#93c5fd" stroke-width="1.5" />
+                <circle cx="44" cy="45" r="26" fill="none" stroke="#7dd3fc" stroke-width="1.2" opacity="0.6" />
+                <circle cx="44" cy="45" r="6" fill="url(#reelHoleGrad)" stroke="#38bdf8" stroke-width="1.5" />
+                <circle cx="44" cy="26" r="5.2" fill="url(#reelHoleGrad)" stroke="#38bdf8" stroke-width="0.8" />
+                <circle cx="62" cy="38" r="5.2" fill="url(#reelHoleGrad)" stroke="#38bdf8" stroke-width="0.8" />
+                <circle cx="55" cy="59" r="5.2" fill="url(#reelHoleGrad)" stroke="#38bdf8" stroke-width="0.8" />
+                <circle cx="33" cy="59" r="5.2" fill="url(#reelHoleGrad)" stroke="#38bdf8" stroke-width="0.8" />
+                <circle cx="26" cy="38" r="5.2" fill="url(#reelHoleGrad)" stroke="#38bdf8" stroke-width="0.8" />
+              </svg>
+            </div>
+            <span class="iptv-card-title">SERIES</span>
+          </div>
+
+          <!-- TARJETA 4: SPORTS -->
+          <div class="iptv-cat-card" id="card-nav-sports" title="Ver Canales de Deportes en Vivo">
+            <span class="iptv-card-count" id="count-sports-home">0</span>
+            <div class="iptv-card-icon-wrap">
+              <svg class="iptv-card-svg" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <radialGradient id="ballShading" cx="35%" cy="32%" r="65%">
+                    <stop offset="0%" stop-color="#FFFFFF" />
+                    <stop offset="65%" stop-color="#dbeafe" />
+                    <stop offset="100%" stop-color="#93c5fd" />
+                  </radialGradient>
+                  <linearGradient id="patchGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stop-color="#0284c7" />
+                    <stop offset="100%" stop-color="#082a5c" />
+                  </linearGradient>
+                  <clipPath id="ballClip">
+                    <circle cx="48" cy="48" r="33" />
+                  </clipPath>
+                </defs>
+                <circle cx="48" cy="48" r="33" fill="url(#ballShading)" stroke="#bae6fd" stroke-width="1.5" />
+                <g clip-path="url(#ballClip)">
+                  <polygon points="48,36 59,44 55,57 41,57 37,44" fill="url(#patchGrad)" stroke="#38bdf8" stroke-width="1.2" />
+                  <line x1="48" y1="36" x2="48" y2="22" stroke="#082a5c" stroke-width="2" />
+                  <polygon points="48,22 38,15 58,15" fill="url(#patchGrad)" />
+                  <line x1="59" y1="44" x2="72" y2="40" stroke="#082a5c" stroke-width="2" />
+                  <polygon points="72,40 82,34 83,51 74,56" fill="url(#patchGrad)" />
+                  <line x1="55" y1="57" x2="65" y2="68" stroke="#082a5c" stroke-width="2" />
+                  <polygon points="65,68 63,82 77,76 78,66" fill="url(#patchGrad)" />
+                  <line x1="41" y1="57" x2="31" y2="68" stroke="#082a5c" stroke-width="2" />
+                  <polygon points="31,68 33,82 19,76 18,66" fill="url(#patchGrad)" />
+                  <line x1="37" y1="44" x2="24" y2="40" stroke="#082a5c" stroke-width="2" />
+                  <polygon points="24,40 14,34 13,51 22,56" fill="url(#patchGrad)" />
+                </g>
+                <ellipse cx="38" cy="28" rx="10" ry="5" fill="#FFFFFF" opacity="0.45" transform="rotate(-30 38 28)" />
+              </svg>
+            </div>
+            <span class="iptv-card-title">DEPORTES</span>
+          </div>
+
+        </div>
+
+        <!-- BARRA SECUNDARIA DE ACCIONES RÁPIDAS -->
+        <div class="iptv-hero-actions-bar">
+          <div class="iptv-action-chip" id="card-action-m3u" title="Descargar lista M3U Catchup">
+            <i class="ph-fill ph-file-text"></i>
+            <span>Descargar M3U</span>
+          </div>
+          <div class="iptv-action-chip" id="action-sidebar-reload" title="Recargar catálogo">
+            <i class="ph-fill ph-arrows-clockwise"></i>
+            <span>Recargar Catálogo</span>
+          </div>
+          <div class="iptv-action-chip" id="action-goto-settings" title="Ir a Ajustes y Playlists">
+            <i class="ph-fill ph-gear"></i>
+            <span>Ajustes y Listas</span>
+          </div>
+          <div class="iptv-action-chip" id="action-goto-diag" title="Diagnóstico de conexión">
+            <i class="ph-fill ph-stethoscope"></i>
+            <span>Diagnóstico</span>
+          </div>
+        </div>
+
+        <!-- SECCIÓN: CONTINUAR VIENDO -->
+        <div class="home-section" id="section-continue-watching" style="display:none">
+          <div class="section-header">
+            <h2 class="section-title">⏱️ Continuar Viendo</h2>
+            <span class="section-sub">Retoma tus contenidos donde los dejaste</span>
+          </div>
+          <div class="horizontal-scroll-row" id="continue-watching-row"></div>
+        </div>
+
+        <!-- SECCIÓN: FAVORITOS -->
+        <div class="home-section" id="section-favorites" style="display:none">
+          <div class="section-header">
+            <h2 class="section-title">⭐ Mis Favoritos</h2>
+            <span class="section-sub">Canales y películas destacados</span>
+          </div>
+          <div class="horizontal-scroll-row" id="favorites-row"></div>
+        </div>
+
+        <!-- BANNER DE CONEXIÓN SI NO HAY CUENTA -->
+        <div class="empty-welcome-banner" id="empty-welcome-banner" style="display:none">
+          <div class="welcome-box">
+            <div class="welcome-icon">📡</div>
+            <h2>Conecta tu Playlist o Servidor Xtream</h2>
+            <p>Configura tu enlace IPTV para comenzar a disfrutar de todos los canales, películas y series.</p>
+            <button class="btn btn-primary btn-lg" id="btn-goto-settings-connect">Configurar Playlist Ahora</button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ─── PÁGINA: LIVE TV (3 PANELES PROFESIONAL) ─── -->
+    <section id="page-live" class="page-view">
+      <div class="live-tv-container">
+
+        <!-- PANEL 1: CATEGORÍAS -->
+        <aside class="live-panel-categories">
+          <div class="panel-header">
+            <div class="cats-header-title">
+              <h3>Categorías</h3>
+              <span class="badge-mini" id="live-cats-count">0</span>
+            </div>
+            <button id="btn-open-cat-manager" class="btn-manage-cats-pill" title="Seleccionar qué categorías mostrar u ocultar">
+              <i class="ph-fill ph-funnel"></i> Filtrar
+            </button>
+          </div>
+          <div class="cat-search-box">
+            <input type="text" id="live-cat-search" class="cat-search-input" placeholder="Filtrar categorías..." />
+          </div>
+          <div class="categories-scroll-list" id="live-categories-list">
+            <!-- Categorías dinámicas -->
+          </div>
+        </aside>
+
+        <!-- PANEL 2: CANALES -->
+        <section class="live-panel-channels">
+          <div class="panel-header">
+            <div class="channels-title-wrap">
+              <h3 id="current-category-title">Todos los Canales</h3>
+              <span class="badge-mini" id="live-channels-count">0</span>
+            </div>
+          </div>
+
+          <!-- SUB-BARRA DE BÚSQUEDA Y HERRAMIENTAS (ESPACIOSA, SIN APRETAR) -->
+          <div class="channel-controls-subbar">
+            <div class="channel-search-box">
+              <input type="text" id="live-channel-search" class="channel-search-input" placeholder="Buscar canal..." />
+            </div>
+            <div class="channel-health-bar">
+              <button id="btn-check-category-health" class="health-check-btn" title="Comprobar disponibilidad de canales de la categoría actual">
+                ⚡ Verificar
+              </button>
+              <label class="hide-offline-toggle" title="Ocultar de la lista los canales no disponibles">
+                <input type="checkbox" id="toggle-hide-offline" />
+                <span>Ocultar caídos</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="channels-list-wrap" id="live-channels-list">
+            <!-- Canales dinámicos -->
+          </div>
+        </section>
+
+        <!-- PANEL 3: REPRODUCTOR INTEGRADO Y EPG -->
+        <section class="live-panel-player">
+          <div class="integrated-player-card">
+            <div class="player-top-bar">
+              <div class="player-stream-info">
+                <span class="live-tag">EN VIVO</span>
+                <span class="player-current-channel-name" id="integrated-channel-name">Selecciona un canal para reproducir</span>
+              </div>
+              <div class="player-quick-tools">
+                <select id="select-stream-format" class="stream-format-select" title="Formato de transmisión en vivo">
+                  <option value="ts">⚡ MPEG-TS (.ts)</option>
+                  <option value="auto">🔄 Auto</option>
+                  <option value="hls">🌐 HLS (.m3u8)</option>
+                </select>
+                <span class="stream-badge-quality" id="integrated-quality-badge">AUTO</span>
+                <button id="btn-integrated-stats" class="tool-btn tool-btn-stats" title="Estadísticas en tiempo real">📊 Estadísticas</button>
+                <button id="btn-integrated-fav" class="tool-btn" title="Agregar a favoritos">☆</button>
+                <button id="btn-integrated-rewind" class="tool-btn" title="Retroceder 10s (←)">⏪</button>
+                <button id="btn-integrated-forward" class="tool-btn" title="Adelantar / En Vivo (→)">⏩</button>
+                <button id="btn-integrated-pip" class="tool-btn" title="Picture in Picture">📺</button>
+                <button id="btn-integrated-fullscreen" class="tool-btn" title="Pantalla Completa (F)">⛶</button>
+              </div>
+            </div>
+
+            <div class="integrated-video-wrapper">
+              <video id="integrated-video" controls playsinline></video>
+              <div id="integrated-player-spinner" class="integrated-spinner hidden">
+                <div class="spinner"></div>
+                <span id="integrated-spinner-text" class="buffering-text">CARGANDO...</span>
+              </div>
+              <div id="integrated-player-placeholder" class="player-placeholder">
+                <div class="placeholder-icon">📺</div>
+                <div class="placeholder-text">Haz clic en cualquier canal de la lista para reproducir instantáneamente</div>
+              </div>
+              <!-- STATS OVERLAY -->
+              <div id="live-stats-overlay" class="live-stats-overlay hidden">
+                <div class="stats-row"><span class="stats-label">Tasa de Bits</span><span class="stats-val" id="stat-bitrate">—</span></div>
+                <div class="stats-row"><span class="stats-label">Resolución</span><span class="stats-val" id="stat-quality">—</span></div>
+                <div class="stats-row"><span class="stats-label">Cuadros Perdidos</span><span class="stats-val" id="stat-dropped">—</span></div>
+                <div class="stats-row"><span class="stats-label">Búfer</span><span class="stats-val" id="stat-buffer">—</span></div>
+                <div class="stats-row"><span class="stats-label">Latencia</span><span class="stats-val" id="stat-latency">—</span></div>
+              </div>
+            </div>
+
+            <!-- PANEL EPG DE ESTE CANAL (NOW & NEXT) -->
+            <div class="integrated-epg-box" id="integrated-epg-box">
+              <div class="epg-header">
+                <span class="epg-title">Guía de Programación (EPG)</span>
+                <span class="epg-refresh-indicator" id="epg-indicator">⚡ En vivo</span>
+              </div>
+
+              <div class="epg-programs-wrap">
+                <!-- NOW -->
+                <div class="epg-program-card now-card">
+                  <div class="epg-time-badge now-badge">AHORA</div>
+                  <div class="epg-prog-details">
+                    <div class="epg-prog-title" id="epg-now-title">Sin información de guía</div>
+                    <div class="epg-prog-time" id="epg-now-time">—</div>
+                    <div class="epg-progress-track">
+                      <div class="epg-progress-fill" id="epg-now-progress" style="width: 0%"></div>
+                    </div>
+                    <p class="epg-prog-desc" id="epg-now-desc"></p>
+                  </div>
+                </div>
+
+                <!-- NEXT -->
+                <div class="epg-program-card next-card">
+                  <div class="epg-time-badge next-badge">SIGUIENTE</div>
+                  <div class="epg-prog-details">
+                    <div class="epg-prog-title" id="epg-next-title">—</div>
+                    <div class="epg-prog-time" id="epg-next-time">—</div>
+                    <p class="epg-prog-desc" id="epg-next-desc"></p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </section>
+
+    <!-- ─── PÁGINA: MOVIES (CATÁLOGO VOD) ─── -->
+    <section id="page-movies" class="page-view">
+      <div class="catalog-page-layout">
+        <div class="catalog-header-bar">
+          <div class="catalog-title-group">
+            <h2>🎬 Películas</h2>
+            <span class="catalog-count-pill" id="movies-catalog-info">0 títulos</span>
+          </div>
+
+          <div class="catalog-filters">
+            <select id="movies-cat-filter" class="custom-select">
+              <option value="">Todas las categorías</option>
+            </select>
+            <div class="catalog-search-wrap">
+              <span class="search-icon-sm">🔍</span>
+              <input type="text" id="movies-search-input" class="filter-input" placeholder="Buscar película..." />
+            </div>
+          </div>
+        </div>
+
+        <div class="media-grid" id="movies-grid"></div>
+        <div class="pagination-container" id="movies-pagination"></div>
+      </div>
+    </section>
+
+    <!-- ─── PÁGINA: SERIES (PAGINADA Y CON LAZY LOADING) ─── -->
+    <section id="page-series" class="page-view">
+      <div class="catalog-page-layout">
+        <div class="catalog-header-bar">
+          <div class="catalog-title-group">
+            <h2>🎭 Series</h2>
+            <span class="catalog-count-pill" id="series-catalog-info">0 títulos</span>
+          </div>
+
+          <div class="catalog-filters">
+            <select id="series-cat-filter" class="custom-select">
+              <option value="">Todas las categorías</option>
+            </select>
+            <div class="catalog-search-wrap">
+              <span class="search-icon-sm">🔍</span>
+              <input type="text" id="series-search-input" class="filter-input" placeholder="Buscar serie..." />
+            </div>
+          </div>
+        </div>
+
+        <div class="media-grid" id="series-grid"></div>
+        <div class="pagination-container" id="series-pagination"></div>
+      </div>
+    </section>
+
+    <!-- ─── PÁGINA: AJUSTES / PLAYLISTS / DIAGNÓSTICO / EXPORTAR ─── -->
+    <section id="page-settings" class="page-view">
+      <div class="settings-container">
+        <div class="settings-header">
+          <h2>⚙️ Ajustes & Playlists</h2>
+          <p class="settings-sub">Gestiona tus cuentas IPTV, revisa el diagnóstico de red y exporta catálogos.</p>
+        </div>
+
+        <!-- Pestañas de Ajustes -->
+        <div class="settings-tabs-nav">
+          <button class="settings-tab-btn active" data-tab="playlists"><i class="ph ph-list-dashes"></i> Playlists Guardadas</button>
+          <button class="settings-tab-btn" data-tab="diagnostics"><i class="ph ph-stethoscope"></i> Diagnóstico de Servidor</button>
+          <button class="settings-tab-btn" data-tab="export"><i class="ph ph-export"></i> Exportar Catálogo</button>
+          <button class="settings-tab-btn" data-tab="categories"><i class="ph-fill ph-funnel"></i> Categorías Visibles</button>
+          <button class="settings-tab-btn" data-tab="parental"><i class="ph ph-shield-check"></i> Control Parental</button>
+        </div>
+
+        <!-- TAB 1: PLAYLISTS -->
+        <div class="settings-tab-content active" id="tab-playlists">
+          <div class="settings-card connect-form-card">
+            <h3>Conectar o Agregar Playlist Xtream / M3U</h3>
+            <div class="input-form-grid">
+              <div class="form-group full">
+                <label for="settings-url-input">URL del Proveedor / Xtream API / M3U</label>
+                <div class="input-with-button">
+                  <input
+                    type="text"
+                    id="settings-url-input"
+                    class="form-input"
+                    placeholder="http://servidor.com:80/get.php?username=USER&password=PASS&type=m3u_plus&output=m3u8"
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+                  <button id="btn-save-playlist" class="btn btn-primary">
+                    <span>Guardar y Cargar</span>
+                  </button>
+                </div>
+                <small class="form-hint" id="settings-url-hint">Las contraseñas se almacenan de forma segura y nunca se exponen.</small>
+              </div>
+            </div>
+
+            <!-- PROGRESO DE DESCARGA -->
+            <div id="import-progress-box" class="import-progress-card hidden">
+              <div class="progress-title-row">
+                <span id="import-progress-title">Conectando...</span>
+                <span id="import-progress-percent">0%</span>
+              </div>
+              <div class="progress-bar-track">
+                <div class="progress-bar-fill" id="import-progress-fill"></div>
+              </div>
+              <div class="progress-log-box" id="import-progress-log"></div>
+            </div>
+          </div>
+
+          <div class="settings-card">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem;">
+              <h3 style="margin:0">Tus Playlists Registradas</h3>
+              <span class="badge-mini" style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:4px 10px; border-radius:6px; font-size:11px; font-weight:700;">☁️ Sincronización en la Nube</span>
+            </div>
+            <div class="playlists-list" id="saved-playlists-list">
+              <!-- Render dinámico -->
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 2: DIAGNÓSTICO -->
+        <div class="settings-tab-content" id="tab-diagnostics">
+          <div class="settings-card">
+            <h3>Análisis Técnico de Conectividad</h3>
+            <p class="card-desc">Tiempos de respuesta y registros de los endpoints consultados al servidor.</p>
+            <div class="debug-table-container" id="diagnostics-table-wrap">
+              <div class="empty-state">
+                <div class="empty-icon">🔬</div>
+                <div class="empty-title">Sin datos de diagnóstico</div>
+                <div class="empty-sub">Carga una cuenta para ver la telemetría de red.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 3: EXPORTAR -->
+        <div class="settings-tab-content" id="tab-export">
+          <div class="settings-card">
+            <h3>Exportación de Datos Locales</h3>
+            <p class="card-desc">Descarga los catálogos en archivos JSON organizados o lista M3U Plus con etiquetas de rebobinado.</p>
+            <div class="export-grid-modern">
+              <div class="export-tile">
+                <div class="tile-icon">👤</div>
+                <div class="tile-info">
+                  <h4>Información de Cuenta</h4>
+                  <p>account.json</p>
+                </div>
+                <button class="btn btn-secondary btn-sm" onclick="window.appExport('account')">⬇ Descargar</button>
+              </div>
+
+              <div class="export-tile">
+                <div class="tile-icon">📺</div>
+                <div class="tile-info">
+                  <h4>Canales en Vivo</h4>
+                  <p>Un archivo JSON por cada categoría</p>
+                </div>
+                <button class="btn btn-secondary btn-sm" onclick="window.appExport('live')">⬇ Descargar Todo</button>
+              </div>
+
+              <div class="export-tile">
+                <div class="tile-icon">🎬</div>
+                <div class="tile-info">
+                  <h4>Películas VOD</h4>
+                  <p>Un archivo JSON por cada categoría</p>
+                </div>
+                <button class="btn btn-secondary btn-sm" onclick="window.appExport('movies')">⬇ Descargar Todo</button>
+              </div>
+
+              <div class="export-tile">
+                <div class="tile-icon">🎭</div>
+                <div class="tile-info">
+                  <h4>Series de TV</h4>
+                  <p>Un archivo JSON por cada categoría</p>
+                </div>
+                <button class="btn btn-secondary btn-sm" onclick="window.appExport('series')">⬇ Descargar Todo</button>
+              </div>
+
+              <div class="export-tile">
+                <div class="tile-icon">📜</div>
+                <div class="tile-info">
+                  <h4>Lista M3U Plus (Catchup)</h4>
+                  <p>Para aplicaciones IPTV externas (VLC, Tivimate)</p>
+                </div>
+                <button class="btn btn-primary btn-sm" onclick="window.appExport('m3u')">⬇ Descargar M3U</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 4: GESTIÓN DE CATEGORÍAS -->
+        <div class="settings-tab-content" id="tab-categories">
+          <div class="settings-card">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem; margin-bottom:1rem;">
+              <div>
+                <h3 style="margin:0">Gestión de Categorías Visibles</h3>
+                <p class="card-desc" style="margin:0.25rem 0 0">Selecciona qué categorías y listas deseas que aparezcan en pantalla y cuáles ocultar.</p>
+              </div>
+              <button class="btn btn-primary" id="btn-open-cat-manager-settings"><i class="ph-fill ph-funnel"></i> Abrir Selector de Categorías</button>
+            </div>
+            <div id="settings-categories-preview" style="padding:1.5rem 0;">
+              <p style="color:var(--text-secondary);font-size:0.9rem;">Pulsa el botón de arriba o el botón <b>Filtrar</b> en el panel de TV en Vivo para marcar o desmarcar exactamente qué categorías mostrar.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 5: CONTROL PARENTAL -->
+        <div class="settings-tab-content" id="tab-parental">
+          <div class="settings-card">
+            <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1.25rem">
+              <span style="font-size:2rem"><i class="ph ph-shield-check"></i></span>
+              <div>
+                <h3 style="margin:0">Control Parental</h3>
+                <p class="card-desc" style="margin:0.25rem 0 0">Protege el acceso a categorías con contenido adulto (+18, XXX, Eroticas, OnlyFans, etc.)</p>
+              </div>
+            </div>
+
+            <!-- Estado actual -->
+            <div class="parental-status-card" id="parental-settings-status">
+              <div class="parental-status-row">
+                <div>
+                  <div class="parental-status-title" id="parental-settings-title"><i class="ph ph-lock"></i> Protección Activa</div>
+                  <div class="parental-status-sub" id="parental-settings-sub">Las categorías adultas están ocultas. Ingresa el PIN para desbloquear.</div>
+                </div>
+                <div class="parental-status-badges">
+                  <span class="badge-mini parental-badge-enabled" id="parental-badge-enabled" style="display:none">ACTIVO</span>
+                  <span class="badge-mini parental-badge-disabled" id="parental-badge-disabled" style="display:none">INACTIVO</span>
+                  <span class="badge-mini parental-badge-unlocked" id="parental-badge-unlocked" style="display:none">🔓 DESBLOQUEADO</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Acciones rápidas -->
+            <div class="parental-actions-row">
+              <button id="btn-parental-toggle-unlock" class="btn btn-secondary"><i class="ph ph-lock-open"></i> Desbloquear sesión (PIN)</button>
+              <button id="btn-parental-relock" class="btn btn-secondary"><i class="ph ph-lock-key"></i> Bloquear ahora</button>
+            </div>
+
+            <!-- Cambiar PIN -->
+            <div class="settings-sub-card" style="margin-top:1.25rem">
+              <h4 style="margin:0 0 1rem; display:flex; align-items:center; gap:0.5rem"><i class="ph ph-key"></i> Cambiar PIN</h4>
+              <div class="parental-pin-form">
+                <div class="form-group">
+                  <label for="parental-current-pin">PIN Actual</label>
+                  <input type="password" id="parental-current-pin" class="form-input pin-input" maxlength="4" placeholder="••••" inputmode="numeric" />
+                </div>
+                <div class="form-group">
+                  <label for="parental-new-pin">Nuevo PIN (4 dígitos)</label>
+                  <input type="password" id="parental-new-pin" class="form-input pin-input" maxlength="4" placeholder="••••" inputmode="numeric" />
+                </div>
+                <div class="form-group">
+                  <label for="parental-confirm-pin">Confirmar Nuevo PIN</label>
+                  <input type="password" id="parental-confirm-pin" class="form-input pin-input" maxlength="4" placeholder="••••" inputmode="numeric" />
+                </div>
+                <button id="btn-parental-change-pin" class="btn btn-primary">Guardar Nuevo PIN</button>
+              </div>
+            </div>
+
+            <!-- Activar / Desactivar protección -->
+            <div class="settings-sub-card" style="margin-top:1.25rem">
+              <h4 style="margin:0 0 0.5rem; display:flex; align-items:center; gap:0.5rem"><i class="ph ph-gear"></i> Configuración de Protección</h4>
+              <p class="card-desc" style="margin-bottom:1rem">Desactivar la protección requiere ingresar el PIN actual.</p>
+              <div class="parental-toggle-row">
+                <label class="toggle-label" for="parental-enabled-toggle">
+                  <input type="checkbox" id="parental-enabled-toggle" checked />
+                  <span class="toggle-switch"></span>
+                  <span>Bloqueo Parental Activado</span>
+                </label>
+                <input type="password" id="parental-disable-pin" class="form-input pin-input" maxlength="4" placeholder="PIN para desactivar" inputmode="numeric" style="display:none;width:160px" />
+              </div>
+            </div>
+
+            <!-- Categorías protegidas -->
+            <div class="settings-sub-card" style="margin-top:1.25rem">
+              <h4 style="margin:0 0 0.75rem; display:flex; align-items:center; gap:0.5rem"><i class="ph ph-prohibit"></i> Categorías Detectadas como Adultas</h4>
+              <div id="parental-detected-cats" class="parental-cats-list">
+                <div class="empty-state" style="padding:1rem"><div class="empty-sub">Carga un catálogo para ver las categorías protegidas.</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- TOAST FLOTANTE -->
+<div id="toast" class="toast-notification"></div>
+
+<!-- MODAL: PIN CONTROL PARENTAL -->
+<div id="parental-pin-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-label="Verificación de Control Parental">
+  <div class="pin-modal-content">
+    <div class="pin-modal-icon">🔒</div>
+    <h3 class="pin-modal-title">Control Parental</h3>
+    <p class="pin-modal-subtitle">Ingresa tu PIN de 4 dígitos para desbloquear las categorías para adultos.</p>
+    <div class="pin-input-row">
+      <input type="password" id="parental-pin-input" class="pin-modal-input" maxlength="4" placeholder="••••" inputmode="numeric" autocomplete="off" />
+    </div>
+    <div class="pin-modal-error hidden" id="parental-pin-error">❌ PIN incorrecto. Intenta de nuevo.</div>
+    <div class="pin-modal-actions">
+      <button id="btn-parental-pin-confirm" class="btn btn-primary">Desbloquear</button>
+      <button id="btn-parental-pin-cancel" class="btn btn-secondary">Cancelar</button>
+    </div>
+    <div class="pin-modal-hint">PIN predeterminado: <strong>0000</strong></div>
+  </div>
+</div>
+
+<!-- MODAL: GESTOR DE CATEGORÍAS VISIBLES -->
+<div id="category-manager-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-label="Gestor de Categorías Visibles">
+  <div class="cat-modal-content">
+    <div class="cat-modal-header">
+      <div class="cat-modal-title-box">
+        <span class="cat-modal-icon">📋</span>
+        <div>
+          <h3 class="cat-modal-title">Gestionar Categorías Visibles</h3>
+          <p class="cat-modal-subtitle">Marca las categorías que deseas ver y desmarca las que prefieras ocultar.</p>
+        </div>
+      </div>
+      <button id="btn-cat-modal-close" class="modal-close-btn" title="Cerrar">&times;</button>
+    </div>
+
+    <div class="cat-modal-tabs">
+      <button class="cat-scope-btn active" data-scope="live"><i class="ph-fill ph-television"></i> TV en Vivo</button>
+      <button class="cat-scope-btn" data-scope="movies"><i class="ph-fill ph-film-strip"></i> Películas</button>
+      <button class="cat-scope-btn" data-scope="series"><i class="ph-fill ph-monitor-play"></i> Series</button>
+    </div>
+
+    <div class="cat-modal-toolbar">
+      <div class="cat-modal-search">
+        <i class="ph ph-magnifying-glass"></i>
+        <input type="text" id="cat-manager-search" placeholder="Filtrar categoría por nombre..." autocomplete="off" />
+      </div>
+      <div class="cat-modal-actions">
+        <button id="btn-cat-show-all" class="btn btn-secondary btn-sm" title="Marcar todas como visibles">✓ Mostrar Todas</button>
+        <button id="btn-cat-hide-adult" class="btn btn-secondary btn-sm" title="Ocultar categorías +18 / XXX">🔞 Ocultar +18 / XXX</button>
+        <button id="btn-cat-hide-all" class="btn btn-secondary btn-sm" title="Ocultar todas las categorías">✖ Ocultar Todas</button>
+      </div>
+    </div>
+
+    <div class="cat-modal-counter" id="cat-modal-counter">
+      Cargando categorías...
+    </div>
+
+    <div class="cat-modal-list" id="cat-manager-list">
+      <!-- Render dinámico con checkboxes -->
+    </div>
+
+    <div class="cat-modal-footer">
+      <button id="btn-cat-manager-save" class="btn btn-primary btn-lg">✓ Guardar y Aplicar</button>
+      <button id="btn-cat-manager-cancel" class="btn btn-secondary btn-lg">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="src/app.js"></script>
+</body>
+</html>

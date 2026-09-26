@@ -1,0 +1,16 @@
+{
+  "Timestamp": "2026-09-25 14:01:48",
+  "SampleCount": 50,
+  "PeakConcurrency": 2,
+  "OnlineChannels": 22,
+  "OfflineChannels": 28,
+  "DegradedChannels": 0,
+  "AvgLatencyMs": 3712.22,
+  "Criterion1_BoundedConcurrency": "PASS",
+  "Criterion2_ZeroFalseOffline": "PASS",
+  "Criterion3_PlaybackNonInterference": "PASS",
+  "Criterion4_CacheWorking": "PASS",
+  "Criterion5_QueueCancellation": "PASS",
+  "Criterion6_ProviderTolerance": "PASS",
+  "OverallVerdict": "APROBADO_50_CANALES"
+}

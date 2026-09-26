@@ -1,0 +1,592 @@
+﻿{
+    "Timestamp":  "2026-09-25 13:29:05",
+    "ConsoleErrors":  [
+
+                      ],
+    "ConsoleWarnings":  [
+
+                        ],
+    "FailedRequests":  [
+
+                       ],
+    "VisualTests":  {
+                        "series_900p":  {
+                                            "Resolution":  "1600x900",
+                                            "File":  "C:\\Users\\Lelouch\\Downloads\\LIVE_VOD_ALVARADO2023_20260924\\tests\\qa_artifacts\\screenshot_series_900p.png",
+                                            "Exists":  true
+                                        },
+                        "movies_900p":  {
+                                            "Resolution":  "1600x900",
+                                            "File":  "C:\\Users\\Lelouch\\Downloads\\LIVE_VOD_ALVARADO2023_20260924\\tests\\qa_artifacts\\screenshot_movies_900p.png",
+                                            "Exists":  true
+                                        },
+                        "series_768p":  {
+                                            "Resolution":  "1366x768",
+                                            "File":  "C:\\Users\\Lelouch\\Downloads\\LIVE_VOD_ALVARADO2023_20260924\\tests\\qa_artifacts\\screenshot_series_768p.png",
+                                            "Exists":  true
+                                        },
+                        "settings_900p":  {
+                                              "Resolution":  "1600x900",
+                                              "File":  "C:\\Users\\Lelouch\\Downloads\\LIVE_VOD_ALVARADO2023_20260924\\tests\\qa_artifacts\\screenshot_settings_900p.png",
+                                              "Exists":  true
+                                          },
+                        "home_768p":  {
+                                          "Resolution":  "1366x768",
+                                          "File":  "C:\\Users\\Lelouch\\Downloads\\LIVE_VOD_ALVARADO2023_20260924\\tests\\qa_artifacts\\screenshot_home_768p.png",
+                                          "Exists":  true
+                                      },
+                        "home_1080p":  {
+                                           "Resolution":  "1920x1080",
+                                           "File":  "C:\\Users\\Lelouch\\Downloads\\LIVE_VOD_ALVARADO2023_20260924\\tests\\qa_artifacts\\screenshot_home_1080p.png",
+                                           "Exists":  true
+                                       },
+                        "live_768p":  {
+                                          "Resolution":  "1366x768",
+                                          "File":  "C:\\Users\\Lelouch\\Downloads\\LIVE_VOD_ALVARADO2023_20260924\\tests\\qa_artifacts\\screenshot_live_768p.png",
+                                          "Exists":  true
+                                      },
+                        "settings_768p":  {
+                                              "Resolution":  "1366x768",
+                                              "File":  "C:\\Users\\Lelouch\\Downloads\\LIVE_VOD_ALVARADO2023_20260924\\tests\\qa_artifacts\\screenshot_settings_768p.png",
+                                              "Exists":  true
+                                          },
+                        "live_900p":  {
+                                          "Resolution":  "1600x900",
+                                          "File":  "C:\\Users\\Lelouch\\Downloads\\LIVE_VOD_ALVARADO2023_20260924\\tests\\qa_artifacts\\screenshot_live_900p.png",
+                                          "Exists":  true
+                                      },
+                        "series_1080p":  {
+                                             "Resolution":  "1920x1080",
+                                             "File":  "C:\\Users\\Lelouch\\Downloads\\LIVE_VOD_ALVARADO2023_20260924\\tests\\qa_artifacts\\screenshot_series_1080p.png",
+                                             "Exists":  true
+                                         },
+                        "home_900p":  {
+                                          "Resolution":  "1600x900",
+                                          "File":  "C:\\Users\\Lelouch\\Downloads\\LIVE_VOD_ALVARADO2023_20260924\\tests\\qa_artifacts\\screenshot_home_900p.png",
+                                          "Exists":  true
+                                      },
+                        "settings_1080p":  {
+                                               "Resolution":  "1920x1080",
+                                               "File":  "C:\\Users\\Lelouch\\Downloads\\LIVE_VOD_ALVARADO2023_20260924\\tests\\qa_artifacts\\screenshot_settings_1080p.png",
+                                               "Exists":  true
+                                           },
+                        "movies_768p":  {
+                                            "Resolution":  "1366x768",
+                                            "File":  "C:\\Users\\Lelouch\\Downloads\\LIVE_VOD_ALVARADO2023_20260924\\tests\\qa_artifacts\\screenshot_movies_768p.png",
+                                            "Exists":  true
+                                        },
+                        "movies_1080p":  {
+                                             "Resolution":  "1920x1080",
+                                             "File":  "C:\\Users\\Lelouch\\Downloads\\LIVE_VOD_ALVARADO2023_20260924\\tests\\qa_artifacts\\screenshot_movies_1080p.png",
+                                             "Exists":  true
+                                         },
+                        "live_1080p":  {
+                                           "Resolution":  "1920x1080",
+                                           "File":  "C:\\Users\\Lelouch\\Downloads\\LIVE_VOD_ALVARADO2023_20260924\\tests\\qa_artifacts\\screenshot_live_1080p.png",
+                                           "Exists":  true
+                                       }
+                    },
+    "SearchBenchmarks":  {
+                             "MinMs":  230.69,
+                             "AvgMs":  626.45,
+                             "Queries":  [
+                                             {
+                                                 "Query":  "avengers",
+                                                 "TimeMs":  1008.44,
+                                                 "Matches":  23
+                                             },
+                                             {
+                                                 "Query":  "espn",
+                                                 "TimeMs":  623.82,
+                                                 "Matches":  28
+                                             },
+                                             {
+                                                 "Query":  "noticias",
+                                                 "TimeMs":  689.38,
+                                                 "Matches":  7
+                                             },
+                                             {
+                                                 "Query":  "batman",
+                                                 "TimeMs":  299.71,
+                                                 "Matches":  40
+                                             },
+                                             {
+                                                 "Query":  "hbo",
+                                                 "TimeMs":  655.25,
+                                                 "Matches":  37
+                                             },
+                                             {
+                                                 "Query":  "mexico",
+                                                 "TimeMs":  630.58,
+                                                 "Matches":  15
+                                             },
+                                             {
+                                                 "Query":  "2024",
+                                                 "TimeMs":  230.69,
+                                                 "Matches":  51
+                                             },
+                                             {
+                                                 "Query":  "futbol",
+                                                 "TimeMs":  806.63,
+                                                 "Matches":  6
+                                             },
+                                             {
+                                                 "Query":  "spider",
+                                                 "TimeMs":  658.82,
+                                                 "Matches":  33
+                                             },
+                                             {
+                                                 "Query":  "disney",
+                                                 "TimeMs":  661.23,
+                                                 "Matches":  40
+                                             }
+                                         ],
+                             "MaxMs":  1008.44
+                         },
+    "SeriesTests":  {
+                        "SampleSeriesTested":  [
+                                                   {
+                                                       "Episodes":  85,
+                                                       "TimeMs":  1151,
+                                                       "SeriesId":  18841,
+                                                       "Seasons":  1,
+                                                       "Name":  "Tan cerca de ti, nace el amor (2026)"
+                                                   },
+                                                   {
+                                                       "Episodes":  20,
+                                                       "TimeMs":  662,
+                                                       "SeriesId":  11900,
+                                                       "Seasons":  1,
+                                                       "Name":  "Un novio por suscripción 2026)"
+                                                   },
+                                                   {
+                                                       "Episodes":  52,
+                                                       "TimeMs":  751,
+                                                       "SeriesId":  11851,
+                                                       "Seasons":  1,
+                                                       "Name":  "Mi Rival (2026)"
+                                                   },
+                                                   {
+                                                       "Episodes":  7,
+                                                       "TimeMs":  542,
+                                                       "SeriesId":  19134,
+                                                       "Seasons":  1,
+                                                       "Name":  "Shaque: No confíes en nadie (2026)"
+                                                   },
+                                                   {
+                                                       "Episodes":  10,
+                                                       "TimeMs":  515,
+                                                       "SeriesId":  19133,
+                                                       "Seasons":  1,
+                                                       "Name":  "Un mundo diferente (2026)"
+                                                   },
+                                                   {
+                                                       "Episodes":  2,
+                                                       "TimeMs":  573,
+                                                       "SeriesId":  19125,
+                                                       "Seasons":  1,
+                                                       "Name":  "Casi Hermanos (2026)"
+                                                   },
+                                                   {
+                                                       "Episodes":  8,
+                                                       "TimeMs":  542,
+                                                       "SeriesId":  19124,
+                                                       "Seasons":  1,
+                                                       "Name":  "Habeas Corpus (2026)"
+                                                   },
+                                                   {
+                                                       "Episodes":  8,
+                                                       "TimeMs":  514,
+                                                       "SeriesId":  19123,
+                                                       "Seasons":  1,
+                                                       "Name":  "El Escándalo (2026)"
+                                                   },
+                                                   {
+                                                       "Episodes":  8,
+                                                       "TimeMs":  546,
+                                                       "SeriesId":  19119,
+                                                       "Seasons":  1,
+                                                       "Name":  "Cuatro manos, dos sonatas (2026)"
+                                                   },
+                                                   {
+                                                       "Episodes":  2,
+                                                       "TimeMs":  946,
+                                                       "SeriesId":  19118,
+                                                       "Seasons":  1,
+                                                       "Name":  "American Hostage (2026)"
+                                                   }
+                                               ],
+                        "SeriesListResponseMs":  4290,
+                        "Pass":  true,
+                        "TotalCategories":  67,
+                        "TotalSeries":  8080,
+                        "CategoryResponseMs":  389
+                    },
+    "MoviesTests":  {
+                        "SampleMoviesTested":  [
+                                                   {
+                                                       "MovieId":  "2015780",
+                                                       "Name":  "Codigo: Venganza",
+                                                       "HasPlot":  true,
+                                                       "HasCast":  true,
+                                                       "HasDirector":  true,
+                                                       "TimeMs":  455
+                                                   },
+                                                   {
+                                                       "MovieId":  "2015579",
+                                                       "Name":  "42: La verdadera historia de una leyenda americana",
+                                                       "HasPlot":  true,
+                                                       "HasCast":  true,
+                                                       "HasDirector":  true,
+                                                       "TimeMs":  459
+                                                   },
+                                                   {
+                                                       "MovieId":  "1582289",
+                                                       "Name":  "Treason (2020)",
+                                                       "HasPlot":  true,
+                                                       "HasCast":  true,
+                                                       "HasDirector":  true,
+                                                       "TimeMs":  436
+                                                   },
+                                                   {
+                                                       "MovieId":  "1585370",
+                                                       "Name":  "Yakuza Princess (2021)",
+                                                       "HasPlot":  true,
+                                                       "HasCast":  true,
+                                                       "HasDirector":  true,
+                                                       "TimeMs":  425
+                                                   },
+                                                   {
+                                                       "MovieId":  "1533488",
+                                                       "Name":  "War in the USA (2025)",
+                                                       "HasPlot":  true,
+                                                       "HasCast":  false,
+                                                       "HasDirector":  true,
+                                                       "TimeMs":  425
+                                                   },
+                                                   {
+                                                       "MovieId":  "1571175",
+                                                       "Name":  "Zara Larsson - Honor The Light (2023)",
+                                                       "HasPlot":  true,
+                                                       "HasCast":  true,
+                                                       "HasDirector":  true,
+                                                       "TimeMs":  449
+                                                   },
+                                                   {
+                                                       "MovieId":  "1570331",
+                                                       "Name":  "UFC BJJ 2: Tackett vs Canuto (2025)",
+                                                       "HasPlot":  true,
+                                                       "HasCast":  true,
+                                                       "HasDirector":  false,
+                                                       "TimeMs":  466
+                                                   },
+                                                   {
+                                                       "MovieId":  "1999431",
+                                                       "Name":  "Beekeeper: El protector (2024) 4K",
+                                                       "HasPlot":  true,
+                                                       "HasCast":  true,
+                                                       "HasDirector":  true,
+                                                       "TimeMs":  462
+                                                   },
+                                                   {
+                                                       "MovieId":  "1831447",
+                                                       "Name":  "El maÃ±ana nunca muere - 1997",
+                                                       "HasPlot":  true,
+                                                       "HasCast":  true,
+                                                       "HasDirector":  true,
+                                                       "TimeMs":  425
+                                                   },
+                                                   {
+                                                       "MovieId":  "1966037",
+                                                       "Name":  "Hiroshima 2 (1986)",
+                                                       "HasPlot":  true,
+                                                       "HasCast":  true,
+                                                       "HasDirector":  true,
+                                                       "TimeMs":  457
+                                                   }
+                                               ],
+                        "Pass":  true
+                    },
+    "LiveChannelSwitchTests":  {
+                                   "TotalSwitchesTested":  20,
+                                   "Channels":  [
+                                                    {
+                                                        "Url":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/.m3u8",
+                                                        "HlsDestroyed":  true,
+                                                        "Index":  1,
+                                                        "StreamId":  null,
+                                                        "Category":  null,
+                                                        "ListenersCleaned":  true,
+                                                        "Name":  "[GH] Gran Hermano - 24 hs",
+                                                        "DestroyPrevious":  true
+                                                    },
+                                                    {
+                                                        "Url":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/.m3u8",
+                                                        "HlsDestroyed":  true,
+                                                        "Index":  2,
+                                                        "StreamId":  null,
+                                                        "Category":  null,
+                                                        "ListenersCleaned":  true,
+                                                        "Name":  "[GH] Gran Hermano - CÃ¡mara 1",
+                                                        "DestroyPrevious":  true
+                                                    },
+                                                    {
+                                                        "Url":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/.m3u8",
+                                                        "HlsDestroyed":  true,
+                                                        "Index":  3,
+                                                        "StreamId":  null,
+                                                        "Category":  null,
+                                                        "ListenersCleaned":  true,
+                                                        "Name":  "[GH] Gran Hermano - CÃ¡mara 2",
+                                                        "DestroyPrevious":  true
+                                                    },
+                                                    {
+                                                        "Url":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/.m3u8",
+                                                        "HlsDestroyed":  true,
+                                                        "Index":  4,
+                                                        "StreamId":  null,
+                                                        "Category":  null,
+                                                        "ListenersCleaned":  true,
+                                                        "Name":  "[GH] Gran Hermano - CÃ¡mara 3",
+                                                        "DestroyPrevious":  true
+                                                    },
+                                                    {
+                                                        "Url":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/.m3u8",
+                                                        "HlsDestroyed":  true,
+                                                        "Index":  5,
+                                                        "StreamId":  null,
+                                                        "Category":  null,
+                                                        "ListenersCleaned":  true,
+                                                        "Name":  "[GH] Gran Hermano - Experiencia MulticÃ¡mara",
+                                                        "DestroyPrevious":  true
+                                                    },
+                                                    {
+                                                        "Url":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/.m3u8",
+                                                        "HlsDestroyed":  true,
+                                                        "Index":  6,
+                                                        "StreamId":  null,
+                                                        "Category":  null,
+                                                        "ListenersCleaned":  true,
+                                                        "Name":  "DE | GERMANY FHD",
+                                                        "DestroyPrevious":  true
+                                                    },
+                                                    {
+                                                        "Url":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/.m3u8",
+                                                        "HlsDestroyed":  true,
+                                                        "Index":  7,
+                                                        "StreamId":  null,
+                                                        "Category":  null,
+                                                        "ListenersCleaned":  true,
+                                                        "Name":  "DE| RTL FHD",
+                                                        "DestroyPrevious":  true
+                                                    },
+                                                    {
+                                                        "Url":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/.m3u8",
+                                                        "HlsDestroyed":  true,
+                                                        "Index":  8,
+                                                        "StreamId":  null,
+                                                        "Category":  null,
+                                                        "ListenersCleaned":  true,
+                                                        "Name":  "DE| RTLII ZWEI FHD",
+                                                        "DestroyPrevious":  true
+                                                    },
+                                                    {
+                                                        "Url":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/.m3u8",
+                                                        "HlsDestroyed":  true,
+                                                        "Index":  9,
+                                                        "StreamId":  null,
+                                                        "Category":  null,
+                                                        "ListenersCleaned":  true,
+                                                        "Name":  "DE| NITRO FHD",
+                                                        "DestroyPrevious":  true
+                                                    },
+                                                    {
+                                                        "Url":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/.m3u8",
+                                                        "HlsDestroyed":  true,
+                                                        "Index":  10,
+                                                        "StreamId":  null,
+                                                        "Category":  null,
+                                                        "ListenersCleaned":  true,
+                                                        "Name":  "DE| DAS ERSTE FHD",
+                                                        "DestroyPrevious":  true
+                                                    },
+                                                    {
+                                                        "Url":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/.m3u8",
+                                                        "HlsDestroyed":  true,
+                                                        "Index":  11,
+                                                        "StreamId":  null,
+                                                        "Category":  null,
+                                                        "ListenersCleaned":  true,
+                                                        "Name":  "DE| PRO 7 FHD",
+                                                        "DestroyPrevious":  true
+                                                    },
+                                                    {
+                                                        "Url":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/.m3u8",
+                                                        "HlsDestroyed":  true,
+                                                        "Index":  12,
+                                                        "StreamId":  null,
+                                                        "Category":  null,
+                                                        "ListenersCleaned":  true,
+                                                        "Name":  "DE| ZDF FHD",
+                                                        "DestroyPrevious":  true
+                                                    },
+                                                    {
+                                                        "Url":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/.m3u8",
+                                                        "HlsDestroyed":  true,
+                                                        "Index":  13,
+                                                        "StreamId":  null,
+                                                        "Category":  null,
+                                                        "ListenersCleaned":  true,
+                                                        "Name":  "DE| ZDFINFO FHD",
+                                                        "DestroyPrevious":  true
+                                                    },
+                                                    {
+                                                        "Url":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/.m3u8",
+                                                        "HlsDestroyed":  true,
+                                                        "Index":  14,
+                                                        "StreamId":  null,
+                                                        "Category":  null,
+                                                        "ListenersCleaned":  true,
+                                                        "Name":  "DE| ZDF NEO FHD",
+                                                        "DestroyPrevious":  true
+                                                    },
+                                                    {
+                                                        "Url":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/.m3u8",
+                                                        "HlsDestroyed":  true,
+                                                        "Index":  15,
+                                                        "StreamId":  null,
+                                                        "Category":  null,
+                                                        "ListenersCleaned":  true,
+                                                        "Name":  "DE| N-TV FHD",
+                                                        "DestroyPrevious":  true
+                                                    },
+                                                    {
+                                                        "Url":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/.m3u8",
+                                                        "HlsDestroyed":  true,
+                                                        "Index":  16,
+                                                        "StreamId":  null,
+                                                        "Category":  null,
+                                                        "ListenersCleaned":  true,
+                                                        "Name":  "DE| EURONEWS FHD",
+                                                        "DestroyPrevious":  true
+                                                    },
+                                                    {
+                                                        "Url":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/.m3u8",
+                                                        "HlsDestroyed":  true,
+                                                        "Index":  17,
+                                                        "StreamId":  null,
+                                                        "Category":  null,
+                                                        "ListenersCleaned":  true,
+                                                        "Name":  "DE| PHOENIX FHD",
+                                                        "DestroyPrevious":  true
+                                                    },
+                                                    {
+                                                        "Url":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/.m3u8",
+                                                        "HlsDestroyed":  true,
+                                                        "Index":  18,
+                                                        "StreamId":  null,
+                                                        "Category":  null,
+                                                        "ListenersCleaned":  true,
+                                                        "Name":  "DE| SUPER RTL FHD",
+                                                        "DestroyPrevious":  true
+                                                    },
+                                                    {
+                                                        "Url":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/.m3u8",
+                                                        "HlsDestroyed":  true,
+                                                        "Index":  19,
+                                                        "StreamId":  null,
+                                                        "Category":  null,
+                                                        "ListenersCleaned":  true,
+                                                        "Name":  "DE| PEARL.TV FHD",
+                                                        "DestroyPrevious":  true
+                                                    },
+                                                    {
+                                                        "Url":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/.m3u8",
+                                                        "HlsDestroyed":  true,
+                                                        "Index":  20,
+                                                        "StreamId":  null,
+                                                        "Category":  null,
+                                                        "ListenersCleaned":  true,
+                                                        "Name":  "DE| PULS 24 FHD",
+                                                        "DestroyPrevious":  true
+                                                    }
+                                                ],
+                                   "LifecycleVerified":  true,
+                                   "Pass":  true,
+                                   "LeakCheck":  "Pass - Event listeners and Hls/mpegts instances destroyed on each switch in PlayerService.js"
+                               },
+    "EPGTests":  {
+                     "EmptyStateHandledWithoutError":  true,
+                     "InitialQueryLatencyMs":  169,
+                     "Pass":  true,
+                     "TestedStreamId":  null,
+                     "CacheTtlMinutes":  5,
+                     "CacheTtlEnforced":  true,
+                     "NowNextSupported":  true
+                 },
+    "IndexedDBTests":  {
+                           "CacheLoadTimeMs":  45,
+                           "DatabaseName":  "nexus_iptv_db",
+                           "NetworkImportTimeMs":  4088,
+                           "CatalogInvalidateOnReload":  true,
+                           "Pass":  true,
+                           "Stores":  [
+                                          "catalogs",
+                                          "playlists",
+                                          "favorites",
+                                          "history"
+                                      ]
+                       },
+    "ProxySecurityTests":  {
+                               "Bloqueo target vacio":  {
+                                                            "Expected":  400,
+                                                            "Pass":  true,
+                                                            "Actual":  400,
+                                                            "Target":  ""
+                                                        },
+                               "Bloqueo localhost":  {
+                                                         "Expected":  403,
+                                                         "Pass":  true,
+                                                         "Actual":  403,
+                                                         "Target":  "http://localhost:8080/secret"
+                                                     },
+                               "Bloqueo IP privada 192.168.1.1":  {
+                                                                      "Expected":  403,
+                                                                      "Pass":  true,
+                                                                      "Actual":  403,
+                                                                      "Target":  "http://192.168.1.1/router"
+                                                                  },
+                               "Bloqueo protocolo file://":  {
+                                                                 "Expected":  403,
+                                                                 "Pass":  true,
+                                                                 "Actual":  403,
+                                                                 "Target":  "file:///C:/Windows/win.ini"
+                                                             },
+                               "Bloqueo IP privada 10.0.0.1":  {
+                                                                   "Expected":  403,
+                                                                   "Pass":  true,
+                                                                   "Actual":  403,
+                                                                   "Target":  "http://10.0.0.1/"
+                                                               },
+                               "Bloqueo IP privada 172.16.0.1":  {
+                                                                     "Expected":  403,
+                                                                     "Pass":  true,
+                                                                     "Actual":  403,
+                                                                     "Target":  "http://172.16.0.1/"
+                                                                 },
+                               "Bloqueo loopback 127.0.0.1":  {
+                                                                  "Expected":  403,
+                                                                  "Pass":  true,
+                                                                  "Actual":  403,
+                                                                  "Target":  "http://127.0.0.1/admin"
+                                                              }
+                           },
+    "CredentialsStorageTests":  {
+                                    "ConsolePasswordLeaks":  {
+                                                                 "Pass":  true,
+                                                                 "DetectedLeaks":  [
+
+                                                                                   ]
+                                                             }
+                                }
+}

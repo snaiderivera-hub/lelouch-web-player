@@ -1,0 +1,2220 @@
+/**
+ * @module app.js
+ * Orquestador principal de LELOUCH IPTV Web Player.
+ * Gestiona el enrutamiento, la UI dinámica, el reproductor integrado,
+ * el catálogo VOD/Series, la búsqueda global instantánea y los ajustes de playlists.
+ */
+
+import { iptvService } from './modules/iptv/services/IPTVService.js';
+import { playlistService } from './modules/iptv/services/PlaylistService.js';
+import { cacheService } from './modules/iptv/services/CacheService.js';
+import { searchService } from './modules/iptv/services/SearchService.js';
+import { playerService, PlayerState } from './modules/iptv/services/PlayerService.js';
+import { downloadJson, groupByCategory, downloadM3UPlus } from './modules/iptv/services/ExportService.js';
+import { buildSeriesStreamUrl } from './modules/iptv/utils/security.js';
+import { playerModal } from './components/PlayerModal.js';
+import { mediaDetailModal } from './components/MediaDetailModal.js';
+import { channelHealthService, HealthStatus } from './modules/iptv/services/ChannelHealthService.js';
+import { parentalControlService } from './modules/iptv/services/ParentalControlService.js';
+
+// ── Constantes de paginación ──
+const PAGE_SIZE_MOVIES = 48;
+const PAGE_SIZE_SERIES = 48;
+
+// ── Estado local de la interfaz ──
+const uiState = {
+  activePage: 'home',
+  selectedLiveCategory: '',
+  liveSearch: '',
+  currentLiveChannel: null,
+  hideOfflineChannels: typeof localStorage !== 'undefined' && localStorage.getItem('iptv_hide_offline') === 'true',
+  moviesFiltered: [],
+  moviesPage: 1,
+  moviesCategoryFilter: '',
+  moviesSearch: '',
+  seriesFiltered: [],
+  seriesPage: 1,
+  seriesCategoryFilter: '',
+  seriesSearch: '',
+};
+
+// ── Utilidades DOM ──
+const $ = (id) => document.getElementById(id);
+
+function toast(msg, type = 'info', dur = 3500) {
+  const el = $('toast');
+  if (!el) return;
+  el.textContent = msg;
+  el.className = `toast-notification show ${type}`;
+  setTimeout(() => {
+    el.className = 'toast-notification';
+  }, dur);
+}
+
+function escHtml(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function createPosterPlaceholderSvg(title, category = '', icon = '🎬') {
+  const safeTitle = String(title || 'Título').slice(0, 26).replace(/[<>&"']/g, '');
+  const safeCat = String(category || '').slice(0, 22).replace(/[<>&"']/g, '');
+  return `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="240" height="360" viewBox="0 0 240 360"><defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="%231e293b"/><stop offset="50%" stop-color="%230f172a"/><stop offset="100%" stop-color="%23020617"/></linearGradient></defs><rect width="240" height="360" fill="url(%23g)" rx="10"/><circle cx="120" cy="130" r="38" fill="%231e293b" stroke="%23334155" stroke-width="2"/><text x="120" y="142" font-family="Arial,sans-serif" font-size="28" text-anchor="middle" fill="%2338bdf8">${icon}</text><text x="120" y="210" font-family="Arial,sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="%23f1f5f9">${encodeURIComponent(safeTitle)}</text><text x="120" y="230" font-family="Arial,sans-serif" font-size="10" text-anchor="middle" fill="%2394a3b8">${encodeURIComponent(safeCat)}</text><text x="120" y="275" font-family="Arial,sans-serif" font-size="9" text-anchor="middle" fill="%2364748b">PORTADA NO DISPONIBLE</text></svg>`;
+}
+
+function debounce(fn, ms) {
+  let t;
+  return (...args) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), ms);
+  };
+}
+
+// ════════════ ENRUTAMIENTO Y NAVEGACIÓN ════════════
+const pages = ['home', 'live', 'movies', 'series', 'settings'];
+
+function navigateTo(page, options = {}) {
+  pages.forEach((p) => {
+    $(`page-${p}`)?.classList.toggle('active', p === page);
+    $(`nav-${p}`)?.classList.toggle('active', p === page);
+  });
+
+  // Detener reproductor de Live TV al salir hacia Películas, Series, Ajustes o Inicio
+  if (page !== 'live') {
+    playerService.stop();
+    const vid = document.getElementById('integrated-video');
+    if (vid) {
+      vid.pause();
+      vid.removeAttribute('src');
+      vid.load();
+    }
+    const plPH = document.getElementById('integrated-player-placeholder');
+    if (plPH) plPH.classList.remove('hidden');
+    const spinner = document.getElementById('integrated-player-spinner');
+    if (spinner) spinner.classList.add('hidden');
+    stopLiveStats();
+    uiState.currentLiveChannel = null;
+  }
+
+  uiState.activePage = page;
+
+  if (page === 'home') {
+    renderHomeDynamicSections();
+  } else if (page === 'live') {
+    if (options.category) {
+      uiState.selectedLiveCategory = options.category;
+    }
+    renderLiveTVView();
+  } else if (page === 'movies') {
+    renderMoviesPage();
+  } else if (page === 'series') {
+    renderSeriesPage();
+  } else if (page === 'settings') {
+    renderSettingsPlaylists();
+  }
+
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+document.querySelectorAll('.nav-btn').forEach((btn) => {
+  btn.addEventListener('click', () => navigateTo(btn.dataset.page));
+});
+
+$('brand-logo-btn')?.addEventListener('click', () => navigateTo('home'));
+
+// ════════════ INICIALIZACIÓN DE LA APLICACIÓN ════════════
+async function initApp() {
+  console.log('%c⚡ LELOUCH IPTV WEB PLAYER v2.0', 'color:#00e5ff;font-weight:bold;font-size:14px');
+
+  // Inicializar reproductor integrado de TV
+  const integratedVideo = $('integrated-video');
+  if (integratedVideo) {
+    playerService.attachVideoElement(integratedVideo);
+    playerService.onStateChange(({ state, message }) => {
+      const badge = $('integrated-quality-badge');
+      const spinner = $('integrated-player-spinner');
+      const spinnerText = $('integrated-spinner-text');
+
+      if (state === PlayerState.LOADING || state === PlayerState.RECONNECTING) {
+        spinner?.classList.remove('hidden');
+        $('integrated-player-placeholder')?.classList.add('hidden');
+        if (spinnerText) spinnerText.textContent = message || 'Cargando stream...';
+        if (badge) badge.textContent = 'CARGANDO';
+      } else if (state === PlayerState.PLAYING) {
+        spinner?.classList.add('hidden');
+        $('integrated-player-placeholder')?.classList.add('hidden');
+        if (badge) badge.textContent = 'EN VIVO';
+        if (playerService.currentMedia?.type === 'live' && playerService.currentMedia?.id) {
+          channelHealthService._cache.set(String(playerService.currentMedia.id), {
+            channelId: String(playerService.currentMedia.id),
+            status: HealthStatus.ONLINE,
+            latencyMs: 100,
+            timestamp: Date.now()
+          });
+        }
+      } else if (state === PlayerState.ERROR) {
+        spinner?.classList.remove('hidden');
+        if (spinnerText) spinnerText.textContent = `❌ ${message}`;
+        if (badge) badge.textContent = 'ERROR';
+        toast(message, 'error', 5000);
+        if (playerService.currentMedia?.type === 'live' && playerService.currentMedia?.id) {
+          channelHealthService.markOffline(playerService.currentMedia.id, message);
+          if (uiState.hideOfflineChannels) {
+            renderLiveChannelsList();
+          }
+        }
+      }
+    });
+
+    const fmtSelect = $('select-stream-format');
+    if (fmtSelect) {
+      fmtSelect.value = playerService.streamFormat || 'ts';
+      fmtSelect.addEventListener('change', (e) => {
+        playerService.setStreamFormat(e.target.value);
+        const labels = { ts: '⚡ MPEG-TS (.ts)', auto: '🔄 Auto (HLS/TS)', hls: '🌐 HLS (.m3u8)' };
+        toast(`Formato de emisión: ${labels[e.target.value] || e.target.value}`, 'info', 2500);
+      });
+    }
+
+    // ── Stats button ──
+    $('btn-integrated-stats')?.addEventListener('click', () => toggleLiveStats());
+
+    // ── Fav button en reproductor integrado ──
+    $('btn-integrated-fav')?.addEventListener('click', async () => {
+      const ch = uiState.currentLiveChannel;
+      if (!ch) { toast('Selecciona un canal primero.', 'info', 2000); return; }
+      const added = await cacheService.toggleFavorite({
+        id: ch.id, type: 'live', name: ch.name, logo: ch.logo,
+        categoryName: ch.categoryName, streamUrl: ch.streamUrl
+      });
+      const btn = $('btn-integrated-fav');
+      if (btn) { btn.textContent = added ? '★' : '☆'; btn.classList.toggle('active', added); }
+      toast(added ? `⭐ ${ch.name} en favoritos` : `${ch.name} quitado de favoritos`, 'info');
+      renderHomeDynamicSections();
+    });
+
+    // ── PiP button ──
+    $('btn-integrated-pip')?.addEventListener('click', () => {
+      const v = $('integrated-video');
+      if (!v) return;
+      if (document.pictureInPictureElement) {
+        document.exitPictureInPicture().catch(() => {});
+      } else if (document.pictureInPictureEnabled) {
+        v.requestPictureInPicture().catch(() => {});
+      }
+    });
+  }
+
+  // Sincronizar cuentas y playlists con Supabase Cloud
+  try {
+    await playlistService.getAll();
+  } catch (e) {
+    console.warn('[App] Error al sincronizar con Supabase Cloud:', e);
+  }
+
+  // Comprobar playlist activa guardada
+  let activePlaylist = await playlistService.getActive();
+  if (!activePlaylist) {
+    try {
+      activePlaylist = await playlistService.addOrUpdate(
+        'http://liontv.es:80/get.php?username=Hermanos503&password=BysckXDynC&type=m3u_plus&output=m3u8',
+        'LionTV (Principal)'
+      );
+    } catch (e) {
+      console.warn('[App] No se pudo inicializar playlist por defecto:', e);
+    }
+  }
+
+  if (activePlaylist && activePlaylist.url) {
+    try {
+      await iptvService.connect(activePlaylist.url);
+      const restored = await iptvService.tryRestoreFromCache();
+      if (restored) {
+        updateAllViews(iptvService.state);
+        toast(`✓ Catálogo restaurado desde caché persistente (${iptvService.state.live.length} canales)`, 'success');
+      } else {
+        await loadCatalogWithProgress(activePlaylist.url);
+      }
+    } catch (err) {
+      console.warn('[App] Error al conectar con playlist activa:', err);
+      $('empty-welcome-banner').style.display = 'block';
+    }
+  } else {
+    // Si no hay ninguna playlist guardada, mostrar sugerencia de configuración
+    $('empty-welcome-banner').style.display = 'block';
+  }
+
+  // Atajos globales y enrutamiento por hash (#live, #movies, #series, #settings)
+  setupGlobalShortcuts();
+  setupSearch();
+  setupSettingsTabs();
+  setupHeroActions();
+  setupParentalControl();
+  setupCategoryManager();
+  updateActivePlaylistUI();
+
+  const handleHashRoute = () => {
+    const hash = window.location.hash.replace('#', '');
+    if (['home', 'live', 'movies', 'series', 'settings'].includes(hash)) {
+      navigateTo(hash);
+    }
+  };
+  handleHashRoute();
+  window.addEventListener('hashchange', handleHashRoute);
+}
+
+// ════════════ CARGA DE CATÁLOGO CON PROGRESO ════════════
+async function loadCatalogWithProgress(url) {
+  const progressBox = $('import-progress-box');
+  const progressTitle = $('import-progress-title');
+  const progressPercent = $('import-progress-percent');
+  const progressFill = $('import-progress-fill');
+  const progressLog = $('import-progress-log');
+
+  progressBox?.classList.remove('hidden');
+  if (progressLog) progressLog.innerHTML = '';
+
+  iptvService.onProgress(({ step, percent, detail }) => {
+    if (progressTitle) progressTitle.textContent = step + (detail ? ` — ${detail}` : '');
+    if (progressPercent) progressPercent.textContent = `${percent}%`;
+    if (progressFill) progressFill.style.width = `${percent}%`;
+
+    if (progressLog) {
+      const entry = document.createElement('div');
+      entry.textContent = `[${percent}%] ${step} ${detail || ''}`;
+      progressLog.appendChild(entry);
+      progressLog.scrollTop = progressLog.scrollHeight;
+    }
+  });
+
+  try {
+    await iptvService.connect(url);
+    const state = await iptvService.importAll();
+    await playlistService.addOrUpdate(url);
+    updateAllViews(state);
+    toast('✓ Catálogo importado y guardado correctamente.', 'success');
+    $('empty-welcome-banner').style.display = 'none';
+  } catch (err) {
+    toast(`❌ Error al importar: ${err.message}`, 'error', 7000);
+    throw err;
+  } finally {
+    setTimeout(() => {
+      progressBox?.classList.add('hidden');
+    }, 2000);
+  }
+}
+
+// ════════════ ACTUALIZACIÓN DE VISTAS ════════════
+function updateAllViews(state) {
+  updateHeaderAccount(state.account);
+  updateHomeMetrics(state);
+  updateBadges(state);
+  renderHomeDynamicSections();
+  setupLiveCategories(state.categories.live, state.live);
+  setupMoviesView(state.movies, state.categories.vod);
+  setupSeriesView(state.series, state.categories.series);
+  renderDiagnostics(iptvService.getDiagnostics());
+  updateSettingsCategoriesPreview();
+}
+
+function updateHeaderAccount(account) {
+  const dot = $('account-status-dot');
+  const user = $('account-pill-user');
+  const expiry = $('account-pill-expiry');
+
+  if (!account) {
+    if (dot) dot.className = 'account-dot';
+    if (user) user.textContent = 'Activa';
+    if (expiry) expiry.textContent = '—';
+    return;
+  }
+
+  const isActive = account.isActive !== false;
+  if (dot) dot.className = `account-dot ${isActive ? 'active' : ''}`;
+  if (user) user.textContent = isActive ? 'Activa' : (account.status || 'Inactiva');
+  if (expiry) {
+    expiry.textContent = account.expiresAt
+      ? account.expiresAt.toLocaleDateString('es-ES')
+      : (account.daysRemaining != null ? `${account.daysRemaining} días` : '2026-09-24');
+  }
+}
+
+function updateHomeMetrics(state) {
+  const account = state.account;
+  if (account) {
+    const elStatus = $('home-account-status');
+    if (elStatus) elStatus.textContent = account.isActive ? 'Activa' : (account.status || 'Inactiva');
+    const elExp = $('home-account-expiry');
+    if (elExp) {
+      elExp.textContent = account.expiresAt
+        ? account.expiresAt.toLocaleDateString('es-ES')
+        : (account.daysRemaining != null ? `${account.daysRemaining} días` : 'Ilimitada');
+    }
+    const elDays = $('home-account-days');
+    if (elDays) elDays.textContent = account.daysRemaining != null ? `${account.daysRemaining} días` : '—';
+  }
+
+  const elLive = $('count-live-home');
+  if (elLive) elLive.textContent = (state.live?.length || 0).toLocaleString();
+  const elMovies = $('count-movies-home');
+  if (elMovies) elMovies.textContent = (state.movies?.length || 0).toLocaleString();
+  const elSeries = $('count-series-home');
+  if (elSeries) elSeries.textContent = (state.series?.length || 0).toLocaleString();
+  const elSports = $('count-sports-home');
+  if (elSports) elSports.textContent = (state.sportsCount || 0).toLocaleString();
+}
+
+function updateBadges(state) {
+  const bLive = $('badge-live');
+  if (bLive) bLive.textContent = formatCompactNumber(state.live?.length || 0);
+  const bMovies = $('badge-movies');
+  if (bMovies) bMovies.textContent = formatCompactNumber(state.movies?.length || 0);
+  const bSeries = $('badge-series');
+  if (bSeries) bSeries.textContent = formatCompactNumber(state.series?.length || 0);
+}
+
+function formatCompactNumber(num) {
+  if (num >= 1000) return `${Math.floor(num / 1000)}k`;
+  return String(num);
+}
+
+// ════════════ HOME: DASHBOARD & METRICS ════════════
+function setupHeroActions() {
+  const triggerReload = async () => {
+    toast('Recargando catálogo desde el servidor...', 'info');
+    try {
+      const state = await iptvService.refresh();
+      updateAllViews(state);
+      toast('✓ Catálogo actualizado con éxito.', 'success');
+    } catch (e) {
+      toast(`Error al recargar: ${e.message}`, 'error');
+    }
+  };
+
+  $('hero-reload-btn')?.addEventListener('click', triggerReload);
+  $('action-sidebar-reload')?.addEventListener('click', triggerReload);
+
+  $('card-nav-live')?.addEventListener('click', () => navigateTo('live'));
+  $('card-nav-movies')?.addEventListener('click', () => navigateTo('movies'));
+  $('card-nav-series')?.addEventListener('click', () => navigateTo('series'));
+  $('card-nav-sports')?.addEventListener('click', () => navigateTo('live', { category: '__SPORTS__' }));
+  $('card-action-m3u')?.addEventListener('click', () => window.appExport('m3u'));
+
+  $('action-goto-settings')?.addEventListener('click', () => navigateTo('settings'));
+  $('action-goto-diag')?.addEventListener('click', () => {
+    navigateTo('settings');
+    setTimeout(() => {
+      document.querySelector('[data-tab="diagnostics"]')?.click();
+    }, 100);
+  });
+
+  $('btn-goto-settings-connect')?.addEventListener('click', () => navigateTo('settings'));
+}
+
+async function renderHomeDynamicSections() {
+  // 1. Continuar viendo
+  const history = await cacheService.getHistory(8);
+  const contSection = $('section-continue-watching');
+  const contRow = $('continue-watching-row');
+
+  if (contRow && history.length > 0) {
+    contSection.style.display = 'block';
+    contRow.innerHTML = history.map((item) => `
+      <div class="history-card" data-url="${escHtml(item.streamUrl)}" data-time="${item.currentTime || 0}" data-type="${item.type}" data-title="${escHtml(item.title)}">
+        <div class="history-thumb-wrap">
+          <img class="history-thumb" src="${escHtml(item.poster || '')}" alt="${escHtml(item.title)}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22160%22 height=%2290%22 fill=%22%230A1724%22><text x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%238191A3%22 font-size=%2220%22>▶</text></svg>'"/>
+          <div class="history-progress-bar">
+            <div class="history-progress-fill" style="width:${item.progressPercent || 0}%"></div>
+          </div>
+        </div>
+        <div class="history-info">
+          <div class="history-title">${escHtml(item.title)}</div>
+        </div>
+      </div>
+    `).join('');
+
+    contRow.querySelectorAll('.history-card').forEach((card) => {
+      card.addEventListener('click', () => {
+        const url = card.dataset.url;
+        const startTime = parseFloat(card.dataset.time) || 0;
+        const title = card.dataset.title;
+        const type = card.dataset.type;
+        playerModal.open({ title, url, type, startTime });
+      });
+    });
+  } else if (contSection) {
+    contSection.style.display = 'none';
+  }
+
+  // 2. Favoritos
+  const favs = await cacheService.getFavorites();
+  const favSection = $('section-favorites');
+  const favRow = $('favorites-row');
+
+  if (favRow && favs.length > 0) {
+    favSection.style.display = 'block';
+    favRow.innerHTML = favs.slice(0, 10).map((fav) => `
+      <div class="history-card" data-id="${fav.id}" data-url="${escHtml(fav.streamUrl)}" data-type="${fav.type}" data-title="${escHtml(fav.name)}">
+        <div class="history-thumb-wrap">
+          <img class="history-thumb" src="${escHtml(fav.logo || '')}" alt="${escHtml(fav.name)}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22160%22 height=%2290%22 fill=%22%230A1724%22><text x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%238191A3%22 font-size=%2220%22>⭐</text></svg>'"/>
+        </div>
+        <div class="history-info">
+          <div class="history-title">${escHtml(fav.name)}</div>
+        </div>
+      </div>
+    `).join('');
+
+    favRow.querySelectorAll('.history-card').forEach((card) => {
+      card.addEventListener('click', () => {
+        const url = card.dataset.url;
+        const title = card.dataset.title;
+        const type = card.dataset.type;
+        if (type === 'live') {
+          navigateTo('live');
+          const ch = iptvService.state.live.find(c => String(c.id) === card.dataset.id);
+          if (ch) selectLiveChannel(ch);
+        } else {
+          playerModal.open({ title, url, type });
+        }
+      });
+    });
+  } else if (favSection) {
+    favSection.style.display = 'none';
+  }
+}
+
+// ════════════ GESTIÓN DE CATEGORÍAS VISIBLES ════════════
+function getHiddenCategories() {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('iptv_hidden_categories') : null;
+    if (!raw) return { live: [], movies: [], series: [] };
+    const parsed = JSON.parse(raw);
+    return {
+      live: Array.isArray(parsed.live) ? parsed.live : [],
+      movies: Array.isArray(parsed.movies) ? parsed.movies : [],
+      series: Array.isArray(parsed.series) ? parsed.series : []
+    };
+  } catch {
+    return { live: [], movies: [], series: [] };
+  }
+}
+
+function saveHiddenCategories(hidden) {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('iptv_hidden_categories', JSON.stringify(hidden));
+    }
+  } catch (e) {
+    console.warn('[App] Error guardando categorías ocultas:', e);
+  }
+}
+
+// ════════════ LIVE TV (3 PANELES) ════════════
+function setupLiveCategories(categories, channels) {
+  const container = $('live-categories-list');
+  if (!container) return;
+
+  const hiddenLive = new Set(getHiddenCategories().live);
+
+  // Si la categoría seleccionada actualmente fue ocultada, restablecer a Todos
+  if (uiState.selectedLiveCategory && uiState.selectedLiveCategory !== '__SPORTS__' && hiddenLive.has(uiState.selectedLiveCategory)) {
+    uiState.selectedLiveCategory = '';
+  }
+
+  const sportsKeywords = ['sport', 'deport', 'futbol', 'football', 'espn', 'fox sport', 'laliga', 'nba'];
+
+  // Agrupamiento
+  const catCounts = new Map();
+  channels.forEach((ch) => {
+    catCounts.set(ch.categoryName, (catCounts.get(ch.categoryName) || 0) + 1);
+  });
+
+  const renderCatList = (filterTerm = '') => {
+    container.innerHTML = '';
+
+    // Opción Todos (muestra solo canales de categorías visibles)
+    const visibleChannelsCount = channels.filter(ch => !hiddenLive.has(ch.categoryName)).length;
+    const allItem = document.createElement('div');
+    allItem.className = `cat-list-item ${!uiState.selectedLiveCategory ? 'active' : ''}`;
+    allItem.innerHTML = `<span>📺 Todos los canales</span><span class="badge-mini">${visibleChannelsCount}</span>`;
+    allItem.addEventListener('click', () => {
+      uiState.selectedLiveCategory = '';
+      renderLiveTVView();
+    });
+    container.appendChild(allItem);
+
+    // Opción Deportes (Agrupada dinámicamente)
+    const sportsCount = iptvService.state.sportsCount || 0;
+    if (sportsCount > 0) {
+      const sportsItem = document.createElement('div');
+      sportsItem.className = `cat-list-item ${uiState.selectedLiveCategory === '__SPORTS__' ? 'active' : ''}`;
+      sportsItem.innerHTML = `<span>⚽ Deportes (${sportsCount})</span><span class="badge-mini">LIVE</span>`;
+      sportsItem.addEventListener('click', () => {
+        uiState.selectedLiveCategory = '__SPORTS__';
+        renderLiveTVView();
+      });
+      container.appendChild(sportsItem);
+    }
+
+    const uniqueCats = [...catCounts.keys()].sort();
+    let visibleCount = 0;
+    uniqueCats.forEach((cat) => {
+      if (filterTerm && !cat.toLowerCase().includes(filterTerm.toLowerCase())) return;
+      // Control parental: ocultar categorías adultas cuando está bloqueado
+      if (parentalControlService.isRestricted(cat)) return;
+      // Ocultar categorías desmarcadas por el usuario en el gestor de categorías
+      if (hiddenLive.has(cat)) return;
+
+      const count = catCounts.get(cat);
+      visibleCount++;
+      const item = document.createElement('div');
+      item.className = `cat-list-item ${uiState.selectedLiveCategory === cat ? 'active' : ''}`;
+      item.innerHTML = `<span>${escHtml(cat)}</span><span class="badge-mini">${count}</span>`;
+      item.addEventListener('click', () => {
+        uiState.selectedLiveCategory = cat;
+        renderLiveTVView();
+      });
+      container.appendChild(item);
+    });
+
+    $('live-cats-count').textContent = visibleCount;
+  };
+
+  renderCatList();
+
+  $('live-cat-search')?.addEventListener('input', (e) => {
+    renderCatList(e.target.value.trim());
+  });
+
+  // Búsqueda de canales
+  $('live-channel-search')?.addEventListener('input', debounce((e) => {
+    uiState.liveSearch = e.target.value.trim().toLowerCase();
+    renderLiveChannelsList();
+  }, 200));
+
+  // Controles de transporte y pantalla completa
+  $('btn-integrated-rewind')?.addEventListener('click', () => {
+    playerService.rewind(10);
+  });
+
+  $('btn-integrated-forward')?.addEventListener('click', () => {
+    playerService.forward(10);
+  });
+
+  $('btn-integrated-pip')?.addEventListener('click', () => {
+    const video = $('integrated-video');
+    if (document.pictureInPictureElement) {
+      document.exitPictureInPicture().catch(() => {});
+    } else if (video && document.pictureInPictureEnabled) {
+      video.requestPictureInPicture().catch(() => {});
+    }
+  });
+
+  $('btn-integrated-fullscreen')?.addEventListener('click', () => {
+    const video = $('integrated-video');
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    } else if (video) {
+      video.requestFullscreen().catch(() => {});
+    }
+  });
+
+  // Toggle para ocultar canales caídos
+  const toggleHide = $('toggle-hide-offline');
+  if (toggleHide) {
+    toggleHide.checked = uiState.hideOfflineChannels;
+    toggleHide.addEventListener('change', (e) => {
+      uiState.hideOfflineChannels = e.target.checked;
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('iptv_hide_offline', String(e.target.checked));
+      }
+      renderLiveChannelsList();
+      toast(e.target.checked ? '👁️ Canales caídos ocultados' : '👁️ Mostrando todos los canales', 'info', 2000);
+    });
+  }
+
+  // Botón para verificar disponibilidad en la categoría actual
+  const btnCheckHealth = $('btn-check-category-health');
+  if (btnCheckHealth) {
+    btnCheckHealth.addEventListener('click', async () => {
+      let channels = iptvService.state.live || [];
+      if (uiState.selectedLiveCategory === '__SPORTS__') {
+        const sportsKeywords = ['sport', 'deport', 'futbol', 'football', 'espn', 'fox sport', 'laliga', 'nba', 'nfl', 'ufc'];
+        channels = channels.filter((c) => {
+          const cat = (c.categoryName || '').toLowerCase();
+          const name = (c.name || '').toLowerCase();
+          return sportsKeywords.some(kw => cat.includes(kw) || name.includes(kw));
+        });
+      } else if (uiState.selectedLiveCategory) {
+        channels = channels.filter((c) => c.categoryName === uiState.selectedLiveCategory);
+      }
+
+      if (channels.length === 0) {
+        toast('No hay canales para verificar.', 'info');
+        return;
+      }
+
+      const toCheck = channels.slice(0, 100);
+      btnCheckHealth.classList.add('running');
+      btnCheckHealth.textContent = `⏳ 0/${toCheck.length}`;
+      toast(`🔍 Verificando ${toCheck.length} canales con comprobación dual segura...`, 'info', 2500);
+
+      try {
+        await channelHealthService.checkBatch(toCheck, {
+          onProgress: ({ current, total }) => {
+            btnCheckHealth.textContent = `⏳ ${current}/${total}`;
+          }
+        });
+        toast(`✓ Verificación completada (${toCheck.length} canales analizados)`, 'success', 3000);
+      } catch (err) {
+        console.warn('[App] Error al verificar canales:', err);
+      } finally {
+        btnCheckHealth.classList.remove('running');
+        btnCheckHealth.textContent = '⚡ Verificar';
+        renderLiveChannelsList();
+      }
+    });
+  }
+}
+
+function renderLiveTVView() {
+  const catTitle = $('current-category-title');
+  if (catTitle) {
+    if (!uiState.selectedLiveCategory) catTitle.textContent = 'Todos los Canales';
+    else if (uiState.selectedLiveCategory === '__SPORTS__') catTitle.textContent = '⚽ Deportes en Vivo';
+    else catTitle.textContent = uiState.selectedLiveCategory;
+  }
+
+  // Actualizar clase activa en menú de categorías
+  document.querySelectorAll('.cat-list-item').forEach((item) => {
+    const isAll = item.textContent.includes('Todos') && !uiState.selectedLiveCategory;
+    const isSports = item.textContent.includes('Deportes') && uiState.selectedLiveCategory === '__SPORTS__';
+    const isCat = item.textContent.startsWith(uiState.selectedLiveCategory);
+    item.classList.toggle('active', isAll || isSports || isCat);
+  });
+
+  renderLiveChannelsList();
+}
+
+function renderLiveChannelsList() {
+  const container = $('live-channels-list');
+  if (!container) return;
+
+  let channels = iptvService.state.live || [];
+  const hiddenLive = new Set(getHiddenCategories().live);
+
+  // Filtrado de canales pertenecientes a categorías ocultadas por el usuario
+  channels = channels.filter((c) => !hiddenLive.has(c.categoryName));
+
+  // Filtrado por categoría
+  if (uiState.selectedLiveCategory === '__SPORTS__') {
+    const sportsKeywords = ['sport', 'deport', 'futbol', 'football', 'espn', 'fox sport', 'laliga', 'nba', 'nfl', 'ufc'];
+    channels = channels.filter((c) => {
+      const cat = (c.categoryName || '').toLowerCase();
+      const name = (c.name || '').toLowerCase();
+      return sportsKeywords.some(kw => cat.includes(kw) || name.includes(kw));
+    });
+  } else if (uiState.selectedLiveCategory) {
+    channels = channels.filter((c) => c.categoryName === uiState.selectedLiveCategory);
+  }
+
+  // Filtrado por búsqueda
+  if (uiState.liveSearch) {
+    channels = channels.filter((c) =>
+      c.name.toLowerCase().includes(uiState.liveSearch) ||
+      c.categoryName.toLowerCase().includes(uiState.liveSearch)
+    );
+  }
+
+  // Filtrado de canales caídos (OFFLINE)
+  if (uiState.hideOfflineChannels) {
+    channels = channels.filter((c) => !channelHealthService.isChannelOffline(c.id));
+  }
+
+  $('live-channels-count').textContent = channels.length;
+  container.innerHTML = '';
+
+  if (channels.length === 0) {
+    container.innerHTML = `<div class="empty-state" style="padding:2rem"><div class="empty-title">Sin canales</div><div class="empty-sub">No se encontraron canales disponibles en esta categoría.</div></div>`;
+    return;
+  }
+
+  // Paginación o lista visible (primeros 150 canales para óptimo DOM)
+  const visibleSlice = channels.slice(0, 150);
+
+  visibleSlice.forEach((ch) => {
+    const healthStatus = channelHealthService.getChannelStatus(ch.id);
+    let healthDot = '';
+    if (healthStatus === HealthStatus.ONLINE) {
+      healthDot = '<span class="health-dot online" title="Canal activo y verificado"></span>';
+    } else if (healthStatus === HealthStatus.OFFLINE) {
+      healthDot = '<span class="health-dot offline" title="Canal no disponible / caído"></span>';
+    } else if (healthStatus === HealthStatus.DEGRADED) {
+      healthDot = '<span class="health-dot degraded" title="Canal con latencia alta"></span>';
+    }
+
+    const row = document.createElement('div');
+    row.className = `channel-row ${uiState.currentLiveChannel?.id === ch.id ? 'active' : ''} ${healthStatus === HealthStatus.OFFLINE ? 'is-offline' : ''}`;
+    row.innerHTML = `
+      ${ch.logo
+        ? `<img class="channel-logo-img" src="${escHtml(ch.logo)}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+        : ''}
+      <div class="channel-logo-ph" style="${ch.logo ? 'display:none' : ''}">📺</div>
+      <div class="channel-meta">
+        <div class="channel-title">${healthDot}${escHtml(ch.name)}</div>
+        <div class="channel-cat-sub">${escHtml(ch.categoryName)}</div>
+      </div>
+      <button class="channel-fav-btn" title="Favorito">☆</button>
+    `;
+
+    // Clic en canal para reproducir en el reproductor integrado
+    row.addEventListener('click', (e) => {
+      if (e.target.classList.contains('channel-fav-btn')) return;
+      selectLiveChannel(ch);
+    });
+
+    // Botón favorito
+    const favBtn = row.querySelector('.channel-fav-btn');
+    cacheService.isFavorite(ch.id).then((isFav) => {
+      if (isFav) {
+        favBtn.textContent = '★';
+        favBtn.classList.add('active');
+      }
+    });
+
+    favBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const added = await cacheService.toggleFavorite({
+        id: ch.id,
+        type: 'live',
+        name: ch.name,
+        logo: ch.logo,
+        categoryName: ch.categoryName,
+        streamUrl: ch.streamUrl
+      });
+      favBtn.textContent = added ? '★' : '☆';
+      favBtn.classList.toggle('active', added);
+      toast(added ? `⭐ ${ch.name} agregado a favoritos` : `${ch.name} eliminado de favoritos`, 'info');
+      renderHomeDynamicSections();
+    });
+
+    container.appendChild(row);
+  });
+}
+
+async function selectLiveChannel(ch) {
+  uiState.currentLiveChannel = ch;
+
+  // Actualizar fila activa en lista
+  document.querySelectorAll('.channel-row').forEach((r) => r.classList.remove('active'));
+
+  // Actualizar top bar
+  $('integrated-channel-name').textContent = ch.name;
+
+  // Actualizar botón de favorito del reproductor integrado
+  const favBtn = $('btn-integrated-fav');
+  if (favBtn) {
+    cacheService.isFavorite(ch.id).then(isFav => {
+      favBtn.textContent = isFav ? '★' : '☆';
+      favBtn.classList.toggle('active', isFav);
+    });
+  }
+
+  // Iniciar reproducción
+  playerService.play({
+    id: ch.id,
+    title: ch.name,
+    url: ch.streamUrl,
+    type: 'live'
+  });
+
+  // Consultar y actualizar EPG
+  $('epg-now-title').textContent = 'Consultando guía...';
+  $('epg-now-time').textContent = '—';
+  $('epg-now-progress').style.width = '0%';
+  $('epg-now-desc').textContent = '';
+  $('epg-next-title').textContent = '—';
+  $('epg-next-time').textContent = '—';
+
+  try {
+    const epg = await iptvService.getEPG(ch.id);
+    if (epg.now) {
+      $('epg-now-title').textContent = epg.now.title;
+      $('epg-now-time').textContent = `${epg.now.startTimeStr} - ${epg.now.stopTimeStr}`;
+      $('epg-now-progress').style.width = `${epg.now.progress || 0}%`;
+      $('epg-now-desc').textContent = epg.now.description || '';
+    } else {
+      $('epg-now-title').textContent = 'Emisión en directo';
+      $('epg-now-desc').textContent = 'Guía electrónica no provista por el servidor para este canal.';
+    }
+
+    if (epg.next) {
+      $('epg-next-title').textContent = epg.next.title;
+      $('epg-next-time').textContent = `${epg.next.startTimeStr} - ${epg.next.stopTimeStr}`;
+      $('epg-next-desc').textContent = epg.next.description || '';
+    } else {
+      $('epg-next-title').textContent = 'Programación habitual';
+    }
+  } catch {
+    $('epg-now-title').textContent = 'Emisión en directo';
+  }
+}
+
+// ════════════ MOVIES (CATÁLOGO VOD) ════════════
+function setupMoviesView(movies, categories) {
+  const sel = $('movies-cat-filter');
+  if (!sel) return;
+
+  const hiddenMovies = new Set(getHiddenCategories().movies);
+  sel.innerHTML = '<option value="">Todas las categorías</option>';
+  const cats = [...new Set(movies.map((m) => m.categoryName))]
+    .filter(cat => !parentalControlService.isRestricted(cat))
+    .filter(cat => !hiddenMovies.has(cat))
+    .sort();
+  cats.forEach((cat) => {
+    const opt = document.createElement('option');
+    opt.value = cat;
+    opt.textContent = cat;
+    sel.appendChild(opt);
+  });
+
+  sel.addEventListener('change', (e) => {
+    uiState.moviesCategoryFilter = e.target.value;
+    uiState.moviesPage = 1;
+    renderMoviesPage();
+  });
+
+  $('movies-search-input')?.addEventListener('input', debounce((e) => {
+    uiState.moviesSearch = e.target.value.trim().toLowerCase();
+    uiState.moviesPage = 1;
+    renderMoviesPage();
+  }, 250));
+
+  uiState.moviesFiltered = movies;
+  renderMoviesPage();
+}
+
+function renderMoviesPage() {
+  let items = iptvService.state.movies || [];
+  const hiddenMovies = new Set(getHiddenCategories().movies);
+
+  // Control parental: ocultar contenido adulto cuando está bloqueado
+  items = items.filter(m => !parentalControlService.isRestricted(m.categoryName, m.name));
+
+  // Filtrado de categorías ocultadas por el usuario
+  items = items.filter(m => !hiddenMovies.has(m.categoryName));
+
+  if (uiState.moviesCategoryFilter) {
+    items = items.filter((m) => m.categoryName === uiState.moviesCategoryFilter);
+  }
+  if (uiState.moviesSearch) {
+    items = items.filter((m) =>
+      m.name.toLowerCase().includes(uiState.moviesSearch) ||
+      m.categoryName.toLowerCase().includes(uiState.moviesSearch)
+    );
+  }
+
+  const total = items.length;
+  const totalPages = Math.ceil(total / PAGE_SIZE_MOVIES);
+  const page = Math.min(uiState.moviesPage, totalPages || 1);
+  const slice = items.slice((page - 1) * PAGE_SIZE_MOVIES, page * PAGE_SIZE_MOVIES);
+
+  $('movies-catalog-info').textContent = `${total.toLocaleString()} películas`;
+  const grid = $('movies-grid');
+  grid.innerHTML = '';
+
+  if (slice.length === 0) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;padding:3rem"><div class="empty-icon">🎬</div><div class="empty-title">Sin películas</div></div>`;
+    $('movies-pagination').innerHTML = '';
+    return;
+  }
+
+  slice.forEach((movie) => {
+    const card = document.createElement('div');
+    card.className = 'media-poster-card';
+    const ratingHtml = movie.rating ? `<span class="poster-rating-badge">⭐ ${movie.rating}</span>` : '';
+    const yearHtml = movie.year ? `<span class="poster-year-badge">${movie.year}</span>` : '';
+
+    const rawPoster = (movie.logo || movie.poster || '').trim();
+    const fallbackSvg = createPosterPlaceholderSvg(movie.name, movie.categoryName, '🎬');
+    const posterSrc = rawPoster ? escHtml(rawPoster) : fallbackSvg;
+
+    card.innerHTML = `
+      <div class="poster-img-wrap">
+        <img class="poster-img" src="${posterSrc}" alt="${escHtml(movie.name)}" loading="lazy" onerror="this.onerror=null;this.src='${fallbackSvg}'"/>
+        ${ratingHtml}
+        ${yearHtml}
+      </div>
+      <div class="poster-info-box">
+        <div class="poster-title">${escHtml(movie.name)}</div>
+        <div class="poster-cat">${escHtml(movie.categoryName)}</div>
+      </div>
+    `;
+
+    card.addEventListener('click', async () => {
+      toast(`Cargando información de ${movie.name}...`, 'info', 1500);
+      try {
+        const info = await iptvService.getMovieInfo(movie.id);
+        mediaDetailModal.openVod(movie, info);
+      } catch {
+        mediaDetailModal.openVod(movie, null);
+      }
+    });
+
+    grid.appendChild(card);
+  });
+
+  renderPagination('movies-pagination', page, totalPages, (p) => {
+    uiState.moviesPage = p;
+    renderMoviesPage();
+  });
+}
+
+// ════════════ SERIES (CATÁLOGO PAGINADO CON LAZY LOADING) ════════════
+function setupSeriesView(series, categories) {
+  const sel = $('series-cat-filter');
+  if (!sel) return;
+
+  const hiddenSeries = new Set(getHiddenCategories().series);
+  sel.innerHTML = '<option value="">Todas las categorías</option>';
+  const cats = [...new Set(series.map((s) => s.categoryName))]
+    .filter(cat => !parentalControlService.isRestricted(cat))
+    .filter(cat => !hiddenSeries.has(cat))
+    .sort();
+  cats.forEach((cat) => {
+    const opt = document.createElement('option');
+    opt.value = cat;
+    opt.textContent = cat;
+    sel.appendChild(opt);
+  });
+
+  sel.addEventListener('change', (e) => {
+    uiState.seriesCategoryFilter = e.target.value;
+    uiState.seriesPage = 1;
+    renderSeriesPage();
+  });
+
+  $('series-search-input')?.addEventListener('input', debounce((e) => {
+    uiState.seriesSearch = e.target.value.trim().toLowerCase();
+    uiState.seriesPage = 1;
+    renderSeriesPage();
+  }, 250));
+
+  uiState.seriesFiltered = series;
+  renderSeriesPage();
+}
+
+function renderSeriesPage() {
+  let items = iptvService.state.series || [];
+  const hiddenSeries = new Set(getHiddenCategories().series);
+
+  // Control parental: ocultar contenido adulto cuando está bloqueado
+  items = items.filter(s => !parentalControlService.isRestricted(s.categoryName, s.name));
+
+  // Filtrado de categorías ocultadas por el usuario
+  items = items.filter(s => !hiddenSeries.has(s.categoryName));
+
+  if (uiState.seriesCategoryFilter) {
+    items = items.filter((s) => s.categoryName === uiState.seriesCategoryFilter);
+  }
+  if (uiState.seriesSearch) {
+    items = items.filter((s) =>
+      s.name.toLowerCase().includes(uiState.seriesSearch) ||
+      s.categoryName.toLowerCase().includes(uiState.seriesSearch)
+    );
+  }
+
+  const total = items.length;
+  const totalPages = Math.ceil(total / PAGE_SIZE_SERIES);
+  const page = Math.min(uiState.seriesPage, totalPages || 1);
+  const slice = items.slice((page - 1) * PAGE_SIZE_SERIES, page * PAGE_SIZE_SERIES);
+
+  $('series-catalog-info').textContent = `${total.toLocaleString()} series`;
+  const grid = $('series-grid');
+  grid.innerHTML = '';
+
+  if (slice.length === 0) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;padding:3rem"><div class="empty-icon">🎭</div><div class="empty-title">Sin series</div></div>`;
+    $('series-pagination').innerHTML = '';
+    return;
+  }
+
+  slice.forEach((s) => {
+    const card = document.createElement('div');
+    card.className = 'media-poster-card';
+    const ratingHtml = s.rating ? `<span class="poster-rating-badge">⭐ ${s.rating}</span>` : '';
+    const yearHtml = s.year ? `<span class="poster-year-badge">${s.year}</span>` : '';
+
+    const rawPoster = (s.logo || s.poster || '').trim();
+    const fallbackSvg = createPosterPlaceholderSvg(s.name, s.categoryName, '🎭');
+    const posterSrc = rawPoster ? escHtml(rawPoster) : fallbackSvg;
+
+    card.innerHTML = `
+      <div class="poster-img-wrap">
+        <img class="poster-img" src="${posterSrc}" alt="${escHtml(s.name)}" loading="lazy" onerror="this.onerror=null;this.src='${fallbackSvg}'"/>
+        ${ratingHtml}
+        ${yearHtml}
+      </div>
+      <div class="poster-info-box">
+        <div class="poster-title">${escHtml(s.name)}</div>
+        <div class="poster-cat">${escHtml(s.categoryName)}</div>
+      </div>
+    `;
+
+    card.addEventListener('click', async () => {
+      toast(`Cargando temporadas de ${s.name}...`, 'info', 1500);
+      try {
+        const info = await iptvService.getSeriesInfo(s.id);
+        const parsed = iptvService._parsedUrl;
+        const streamUrlBuilder = (epId, ext) => {
+          return buildSeriesStreamUrl(parsed.serverBaseUrl, parsed.username, parsed._password, epId, ext);
+        };
+        mediaDetailModal.openSeries(s, info, streamUrlBuilder);
+      } catch (err) {
+        toast(`Error al cargar serie: ${err.message}`, 'error');
+      }
+    });
+
+    grid.appendChild(card);
+  });
+
+  renderPagination('series-pagination', page, totalPages, (p) => {
+    uiState.seriesPage = p;
+    renderSeriesPage();
+  });
+}
+
+// ════════════ BÚSQUEDA GLOBAL INSTANTÁNEA ════════════
+function setupSearch() {
+  const input = $('global-search-input');
+  const clearBtn = $('search-clear-btn');
+  const dropdown = $('global-search-dropdown');
+  const content = $('search-dropdown-content');
+
+  let currentSelectedIndex = -1;
+
+  const getVisibleRows = () => content?.querySelectorAll('.search-item-row') || [];
+
+  const updateKeyboardSelection = (newIndex) => {
+    const rows = getVisibleRows();
+    if (rows.length === 0) return;
+
+    rows.forEach(r => r.classList.remove('keyboard-selected'));
+    if (newIndex >= 0 && newIndex < rows.length) {
+      currentSelectedIndex = newIndex;
+      const target = rows[currentSelectedIndex];
+      target.classList.add('keyboard-selected');
+      target.scrollIntoView({ block: 'nearest' });
+    } else {
+      currentSelectedIndex = -1;
+    }
+  };
+
+  const onSearch = debounce((q) => {
+    currentSelectedIndex = -1;
+    if (!q || q.length < 2) {
+      dropdown?.classList.add('hidden');
+      return;
+    }
+
+    // Límites específicos para Search Overlay XALB: Live 3, Movies 8, Series 4
+    const parentalFilter = (entry) => !parentalControlService.isRestricted(entry.category, entry.title);
+    const res = searchService.search(q, { live: 3, movies: 8, series: 4 }, parentalFilter);
+    if (res.totalMatches === 0) {
+      content.innerHTML = `<div class="empty-state" style="padding:1.5rem"><div class="empty-title">Sin resultados para "${escHtml(q)}"</div></div>`;
+      dropdown?.classList.remove('hidden');
+      return;
+    }
+
+    let html = `
+      <div class="search-group-title">
+        <span>Resultados de búsqueda</span>
+        <span class="search-latency-badge">⚡ ${res.searchTimeMs} ms</span>
+      </div>
+    `;
+
+    // Canales Live (Máx 3)
+    if (res.live.length > 0) {
+      html += `<div class="search-group-title" style="margin-top:0.35rem"><span>📺 Live TV</span><span>${res.live.length}</span></div>`;
+      res.live.forEach((ch) => {
+        html += `
+          <div class="search-item-row" data-type="live" data-id="${ch.id}">
+            <div class="search-item-thumb">
+              ${ch.image ? `<img src="${escHtml(ch.image)}" alt="" onerror="this.style.display='none';this.parentElement.textContent='📺'">` : '📺'}
+            </div>
+            <div class="search-item-text">
+              <div class="search-item-name">${escHtml(ch.title)}</div>
+              <div class="search-item-sub">${escHtml(ch.category || 'Canal')}</div>
+            </div>
+          </div>
+        `;
+      });
+    }
+
+    // Películas (Máx 8)
+    if (res.movies.length > 0) {
+      html += `<div class="search-group-title" style="margin-top:0.35rem"><span>🎬 Películas VOD</span><span>${res.movies.length}</span></div>`;
+      res.movies.forEach((m) => {
+        html += `
+          <div class="search-item-row" data-type="movie" data-id="${m.id}">
+            <div class="search-item-thumb">
+              ${m.image ? `<img src="${escHtml(m.image)}" alt="" onerror="this.style.display='none';this.parentElement.textContent='🎬'">` : '🎬'}
+            </div>
+            <div class="search-item-text">
+              <div class="search-item-name">${escHtml(m.title)}</div>
+              <div class="search-item-sub">${escHtml(m.category || 'VOD')} ${m.year ? `· ${m.year}` : ''}</div>
+            </div>
+          </div>
+        `;
+      });
+    }
+
+    // Series (Máx 4)
+    if (res.series.length > 0) {
+      html += `<div class="search-group-title" style="margin-top:0.35rem"><span>🎞 Series</span><span>${res.series.length}</span></div>`;
+      res.series.forEach((s) => {
+        html += `
+          <div class="search-item-row" data-type="series" data-id="${s.id}">
+            <div class="search-item-thumb">
+              ${s.image ? `<img src="${escHtml(s.image)}" alt="" onerror="this.style.display='none';this.parentElement.textContent='🎞'">` : '🎞'}
+            </div>
+            <div class="search-item-text">
+              <div class="search-item-name">${escHtml(s.title)}</div>
+              <div class="search-item-sub">${escHtml(s.category || 'Serie')}</div>
+            </div>
+          </div>
+        `;
+      });
+    }
+
+    content.innerHTML = html;
+    dropdown?.classList.remove('hidden');
+
+    content.querySelectorAll('.search-item-row').forEach((row) => {
+      row.addEventListener('click', () => {
+        dropdown?.classList.add('hidden');
+        input.value = '';
+        clearBtn?.classList.add('hidden');
+
+        const type = row.dataset.type;
+        const id = row.dataset.id;
+
+        if (type === 'live') {
+          navigateTo('live');
+          const ch = iptvService.state.live.find(c => String(c.id || c.stream_id) === id);
+          if (ch) selectLiveChannel(ch);
+        } else if (type === 'movie') {
+          const m = iptvService.state.movies.find(c => String(c.id || c.stream_id) === id);
+          if (m) {
+            iptvService.getMovieInfo(m.id).then(info => mediaDetailModal.openVod(m, info));
+          }
+        } else if (type === 'series') {
+          const s = iptvService.state.series.find(c => String(c.id || c.series_id) === id);
+          if (s) {
+            iptvService.getSeriesInfo(s.id).then(info => {
+              const parsed = iptvService._parsedUrl;
+              mediaDetailModal.openSeries(s, info, (epId, ext) => buildSeriesStreamUrl(parsed.serverBaseUrl, parsed.username, parsed._password, epId, ext));
+            });
+          }
+        }
+      });
+    });
+  }, 160);
+
+  input?.addEventListener('input', (e) => {
+    const val = e.target.value.trim();
+    clearBtn?.classList.toggle('hidden', !val);
+    onSearch(val);
+  });
+
+  // Navegación por teclado: ArrowUp, ArrowDown, Enter, Escape
+  input?.addEventListener('keydown', (e) => {
+    const rows = getVisibleRows();
+    if (rows.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const next = currentSelectedIndex < rows.length - 1 ? currentSelectedIndex + 1 : 0;
+      updateKeyboardSelection(next);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const prev = currentSelectedIndex > 0 ? currentSelectedIndex - 1 : rows.length - 1;
+      updateKeyboardSelection(prev);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (currentSelectedIndex >= 0 && rows[currentSelectedIndex]) {
+        rows[currentSelectedIndex].click();
+      }
+    } else if (e.key === 'Escape') {
+      dropdown?.classList.add('hidden');
+      input.blur();
+    }
+  });
+
+  clearBtn?.addEventListener('click', () => {
+    input.value = '';
+    clearBtn.classList.add('hidden');
+    dropdown?.classList.add('hidden');
+    currentSelectedIndex = -1;
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#global-search-box')) {
+      dropdown?.classList.add('hidden');
+      currentSelectedIndex = -1;
+    }
+  });
+}
+
+// ════════════ AJUSTES: PESTAÑAS, PLAYLISTS, DIAGNÓSTICO, EXPORTAR ════════════
+function setupSettingsTabs() {
+  document.querySelectorAll('.settings-tab-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.settings-tab-btn').forEach((b) => b.classList.remove('active'));
+      document.querySelectorAll('.settings-tab-content').forEach((c) => c.classList.remove('active'));
+
+      btn.classList.add('active');
+      $(`tab-${btn.dataset.tab}`)?.classList.add('active');
+
+      if (btn.dataset.tab === 'playlists') renderSettingsPlaylists();
+      if (btn.dataset.tab === 'diagnostics') renderDiagnostics(iptvService.getDiagnostics());
+    });
+  });
+
+  // Guardar playlist
+  $('btn-save-playlist')?.addEventListener('click', async () => {
+    const url = $('settings-url-input').value.trim();
+    if (!url) {
+      toast('Por favor ingresa una URL válida.', 'error');
+      return;
+    }
+
+    try {
+      await loadCatalogWithProgress(url);
+      $('settings-url-input').value = '';
+      renderSettingsPlaylists();
+    } catch (e) {
+      console.error(e);
+    }
+  });
+}
+
+async function renderSettingsPlaylists() {
+  const container = $('saved-playlists-list');
+  if (!container) return;
+
+  const lists = await playlistService.getAll();
+  if (lists.length === 0) {
+    container.innerHTML = `<div class="empty-state"><div class="empty-title">Sin playlists guardadas</div><div class="empty-sub">Ingresa un enlace arriba para registrar tu primera cuenta.</div></div>`;
+    return;
+  }
+
+  container.innerHTML = lists.map((pl) => `
+    <div class="playlist-card-row ${pl.isActive ? 'active' : ''}">
+      <div class="pl-info">
+        <div class="pl-title-row">
+          <span class="pl-name">${escHtml(pl.name)}</span>
+          ${pl.isActive
+            ? '<span class="pl-tag-active" style="background:linear-gradient(90deg,#10b981,#059669);color:#fff;font-size:0.65rem;font-weight:800;padding:0.2rem 0.65rem;border-radius:99px;letter-spacing:0.05em;">✓ EN USO</span>'
+            : ''}
+          <span class="badge-mini" style="background:rgba(56,189,248,0.15); color:#38bdf8; font-size:10px; margin-left:8px; border:1px solid rgba(56,189,248,0.3)">☁️ En la Nube</span>
+        </div>
+        <div class="pl-sub">
+          <span>Servidor: ${escHtml(pl.serverBaseUrl)}</span> •
+          <span>Usuario: ${escHtml(pl.username || '—')}</span> •
+          <span>Contraseña: ••••••••</span>
+        </div>
+      </div>
+      <div class="pl-actions">
+        ${pl.isActive
+          ? '<button class="btn btn-sm" style="background:linear-gradient(90deg,#10b981,#059669);color:#fff;opacity:0.85;cursor:default;pointer-events:none;" disabled>✓ En uso</button>'
+          : `<button class="btn btn-primary btn-sm btn-activate-pl" data-id="${pl.id}">⚡ Activar</button>`}
+        <button class="btn btn-secondary btn-sm btn-edit-pl" data-id="${pl.id}">✏️ Modificar</button>
+        <button class="btn btn-secondary btn-sm btn-reload-pl" data-id="${pl.id}">🔄 Recargar</button>
+        <button class="btn btn-danger btn-sm btn-delete-pl" data-id="${pl.id}">🗑️ Eliminar</button>
+      </div>
+    </div>
+  `).join('');
+
+  // Eventos de botones
+  container.querySelectorAll('.btn-activate-pl').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const active = await playlistService.activate(btn.dataset.id);
+      if (active) {
+        toast(`Activando ${active.name}...`, 'info');
+        await loadCatalogWithProgress(active.url);
+        renderSettingsPlaylists();
+        updateActivePlaylistUI();
+      }
+    });
+  });
+
+  container.querySelectorAll('.btn-reload-pl').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const lists = await cacheService.getPlaylists();
+      const pl = lists.find(p => p.id === btn.dataset.id);
+      if (pl) {
+        await loadCatalogWithProgress(pl.url);
+        renderSettingsPlaylists();
+        updateActivePlaylistUI();
+      }
+    });
+  });
+
+  container.querySelectorAll('.btn-edit-pl').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const lists = await cacheService.getPlaylists();
+      const pl = lists.find(p => p.id === btn.dataset.id);
+      if (pl) {
+        const inputUrl = $('settings-url-input');
+        if (inputUrl) {
+          inputUrl.value = pl.url;
+          inputUrl.focus();
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+          toast('Puedes modificar la URL y luego pulsar Guardar.', 'info');
+        }
+      }
+    });
+  });
+
+  container.querySelectorAll('.btn-delete-pl').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      await playlistService.remove(btn.dataset.id);
+      toast('Playlist eliminada.', 'info');
+      renderSettingsPlaylists();
+      updateActivePlaylistUI();
+    });
+  });
+}
+
+function renderDiagnostics(diagnostics) {
+  const container = $('diagnostics-table-wrap');
+  if (!container) return;
+
+  if (!diagnostics || diagnostics.length === 0) {
+    container.innerHTML = `<div class="empty-state"><div class="empty-icon">🔬</div><div class="empty-title">Sin datos de diagnóstico</div></div>`;
+    return;
+  }
+
+  container.innerHTML = `
+    <table class="debug-table">
+      <thead>
+        <tr>
+          <th>Endpoint</th>
+          <th>Estado HTTP</th>
+          <th>Latencia</th>
+          <th>Registros</th>
+          <th>Resultado</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${diagnostics.map((d) => `
+          <tr>
+            <td style="max-width:320px;overflow:hidden;text-overflow:ellipsis">${escHtml(d.endpoint)}</td>
+            <td>${d.httpStatus ?? '—'}</td>
+            <td>${d.responseTimeMs ? `${d.responseTimeMs} ms` : '—'}</td>
+            <td>${d.recordCount ?? '—'}</td>
+            <td class="${d.success ? 'dbg-ok' : 'dbg-err'}">${d.success ? '✓ OK' : '✗ ERROR'}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+// ════════════ EXPORTACIÓN DE ARCHIVOS ════════════
+window.appExport = function (type) {
+  const state = iptvService.state;
+  if (!state.connected && (!state.live || state.live.length === 0)) {
+    toast('No hay catálogo cargado para exportar.', 'error');
+    return;
+  }
+
+  const sanitizeName = (s) => String(s || '').replace(/[^a-zA-Z0-9\-_]/g, '_').slice(0, 60);
+
+  switch (type) {
+    case 'account':
+      downloadJson({ account: state.account, server: state.server }, 'account.json');
+      toast('📥 Descargando account.json...', 'success');
+      break;
+
+    case 'live': {
+      const groups = groupByCategory(state.live);
+      Object.entries(groups).forEach(([cat, items]) => {
+        downloadJson(items, `LIVE_${sanitizeName(cat)}.json`);
+      });
+      toast(`📥 Descargando ${Object.keys(groups).length} archivos LIVE...`, 'success');
+      break;
+    }
+
+    case 'movies': {
+      const groups = groupByCategory(state.movies);
+      Object.entries(groups).forEach(([cat, items]) => {
+        downloadJson(items, `VOD_${sanitizeName(cat)}.json`);
+      });
+      toast(`📥 Descargando ${Object.keys(groups).length} archivos VOD...`, 'success');
+      break;
+    }
+
+    case 'series': {
+      const groups = groupByCategory(state.series);
+      Object.entries(groups).forEach(([cat, items]) => {
+        downloadJson(items, `SERIES_${sanitizeName(cat)}.json`);
+      });
+      toast(`📥 Descargando ${Object.keys(groups).length} archivos SERIES...`, 'success');
+      break;
+    }
+
+    case 'm3u': {
+      if (!state.live || state.live.length === 0) {
+        toast('No hay canales en vivo para exportar.', 'error');
+        return;
+      }
+      downloadM3UPlus(state.live, iptvService._parsedUrl, 'lista_iptv_catchup.m3u8');
+      toast('📜 Generando lista M3U Plus con etiquetas Catchup...', 'success');
+      break;
+    }
+  }
+};
+
+// ════════════ PAGINACIÓN REUTILIZABLE ════════════
+function renderPagination(containerId, currentPage, totalPages, onPage) {
+  const container = $(containerId);
+  if (!container) return;
+  container.innerHTML = '';
+  if (totalPages <= 1) return;
+
+  const max = 7;
+  let pagesList = [];
+
+  if (totalPages <= max) {
+    for (let i = 1; i <= totalPages; i++) pagesList.push(i);
+  } else {
+    pagesList = [1];
+    if (currentPage > 3) pagesList.push('…');
+    for (let i = Math.max(2, currentPage - 1); i <= Math.min(totalPages - 1, currentPage + 1); i++) {
+      pagesList.push(i);
+    }
+    if (currentPage < totalPages - 2) pagesList.push('…');
+    pagesList.push(totalPages);
+  }
+
+  if (currentPage > 1) {
+    const btn = document.createElement('button');
+    btn.className = 'page-btn';
+    btn.textContent = '←';
+    btn.addEventListener('click', () => onPage(currentPage - 1));
+    container.appendChild(btn);
+  }
+
+  pagesList.forEach((p) => {
+    if (p === '…') {
+      const sep = document.createElement('span');
+      sep.style.color = 'var(--text-muted)';
+      sep.textContent = '…';
+      container.appendChild(sep);
+      return;
+    }
+    const btn = document.createElement('button');
+    btn.className = `page-btn ${p === currentPage ? 'active' : ''}`;
+    btn.textContent = p;
+    btn.addEventListener('click', () => onPage(p));
+    container.appendChild(btn);
+  });
+
+  if (currentPage < totalPages) {
+    const btn = document.createElement('button');
+    btn.className = 'page-btn';
+    btn.textContent = '→';
+    btn.addEventListener('click', () => onPage(currentPage + 1));
+    container.appendChild(btn);
+  }
+}
+
+// ════════════ ATAJOS DE TECLADO GLOBALES ════════════
+function setupGlobalShortcuts() {
+  window.addEventListener('keydown', (e) => {
+    // Si el foco está en un input, ignorar atajos
+    if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
+
+    // Si el modal de reproducción está abierto, ignorar para que el modal gestione sus atajos
+    const modal = $('player-modal');
+    if (modal && !modal.classList.contains('hidden')) return;
+
+    if (e.key === '/') {
+      e.preventDefault();
+      $('global-search-input')?.focus();
+    } else if (e.key === '1') {
+      navigateTo('home');
+    } else if (e.key === '2') {
+      navigateTo('live');
+    } else if (e.key === '3') {
+      navigateTo('movies');
+    } else if (e.key === '4') {
+      navigateTo('series');
+    } else if (e.key === ' ' || e.key === 'k') {
+      if (uiState.activePage === 'live') {
+        e.preventDefault();
+        playerService.togglePlay();
+      }
+    } else if (e.key === 'ArrowRight' || e.key === 'l' || e.key === 'L') {
+      if (uiState.activePage === 'live') {
+        e.preventDefault();
+        playerService.forward(10);
+      }
+    } else if (e.key === 'ArrowLeft' || e.key === 'j' || e.key === 'J') {
+      if (uiState.activePage === 'live') {
+        e.preventDefault();
+        playerService.rewind(10);
+      }
+    } else if (e.key === 'f' || e.key === 'F') {
+      if (uiState.activePage === 'live') {
+        e.preventDefault();
+        const video = $('integrated-video');
+        if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+        else if (video) video.requestFullscreen().catch(() => {});
+      }
+    } else if (e.key === 'm' || e.key === 'M') {
+      if (uiState.activePage === 'live') {
+        e.preventDefault();
+        playerService.toggleMute();
+      }
+    }
+  });
+}
+
+// Iniciar aplicación de forma segura (soporta carga diferida de módulo ES)
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initApp);
+} else {
+  initApp();
+}
+
+// ════════════ LIVE STATS EN TIEMPO REAL ════════════
+let _statsInterval = null;
+let _statsVisible = false;
+let _statsRafId = null;
+let _lastBytesLoaded = 0;
+let _lastBytesTime = 0;
+
+function toggleLiveStats() {
+  const overlay = $('live-stats-overlay');
+  const btn = $('btn-integrated-stats');
+  if (!overlay) return;
+  _statsVisible = !_statsVisible;
+  overlay.classList.toggle('hidden', !_statsVisible);
+  if (btn) btn.classList.toggle('active', _statsVisible);
+  if (_statsVisible) {
+    startLiveStats();
+    toast('📊 Estadísticas en tiempo real activadas', 'info', 1800);
+  } else {
+    stopLiveStats();
+  }
+}
+
+function startLiveStats() {
+  stopLiveStats();
+  _statsRafId = requestAnimationFrame(updateLiveStats);
+}
+
+function stopLiveStats() {
+  if (_statsRafId) { cancelAnimationFrame(_statsRafId); _statsRafId = null; }
+  if (_statsInterval) { clearInterval(_statsInterval); _statsInterval = null; }
+}
+
+function updateLiveStats() {
+  if (!_statsVisible) return;
+  const video = $('integrated-video');
+  if (!video) { _statsRafId = requestAnimationFrame(updateLiveStats); return; }
+
+  // ── Buffer ──
+  let bufferSec = 0;
+  if (video.buffered.length > 0) {
+    bufferSec = video.buffered.end(video.buffered.length - 1) - video.currentTime;
+  }
+  const bufEl = $('stat-buffer');
+  if (bufEl) bufEl.textContent = isFinite(bufferSec) ? `${bufferSec.toFixed(1)}s` : '—';
+
+  // ── Latencia de red aproximada (currentTime vs buffered end) ──
+  let latency = 0;
+  if (video.buffered.length > 0) {
+    latency = video.buffered.end(video.buffered.length - 1) - video.currentTime;
+  }
+  const latEl = $('stat-latency');
+  if (latEl) latEl.textContent = isFinite(latency) ? `${(latency * 1000).toFixed(0)} ms` : '—';
+
+  // ── Frames caídos ──
+  const dropEl = $('stat-dropped');
+  if (dropEl) {
+    const quality = video.getVideoPlaybackQuality?.();
+    dropEl.textContent = quality ? quality.droppedVideoFrames : '0';
+  }
+
+  // ── Bitrate estimado desde Hls.js stats si disponible ──
+  const bitrateEl = $('stat-bitrate');
+  const qualEl = $('stat-quality');
+  const codecEl = $('stat-codec');
+
+  // Intentar obtener stats de Hls.js (si hay una instancia activa)
+  const hls = playerService._hls;
+  if (hls) {
+    const level = hls.levels?.[hls.currentLevel];
+    if (level) {
+      if (bitrateEl) bitrateEl.textContent = `${Math.round((level.bitrate || 0) / 1000)}`;
+      if (qualEl) qualEl.textContent = level.height ? `${level.height}p` : 'Auto';
+    }
+    const stats = hls.bandwidthEstimate;
+    if (stats && bitrateEl) bitrateEl.textContent = `${Math.round(stats / 1000)}`;
+    if (codecEl && level) codecEl.textContent = level.videoCodec || level.audioCodec || '—';
+  } else if (playerService._mpegtsPlayer) {
+    if (qualEl) qualEl.textContent = video.videoWidth ? `${video.videoWidth}×${video.videoHeight}` : 'Auto';
+    try {
+      const stats = playerService._mpegtsPlayer.statistics; // Getter in mpegts.js
+      if (stats && stats.speed && bitrateEl) {
+        bitrateEl.textContent = `${Math.round(stats.speed * 8)}`;
+      } else if (bitrateEl) {
+        bitrateEl.textContent = '—';
+      }
+    } catch (e) {
+      if (bitrateEl) bitrateEl.textContent = '—';
+    }
+  } else if (video.videoWidth) {
+    // HTML5 nativo: no hay acceso al bitrate, mostrar resolución
+    if (qualEl) qualEl.textContent = video.videoWidth ? `${video.videoWidth}×${video.videoHeight}` : 'Auto';
+    if (bitrateEl) bitrateEl.textContent = '—';
+    if (codecEl) codecEl.textContent = '—';
+  }
+
+  _statsRafId = requestAnimationFrame(updateLiveStats);
+}
+
+// ════════════ PLAYLIST ACTIVA – INDICADOR EN HEADER Y HERO ════════════
+async function updateActivePlaylistUI() {
+  try {
+    const lists = await playlistService.getAll();
+    const active = lists.find(p => p.isActive) || lists[0];
+    const name = active?.name || 'Sin playlist';
+
+    const headerName = $('header-active-pl-name');
+    if (headerName) headerName.textContent = name;
+
+    const heroChip = $('hero-playlist-name');
+    if (heroChip) heroChip.textContent = name;
+  } catch (e) {
+    console.warn('[App] No se pudo actualizar indicador de playlist activa:', e);
+  }
+}
+
+// ════════════ CONTROL PARENTAL ════════════
+function updateParentalUI() {
+  const isEnabled = parentalControlService.isEnabled;
+  const isUnlocked = parentalControlService.isUnlocked;
+
+  // Header button
+  const icon = $('parental-status-icon');
+  const label = $('parental-status-label');
+  if (icon) icon.textContent = (!isEnabled || isUnlocked) ? '🔓' : '🔒';
+  if (label) label.textContent = (!isEnabled || isUnlocked) ? '+18 Visible' : '+18 Bloqueado';
+
+  const btn = $('btn-header-parental');
+  if (btn) {
+    btn.classList.toggle('parental-unlocked', !isEnabled || isUnlocked);
+    btn.classList.toggle('parental-locked', isEnabled && !isUnlocked);
+    btn.title = (!isEnabled || isUnlocked) 
+      ? 'Contenido para adultos (+18 / XXX) visible' 
+      : 'Contenido para adultos (+18) bloqueado. Haz clic para desbloquear con PIN';
+  }
+
+  // Settings tab badges
+  const badgeEnabled = $('parental-badge-enabled');
+  const badgeDisabled = $('parental-badge-disabled');
+  const badgeUnlocked = $('parental-badge-unlocked');
+  const title = $('parental-settings-title');
+  const sub = $('parental-settings-sub');
+  const toggle = $('parental-enabled-toggle');
+
+  if (toggle) toggle.checked = isEnabled;
+
+  if (badgeEnabled) badgeEnabled.style.display = (isEnabled && !isUnlocked) ? 'inline-flex' : 'none';
+  if (badgeDisabled) badgeDisabled.style.display = !isEnabled ? 'inline-flex' : 'none';
+  if (badgeUnlocked) badgeUnlocked.style.display = (isEnabled && isUnlocked) ? 'inline-flex' : 'none';
+
+  if (title) {
+    if (!isEnabled) title.textContent = '⚪ Protección Desactivada';
+    else if (isUnlocked) title.textContent = '🔓 Sesión Desbloqueada';
+    else title.textContent = '🔒 Protección Activa';
+  }
+  if (sub) {
+    if (!isEnabled) sub.textContent = 'El control parental está desactivado. Las categorías adultas son visibles para todos.';
+    else if (isUnlocked) sub.textContent = 'Acceso desbloqueado para esta sesión. Al cerrar el navegador se vuelve a bloquear.';
+    else sub.textContent = 'Las categorías adultas están ocultas. Ingresa el PIN para desbloquear.';
+  }
+
+  // Render detected adult categories list
+  renderParentalDetectedCategories();
+
+  // Refresh live / movie / series views with new filter state
+  if (iptvService.state?.live?.length > 0) {
+    setupLiveCategories(iptvService.state.categories.live, iptvService.state.live);
+    renderLiveTVView();
+    setupMoviesView(iptvService.state.movies, iptvService.state.categories.vod);
+    setupSeriesView(iptvService.state.series, iptvService.state.categories.series);
+  }
+}
+
+function renderParentalDetectedCategories() {
+  const container = $('parental-detected-cats');
+  if (!container) return;
+  const allCats = [
+    ...(iptvService.state?.live || []).map(c => c.categoryName),
+    ...(iptvService.state?.movies || []).map(m => m.categoryName),
+    ...(iptvService.state?.series || []).map(s => s.categoryName),
+  ];
+  const unique = [...new Set(allCats)];
+  const adultCats = unique.filter(cat => parentalControlService.isAdult(cat));
+
+  if (adultCats.length === 0) {
+    container.innerHTML = '<div class="empty-state" style="padding:1rem"><div class="empty-sub">No se detectaron categorías adultas en el catálogo actual.</div></div>';
+    return;
+  }
+
+  container.innerHTML = adultCats.map(cat => `
+    <span class="parental-cat-tag">\uD83D\uDEAB ${escHtml(cat)}</span>
+  `).join('');
+}
+
+function openParentalPinModal(onSuccess) {
+  const modal = $('parental-pin-modal');
+  if (!modal) return;
+  const input = $('parental-pin-input');
+  const errEl = $('parental-pin-error');
+  if (input) { input.value = ''; }
+  if (errEl) errEl.classList.add('hidden');
+  modal.classList.remove('hidden');
+  setTimeout(() => input?.focus(), 100);
+
+  const confirm = () => {
+    const pin = input?.value?.trim() || '';
+    const ok = parentalControlService.unlock(pin);
+    if (ok) {
+      modal.classList.add('hidden');
+      if (errEl) errEl.classList.add('hidden');
+      updateParentalUI();
+      toast('🔓 Categorías adultas desbloqueadas para esta sesión.', 'success');
+      onSuccess?.();
+    } else {
+      if (errEl) errEl.classList.remove('hidden');
+      if (input) { input.value = ''; input.focus(); }
+    }
+  };
+
+  const cancel = () => { modal.classList.add('hidden'); };
+
+  const confirmBtn = $('btn-parental-pin-confirm');
+  const cancelBtn = $('btn-parental-pin-cancel');
+  // Replace event listeners each time
+  const newConfirm = confirmBtn?.cloneNode(true);
+  const newCancel = cancelBtn?.cloneNode(true);
+  if (newConfirm) { confirmBtn.replaceWith(newConfirm); newConfirm.addEventListener('click', confirm); }
+  if (newCancel) { cancelBtn.replaceWith(newCancel); newCancel.addEventListener('click', cancel); }
+
+  const newInput = $('parental-pin-input');
+  if (newInput) {
+    newInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') confirm();
+      if (e.key === 'Escape') cancel();
+    });
+  }
+
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) cancel();
+  }, { once: true });
+}
+
+function setupParentalControl() {
+  // Por defecto, asegurar que los canales para adultos (+18 / XXX) estén visibles
+  if (typeof localStorage !== 'undefined' && localStorage.getItem('iptv_parental_pin') === null) {
+    localStorage.setItem('iptv_parental_enabled', 'false');
+  }
+
+  // Header button: unlock or lock toggle
+  $('btn-header-parental')?.addEventListener('click', () => {
+    if (!parentalControlService.isEnabled) {
+      toast('🔞 Los canales para adultos están visibles. Si deseas bloquearlos con un PIN, ve a Ajustes > Control Parental.', 'info', 3500);
+      return;
+    }
+    if (parentalControlService.isUnlocked) {
+      parentalControlService.lock();
+      updateParentalUI();
+      toast('🔒 Categorías adultas bloqueadas nuevamente.', 'info');
+    } else {
+      openParentalPinModal(() => {});
+    }
+  });
+
+  // Settings tab: unlock button
+  $('btn-parental-toggle-unlock')?.addEventListener('click', () => {
+    if (!parentalControlService.isEnabled) {
+      toast('El control parental está desactivado.', 'info', 2000);
+      return;
+    }
+    if (parentalControlService.isUnlocked) {
+      toast('Ya está desbloqueado para esta sesión.', 'info', 2000);
+      return;
+    }
+    openParentalPinModal(() => {});
+  });
+
+  // Settings tab: relock button
+  $('btn-parental-relock')?.addEventListener('click', () => {
+    parentalControlService.lock();
+    updateParentalUI();
+    toast('🔒 Categorías adultas bloqueadas.', 'info');
+  });
+
+  // Settings tab: change PIN
+  $('btn-parental-change-pin')?.addEventListener('click', () => {
+    const cur = $('parental-current-pin')?.value?.trim() || '';
+    const nw = $('parental-new-pin')?.value?.trim() || '';
+    const conf = $('parental-confirm-pin')?.value?.trim() || '';
+    if (nw !== conf) { toast('Los nuevos PINes no coinciden.', 'error'); return; }
+    const result = parentalControlService.changePin(cur, nw);
+    if (result.ok) {
+      toast('✅ PIN cambiado exitosamente.', 'success');
+      $('parental-current-pin').value = '';
+      $('parental-new-pin').value = '';
+      $('parental-confirm-pin').value = '';
+    } else {
+      toast(`❌ ${result.error}`, 'error');
+    }
+  });
+
+  // Settings tab: toggle enable/disable
+  const toggle = $('parental-enabled-toggle');
+  const disablePinInput = $('parental-disable-pin');
+
+  toggle?.addEventListener('change', (e) => {
+    const enabling = e.target.checked;
+    if (enabling) {
+      const result = parentalControlService.setEnabled(true, '');
+      if (result.ok) { updateParentalUI(); toast('🛡️ Control parental activado.', 'success'); }
+    } else {
+      // Need PIN to disable
+      if (disablePinInput) disablePinInput.style.display = 'block';
+      toast('Ingresa el PIN para desactivar la protección.', 'info', 2500);
+    }
+  });
+
+  disablePinInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const pin = disablePinInput.value.trim();
+      const result = parentalControlService.setEnabled(false, pin);
+      if (result.ok) {
+        disablePinInput.style.display = 'none';
+        disablePinInput.value = '';
+        updateParentalUI();
+        toast('⚠️ Control parental desactivado. Toda la programación está visible.', 'info', 4000);
+      } else {
+        toast(`❌ ${result.error}`, 'error');
+        disablePinInput.value = '';
+      }
+    }
+  });
+
+  // Listen for parental state changes
+  parentalControlService.onChange(() => updateParentalUI());
+
+  // Initial UI update
+  updateParentalUI();
+}
+
+// ════════════ GESTOR DE CATEGORÍAS VISIBLES (MODAL Y PREVIEW) ════════════
+let _catManagerScope = 'live'; // 'live' | 'movies' | 'series'
+let _catWorkingHidden = { live: [], movies: [], series: [] };
+
+function updateSettingsCategoriesPreview() {
+  const container = $('settings-categories-preview');
+  if (!container) return;
+
+  const hidden = getHiddenCategories();
+  const liveTotal = new Set((iptvService.state?.live || []).map(c => c.categoryName)).size;
+  const liveHidden = (hidden.live || []).length;
+  const liveVisible = Math.max(0, liveTotal - liveHidden);
+
+  const moviesTotal = new Set((iptvService.state?.movies || []).map(m => m.categoryName)).size;
+  const moviesHidden = (hidden.movies || []).length;
+  const moviesVisible = Math.max(0, moviesTotal - moviesHidden);
+
+  const seriesTotal = new Set((iptvService.state?.series || []).map(s => s.categoryName)).size;
+  const seriesHidden = (hidden.series || []).length;
+  const seriesVisible = Math.max(0, seriesTotal - seriesHidden);
+
+  container.innerHTML = `
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:1rem; margin-top:0.75rem;">
+      <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:0.75rem; padding:1rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem;">
+          <strong style="color:#00e5ff; font-size:0.95rem;">📺 TV en Vivo</strong>
+          <span class="badge-mini">${liveVisible}/${liveTotal}</span>
+        </div>
+        <div style="font-size:0.8rem; color:var(--text-muted);">${liveHidden > 0 ? `🚫 ${liveHidden} categorías ocultas` : '✓ Todas visibles'}</div>
+        <button class="btn btn-secondary btn-sm" style="margin-top:0.75rem; width:100%" onclick="window.appOpenCatManager('live')">Editar TV</button>
+      </div>
+
+      <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:0.75rem; padding:1rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem;">
+          <strong style="color:#38bdf8; font-size:0.95rem;">🎬 Películas</strong>
+          <span class="badge-mini">${moviesVisible}/${moviesTotal}</span>
+        </div>
+        <div style="font-size:0.8rem; color:var(--text-muted);">${moviesHidden > 0 ? `🚫 ${moviesHidden} categorías ocultas` : '✓ Todas visibles'}</div>
+        <button class="btn btn-secondary btn-sm" style="margin-top:0.75rem; width:100%" onclick="window.appOpenCatManager('movies')">Editar Películas</button>
+      </div>
+
+      <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:0.75rem; padding:1rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem;">
+          <strong style="color:#818cf8; font-size:0.95rem;">🎭 Series</strong>
+          <span class="badge-mini">${seriesVisible}/${seriesTotal}</span>
+        </div>
+        <div style="font-size:0.8rem; color:var(--text-muted);">${seriesHidden > 0 ? `🚫 ${seriesHidden} categorías ocultas` : '✓ Todas visibles'}</div>
+        <button class="btn btn-secondary btn-sm" style="margin-top:0.75rem; width:100%" onclick="window.appOpenCatManager('series')">Editar Series</button>
+      </div>
+    </div>
+  `;
+}
+
+function openCategoryManager(initialScope = 'live') {
+  const modal = $('category-manager-modal');
+  if (!modal) return;
+
+  _catManagerScope = initialScope;
+  const current = getHiddenCategories();
+  _catWorkingHidden = {
+    live: [...(current.live || [])],
+    movies: [...(current.movies || [])],
+    series: [...(current.series || [])]
+  };
+
+  const searchInput = $('cat-manager-search');
+  if (searchInput) searchInput.value = '';
+
+  // Actualizar tabs de scope
+  document.querySelectorAll('.cat-scope-btn').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.scope === _catManagerScope);
+  });
+
+  renderCategoryManagerList();
+  modal.classList.remove('hidden');
+}
+window.appOpenCatManager = openCategoryManager;
+
+function renderCategoryManagerList() {
+  const listEl = $('cat-manager-list');
+  const counterEl = $('cat-modal-counter');
+  const searchInput = $('cat-manager-search');
+  if (!listEl) return;
+
+  let items = [];
+  let unitLabel = 'elementos';
+
+  if (_catManagerScope === 'live') {
+    items = iptvService.state?.live || [];
+    unitLabel = 'canales';
+  } else if (_catManagerScope === 'movies') {
+    items = iptvService.state?.movies || [];
+    unitLabel = 'películas';
+  } else if (_catManagerScope === 'series') {
+    items = iptvService.state?.series || [];
+    unitLabel = 'series';
+  }
+
+  // Agrupar items por categoría
+  const counts = new Map();
+  items.forEach((it) => {
+    const cat = it.categoryName || 'Sin categoría';
+    counts.set(cat, (counts.get(cat) || 0) + 1);
+  });
+
+  const allCats = [...counts.keys()].sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+  const hiddenSet = new Set(_catWorkingHidden[_catManagerScope] || []);
+
+  const searchTerm = (searchInput?.value || '').trim().toLowerCase();
+  const filteredCats = searchTerm
+    ? allCats.filter(c => c.toLowerCase().includes(searchTerm))
+    : allCats;
+
+  const total = allCats.length;
+  const hiddenCount = allCats.filter(c => hiddenSet.has(c)).length;
+  const visibleCount = total - hiddenCount;
+
+  if (counterEl) {
+    counterEl.innerHTML = `
+      <span>Mostrando <strong>${visibleCount}</strong> de <strong>${total}</strong> categorías</span>
+      <span style="color:${hiddenCount > 0 ? '#ef4444' : 'var(--text-muted)'}">${hiddenCount > 0 ? `(${hiddenCount} ocultas)` : '(todas visibles)'}</span>
+    `;
+  }
+
+  if (filteredCats.length === 0) {
+    listEl.innerHTML = `
+      <div class="empty-state" style="padding:2rem">
+        <div class="empty-icon">🔍</div>
+        <div class="empty-title">Sin resultados</div>
+        <div class="empty-sub">${searchTerm ? 'No hay categorías que coincidan con la búsqueda.' : 'No hay categorías cargadas en esta sección.'}</div>
+      </div>
+    `;
+    return;
+  }
+
+  listEl.innerHTML = '';
+  filteredCats.forEach((cat) => {
+    const isAdult = parentalControlService.isAdult(cat);
+    const isHidden = hiddenSet.has(cat);
+    const count = counts.get(cat) || 0;
+
+    const row = document.createElement('div');
+    row.className = `cat-checkbox-row ${isHidden ? 'is-hidden' : ''}`;
+    row.innerHTML = `
+      <div class="cat-row-left">
+        <input type="checkbox" class="cat-row-check" ${!isHidden ? 'checked' : ''} />
+        <span class="cat-row-name" title="${escHtml(cat)}">${escHtml(cat)}</span>
+      </div>
+      <div class="cat-row-badges">
+        ${isAdult ? '<span class="cat-adult-tag">🔞 +18</span>' : ''}
+        <span class="cat-count-badge">${count} ${unitLabel}</span>
+      </div>
+    `;
+
+    const toggleRow = (e) => {
+      const chk = row.querySelector('.cat-row-check');
+      const shouldBeVisible = (e.target === chk) ? chk.checked : !chk.checked;
+      chk.checked = shouldBeVisible;
+
+      if (shouldBeVisible) {
+        hiddenSet.delete(cat);
+        row.classList.remove('is-hidden');
+      } else {
+        hiddenSet.add(cat);
+        row.classList.add('is-hidden');
+      }
+
+      _catWorkingHidden[_catManagerScope] = [...hiddenSet];
+
+      // Actualizar contador
+      const currentHidden = allCats.filter(c => hiddenSet.has(c)).length;
+      const currentVisible = total - currentHidden;
+      if (counterEl) {
+        counterEl.innerHTML = `
+          <span>Mostrando <strong>${currentVisible}</strong> de <strong>${total}</strong> categorías</span>
+          <span style="color:${currentHidden > 0 ? '#ef4444' : 'var(--text-muted)'}">${currentHidden > 0 ? `(${currentHidden} ocultas)` : '(todas visibles)'}</span>
+        `;
+      }
+    };
+
+    row.addEventListener('click', toggleRow);
+    const chk = row.querySelector('.cat-row-check');
+    chk.addEventListener('click', (e) => e.stopPropagation());
+    chk.addEventListener('change', toggleRow);
+
+    listEl.appendChild(row);
+  });
+}
+
+function setupCategoryManager() {
+  const modal = $('category-manager-modal');
+  const closeBtn = $('btn-cat-modal-close');
+  const cancelBtn = $('btn-cat-manager-cancel');
+  const saveBtn = $('btn-cat-manager-save');
+  const searchInput = $('cat-manager-search');
+  const showAllBtn = $('btn-cat-show-all');
+  const hideAdultBtn = $('btn-cat-hide-adult');
+  const hideAllBtn = $('btn-cat-hide-all');
+  const openLiveBtn = $('btn-open-cat-manager');
+  const openSettingsBtn = $('btn-open-cat-manager-settings');
+
+  // Botón abrir desde TV en Vivo
+  openLiveBtn?.addEventListener('click', () => openCategoryManager('live'));
+
+  // Botón abrir desde Ajustes
+  openSettingsBtn?.addEventListener('click', () => openCategoryManager('live'));
+
+  // Tabs de scope (TV, Películas, Series)
+  document.querySelectorAll('.cat-scope-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.cat-scope-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      _catManagerScope = btn.dataset.scope || 'live';
+      if (searchInput) searchInput.value = '';
+      renderCategoryManagerList();
+    });
+  });
+
+  // Búsqueda en tiempo real
+  searchInput?.addEventListener('input', () => {
+    renderCategoryManagerList();
+  });
+
+  // Botón Mostrar Todas
+  showAllBtn?.addEventListener('click', () => {
+    _catWorkingHidden[_catManagerScope] = [];
+    renderCategoryManagerList();
+    toast('✓ Todas las categorías marcadas como visibles', 'info', 2000);
+  });
+
+  // Botón Ocultar +18 / XXX
+  hideAdultBtn?.addEventListener('click', () => {
+    let items = [];
+    if (_catManagerScope === 'live') items = iptvService.state?.live || [];
+    else if (_catManagerScope === 'movies') items = iptvService.state?.movies || [];
+    else if (_catManagerScope === 'series') items = iptvService.state?.series || [];
+
+    const adultCats = [...new Set(items.map(it => it.categoryName))]
+      .filter(cat => parentalControlService.isAdult(cat));
+
+    const hiddenSet = new Set(_catWorkingHidden[_catManagerScope] || []);
+    adultCats.forEach(c => hiddenSet.add(c));
+    _catWorkingHidden[_catManagerScope] = [...hiddenSet];
+
+    renderCategoryManagerList();
+    toast(`🔞 ${adultCats.length} categorías para adultos desmarcadas`, 'info', 2500);
+  });
+
+  // Botón Ocultar Todas
+  hideAllBtn?.addEventListener('click', () => {
+    let items = [];
+    if (_catManagerScope === 'live') items = iptvService.state?.live || [];
+    else if (_catManagerScope === 'movies') items = iptvService.state?.movies || [];
+    else if (_catManagerScope === 'series') items = iptvService.state?.series || [];
+
+    const allCats = [...new Set(items.map(it => it.categoryName))];
+    _catWorkingHidden[_catManagerScope] = [...allCats];
+    renderCategoryManagerList();
+    toast('✖ Todas las categorías desmarcadas para ocultar', 'info', 2000);
+  });
+
+  // Botón Guardar y Aplicar
+  saveBtn?.addEventListener('click', () => {
+    saveHiddenCategories(_catWorkingHidden);
+    modal?.classList.add('hidden');
+
+    // Refrescar vistas
+    if (iptvService.state?.live?.length > 0) {
+      setupLiveCategories(iptvService.state.categories.live, iptvService.state.live);
+      renderLiveTVView();
+      setupMoviesView(iptvService.state.movies, iptvService.state.categories.vod);
+      setupSeriesView(iptvService.state.series, iptvService.state.categories.series);
+    }
+    updateSettingsCategoriesPreview();
+    toast('✓ Preferencias de categorías guardadas y aplicadas', 'success');
+  });
+
+  // Botones Cerrar / Cancelar
+  const closeModal = () => modal?.classList.add('hidden');
+  closeBtn?.addEventListener('click', closeModal);
+  cancelBtn?.addEventListener('click', closeModal);
+
+  modal?.addEventListener('click', (e) => {
+    if (e.target === modal) closeModal();
+  });
+}
+

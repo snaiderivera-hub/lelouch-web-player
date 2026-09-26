@@ -1,0 +1,95 @@
+﻿{
+    "Before":  {
+                   "MinMs":  230.69,
+                   "AvgMs":  626.45,
+                   "MaxMs":  1008.44
+               },
+    "After":  {
+                  "MinMs":  15.83,
+                  "AvgMs":  63.58,
+                  "MaxMs":  191.98,
+                  "Queries":  [
+                                  {
+                                      "Query":  "avengers",
+                                      "TimeMs":  191.98,
+                                      "Matches":  9,
+                                      "LiveCount":  0,
+                                      "MoviesCount":  8,
+                                      "SeriesCount":  1
+                                  },
+                                  {
+                                      "Query":  "espn",
+                                      "TimeMs":  95.07,
+                                      "Matches":  7,
+                                      "LiveCount":  3,
+                                      "MoviesCount":  3,
+                                      "SeriesCount":  1
+                                  },
+                                  {
+                                      "Query":  "noticias",
+                                      "TimeMs":  94.18,
+                                      "Matches":  6,
+                                      "LiveCount":  3,
+                                      "MoviesCount":  3,
+                                      "SeriesCount":  0
+                                  },
+                                  {
+                                      "Query":  "batman",
+                                      "TimeMs":  26.91,
+                                      "Matches":  12,
+                                      "LiveCount":  0,
+                                      "MoviesCount":  8,
+                                      "SeriesCount":  4
+                                  },
+                                  {
+                                      "Query":  "hbo",
+                                      "TimeMs":  42.55,
+                                      "Matches":  15,
+                                      "LiveCount":  3,
+                                      "MoviesCount":  8,
+                                      "SeriesCount":  4
+                                  },
+                                  {
+                                      "Query":  "mexico",
+                                      "TimeMs":  49.62,
+                                      "Matches":  14,
+                                      "LiveCount":  2,
+                                      "MoviesCount":  8,
+                                      "SeriesCount":  4
+                                  },
+                                  {
+                                      "Query":  "2024",
+                                      "TimeMs":  15.83,
+                                      "Matches":  12,
+                                      "LiveCount":  0,
+                                      "MoviesCount":  8,
+                                      "SeriesCount":  4
+                                  },
+                                  {
+                                      "Query":  "futbol",
+                                      "TimeMs":  67.12,
+                                      "Matches":  15,
+                                      "LiveCount":  3,
+                                      "MoviesCount":  8,
+                                      "SeriesCount":  4
+                                  },
+                                  {
+                                      "Query":  "spider",
+                                      "TimeMs":  23.55,
+                                      "Matches":  12,
+                                      "LiveCount":  0,
+                                      "MoviesCount":  8,
+                                      "SeriesCount":  4
+                                  },
+                                  {
+                                      "Query":  "disney",
+                                      "TimeMs":  28.97,
+                                      "Matches":  15,
+                                      "LiveCount":  3,
+                                      "MoviesCount":  8,
+                                      "SeriesCount":  4
+                                  }
+                              ]
+              },
+    "Improvement":  "9.9x mas rapido"
+}
