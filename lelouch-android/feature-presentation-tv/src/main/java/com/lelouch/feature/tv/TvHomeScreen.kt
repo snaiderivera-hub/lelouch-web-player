@@ -252,6 +252,10 @@ fun TvHomeScreen(
         )
     }
 
+    val topRatedMovies = remember(displayMovies) {
+        displayMovies.sortedByDescending { it.rating ?: 0.0 }
+    }
+
     // Catálogo de series (incluye Demon Slayer de EveryCine como primera opción)
     val displaySeries = remember(seriesList) {
         if (seriesList.isNotEmpty()) seriesList
@@ -465,8 +469,111 @@ fun TvHomeScreen(
                         KeyEvent.KEYCODE_BACK -> "BACK"
                         else -> null
                     }
-                    if (keyName != null) {
-                        focusTracker.recordKey(keyName)
+                    if (keyName != null && selectedTopTab == 2) {
+                        val currentZone = focusTracker.currentZone
+                        val currentIndex = focusTracker.lastCardIndex
+
+                        var targetTag = focusTracker.currentTag
+                        var targetZone = currentZone
+                        var targetIndex = currentIndex
+
+                        when (keyName) {
+                            "DPAD_UP" -> {
+                                when (currentZone) {
+                                    TvFocusZone.RAIL_RECENT -> {
+                                        targetTag = "hero_play"
+                                        targetZone = TvFocusZone.HERO
+                                        targetIndex = 0
+                                    }
+                                    TvFocusZone.RAIL_TOP_RATED -> {
+                                        targetIndex = focusTracker.recentMovieLastIndex.coerceIn(0, (displayMovies.size - 1).coerceAtLeast(0))
+                                        targetTag = "movies_recent_${displayMovies.getOrNull(targetIndex)?.streamId ?: targetIndex}"
+                                        targetZone = TvFocusZone.RAIL_RECENT
+                                    }
+                                    TvFocusZone.HERO -> {
+                                        targetTag = "nav_movies"
+                                        targetZone = TvFocusZone.TOP_NAV
+                                        targetIndex = 2
+                                    }
+                                    else -> {}
+                                }
+                            }
+                            "DPAD_DOWN" -> {
+                                when (currentZone) {
+                                    TvFocusZone.TOP_NAV -> {
+                                        targetTag = "hero_play"
+                                        targetZone = TvFocusZone.HERO
+                                        targetIndex = 0
+                                    }
+                                    TvFocusZone.HERO -> {
+                                        targetIndex = focusTracker.recentMovieLastIndex.coerceIn(0, (displayMovies.size - 1).coerceAtLeast(0))
+                                        targetTag = "movies_recent_${displayMovies.getOrNull(targetIndex)?.streamId ?: targetIndex}"
+                                        targetZone = TvFocusZone.RAIL_RECENT
+                                    }
+                                    TvFocusZone.RAIL_RECENT -> {
+                                        targetIndex = focusTracker.topRatedMovieLastIndex.coerceIn(0, (topRatedMovies.size - 1).coerceAtLeast(0))
+                                        targetTag = "movies_top_${topRatedMovies.getOrNull(targetIndex)?.streamId ?: targetIndex}"
+                                        targetZone = TvFocusZone.RAIL_TOP_RATED
+                                    }
+                                    TvFocusZone.RAIL_TOP_RATED -> {
+                                        targetTag = focusTracker.currentTag
+                                        targetZone = TvFocusZone.RAIL_TOP_RATED
+                                        targetIndex = currentIndex
+                                    }
+                                    else -> {}
+                                }
+                            }
+                            "DPAD_LEFT" -> {
+                                when (currentZone) {
+                                    TvFocusZone.RAIL_RECENT -> {
+                                        targetIndex = (currentIndex - 1).coerceAtLeast(0)
+                                        targetTag = "movies_recent_${displayMovies.getOrNull(targetIndex)?.streamId ?: targetIndex}"
+                                    }
+                                    TvFocusZone.RAIL_TOP_RATED -> {
+                                        targetIndex = (currentIndex - 1).coerceAtLeast(0)
+                                        targetTag = "movies_top_${topRatedMovies.getOrNull(targetIndex)?.streamId ?: targetIndex}"
+                                    }
+                                    TvFocusZone.HERO -> {
+                                        targetTag = "hero_play"
+                                        targetIndex = 0
+                                    }
+                                    TvFocusZone.TOP_NAV -> {
+                                        targetIndex = (currentIndex - 1).coerceAtLeast(0)
+                                        targetTag = "nav_${topTabs.getOrNull(targetIndex)?.lowercase() ?: targetIndex}"
+                                    }
+                                    else -> {}
+                                }
+                            }
+                            "DPAD_RIGHT" -> {
+                                when (currentZone) {
+                                    TvFocusZone.RAIL_RECENT -> {
+                                        targetIndex = (currentIndex + 1).coerceAtMost(displayMovies.lastIndex)
+                                        targetTag = "movies_recent_${displayMovies.getOrNull(targetIndex)?.streamId ?: targetIndex}"
+                                    }
+                                    TvFocusZone.RAIL_TOP_RATED -> {
+                                        targetIndex = (currentIndex + 1).coerceAtMost(topRatedMovies.lastIndex)
+                                        targetTag = "movies_top_${topRatedMovies.getOrNull(targetIndex)?.streamId ?: targetIndex}"
+                                    }
+                                    TvFocusZone.HERO -> {
+                                        targetTag = "hero_detail"
+                                        targetIndex = 1
+                                    }
+                                    TvFocusZone.TOP_NAV -> {
+                                        targetIndex = (currentIndex + 1).coerceAtMost(topTabs.lastIndex)
+                                        targetTag = "nav_${topTabs.getOrNull(targetIndex)?.lowercase() ?: targetIndex}"
+                                    }
+                                    else -> {}
+                                }
+                            }
+                        }
+
+                        focusTracker.recordKeyRequest(
+                            key = keyName,
+                            targetTag = targetTag,
+                            targetZone = targetZone,
+                            targetIndex = targetIndex,
+                            consumed = true
+                        )
                     }
                 }
                 false
@@ -1522,6 +1629,13 @@ fun TvHomeScreen(
                                 items = moviesToRender,
                                 key = { _, movie -> "movie_${movie.streamId}" }
                             ) { index, movie ->
+                                DisposableEffect(index) {
+                                    focusTracker.composedRecentIndices.add(index)
+                                    onDispose {
+                                        focusTracker.composedRecentIndices.remove(index)
+                                    }
+                                }
+
                                 val cardRequester = focusTracker.getRecentRequester(index)
                                 val cardTag = "movies_recent_${movie.streamId}"
                                 val isMoviesTab = (selectedTopTab == 2)
@@ -1596,6 +1710,13 @@ fun TvHomeScreen(
                                 items = topRatedMovies,
                                 key = { _, movie -> "top_movie_${movie.streamId}" }
                             ) { index, movie ->
+                                DisposableEffect(index) {
+                                    focusTracker.composedTopRatedIndices.add(index)
+                                    onDispose {
+                                        focusTracker.composedTopRatedIndices.remove(index)
+                                    }
+                                }
+
                                 val cardRequester = focusTracker.getTopRatedRequester(index)
                                 val cardTag = "movies_top_${movie.streamId}"
                                 val cardModifier = Modifier
@@ -2223,8 +2344,8 @@ fun TvHomeScreen(
             }
         }
 
-        // HUD de Depuración en tiempo real para Xiaomi TV Box Remote (Paso 3)
-        if (!isFullscreen) {
+        // HUD solo DEBUG (condicionado por BuildConfig.DEBUG)
+        if (com.lelouch.feature.tv.BuildConfig.DEBUG && !isFullscreen) {
             FocusDebugHud(
                 tracker = focusTracker,
                 modifier = Modifier.align(Alignment.TopEnd)

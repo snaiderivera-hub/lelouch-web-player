@@ -120,16 +120,38 @@ Esto erradica la destrucción y recreación en bucle de la `TvLazyColumn` durant
 
 ## 5. Herramientas de Verificación Física en Xiaomi TV Box
 
-### A. Focus Debug HUD en Pantalla (Paso 3)
-Visible en la esquina superior derecha del televisor:
-- **KEY**: Última tecla física presionada (`DPAD_UP`, `DPAD_DOWN`, `DPAD_LEFT`, `DPAD_RIGHT`, `DPAD_CENTER`, `BACK`).
-- **ZONE**: Zona activa (`TOP_NAV`, `HERO`, `RAIL_RECENT`, `RAIL_TOP_RATED`).
-- **FOCUS**: ID único del nodo enfocado (ej: `movies_recent_14`, `hero_play`, `nav_movies`).
-- **INDEX**: `[Row 1 | Card #13]`.
-- **RAIL MEMORY**: Registro en vivo de los últimos índices por fila.
+### A. Focus Debug HUD de Ciclo Completo (Paso 3 y Nueva Directiva)
+Visible en la esquina superior derecha del televisor, **exclusivamente condicionado a compilaciones DEBUG** (`BuildConfig.DEBUG`):
+
+```text
+┌────────────────────────────────────────────────────────┐
+│ XIAOMI D-PAD TRACE                             MOVIES  │
+│ KEY: DPAD_DOWN                        CONSUMED: TRUE   │
+│ ┌────────────────────────────────────────────────────┐ │
+│ │ RESULT: SUCCESS                                    │ │ ◄── [Código de Colores Dinámico]
+│ └────────────────────────────────────────────────────┘ │
+│ BEFORE:  movies_recent_14                              │
+│          [RAIL_RECENT | #14]                           │
+│ TARGET:  movies_top_1                                  │
+│          [RAIL_TOP_RATED | #0]                         │
+│ AFTER:   movies_top_1                                  │
+│          [RAIL_TOP_RATED | #0]                         │
+│ MEMORY:  RECENT=#14 | TOP_RATED=#0                     │
+└────────────────────────────────────────────────────────┘
+```
+
+#### Estados Estrictos de `RESULT`:
+- `SUCCESS` (Verde `#10B981`): Confirmado **únicamente** cuando `onFocusChanged` certifica que el Composable destino obtuvo foco real (`isFocused = true`).
+- `UNCHANGED` (Amarillo `#FFD700`): El evento no desplazó el foco (el foco permaneció en el elemento de origen).
+- `TARGET_NOT_COMPOSED` (Naranja `#FF8C00`): El destino solicitado en `TvLazyRow` no ha sido compuesto por Compose (virtualización fuera de memoria).
+- `FOCUS_LOST` (Rojo `#EF4444`): Ningún control en la jerarquía retuvo o ganó foco (`currentTag = NONE`).
+- `REQUEST_FAILED` (Magenta `#EC4899`): El foco se movió a un elemento distinto del destino esperado.
+
+> [!IMPORTANT]
+> **Sin Delays Arbitrarios**: No se utiliza ningún `delay()` para deducir el estado `AFTER`. El estado proviene en tiempo real del evento `onFocusChanged` disparado por el sistema de foco de Compose.
 
 ### B. Laboratorio Aislado: DpadFocusLabScreen (Paso 11)
-Disponible directamente seleccionando la nueva pestaña **"🧪 Lab"** en el Top Nav (o con `selectedTopTab == 6`):
+Disponible directamente seleccionando la pestaña **"🧪 Lab"** en el Top Nav (o `selectedTopTab == 6`):
 - 0 llamadas de red (sin Xtream).
 - 0 imágenes Coil.
 - 0 instancias de ExoPlayer / Room.
@@ -138,20 +160,27 @@ Disponible directamente seleccionando la nueva pestaña **"🧪 Lab"** en el Top
   - `ROW A`: `[A1]` a `[A5]`
   - `ROW B`: `[B1]` a `[B5]`
   - `ROW C`: `[C1]` a `[C5]`
-Permite certificar que el hardware de Xiaomi TV Box y el protocolo Bluetooth del control XMRM-M3 responden al 100% sin latencia.
+Certifica que el hardware de Xiaomi TV Box y el protocolo Bluetooth del control XMRM-M3 responden al 100% de manera determinista.
 
 ---
 
 ## 6. Secuencia Obligatoria de Validación Física (Criterio de Éxito)
 
 En el televisor Xiaomi TV Box:
-1. Iniciar la aplicación (abre directamente en pestaña Películas con el HUD activo).
-2. Ejecutar la secuencia de prueba:
-   - `RIGHT x 14` (llega a la película 14 de Recientes)
-   - `DOWN` (debe saltar limpiamente al Riel Top Rated en Card 0)
-   - `RIGHT x 8` (avanza a la película 8 de Top Rated)
-   - `UP` (debe saltar exactamente a la película 14 de Recientes)
-   - `UP` (debe saltar al botón Hero "Ver Película")
-   - `UP` (debe saltar a la pestaña "Películas" en Top Nav)
-   - `DOWN` -> `DOWN` -> `DOWN` (no debe perderse ni pasar a `FOCUS = NONE`)
-3. Verificar en HUD que `FOCUS` nunca muestre `NONE` y que ningún evento quede atrapado.
+1. Iniciar la aplicación (abre directamente en **Películas** con el HUD visible arriba a la derecha).
+2. Ejecutar la secuencia física de prueba en el control remoto:
+   - `RIGHT x 15` (recorre de la película 0 a la 15 en Recientes)
+   - `DOWN` (salta al Riel Top Rated en Card 0)
+   - `RIGHT x 8` (avanza hasta la tarjeta 8 en Top Rated)
+   - `DOWN` (límite inferior: permanece en Card 8, `RESULT = UNCHANGED`, nunca `FOCUS_LOST`)
+   - `LEFT x 5` (retrocede a Card 3 en Top Rated)
+   - `UP` (salta exactamente a Card 15 de Recientes, comprobando memoria de riel)
+   - `UP` (salta al botón "Ver Película" del Hero Spotlight)
+   - `DOWN` (retorna a Card 15 de Recientes)
+3. Mirar la TV y confirmar en el HUD:
+   - `KEY`
+   - `BEFORE`
+   - `TARGET`
+   - `AFTER`
+   - `RESULT = SUCCESS` en cada transición válida.
+   - **0 focus lost**, **0 saltos geométricos fallidos**.
