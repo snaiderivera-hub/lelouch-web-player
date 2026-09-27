@@ -45,7 +45,9 @@ import com.lelouch.core.player.rememberLelouchPlayer
 import com.lelouch.feature.tv.components.MediaDetailUiModel
 import com.lelouch.feature.tv.components.TvMediaDetailModal
 import com.lelouch.feature.tv.components.TvPosterCard
+import com.lelouch.feature.tv.components.TvSearchModal
 import kotlinx.coroutines.delay
+
 
 data class ChannelUiModel(
     val streamId: Int,
@@ -120,8 +122,10 @@ fun TvHomeScreen(
 
     // Modal de Detalle de Película / Serie
     var activeDetailMedia by remember { mutableStateOf<MediaDetailUiModel?>(null) }
+    var isSearchModalVisible by remember { mutableStateOf(false) }
 
     var isFullscreen by remember { mutableStateOf(false) }
+
     var isHudVisible by remember { mutableStateOf(false) }
     var selectedTopTab by remember { mutableIntStateOf(0) } // 0 = Inicio, 1 = En Vivo, 2 = Películas, 3 = Series, 4 = Favoritos
     val topTabs = listOf("Inicio", "En Vivo", "Películas", "Series", "Favoritos")
@@ -279,7 +283,27 @@ fun TvHomeScreen(
 
                         Spacer(modifier = Modifier.weight(1f))
 
+                        var isSearchFocused by remember { mutableStateOf(false) }
+                        Box(
+                            modifier = Modifier
+                                .onFocusChanged { isSearchFocused = it.isFocused }
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSearchFocused) LelouchCyanAccent.copy(alpha = 0.25f) else Color.Transparent)
+                                .border(1.dp, if (isSearchFocused) LelouchCyanAccent else Color.Transparent, RoundedCornerShape(8.dp))
+                                .clickable { isSearchModalVisible = true }
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = "🔍 Buscar",
+                                color = if (isSearchFocused) LelouchTextPrimary else LelouchTextSecondary,
+                                fontSize = 14.sp
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(16.dp))
+
                         // Indicador de Estado de Conexión & Resolución
+
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.padding(end = 16.dp)
@@ -859,5 +883,49 @@ fun TvHomeScreen(
                 }
             }
         }
+
+        // CAPA 6: Modal de Búsqueda FTS5 Instantánea
+        if (isSearchModalVisible) {
+            TvSearchModal(
+                channels = liveChannels,
+                movies = movies,
+                seriesList = seriesList,
+                onSelectChannel = { channel ->
+                    val idx = displayChannels.indexOfFirst { it.streamId == channel.streamId }
+                    if (idx >= 0) focusedChannelIndex = idx
+                    selectedTopTab = 1
+                    isSearchModalVisible = false
+                },
+                onSelectMovie = { movie ->
+                    activeDetailMedia = MediaDetailUiModel(
+                        id = movie.streamId,
+                        title = movie.name,
+                        posterUrl = movie.streamIcon,
+                        rating = movie.rating ?: 0.0,
+                        year = movie.year,
+                        isSeries = false,
+                        isFavorite = movie.isFavorite
+                    )
+                    isSearchModalVisible = false
+                },
+                onSelectSeries = { series ->
+                    activeDetailMedia = MediaDetailUiModel(
+                        id = series.seriesId,
+                        title = series.name,
+                        posterUrl = series.cover,
+                        rating = series.rating ?: 0.0,
+                        year = series.releaseDate?.take(4),
+                        synopsis = series.plot ?: "Serie completa en catálogo.",
+                        genre = series.genre,
+                        isSeries = true,
+                        isFavorite = series.isFavorite,
+                        seasons = listOf(1, 2)
+                    )
+                    isSearchModalVisible = false
+                },
+                onDismiss = { isSearchModalVisible = false }
+            )
+        }
     }
 }
+
