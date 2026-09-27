@@ -42,11 +42,13 @@ import com.lelouch.core.network.XtreamUrlBuilder
 import com.lelouch.core.player.LelouchVideoPlayer
 import com.lelouch.core.player.PlaybackState
 import com.lelouch.core.player.rememberLelouchPlayer
+import com.lelouch.feature.tv.components.EpgTimelineModal
 import com.lelouch.feature.tv.components.MediaDetailUiModel
 import com.lelouch.feature.tv.components.TvMediaDetailModal
 import com.lelouch.feature.tv.components.TvPosterCard
 import com.lelouch.feature.tv.components.TvSearchModal
 import kotlinx.coroutines.delay
+
 
 
 data class ChannelUiModel(
@@ -123,8 +125,10 @@ fun TvHomeScreen(
     // Modal de Detalle de Película / Serie
     var activeDetailMedia by remember { mutableStateOf<MediaDetailUiModel?>(null) }
     var isSearchModalVisible by remember { mutableStateOf(false) }
+    var isEpgModalVisible by remember { mutableStateOf(false) }
 
     var isFullscreen by remember { mutableStateOf(false) }
+
 
     var isHudVisible by remember { mutableStateOf(false) }
     var selectedTopTab by remember { mutableIntStateOf(0) } // 0 = Inicio, 1 = En Vivo, 2 = Películas, 3 = Series, 4 = Favoritos
@@ -490,8 +494,39 @@ fun TvHomeScreen(
                                     )
                                 }
                             }
+
+                            var isEpgFocused by remember { mutableStateOf(false) }
+                            Box(
+                                modifier = Modifier
+                                    .onFocusChanged { isEpgFocused = it.isFocused }
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isEpgFocused) LelouchCyanAccent.copy(alpha = 0.25f) else Color.Transparent)
+                                    .border(
+                                        width = if (isEpgFocused) 2.dp else 1.dp,
+                                        color = if (isEpgFocused) LelouchCyanAccent else LelouchBorder,
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
+                                    .clickable { isEpgModalVisible = true }
+                                    .padding(horizontal = 14.dp, vertical = 10.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.CalendarToday,
+                                        contentDescription = null,
+                                        tint = if (isEpgFocused) LelouchCyanAccent else LelouchTextSecondary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Guía EPG",
+                                        color = if (isEpgFocused) LelouchTextPrimary else LelouchTextSecondary,
+                                        fontSize = 13.sp
+                                    )
+                                }
+                            }
                         }
                     }
+
                 }
 
                 // SECCIÓN 1: Canales en Vivo (Visible en Inicio, En Vivo y Favoritos)
@@ -926,6 +961,21 @@ fun TvHomeScreen(
                 onDismiss = { isSearchModalVisible = false }
             )
         }
+
+        // CAPA 7: Modal de Guía Electrónica (EPG) Timeline
+        if (isEpgModalVisible) {
+            EpgTimelineModal(
+                channels = liveChannels,
+                onSelectChannel = { channel ->
+                    val idx = displayChannels.indexOfFirst { it.streamId == channel.streamId }
+                    if (idx >= 0) focusedChannelIndex = idx
+                    selectedTopTab = 1
+                    isEpgModalVisible = false
+                },
+                onDismiss = { isEpgModalVisible = false }
+            )
+        }
     }
 }
+
 
