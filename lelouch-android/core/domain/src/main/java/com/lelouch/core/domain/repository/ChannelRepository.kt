@@ -9,6 +9,7 @@ interface ChannelRepository {
     fun getChannelsByCategory(categoryId: String): Flow<List<LiveStream>>
     fun getFavoriteChannels(): Flow<List<LiveStream>>
     fun getFeaturedChannels(limit: Int = 30): Flow<List<LiveStream>>
+    fun getAllChannels(sourceId: String? = null): Flow<List<LiveStream>>
     suspend fun toggleFavorite(streamId: Int, isFavorite: Boolean)
     suspend fun syncChannels(sourceId: String, serverUrl: String, user: String, pass: String): Result<Unit>
 }

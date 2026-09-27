@@ -77,6 +77,8 @@ fun LelouchVideoPlayer(
                         ViewGroup.LayoutParams.MATCH_PARENT
                     )
                     useController = false
+                    isFocusable = false
+                    isFocusableInTouchMode = false
                     this.resizeMode = resizeMode
                     player = playerEngine.exoPlayer
                 }

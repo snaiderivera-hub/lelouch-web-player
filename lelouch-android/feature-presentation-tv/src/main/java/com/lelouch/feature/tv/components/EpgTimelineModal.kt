@@ -4,6 +4,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -12,9 +13,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -35,6 +40,7 @@ import java.util.*
 /**
  * TV Electronic Program Guide (EPG) Timeline Grid dialog with 2-hour horizontal timeline slots.
  */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun EpgTimelineModal(
     channels: List<LiveStream>,
@@ -52,6 +58,12 @@ fun EpgTimelineModal(
             timeFormat.format(Date(currentTime + 90 * 60 * 1000)),
             timeFormat.format(Date(currentTime + 120 * 60 * 1000))
         )
+    }
+
+    val firstItemFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        firstItemFocusRequester.requestFocus()
     }
 
     Dialog(
@@ -89,6 +101,8 @@ fun EpgTimelineModal(
                     var isCloseFocused by remember { mutableStateOf(false) }
                     Box(
                         modifier = Modifier
+                            .focusRequester(firstItemFocusRequester)
+                            .focusable()
                             .onFocusChanged { isCloseFocused = it.isFocused }
                             .clip(RoundedCornerShape(8.dp))
                             .background(if (isCloseFocused) LelouchCyanAccent else LelouchSurface)
@@ -151,6 +165,7 @@ fun EpgTimelineModal(
                                 modifier = Modifier
                                     .width(190.dp)
                                     .height(65.dp)
+                                    .focusable()
                                     .onFocusChanged { isChannelFocused = it.isFocused }
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(if (isChannelFocused) LelouchCardFocused else LelouchSurface)
@@ -180,6 +195,7 @@ fun EpgTimelineModal(
 
                             // Riel de Programas Horizontales (Bloque Now & Next)
                             TvLazyRow(
+                                modifier = Modifier.focusRestorer(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 val programs = listOf(
@@ -215,7 +231,10 @@ fun EpgTimelineModal(
                                     )
                                 )
 
-                                itemsIndexed(programs) { progIndex, program ->
+                                itemsIndexed(
+                                    items = programs,
+                                    key = { _, prog -> prog.id }
+                                ) { progIndex, program ->
                                     var isProgFocused by remember { mutableStateOf(false) }
                                     val isLiveNow = (progIndex == 0)
 
@@ -223,6 +242,7 @@ fun EpgTimelineModal(
                                         modifier = Modifier
                                             .width(220.dp)
                                             .height(65.dp)
+                                            .focusable()
                                             .onFocusChanged { isProgFocused = it.isFocused }
                                             .clip(RoundedCornerShape(8.dp))
                                             .background(

@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Bundle
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
@@ -122,9 +123,9 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            val liveChannels by app.channelRepository.getFeaturedChannels(50).collectAsStateWithLifecycle(initialValue = emptyList())
-            val movies by app.vodRepository.getRecentlyAddedMovies(40).collectAsStateWithLifecycle(initialValue = emptyList())
-            val seriesList by app.seriesRepository.getFeaturedSeries(30).collectAsStateWithLifecycle(initialValue = emptyList())
+            val liveChannels by (if (activeSource != null) app.channelRepository.getAllChannels(activeSource!!.id) else app.channelRepository.getAllChannels()).collectAsStateWithLifecycle(initialValue = emptyList())
+            val movies by app.vodRepository.getRecentlyAddedMovies(150).collectAsStateWithLifecycle(initialValue = emptyList())
+            val seriesList by app.seriesRepository.getFeaturedSeries(100).collectAsStateWithLifecycle(initialValue = emptyList())
             val favoriteChannels by app.channelRepository.getFavoriteChannels().collectAsStateWithLifecycle(initialValue = emptyList())
             val favoriteMovies by app.vodRepository.getFavoriteMovies().collectAsStateWithLifecycle(initialValue = emptyList())
 
@@ -216,6 +217,35 @@ class MainActivity : ComponentActivity() {
             }
 
         }
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Telemetría segura de teclas del control remoto Xiaomi (sin URLs ni credenciales)
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            val keyName = when (event.keyCode) {
+                KeyEvent.KEYCODE_DPAD_UP -> "DPAD_UP"
+                KeyEvent.KEYCODE_DPAD_DOWN -> "DPAD_DOWN"
+                KeyEvent.KEYCODE_DPAD_LEFT -> "DPAD_LEFT"
+                KeyEvent.KEYCODE_DPAD_RIGHT -> "DPAD_RIGHT"
+                KeyEvent.KEYCODE_DPAD_CENTER -> "DPAD_CENTER"
+                KeyEvent.KEYCODE_ENTER -> "ENTER"
+                KeyEvent.KEYCODE_NUMPAD_ENTER -> "NUMPAD_ENTER"
+                KeyEvent.KEYCODE_BACK -> "BACK"
+                KeyEvent.KEYCODE_CHANNEL_UP -> "CHANNEL_UP"
+                KeyEvent.KEYCODE_CHANNEL_DOWN -> "CHANNEL_DOWN"
+                KeyEvent.KEYCODE_PAGE_UP -> "PAGE_UP"
+                KeyEvent.KEYCODE_PAGE_DOWN -> "PAGE_DOWN"
+                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> "MEDIA_PLAY_PAUSE"
+                KeyEvent.KEYCODE_MEDIA_PLAY -> "MEDIA_PLAY"
+                KeyEvent.KEYCODE_MEDIA_PAUSE -> "MEDIA_PAUSE"
+                KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> "MEDIA_FAST_FORWARD"
+                KeyEvent.KEYCODE_MEDIA_REWIND -> "MEDIA_REWIND"
+                KeyEvent.KEYCODE_TV -> "TV"
+                else -> "KEY_${event.keyCode}"
+            }
+            android.util.Log.d("XIAOMI_REMOTE", "KeyEvent: keyCode=${event.keyCode} ($keyName), action=ACTION_DOWN, repeat=${event.repeatCount}")
+        }
+        return super.dispatchKeyEvent(event)
     }
 
     private fun isAndroidTvDevice(): Boolean {

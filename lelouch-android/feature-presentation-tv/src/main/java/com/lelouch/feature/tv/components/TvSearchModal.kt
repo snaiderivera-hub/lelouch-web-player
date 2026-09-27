@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -16,8 +17,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -36,6 +41,7 @@ import com.lelouch.core.model.VodMovie
 /**
  * On-screen D-Pad keyboard and fast local FTS5 search dialog for Android TV.
  */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun TvSearchModal(
     channels: List<LiveStream>,
@@ -47,6 +53,11 @@ fun TvSearchModal(
     onDismiss: () -> Unit
 ) {
     var searchQuery by remember { mutableStateOf("") }
+    val firstKeyFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        firstKeyFocusRequester.requestFocus()
+    }
 
     val filteredChannels = remember(searchQuery, channels) {
         if (searchQuery.length < 2) emptyList()
@@ -106,6 +117,7 @@ fun TvSearchModal(
                     var isCloseFocused by remember { mutableStateOf(false) }
                     Box(
                         modifier = Modifier
+                            .focusable()
                             .onFocusChanged { isCloseFocused = it.isFocused }
                             .clip(RoundedCornerShape(8.dp))
                             .background(if (isCloseFocused) LelouchCyanAccent else LelouchSurface)
@@ -142,6 +154,8 @@ fun TvSearchModal(
                                     Box(
                                         modifier = Modifier
                                             .size(34.dp)
+                                            .then(if (char == "A") Modifier.focusRequester(firstKeyFocusRequester) else Modifier)
+                                            .focusable()
                                             .onFocusChanged { isKeyFocused = it.isFocused }
                                             .clip(RoundedCornerShape(6.dp))
                                             .background(if (isKeyFocused) LelouchCyanAccent else LelouchSurface)
@@ -172,6 +186,7 @@ fun TvSearchModal(
                                 modifier = Modifier
                                     .weight(1.5f)
                                     .height(36.dp)
+                                    .focusable()
                                     .onFocusChanged { isSpaceFocused = it.isFocused }
                                     .clip(RoundedCornerShape(6.dp))
                                     .background(if (isSpaceFocused) LelouchCyanAccent else LelouchSurface)
@@ -187,6 +202,7 @@ fun TvSearchModal(
                                 modifier = Modifier
                                     .weight(1f)
                                     .height(36.dp)
+                                    .focusable()
                                     .onFocusChanged { isDeleteFocused = it.isFocused }
                                     .clip(RoundedCornerShape(6.dp))
                                     .background(if (isDeleteFocused) LelouchLiveRed else LelouchSurface)
@@ -206,6 +222,7 @@ fun TvSearchModal(
                                 modifier = Modifier
                                     .weight(1f)
                                     .height(36.dp)
+                                    .focusable()
                                     .onFocusChanged { isClearFocused = it.isFocused }
                                     .clip(RoundedCornerShape(6.dp))
                                     .background(if (isClearFocused) LelouchSurfaceVariant else LelouchSurface)
@@ -260,13 +277,20 @@ fun TvSearchModal(
                                         fontWeight = FontWeight.Bold,
                                         modifier = Modifier.padding(bottom = 8.dp)
                                     )
-                                    TvLazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                        itemsIndexed(filteredChannels) { _, channel ->
+                                    TvLazyRow(
+                                        modifier = Modifier.focusRestorer(),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        itemsIndexed(
+                                            items = filteredChannels,
+                                            key = { _, channel -> "search_ch_${channel.streamId}" }
+                                        ) { _, channel ->
                                             var isFocused by remember { mutableStateOf(false) }
                                             Box(
                                                 modifier = Modifier
                                                     .width(160.dp)
                                                     .height(70.dp)
+                                                    .focusable()
                                                     .onFocusChanged { isFocused = it.isFocused }
                                                     .clip(RoundedCornerShape(8.dp))
                                                     .background(if (isFocused) LelouchCardFocused else LelouchSurface)
@@ -295,8 +319,14 @@ fun TvSearchModal(
                                         fontWeight = FontWeight.Bold,
                                         modifier = Modifier.padding(bottom = 8.dp)
                                     )
-                                    TvLazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                                        itemsIndexed(filteredMovies) { _, movie ->
+                                    TvLazyRow(
+                                        modifier = Modifier.focusRestorer(),
+                                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                    ) {
+                                        itemsIndexed(
+                                            items = filteredMovies,
+                                            key = { _, movie -> "search_movie_${movie.streamId}" }
+                                        ) { _, movie ->
                                             TvPosterCard(
                                                 title = movie.name,
                                                 posterUrl = movie.streamIcon,
@@ -322,8 +352,14 @@ fun TvSearchModal(
                                         fontWeight = FontWeight.Bold,
                                         modifier = Modifier.padding(bottom = 8.dp)
                                     )
-                                    TvLazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                                        itemsIndexed(filteredSeries) { _, series ->
+                                    TvLazyRow(
+                                        modifier = Modifier.focusRestorer(),
+                                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                    ) {
+                                        itemsIndexed(
+                                            items = filteredSeries,
+                                            key = { _, series -> "search_series_${series.seriesId}" }
+                                        ) { _, series ->
                                             TvPosterCard(
                                                 title = series.name,
                                                 posterUrl = series.cover,

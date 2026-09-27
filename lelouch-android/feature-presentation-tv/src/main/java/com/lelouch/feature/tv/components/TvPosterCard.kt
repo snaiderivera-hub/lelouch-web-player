@@ -6,6 +6,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -56,6 +57,7 @@ fun TvPosterCard(
             .width(width)
             .height(height)
             .scale(scale)
+            .focusable()
             .onFocusChanged {
                 isFocused = it.isFocused
                 if (it.isFocused) {

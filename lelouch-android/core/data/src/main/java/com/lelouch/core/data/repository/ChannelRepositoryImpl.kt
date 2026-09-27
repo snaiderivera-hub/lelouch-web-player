@@ -50,6 +50,17 @@ class ChannelRepositoryImpl(
         }
     }
 
+    override fun getAllChannels(sourceId: String?): Flow<List<LiveStream>> {
+        val flow = if (sourceId != null) {
+            channelDao.getAllChannelsBySource(sourceId)
+        } else {
+            channelDao.getAllChannels()
+        }
+        return flow.map { entities ->
+            entities.map { it.toDomain() }
+        }
+    }
+
 
     override suspend fun toggleFavorite(streamId: Int, isFavorite: Boolean) {
         channelDao.updateFavoriteStatus(streamId, isFavorite)

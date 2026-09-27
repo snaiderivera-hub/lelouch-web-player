@@ -22,6 +22,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -55,6 +59,7 @@ data class MediaDetailUiModel(
     val episodes: List<Episode> = emptyList()
 )
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun TvMediaDetailModal(
     media: MediaDetailUiModel,
@@ -64,6 +69,11 @@ fun TvMediaDetailModal(
 ) {
     var selectedSeason by remember(media.id, media.seasons) {
         mutableIntStateOf(media.seasons.firstOrNull() ?: 1)
+    }
+
+    val playFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        playFocusRequester.requestFocus()
     }
 
     Dialog(
@@ -263,6 +273,7 @@ fun TvMediaDetailModal(
                             var isPlayFocused by remember { mutableStateOf(false) }
                             Box(
                                 modifier = Modifier
+                                    .focusRequester(playFocusRequester)
                                     .focusable()
                                     .onFocusChanged { isPlayFocused = it.isFocused }
                                     .clip(RoundedCornerShape(10.dp))
@@ -395,12 +406,16 @@ fun TvMediaDetailModal(
                         }
                     }
 
-                    // Riel de Episodios 16:9 con foco navegable D-Pad
+                    // Riel de Episodios 16:9 con foco navegable D-Pad y restauración
                     TvLazyRow(
+                        modifier = Modifier.focusRestorer(),
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                         contentPadding = PaddingValues(vertical = 4.dp)
                     ) {
-                        itemsIndexed(filteredEpisodes) { _, ep ->
+                        itemsIndexed(
+                            items = filteredEpisodes,
+                            key = { _, ep -> "ep_${ep.id}" }
+                        ) { _, ep ->
                             var isEpFocused by remember { mutableStateOf(false) }
                             val scale by animateFloatAsState(
                                 targetValue = if (isEpFocused) 1.06f else 1.0f,

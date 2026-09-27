@@ -20,8 +20,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -67,7 +72,7 @@ data class ChannelUiModel(
     val streamUrl: String = ""
 )
 
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 fun TvHomeScreen(
     activeSource: SourceConfig? = null,
@@ -332,6 +337,19 @@ fun TvHomeScreen(
     val topTabs = listOf("Inicio", "En Vivo", "Películas", "Series", "Favoritos", "⚙️ Admin")
     val coroutineScope = rememberCoroutineScope()
 
+    val playerFocusRequester = remember { FocusRequester() }
+    val initialNavFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        initialNavFocusRequester.requestFocus()
+    }
+
+    LaunchedEffect(isFullscreen) {
+        if (isFullscreen) {
+            playerFocusRequester.requestFocus()
+        }
+    }
+
     LaunchedEffect(seekFeedbackText) {
         if (seekFeedbackText != null) {
             delay(1500)
@@ -425,114 +443,124 @@ fun TvHomeScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(LelouchBackground)
-            .onKeyEvent { keyEvent ->
-                if (isFullscreen && keyEvent.type == KeyEventType.KeyDown) {
-                    val isLiveStream = (selectedTopTab == 0 || selectedTopTab == 1)
-                    when (keyEvent.nativeKeyEvent.keyCode) {
-                        // CAMBIO DE CANALES CON CONTROL REMOTO XIAOMI (D-Pad Arriba / Channel Up)
-                        KeyEvent.KEYCODE_DPAD_UP,
-                        KeyEvent.KEYCODE_CHANNEL_UP,
-                        KeyEvent.KEYCODE_PAGE_UP -> {
-                            if (isLiveStream && displayChannels.isNotEmpty()) {
-                                focusedChannelIndex = if (focusedChannelIndex < displayChannels.lastIndex) focusedChannelIndex + 1 else 0
-                                playerEngine.playStream(displayChannels[focusedChannelIndex].streamUrl, isLive = true)
-                                isHudVisible = true
-                            } else {
-                                isHudVisible = true
+    ) {
+        // Capa de control D-pad para Pantalla Completa (Garantiza foco 100% permanente en Xiaomi Remote)
+        if (isFullscreen) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .focusRequester(playerFocusRequester)
+                    .focusable()
+                    .onKeyEvent { keyEvent ->
+                        if (keyEvent.type != KeyEventType.KeyDown) return@onKeyEvent false
+                        val isLiveStream = (selectedTopTab == 0 || selectedTopTab == 1)
+                        when (keyEvent.nativeKeyEvent.keyCode) {
+                            // CAMBIO DE CANALES CON CONTROL REMOTO XIAOMI (D-Pad Arriba / Channel Up)
+                            KeyEvent.KEYCODE_DPAD_UP,
+                            KeyEvent.KEYCODE_CHANNEL_UP,
+                            KeyEvent.KEYCODE_PAGE_UP -> {
+                                if (isLiveStream && displayChannels.isNotEmpty()) {
+                                    val nextIndex = if (focusedChannelIndex < displayChannels.lastIndex) focusedChannelIndex + 1 else 0
+                                    focusedChannelIndex = nextIndex
+                                    playerEngine.playStream(displayChannels[nextIndex].streamUrl, isLive = true)
+                                    isHudVisible = true
+                                    true
+                                } else {
+                                    isHudVisible = true
+                                    true
+                                }
                             }
-                            true
-                        }
 
-                        // CAMBIO DE CANALES CON CONTROL REMOTO XIAOMI (D-Pad Abajo / Channel Down)
-                        KeyEvent.KEYCODE_DPAD_DOWN,
-                        KeyEvent.KEYCODE_CHANNEL_DOWN,
-                        KeyEvent.KEYCODE_PAGE_DOWN -> {
-                            if (isLiveStream && displayChannels.isNotEmpty()) {
-                                focusedChannelIndex = if (focusedChannelIndex > 0) focusedChannelIndex - 1 else displayChannels.lastIndex
-                                playerEngine.playStream(displayChannels[focusedChannelIndex].streamUrl, isLive = true)
-                                isHudVisible = true
-                            } else {
-                                isHudVisible = true
+                            // CAMBIO DE CANALES CON CONTROL REMOTO XIAOMI (D-Pad Abajo / Channel Down)
+                            KeyEvent.KEYCODE_DPAD_DOWN,
+                            KeyEvent.KEYCODE_CHANNEL_DOWN,
+                            KeyEvent.KEYCODE_PAGE_DOWN -> {
+                                if (isLiveStream && displayChannels.isNotEmpty()) {
+                                    val prevIndex = if (focusedChannelIndex > 0) focusedChannelIndex - 1 else displayChannels.lastIndex
+                                    focusedChannelIndex = prevIndex
+                                    playerEngine.playStream(displayChannels[prevIndex].streamUrl, isLive = true)
+                                    isHudVisible = true
+                                    true
+                                } else {
+                                    isHudVisible = true
+                                    true
+                                }
                             }
-                            true
-                        }
 
-                        // D-Pad Izquierda: Abre Guía Rápida de Canales en Vivo, o Rebobina 10s en Película/Serie
-                        KeyEvent.KEYCODE_DPAD_LEFT,
-                        KeyEvent.KEYCODE_MEDIA_REWIND -> {
-                            if (isLiveStream) {
-                                isQuickZappingOpen = !isQuickZappingOpen
-                                isHudVisible = true
-                            } else {
-                                playerEngine.seekBy(-10_000)
-                                seekFeedbackText = "⏪ -10s"
-                                isHudVisible = true
+                            // D-Pad Izquierda: Abre Guía Rápida de Canales en Vivo, o Rebobina 10s en Película/Serie
+                            KeyEvent.KEYCODE_DPAD_LEFT,
+                            KeyEvent.KEYCODE_MEDIA_REWIND -> {
+                                if (isLiveStream) {
+                                    isQuickZappingOpen = !isQuickZappingOpen
+                                    isHudVisible = true
+                                } else {
+                                    playerEngine.seekBy(-10_000)
+                                    seekFeedbackText = "⏪ -10s"
+                                    isHudVisible = true
+                                }
+                                true
                             }
-                            true
-                        }
 
-                        // D-Pad Derecha: Info en Vivo, o Avanza 10s en Película/Serie
-                        KeyEvent.KEYCODE_DPAD_RIGHT,
-                        KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
-                            if (isLiveStream) {
-                                isHudVisible = !isHudVisible
-                            } else {
-                                playerEngine.seekBy(10_000)
-                                seekFeedbackText = "⏩ +10s"
-                                isHudVisible = true
+                            // D-Pad Derecha: Info en Vivo, o Avanza 10s en Película/Serie
+                            KeyEvent.KEYCODE_DPAD_RIGHT,
+                            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
+                                if (isLiveStream) {
+                                    isHudVisible = !isHudVisible
+                                } else {
+                                    playerEngine.seekBy(10_000)
+                                    seekFeedbackText = "⏩ +10s"
+                                    isHudVisible = true
+                                }
+                                true
                             }
-                            true
-                        }
 
-                        // Botón Centro / OK: Toggle OSD o Play/Pause
-                        KeyEvent.KEYCODE_DPAD_CENTER,
-                        KeyEvent.KEYCODE_ENTER,
-                        KeyEvent.KEYCODE_NUMPAD_ENTER -> {
-                            if (isLiveStream) {
-                                isHudVisible = !isHudVisible
-                            } else {
+                            // Botón Centro / OK: Toggle OSD o Play/Pause
+                            KeyEvent.KEYCODE_DPAD_CENTER,
+                            KeyEvent.KEYCODE_ENTER,
+                            KeyEvent.KEYCODE_NUMPAD_ENTER -> {
+                                if (isLiveStream) {
+                                    isHudVisible = !isHudVisible
+                                } else {
+                                    playerEngine.togglePlayPause()
+                                    isHudVisible = true
+                                }
+                                true
+                            }
+
+                            // Teclas multimedia dedicadas
+                            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
                                 playerEngine.togglePlayPause()
                                 isHudVisible = true
-                            }
-                            true
-                        }
-
-                        // Teclas multimedia dedicadas
-                        KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
-                            playerEngine.togglePlayPause()
-                            isHudVisible = true
-                            true
-                        }
-                        KeyEvent.KEYCODE_MEDIA_PLAY -> {
-                            playerEngine.resume()
-                            isHudVisible = true
-                            true
-                        }
-                        KeyEvent.KEYCODE_MEDIA_PAUSE -> {
-                            playerEngine.pause()
-                            isHudVisible = true
-                            true
-                        }
-
-                        KeyEvent.KEYCODE_BACK -> {
-                            if (isQuickZappingOpen) {
-                                isQuickZappingOpen = false
-                                true
-                            } else if (isHudVisible) {
-                                isHudVisible = false
-                                true
-                            } else {
-                                isFullscreen = false
                                 true
                             }
+                            KeyEvent.KEYCODE_MEDIA_PLAY -> {
+                                playerEngine.resume()
+                                isHudVisible = true
+                                true
+                            }
+                            KeyEvent.KEYCODE_MEDIA_PAUSE -> {
+                                playerEngine.pause()
+                                isHudVisible = true
+                                true
+                            }
+
+                            KeyEvent.KEYCODE_BACK -> {
+                                if (isQuickZappingOpen) {
+                                    isQuickZappingOpen = false
+                                    true
+                                } else if (isHudVisible) {
+                                    isHudVisible = false
+                                    true
+                                } else {
+                                    isFullscreen = false
+                                    true
+                                }
+                            }
+                            else -> false
                         }
-                        else -> false
                     }
-                } else {
-                    false
-                }
-            }
-    ) {
+            )
+        }
         // CAPA 1: Video de Fondo o Portada Cinemática de Alta Calidad (EveryCine Style)
         Box(modifier = Modifier.fillMaxSize()) {
             // Reproductor de video nativo para canales en vivo (Inicio y En Vivo)
@@ -678,6 +706,7 @@ fun TvHomeScreen(
                         ) {
                             topTabs.forEachIndexed { index, title ->
                                 Tab(
+                                    modifier = if (index == 0) Modifier.focusRequester(initialNavFocusRequester) else Modifier,
                                     selected = selectedTopTab == index,
                                     onFocus = { selectedTopTab = index },
                                     onClick = { selectedTopTab = index }
@@ -909,6 +938,7 @@ fun TvHomeScreen(
                             var isPlayFocused by remember { mutableStateOf(false) }
                             Box(
                                 modifier = Modifier
+                                    .focusable()
                                     .onFocusChanged { isPlayFocused = it.isFocused }
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(if (isPlayFocused) LelouchCyanAccent else LelouchSurfaceVariant)
@@ -961,6 +991,7 @@ fun TvHomeScreen(
                                 var isReloadFocused by remember { mutableStateOf(false) }
                                 Box(
                                     modifier = Modifier
+                                        .focusable()
                                         .onFocusChanged { isReloadFocused = it.isFocused }
                                         .clip(RoundedCornerShape(8.dp))
                                         .background(if (isReloadFocused) LelouchSurfaceVariant.copy(alpha = 0.8f) else Color.Transparent)
@@ -993,6 +1024,7 @@ fun TvHomeScreen(
                                 var isEpgFocused by remember { mutableStateOf(false) }
                                 Box(
                                     modifier = Modifier
+                                        .focusable()
                                         .onFocusChanged { isEpgFocused = it.isFocused }
                                         .clip(RoundedCornerShape(8.dp))
                                         .background(if (isEpgFocused) LelouchCyanAccent.copy(alpha = 0.25f) else Color.Transparent)
@@ -1024,6 +1056,7 @@ fun TvHomeScreen(
                                 var isDetailFocused by remember { mutableStateOf(false) }
                                 Box(
                                     modifier = Modifier
+                                        .focusable()
                                         .onFocusChanged { isDetailFocused = it.isFocused }
                                         .clip(RoundedCornerShape(8.dp))
                                         .background(if (isDetailFocused) LelouchCyanAccent.copy(alpha = 0.25f) else Color.Transparent)
@@ -1348,10 +1381,14 @@ fun TvHomeScreen(
                         } else displayChannels
 
                         TvLazyRow(
+                            modifier = Modifier.focusRestorer(),
                             contentPadding = PaddingValues(horizontal = 48.dp),
                             horizontalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            itemsIndexed(channelsToRender) { index, channel ->
+                            itemsIndexed(
+                                items = channelsToRender,
+                                key = { _, channel -> "live_ch_${channel.streamId}" }
+                            ) { index, channel ->
                                 val isSelected = (index == focusedChannelIndex)
                                 TvChannelCard(
                                     channel = channel,
@@ -1389,10 +1426,14 @@ fun TvHomeScreen(
                         }
 
                         TvLazyRow(
+                            modifier = Modifier.focusRestorer(),
                             contentPadding = PaddingValues(horizontal = 48.dp),
                             horizontalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            itemsIndexed(moviesToRender) { _, movie ->
+                            itemsIndexed(
+                                items = moviesToRender,
+                                key = { _, movie -> "movie_${movie.streamId}" }
+                            ) { _, movie ->
                                 TvPosterCard(
                                     title = movie.name,
                                     posterUrl = movie.streamIcon,
@@ -1439,10 +1480,14 @@ fun TvHomeScreen(
                         }
 
                         TvLazyRow(
+                            modifier = Modifier.focusRestorer(),
                             contentPadding = PaddingValues(horizontal = 48.dp),
                             horizontalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            itemsIndexed(topRatedMovies) { _, movie ->
+                            itemsIndexed(
+                                items = topRatedMovies,
+                                key = { _, movie -> "top_movie_${movie.streamId}" }
+                            ) { _, movie ->
                                 TvPosterCard(
                                     title = movie.name,
                                     posterUrl = movie.streamIcon,
@@ -1484,10 +1529,14 @@ fun TvHomeScreen(
                         )
 
                         TvLazyRow(
+                            modifier = Modifier.focusRestorer(),
                             contentPadding = PaddingValues(horizontal = 48.dp),
                             horizontalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            itemsIndexed(displaySeries) { _, series ->
+                            itemsIndexed(
+                                items = displaySeries,
+                                key = { _, series -> "series_${series.seriesId}" }
+                            ) { _, series ->
                                 TvPosterCard(
                                     title = series.name,
                                     posterUrl = series.cover,
@@ -1523,10 +1572,14 @@ fun TvHomeScreen(
                         }
 
                         TvLazyRow(
+                            modifier = Modifier.focusRestorer(),
                             contentPadding = PaddingValues(horizontal = 48.dp),
                             horizontalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            itemsIndexed(trendingSeries) { _, series ->
+                            itemsIndexed(
+                                items = trendingSeries,
+                                key = { _, series -> "trend_series_${series.seriesId}" }
+                            ) { _, series ->
                                 TvPosterCard(
                                     title = series.name,
                                     posterUrl = series.cover,
@@ -1686,9 +1739,13 @@ fun TvHomeScreen(
                     Spacer(modifier = Modifier.height(14.dp))
 
                     TvLazyRow(
+                        modifier = Modifier.focusRestorer(),
                         horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        itemsIndexed(displayChannels) { index, channel ->
+                        itemsIndexed(
+                            items = displayChannels,
+                            key = { _, channel -> "hud_ch_${channel.streamId}" }
+                        ) { index, channel ->
                             val isSelected = (index == focusedChannelIndex)
                             var isCardFocused by remember { mutableStateOf(false) }
 
@@ -1696,6 +1753,7 @@ fun TvHomeScreen(
                                 modifier = Modifier
                                     .width(185.dp)
                                     .height(72.dp)
+                                    .focusable()
                                     .onFocusChanged {
                                         isCardFocused = it.isFocused
                                         if (it.isFocused) {
@@ -2068,6 +2126,7 @@ fun TvChannelCard(
             .width(215.dp)
             .height(125.dp)
             .scale(scale)
+            .focusable()
             .onFocusChanged {
                 isFocused = it.isFocused
                 if (it.isFocused) {

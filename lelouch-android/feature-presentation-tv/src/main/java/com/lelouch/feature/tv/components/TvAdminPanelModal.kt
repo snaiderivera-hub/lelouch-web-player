@@ -19,6 +19,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -62,6 +64,11 @@ fun TvAdminPanelModal(
     var newUsername by remember { mutableStateOf("") }
     var newPassword by remember { mutableStateOf("") }
     var isAddingLoading by remember { mutableStateOf(false) }
+    val firstTabFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        firstTabFocusRequester.requestFocus()
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -149,6 +156,7 @@ fun TvAdminPanelModal(
                             var isTabFocused by remember { mutableStateOf(false) }
                             Box(
                                 modifier = Modifier
+                                    .then(if (index == 0) Modifier.focusRequester(firstTabFocusRequester) else Modifier)
                                     .focusable()
                                     .onFocusChanged { isTabFocused = it.isFocused }
                                     .clip(RoundedCornerShape(8.dp))
@@ -189,7 +197,10 @@ fun TvAdminPanelModal(
                                     .fillMaxWidth(),
                                 verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                itemsIndexed(allSources) { _, source ->
+                                itemsIndexed(
+                                    items = allSources,
+                                    key = { _, source -> "source_${source.id}" }
+                                ) { _, source ->
                                     val isCurrentActive = (source.id == activeSource?.id || source.serverUrl == activeSource?.serverUrl)
                                     var isCardFocused by remember { mutableStateOf(false) }
 
