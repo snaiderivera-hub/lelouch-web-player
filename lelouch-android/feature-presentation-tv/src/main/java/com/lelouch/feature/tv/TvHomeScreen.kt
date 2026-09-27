@@ -2,27 +2,24 @@ package com.lelouch.feature.tv
 
 import android.view.KeyEvent
 import androidx.activity.compose.BackHandler
-import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -38,11 +35,16 @@ import androidx.tv.foundation.lazy.list.itemsIndexed
 import androidx.tv.material3.*
 import com.lelouch.core.designsystem.*
 import com.lelouch.core.model.LiveStream
+import com.lelouch.core.model.Series
 import com.lelouch.core.model.SourceConfig
+import com.lelouch.core.model.VodMovie
 import com.lelouch.core.network.XtreamUrlBuilder
 import com.lelouch.core.player.LelouchVideoPlayer
 import com.lelouch.core.player.PlaybackState
 import com.lelouch.core.player.rememberLelouchPlayer
+import com.lelouch.feature.tv.components.MediaDetailUiModel
+import com.lelouch.feature.tv.components.TvMediaDetailModal
+import com.lelouch.feature.tv.components.TvPosterCard
 import kotlinx.coroutines.delay
 
 data class ChannelUiModel(
@@ -59,16 +61,21 @@ data class ChannelUiModel(
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun TvHomeScreen(
-
     activeSource: SourceConfig? = null,
     liveChannels: List<LiveStream> = emptyList(),
+    movies: List<VodMovie> = emptyList(),
+    seriesList: List<Series> = emptyList(),
+    favoriteChannels: List<LiveStream> = emptyList(),
+    favoriteMovies: List<VodMovie> = emptyList(),
+    onToggleFavoriteChannel: (streamId: Int, isFav: Boolean) -> Unit = { _, _ -> },
+    onToggleFavoriteMovie: (streamId: Int, isFav: Boolean) -> Unit = { _, _ -> },
     onNavigateToSettings: () -> Unit = {}
 ) {
     val playerEngine = rememberLelouchPlayer()
     val playbackState by playerEngine.playbackState.collectAsStateWithLifecycle()
     val videoInfo by playerEngine.videoTrackInfo.collectAsStateWithLifecycle()
 
-    // Canales por defecto si la base de datos aún no tiene registros
+    // Canales mapeados o canales de demostración
     val displayChannels = remember(liveChannels, activeSource) {
         if (liveChannels.isNotEmpty()) {
             liveChannels.mapIndexed { index, stream ->
@@ -94,60 +101,12 @@ fun TvHomeScreen(
             }
         } else {
             listOf(
-                ChannelUiModel(
-                    streamId = 101,
-                    name = "ESPN HD",
-                    num = 101,
-                    categoryName = "Deportes",
-                    currentProgram = "UEFA Champions League: Cuartos de Final",
-                    nextProgram = "SportsCenter en Vivo",
-                    streamUrl = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
-                ),
-                ChannelUiModel(
-                    streamId = 102,
-                    name = "Fox Sports",
-                    num = 102,
-                    categoryName = "Deportes",
-                    currentProgram = "Fórmula 1: Gran Premio en Directo",
-                    nextProgram = "Fox Sports Radio",
-                    streamUrl = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
-                ),
-                ChannelUiModel(
-                    streamId = 103,
-                    name = "TyC Sports HD",
-                    num = 103,
-                    categoryName = "Deportes",
-                    currentProgram = "Fútbol de Primera en Directo",
-                    nextProgram = "Líbero",
-                    streamUrl = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
-                ),
-                ChannelUiModel(
-                    streamId = 104,
-                    name = "DirecTV Sports",
-                    num = 104,
-                    categoryName = "Deportes",
-                    currentProgram = "Copa Libertadores: Partido de Ida",
-                    nextProgram = "De Fútbol Se Habla Así",
-                    streamUrl = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
-                ),
-                ChannelUiModel(
-                    streamId = 105,
-                    name = "HBO Max HD",
-                    num = 105,
-                    categoryName = "Cine & Series",
-                    currentProgram = "Duna: Parte Dos (Estreno 4K)",
-                    nextProgram = "House of the Dragon",
-                    streamUrl = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
-                ),
-                ChannelUiModel(
-                    streamId = 106,
-                    name = "Star Channel",
-                    num = 106,
-                    categoryName = "Entretenimiento",
-                    currentProgram = "Los Simpson: Maratón Especial",
-                    nextProgram = "Futurama",
-                    streamUrl = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
-                )
+                ChannelUiModel(101, "ESPN HD", 101, "Deportes", currentProgram = "UEFA Champions League: Cuartos de Final", nextProgram = "SportsCenter en Vivo", streamUrl = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"),
+                ChannelUiModel(102, "Fox Sports", 102, "Deportes", currentProgram = "Fórmula 1: Gran Premio en Directo", nextProgram = "Fox Sports Radio", streamUrl = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"),
+                ChannelUiModel(103, "TyC Sports HD", 103, "Deportes", currentProgram = "Fútbol de Primera en Directo", nextProgram = "Líbero", streamUrl = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"),
+                ChannelUiModel(104, "DirecTV Sports", 104, "Deportes", currentProgram = "Copa Libertadores: Partido de Ida", nextProgram = "De Fútbol Se Habla Así", streamUrl = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"),
+                ChannelUiModel(105, "HBO Max HD", 105, "Cine & Series", currentProgram = "Duna: Parte Dos (Estreno 4K)", nextProgram = "House of the Dragon", streamUrl = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"),
+                ChannelUiModel(106, "Star Channel", 106, "Entretenimiento", currentProgram = "Los Simpson: Maratón Especial", nextProgram = "Futurama", streamUrl = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8")
             )
         }
     }
@@ -155,16 +114,25 @@ fun TvHomeScreen(
     var focusedChannelIndex by remember { mutableIntStateOf(0) }
     val focusedChannel = displayChannels.getOrElse(focusedChannelIndex) { displayChannels.first() }
 
+    // Estado del Spotlight Hero cuando se enfoca una película o serie
+    var focusedHeroMovie by remember { mutableStateOf<VodMovie?>(null) }
+    var focusedHeroSeries by remember { mutableStateOf<Series?>(null) }
+
+    // Modal de Detalle de Película / Serie
+    var activeDetailMedia by remember { mutableStateOf<MediaDetailUiModel?>(null) }
+
     var isFullscreen by remember { mutableStateOf(false) }
     var isHudVisible by remember { mutableStateOf(false) }
-    var selectedTopTab by remember { mutableIntStateOf(1) } // 1 = En Vivo
+    var selectedTopTab by remember { mutableIntStateOf(0) } // 0 = Inicio, 1 = En Vivo, 2 = Películas, 3 = Series, 4 = Favoritos
     val topTabs = listOf("Inicio", "En Vivo", "Películas", "Series", "Favoritos")
 
-    // Live Background Zapping con Debounce inteligente de 300ms
-    LaunchedEffect(focusedChannel.streamUrl) {
-        delay(300)
-        if (focusedChannel.streamUrl.isNotEmpty()) {
-            playerEngine.playStream(focusedChannel.streamUrl, isLive = true)
+    // Live Background Zapping con Debounce inteligente de 300ms (activo en Inicio y En Vivo)
+    LaunchedEffect(focusedChannel.streamUrl, selectedTopTab) {
+        if (selectedTopTab == 0 || selectedTopTab == 1) {
+            delay(300)
+            if (focusedChannel.streamUrl.isNotEmpty()) {
+                playerEngine.playStream(focusedChannel.streamUrl, isLive = true)
+            }
         }
     }
 
@@ -241,7 +209,7 @@ fun TvHomeScreen(
                                 0.0f to LelouchBackground.copy(alpha = 0.85f),
                                 0.20f to LelouchBackground.copy(alpha = 0.45f),
                                 0.50f to Color.Transparent,
-                                0.70f to LelouchBackground.copy(alpha = 0.80f),
+                                0.70f to LelouchBackground.copy(alpha = 0.82f),
                                 1.0f to LelouchBackground
                             )
                         )
@@ -257,7 +225,7 @@ fun TvHomeScreen(
         ) {
             TvLazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(top = 16.dp, bottom = 32.dp)
+                contentPadding = PaddingValues(top = 16.dp, bottom = 48.dp)
             ) {
                 // Barra de Navegación Superior Fina
                 item {
@@ -340,31 +308,49 @@ fun TvHomeScreen(
                     }
                 }
 
-                // Spotlight Hero: Metadatos del Canal Enfocado
+                // Spotlight Hero Dinámico
                 item {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(start = 48.dp, top = 20.dp, bottom = 24.dp, end = 120.dp)
                     ) {
+                        val heroTitle = when (selectedTopTab) {
+                            2 -> focusedHeroMovie?.name ?: "PELÍCULAS EN TENDENCIA"
+                            3 -> focusedHeroSeries?.name ?: "SERIES DESTACADAS"
+                            else -> focusedChannel.name
+                        }
+                        val heroSubtitle = when (selectedTopTab) {
+                            2 -> "Estrenos y Clásicos en Máxima Calidad"
+                            3 -> "Temporadas Completas en Streaming"
+                            else -> focusedChannel.currentProgram
+                        }
+                        val heroBadge = when (selectedTopTab) {
+                            2 -> "4K UHD"
+                            3 -> "SERIES"
+                            else -> "EN VIVO"
+                        }
+
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(4.dp))
-                                    .background(LelouchLiveRed)
+                                    .background(if (heroBadge == "EN VIVO") LelouchLiveRed else LelouchCyanAccent)
                                     .padding(horizontal = 8.dp, vertical = 3.dp)
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(6.dp)
-                                            .clip(CircleShape)
-                                            .background(Color.White)
-                                    )
-                                    Spacer(modifier = Modifier.width(5.dp))
+                                    if (heroBadge == "EN VIVO") {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(6.dp)
+                                                .clip(CircleShape)
+                                                .background(Color.White)
+                                        )
+                                        Spacer(modifier = Modifier.width(5.dp))
+                                    }
                                     Text(
-                                        text = "EN VIVO",
-                                        color = Color.White,
+                                        text = heroBadge,
+                                        color = if (heroBadge == "EN VIVO") Color.White else Color.Black,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -372,7 +358,7 @@ fun TvHomeScreen(
                             }
                             Spacer(modifier = Modifier.width(10.dp))
                             Text(
-                                text = "CH ${focusedChannel.num}  •  ${focusedChannel.categoryName}  •  ${videoInfo.resolutionLabel}",
+                                text = if (selectedTopTab == 1 || selectedTopTab == 0) "CH ${focusedChannel.num}  •  ${focusedChannel.categoryName}  •  ${videoInfo.resolutionLabel}" else "Catálogo Digital Lelouch",
                                 color = LelouchCyanAccent,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold
@@ -382,7 +368,7 @@ fun TvHomeScreen(
                         Spacer(modifier = Modifier.height(10.dp))
 
                         Text(
-                            text = focusedChannel.name,
+                            text = heroTitle,
                             color = LelouchTextPrimary,
                             fontSize = 34.sp,
                             fontWeight = FontWeight.Black,
@@ -392,7 +378,7 @@ fun TvHomeScreen(
                         )
 
                         Text(
-                            text = focusedChannel.currentProgram,
+                            text = heroSubtitle,
                             color = LelouchTextSecondary,
                             fontSize = 17.sp,
                             fontWeight = FontWeight.Medium,
@@ -415,7 +401,21 @@ fun TvHomeScreen(
                                         color = if (isPlayFocused) Color.White else LelouchBorder,
                                         shape = RoundedCornerShape(8.dp)
                                     )
-                                    .clickable { isFullscreen = true }
+                                    .clickable {
+                                        if (selectedTopTab == 2 && focusedHeroMovie != null) {
+                                            activeSource?.let { src ->
+                                                val url = XtreamUrlBuilder.buildVodStreamUrl(
+                                                    src.serverUrl,
+                                                    src.username,
+                                                    src.password,
+                                                    focusedHeroMovie!!.streamId,
+                                                    focusedHeroMovie!!.containerExtension ?: "mp4"
+                                                )
+                                                playerEngine.playStream(url, isLive = false)
+                                            }
+                                        }
+                                        isFullscreen = true
+                                    }
                                     .padding(horizontal = 18.dp, vertical = 10.dp)
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -470,147 +470,260 @@ fun TvHomeScreen(
                     }
                 }
 
-                // Carrusel 1: Zapping Rápido de Canales en Vivo (Live Video Zapping)
-                item {
-                    Text(
-                        text = "🔴 Zapping de Canales en Vivo",
-                        color = LelouchTextPrimary,
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(start = 48.dp, bottom = 12.dp)
-                    )
+                // SECCIÓN 1: Canales en Vivo (Visible en Inicio, En Vivo y Favoritos)
+                if (selectedTopTab == 0 || selectedTopTab == 1 || selectedTopTab == 4) {
+                    item {
+                        Text(
+                            text = if (selectedTopTab == 4) "⭐ Canales Favoritos" else "🔴 Zapping de Canales en Vivo",
+                            color = LelouchTextPrimary,
+                            fontSize = 19.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(start = 48.dp, bottom = 12.dp)
+                        )
 
-                    TvLazyRow(
-                        contentPadding = PaddingValues(horizontal = 48.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        itemsIndexed(displayChannels) { index, channel ->
-                            val isSelected = (index == focusedChannelIndex)
-                            var isCardFocused by remember { mutableStateOf(false) }
-                            val scale by animateFloatAsState(
-                                targetValue = if (isCardFocused) 1.08f else 1.0f,
-                                label = "channelCardScale"
-                            )
+                        val channelsToRender = if (selectedTopTab == 4 && favoriteChannels.isNotEmpty()) {
+                            favoriteChannels.map { stream ->
+                                ChannelUiModel(
+                                    streamId = stream.streamId,
+                                    name = stream.name,
+                                    num = stream.num,
+                                    categoryName = stream.categoryName ?: "Favoritos",
+                                    currentProgram = "Canal Favorito",
+                                    streamUrl = activeSource?.let {
+                                        XtreamUrlBuilder.buildLiveStreamUrl(it.serverUrl, it.username, it.password, stream.streamId, "m3u8")
+                                    } ?: ""
+                                )
+                            }
+                        } else displayChannels
 
-                            Box(
-                                modifier = Modifier
-                                    .width(200.dp)
-                                    .height(115.dp)
-                                    .scale(scale)
-                                    .onFocusChanged {
-                                        isCardFocused = it.isFocused
-                                        if (it.isFocused) {
-                                            focusedChannelIndex = index
+                        TvLazyRow(
+                            contentPadding = PaddingValues(horizontal = 48.dp),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            itemsIndexed(channelsToRender) { index, channel ->
+                                val isSelected = (index == focusedChannelIndex)
+                                var isCardFocused by remember { mutableStateOf(false) }
+                                val scale by animateFloatAsState(
+                                    targetValue = if (isCardFocused) 1.08f else 1.0f,
+                                    label = "channelCardScale"
+                                )
+
+                                Box(
+                                    modifier = Modifier
+                                        .width(200.dp)
+                                        .height(115.dp)
+                                        .scale(scale)
+                                        .onFocusChanged {
+                                            isCardFocused = it.isFocused
+                                            if (it.isFocused) {
+                                                focusedChannelIndex = index
+                                            }
                                         }
-                                    }
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(
-                                        when {
-                                            isCardFocused -> LelouchCardFocused
-                                            isSelected -> LelouchSurfaceVariant
-                                            else -> LelouchSurface
-                                        }
-                                    )
-                                    .border(
-                                        width = if (isCardFocused) 2.5.dp else 1.dp,
-                                        color = if (isCardFocused) LelouchCyanAccent else if (isSelected) LelouchCyanAccent.copy(alpha = 0.5f) else LelouchBorder,
-                                        shape = RoundedCornerShape(12.dp)
-                                    )
-                                    .clickable { isFullscreen = true }
-                                    .padding(12.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(
+                                            when {
+                                                isCardFocused -> LelouchCardFocused
+                                                isSelected -> LelouchSurfaceVariant
+                                                else -> LelouchSurface
+                                            }
+                                        )
+                                        .border(
+                                            width = if (isCardFocused) 2.5.dp else 1.dp,
+                                            color = if (isCardFocused) LelouchCyanAccent else if (isSelected) LelouchCyanAccent.copy(alpha = 0.5f) else LelouchBorder,
+                                            shape = RoundedCornerShape(12.dp)
+                                        )
+                                        .clickable { isFullscreen = true }
+                                        .padding(12.dp)
                                 ) {
-                                    Text(
-                                        text = "CH ${channel.num}",
-                                        color = LelouchCyanAccent,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(3.dp))
-                                            .background(LelouchLiveRed)
-                                            .padding(horizontal = 5.dp, vertical = 1.dp)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text("LIVE", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                        Text(
+                                            text = "CH ${channel.num}",
+                                            color = LelouchCyanAccent,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(3.dp))
+                                                .background(LelouchLiveRed)
+                                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                                        ) {
+                                            Text("LIVE", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                        }
                                     }
-                                }
 
-                                Column(modifier = Modifier.align(Alignment.BottomStart)) {
-                                    Text(
-                                        text = channel.name,
-                                        color = LelouchTextPrimary,
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        text = channel.currentProgram,
-                                        color = LelouchTextSecondary,
-                                        fontSize = 11.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
+                                    Column(modifier = Modifier.align(Alignment.BottomStart)) {
+                                        Text(
+                                            text = channel.name,
+                                            color = LelouchTextPrimary,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = channel.currentProgram,
+                                            color = LelouchTextSecondary,
+                                            fontSize = 11.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
                                 }
                             }
                         }
+                        Spacer(modifier = Modifier.height(24.dp))
                     }
-                    Spacer(modifier = Modifier.height(24.dp))
                 }
 
-                // Carrusel 2: Categorías de Canales
-                item {
-                    Text(
-                        text = "⭐ Categorías Recomendadas",
-                        color = LelouchTextPrimary,
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(start = 48.dp, bottom = 12.dp)
-                    )
+                // SECCIÓN 2: Películas Recientes y Populares (Inicio y Películas)
+                if (selectedTopTab == 0 || selectedTopTab == 2 || selectedTopTab == 4) {
+                    item {
+                        Text(
+                            text = if (selectedTopTab == 4) "⭐ Películas Favoritas" else "🎬 Películas Recientemente Añadidas",
+                            color = LelouchTextPrimary,
+                            fontSize = 19.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(start = 48.dp, bottom = 12.dp)
+                        )
 
-                    TvLazyRow(
-                        contentPadding = PaddingValues(horizontal = 48.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        val categories = listOf("⚽ Deportes", "🎬 Cine & Series", "📰 Noticias", "⭐ Favoritos", "👶 Infantil", "🎵 Música")
-                        itemsIndexed(categories) { _, catName ->
-                            var isCatFocused by remember { mutableStateOf(false) }
-                            val scale by animateFloatAsState(targetValue = if (isCatFocused) 1.06f else 1.0f, label = "catScale")
-                            Box(
-                                modifier = Modifier
-                                    .width(170.dp)
-                                    .height(75.dp)
-                                    .scale(scale)
-                                    .onFocusChanged { isCatFocused = it.isFocused }
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(if (isCatFocused) LelouchCardFocused else LelouchSurface)
-                                    .border(
-                                        width = if (isCatFocused) 2.dp else 1.dp,
-                                        color = if (isCatFocused) LelouchCyanAccent else LelouchBorder,
-                                        shape = RoundedCornerShape(10.dp)
-                                    )
-                                    .padding(12.dp),
-                                contentAlignment = Alignment.CenterStart
-                            ) {
-                                Text(
-                                    text = catName,
-                                    color = if (isCatFocused) LelouchCyanAccent else LelouchTextPrimary,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.SemiBold
+                        val moviesToRender = if (selectedTopTab == 4 && favoriteMovies.isNotEmpty()) {
+                            favoriteMovies
+                        } else if (movies.isNotEmpty()) {
+                            movies
+                        } else {
+                            listOf(
+                                VodMovie(id = "1", streamId = 1, name = "Duna: Parte Dos", streamIcon = null, rating = 8.6, year = "2024", categoryId = "1"),
+                                VodMovie(id = "2", streamId = 2, name = "Oppenheimer", streamIcon = null, rating = 8.9, year = "2023", categoryId = "1"),
+                                VodMovie(id = "3", streamId = 3, name = "Spider-Man: Across the Spider-Verse", streamIcon = null, rating = 8.7, year = "2023", categoryId = "1"),
+                                VodMovie(id = "4", streamId = 4, name = "Interstellar", streamIcon = null, rating = 8.7, year = "2014", categoryId = "1"),
+                                VodMovie(id = "5", streamId = 5, name = "The Batman", streamIcon = null, rating = 7.8, year = "2022", categoryId = "1")
+                            )
+                        }
+
+                        TvLazyRow(
+                            contentPadding = PaddingValues(horizontal = 48.dp),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            itemsIndexed(moviesToRender) { _, movie ->
+                                TvPosterCard(
+                                    title = movie.name,
+                                    posterUrl = movie.streamIcon,
+                                    rating = movie.rating ?: 0.0,
+                                    year = movie.year,
+                                    onFocused = {
+                                        focusedHeroMovie = movie
+                                    },
+                                    onClick = {
+                                        activeDetailMedia = MediaDetailUiModel(
+                                            id = movie.streamId,
+                                            title = movie.name,
+                                            posterUrl = movie.streamIcon,
+                                            rating = movie.rating ?: 0.0,
+                                            year = movie.year,
+                                            isSeries = false,
+                                            isFavorite = movie.isFavorite
+                                        )
+                                    }
                                 )
                             }
                         }
+                        Spacer(modifier = Modifier.height(24.dp))
+                    }
+                }
+
+                // SECCIÓN 3: Series Destacadas (Inicio y Series)
+                if (selectedTopTab == 0 || selectedTopTab == 3) {
+                    item {
+                        Text(
+                            text = "📺 Series Populares",
+                            color = LelouchTextPrimary,
+                            fontSize = 19.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(start = 48.dp, bottom = 12.dp)
+                        )
+
+                        val seriesToRender = if (seriesList.isNotEmpty()) {
+                            seriesList
+                        } else {
+                            listOf(
+                                Series(id = "1", seriesId = 1, name = "Breaking Bad", cover = null, rating = 9.5, releaseDate = "2008", categoryId = "1"),
+                                Series(id = "2", seriesId = 2, name = "The Last of Us", cover = null, rating = 8.8, releaseDate = "2023", categoryId = "1"),
+                                Series(id = "3", seriesId = 3, name = "Game of Thrones", cover = null, rating = 9.2, releaseDate = "2011", categoryId = "1"),
+                                Series(id = "4", seriesId = 4, name = "Stranger Things", cover = null, rating = 8.7, releaseDate = "2016", categoryId = "1"),
+                                Series(id = "5", seriesId = 5, name = "Shogun", cover = null, rating = 8.9, releaseDate = "2024", categoryId = "1")
+                            )
+                        }
+
+                        TvLazyRow(
+                            contentPadding = PaddingValues(horizontal = 48.dp),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            itemsIndexed(seriesToRender) { _, series ->
+                                TvPosterCard(
+                                    title = series.name,
+                                    posterUrl = series.cover,
+                                    rating = series.rating ?: 0.0,
+                                    year = series.releaseDate?.take(4),
+                                    onFocused = {
+                                        focusedHeroSeries = series
+                                    },
+                                    onClick = {
+                                        activeDetailMedia = MediaDetailUiModel(
+                                            id = series.seriesId,
+                                            title = series.name,
+                                            posterUrl = series.cover,
+                                            rating = series.rating ?: 0.0,
+                                            year = series.releaseDate?.take(4),
+                                            synopsis = series.plot ?: "Serie completa en catálogo.",
+                                            genre = series.genre,
+                                            isSeries = true,
+                                            isFavorite = series.isFavorite,
+                                            seasons = listOf(1, 2)
+                                        )
+                                    }
+                                )
+                            }
+                        }
+
                     }
                 }
             }
         }
 
-        // CAPA 4: Mini-Guía Carrusel HUD en Pantalla Completa
+        // CAPA 4: Modal de Detalle de Película / Serie
+        activeDetailMedia?.let { media ->
+            TvMediaDetailModal(
+                media = media,
+                onPlayClick = { epId ->
+                    activeSource?.let { src ->
+                        val streamUrl = if (media.isSeries && epId != null) {
+                            XtreamUrlBuilder.buildSeriesStreamUrl(src.serverUrl, src.username, src.password, epId, "mp4")
+                        } else {
+                            XtreamUrlBuilder.buildVodStreamUrl(src.serverUrl, src.username, src.password, media.id, "mp4")
+                        }
+                        playerEngine.playStream(streamUrl, isLive = false)
+                        isFullscreen = true
+                    }
+                    activeDetailMedia = null
+                },
+                onToggleFavorite = {
+                    if (media.isSeries) {
+                        // toggle favorite series
+                    } else {
+                        onToggleFavoriteMovie(media.id, !media.isFavorite)
+                    }
+                    activeDetailMedia = media.copy(isFavorite = !media.isFavorite)
+                },
+                onDismiss = { activeDetailMedia = null }
+            )
+        }
+
+        // CAPA 5: Mini-Guía Carrusel HUD en Pantalla Completa
         AnimatedVisibility(
             visible = isFullscreen && isHudVisible,
             enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(200)) + fadeIn(),
@@ -632,7 +745,6 @@ fun TvHomeScreen(
                     .padding(horizontal = 48.dp, vertical = 20.dp)
             ) {
                 Column {
-                    // Fila de metadatos del canal activo en Fullscreen
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -670,7 +782,6 @@ fun TvHomeScreen(
                             )
                         }
 
-                        // Siguiente programa y resolución
                         Column(horizontalAlignment = Alignment.End) {
                             Text(
                                 text = videoInfo.resolutionLabel,
@@ -689,7 +800,6 @@ fun TvHomeScreen(
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    // Mini-carrusel para zapping rápido en pantalla completa
                     TvLazyRow(
                         horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {

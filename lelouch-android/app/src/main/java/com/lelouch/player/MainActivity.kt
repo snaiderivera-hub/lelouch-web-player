@@ -71,6 +71,10 @@ class MainActivity : ComponentActivity() {
             }
 
             val liveChannels by app.channelRepository.getFeaturedChannels(50).collectAsStateWithLifecycle(initialValue = emptyList())
+            val movies by app.vodRepository.getRecentlyAddedMovies(40).collectAsStateWithLifecycle(initialValue = emptyList())
+            val seriesList by app.seriesRepository.getFeaturedSeries(30).collectAsStateWithLifecycle(initialValue = emptyList())
+            val favoriteChannels by app.channelRepository.getFavoriteChannels().collectAsStateWithLifecycle(initialValue = emptyList())
+            val favoriteMovies by app.vodRepository.getFavoriteMovies().collectAsStateWithLifecycle(initialValue = emptyList())
 
             if (isTv) {
                 LelouchTvTheme {
@@ -81,9 +85,20 @@ class MainActivity : ComponentActivity() {
                         if (activeSource != null) {
                             TvHomeScreen(
                                 activeSource = activeSource,
-                                liveChannels = liveChannels
+                                liveChannels = liveChannels,
+                                movies = movies,
+                                seriesList = seriesList,
+                                favoriteChannels = favoriteChannels,
+                                favoriteMovies = favoriteMovies,
+                                onToggleFavoriteChannel = { streamId, isFav ->
+                                    lifecycleScope.launch { app.channelRepository.toggleFavorite(streamId, isFav) }
+                                },
+                                onToggleFavoriteMovie = { streamId, isFav ->
+                                    lifecycleScope.launch { app.vodRepository.toggleFavorite(streamId, isFav) }
+                                }
                             )
                         } else {
+
                             TvLoginScreen(
                                 isLoading = isLoading,
                                 errorMessage = errorMessage,

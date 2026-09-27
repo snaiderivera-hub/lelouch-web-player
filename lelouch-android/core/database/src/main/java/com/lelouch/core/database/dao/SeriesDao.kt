@@ -23,6 +23,10 @@ interface SeriesDao {
     @Query("SELECT * FROM series WHERE isFavorite = 1 ORDER BY name ASC")
     fun getFavoriteSeries(): Flow<List<SeriesEntity>>
 
+    @Query("SELECT * FROM series ORDER BY rating DESC, name ASC LIMIT :limit")
+    fun getFeaturedSeries(limit: Int = 30): Flow<List<SeriesEntity>>
+
+
     @Query("SELECT * FROM series WHERE seriesId = :seriesId LIMIT 1")
     suspend fun getSeriesById(seriesId: Int): SeriesEntity?
 

@@ -39,7 +39,14 @@ class SeriesRepositoryImpl(
         }
     }
 
+    override fun getFeaturedSeries(limit: Int): Flow<List<Series>> {
+        return seriesDao.getFeaturedSeries(limit).map { entities ->
+            entities.map { it.toDomain() }
+        }
+    }
+
     override fun getFavoriteSeries(): Flow<List<Series>> {
+
         return seriesDao.getFavoriteSeries().map { entities ->
             entities.map { it.toDomain() }
         }
