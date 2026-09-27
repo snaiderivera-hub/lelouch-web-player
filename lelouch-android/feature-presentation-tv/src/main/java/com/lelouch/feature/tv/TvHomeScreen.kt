@@ -32,6 +32,7 @@ data class TvHeroContent(
     val genre: String = "Acción / Fantasía"
 )
 
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun TvHomeScreen(
     onNavigateToPlayer: (contentId: String) -> Unit = {}

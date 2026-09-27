@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.lelouch.core.domain"
+    namespace = "com.lelouch.core.player"
     compileSdk = 34
 
     defaultConfig {
@@ -24,6 +24,11 @@ android {
 
 dependencies {
     implementation(project(":core:model"))
-    implementation(libs.kotlinx.coroutines.core)
-    implementation(libs.androidx.paging.runtime)
+
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.exoplayer.hls)
+    implementation(libs.androidx.media3.ui)
+    implementation(libs.androidx.media3.session)
+    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.core.ktx)
 }

@@ -19,6 +19,7 @@ data class TvFocusTokens(
 
 val LocalTvFocusTokens = staticCompositionLocalOf { TvFocusTokens() }
 
+@OptIn(androidx.tv.material3.ExperimentalTvMaterial3Api::class)
 private val LelouchTvDarkColorScheme = tvDarkColorScheme(
     primary = LelouchCyanAccent,
     onPrimary = LelouchBackground,
@@ -37,6 +38,7 @@ private val LelouchTvDarkColorScheme = tvDarkColorScheme(
     onError = LelouchTextPrimary
 )
 
+@OptIn(androidx.tv.material3.ExperimentalTvMaterial3Api::class)
 @Composable
 fun LelouchTvTheme(
     focusTokens: TvFocusTokens = TvFocusTokens(),
