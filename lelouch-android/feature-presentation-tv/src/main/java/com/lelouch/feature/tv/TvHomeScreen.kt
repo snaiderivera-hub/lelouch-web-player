@@ -407,10 +407,9 @@ fun TvHomeScreen(
         }
     }
 
-    // Live Background Zapping con Debounce inteligente de 300ms (activo solo en Inicio y En Vivo)
+    // Live Background Zapping instantáneo (activo solo en Inicio y En Vivo)
     LaunchedEffect(focusedChannel.streamUrl, selectedTopTab) {
         if (selectedTopTab == 0 || selectedTopTab == 1) {
-            delay(300)
             if (focusedChannel.streamUrl.isNotEmpty()) {
                 playerEngine.playStream(focusedChannel.streamUrl, isLive = true)
             }

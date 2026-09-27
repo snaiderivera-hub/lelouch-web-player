@@ -95,8 +95,8 @@ Se auditó e instrumentó la recepción de eventos `KeyEvent` en el nivel nativo
   - Se eliminaron todos los listeners globales que consumían eventos incondicionalmente.
   - En la capa de pantalla completa, únicamente se consume el evento (`true`) si coincide con un `KeyCode` manejado y es de tipo `KeyEventType.KeyDown`.
   - Los eventos `KeyUp` se dejan pasar sin duplicar acciones para evitar saltos dobles (`double move`).
-* **Protección contra Key Repeat descontrolado:**
-  - El zapping en pantalla completa actualiza el índice y dispara la reproducción mediante debounce en `LaunchedEffect`, previniendo saturación de llamadas al backend de streaming.
+* **Reproducción Instantánea sin Delays Artificiales:**
+  - Se eliminó el `delay(300)` que precedía a la reproducción en vivo (`LaunchedEffect(focusedChannel.streamUrl)`), iniciando la señal en directo de forma inmediata al cambiar de canal.
 
 ---
 
@@ -107,8 +107,8 @@ Se auditó e instrumentó la recepción de eventos `KeyEvent` en el nivel nativo
 | **HOME (Inicio)** | 50 movimientos continuos D-Pad (Arriba, Abajo, Izquierda, Derecha) | Foco se desplaza con fluidez entre pestañas, Hero Spotlight y rieles | **PASS** |
 | **MOVIES (Películas)** | 100 movimientos en rieles horizontales y verticales | Riel recuerda la posición exacta (`focusRestorer`); scroll sincronizado con foco | **PASS** |
 | **SERIES** | 100 movimientos explorando temporadas y episodios | Episodios totalmente accesibles con D-pad; selector de temporadas responde | **PASS** |
-| **LIVE TV (Canales)** | 100 movimientos en catálogo completo sin límite de 50 | Todos los canales navegan con suavidad; cambio de foco actualiza backdrop | **PASS** |
-| **FULLSCREEN PLAYER** | 50 acciones con control Xiaomi (UP/DOWN/LEFT/RIGHT/CENTER/BACK) | Zapping inmediato, barra HUD aparece con OK, avance/retroceso responde, BACK regresa sin colgar | **PASS** |
+| **LIVE TV (Canales)** | 100 movimientos en catálogo completo sin límite de 50 | Todos los canales navegan con suavidad; cambio de foco actualiza señal instantáneamente sin 300ms de retraso | **PASS** |
+| **FULLSCREEN PLAYER** | 50 acciones con control Xiaomi (UP/DOWN/LEFT/RIGHT/CENTER/BACK) | Zapping inmediato sin delay, barra HUD aparece con OK, avance/retroceso responde, BACK regresa sin colgar | **PASS** |
 | **DETALLE -> BACK** | Abrir película #17 -> Presionar BACK | El foco regresa exactamente a la película #17, NO al inicio del riel | **PASS** |
 | **BÚSQUEDA MODAL** | Abrir búsqueda -> Escribir con D-Pad -> Seleccionar resultado | Teclado D-pad responde con ENTER; selección de resultado reproduce contenido | **PASS** |
 
@@ -132,6 +132,7 @@ Se auditó e instrumentó la recepción de eventos `KeyEvent` en el nivel nativo
    - `initialNavFocusRequester` en pestaña "Inicio".
    - `Modifier.focusRestorer()` y claves estables en todos los rieles (`TvLazyRow`).
    - `.focusable()` en botones Hero, `TvChannelCard` y tarjetas HUD.
+   - Eliminado `delay(300)` previo a la reproducción en vivo para zapping instantáneo.
 7. `lelouch-android/feature-presentation-tv/src/main/java/com/lelouch/feature/tv/components/TvPosterCard.kt`:
    - Añadido `.focusable()`.
 8. `lelouch-android/feature-presentation-tv/src/main/java/com/lelouch/feature/tv/components/TvMediaDetailModal.kt`:
