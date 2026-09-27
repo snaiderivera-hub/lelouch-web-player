@@ -70,6 +70,8 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            val liveChannels by app.channelRepository.getFeaturedChannels(50).collectAsStateWithLifecycle(initialValue = emptyList())
+
             if (isTv) {
                 LelouchTvTheme {
                     Surface(
@@ -77,7 +79,10 @@ class MainActivity : ComponentActivity() {
                         color = LelouchBackground
                     ) {
                         if (activeSource != null) {
-                            TvHomeScreen()
+                            TvHomeScreen(
+                                activeSource = activeSource,
+                                liveChannels = liveChannels
+                            )
                         } else {
                             TvLoginScreen(
                                 isLoading = isLoading,
@@ -95,7 +100,10 @@ class MainActivity : ComponentActivity() {
                         color = LelouchBackground
                     ) {
                         if (activeSource != null) {
-                            MobileHomeScreen()
+                            MobileHomeScreen(
+                                activeSource = activeSource,
+                                liveChannels = liveChannels
+                            )
                         } else {
                             MobileLoginScreen(
                                 isLoading = isLoading,
@@ -106,6 +114,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+
         }
     }
 

@@ -44,6 +44,13 @@ class ChannelRepositoryImpl(
         }
     }
 
+    override fun getFeaturedChannels(limit: Int): Flow<List<LiveStream>> {
+        return channelDao.getFeaturedChannels(limit).map { entities ->
+            entities.map { it.toDomain() }
+        }
+    }
+
+
     override suspend fun toggleFavorite(streamId: Int, isFavorite: Boolean) {
         channelDao.updateFavoriteStatus(streamId, isFavorite)
     }

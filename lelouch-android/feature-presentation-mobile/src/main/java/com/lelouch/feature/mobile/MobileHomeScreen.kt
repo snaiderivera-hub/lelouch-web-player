@@ -23,14 +23,35 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lelouch.core.designsystem.*
 
+import com.lelouch.core.model.LiveStream
+import com.lelouch.core.model.SourceConfig
+import com.lelouch.core.network.XtreamUrlBuilder
+import com.lelouch.core.player.LelouchVideoPlayer
+import com.lelouch.core.player.rememberLelouchPlayer
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.Close
+
+
 @Composable
 fun MobileHomeScreen(
+    activeSource: SourceConfig? = null,
+    liveChannels: List<LiveStream> = emptyList(),
     onNavigateToLive: () -> Unit = {},
     onNavigateToMovies: () -> Unit = {},
     onNavigateToSeries: () -> Unit = {},
     onNavigateToSearch: () -> Unit = {}
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
+    var activeStreamUrl by remember { mutableStateOf<String?>(null) }
+    var activeChannelName by remember { mutableStateOf("") }
+    val playerEngine = rememberLelouchPlayer()
+
+    LaunchedEffect(activeStreamUrl) {
+        activeStreamUrl?.let { url ->
+            playerEngine.playStream(url, isLive = true)
+        }
+    }
 
     Scaffold(
         bottomBar = {
@@ -209,6 +230,68 @@ fun MobileHomeScreen(
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
+            // Reproductor de Video Flotante / Encabezado Activo si se selecciona un canal
+            if (activeStreamUrl != null) {
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 16.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(220.dp)
+                                .background(Color.Black)
+                        ) {
+                            LelouchVideoPlayer(
+                                playerEngine = playerEngine,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                            // Botón Cerrar Reproductor
+                            IconButton(
+                                onClick = {
+                                    playerEngine.stop()
+                                    activeStreamUrl = null
+                                },
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(8.dp)
+                                    .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                            ) {
+                                Icon(
+                                    imageVector = androidx.compose.material.icons.Icons.Default.Close,
+                                    contentDescription = "Cerrar",
+                                    tint = Color.White
+                                )
+                            }
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = activeChannelName,
+                                color = LelouchTextPrimary,
+                                style = LelouchTypography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(LelouchLiveRed)
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text("LIVE", color = Color.White, style = LelouchTypography.labelSmall)
+                            }
+                        }
+                    }
+                }
+            }
+
             // Riel: Canales en Vivo
             item {
                 Text(
@@ -220,20 +303,76 @@ fun MobileHomeScreen(
                     contentPadding = PaddingValues(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    items(6) { index ->
-                        Box(
-                            modifier = Modifier
-                                .width(130.dp)
-                                .height(80.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(LelouchSurfaceVariant)
-                                .padding(8.dp)
-                        ) {
-                            Text(
-                                "Señal #${index + 101}",
-                                style = LelouchTypography.labelLarge,
-                                modifier = Modifier.align(Alignment.Center)
-                            )
+                    if (liveChannels.isNotEmpty()) {
+                        items(liveChannels.size) { index ->
+                            val channel = liveChannels[index]
+                            val streamUrl = activeSource?.let {
+                                XtreamUrlBuilder.buildLiveStreamUrl(
+                                    it.serverUrl,
+                                    it.username,
+                                    it.password,
+                                    channel.streamId,
+                                    "m3u8"
+                                )
+                            } ?: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
+
+                            Box(
+                                modifier = Modifier
+                                    .width(140.dp)
+                                    .height(85.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(LelouchSurfaceVariant)
+                                    .clickable {
+                                        activeChannelName = channel.name
+                                        activeStreamUrl = streamUrl
+                                    }
+                                    .padding(10.dp)
+                            ) {
+                                Column(modifier = Modifier.align(Alignment.BottomStart)) {
+                                    Text(
+                                        text = channel.name,
+                                        style = LelouchTypography.labelLarge,
+                                        color = LelouchTextPrimary,
+                                        maxLines = 1
+                                    )
+                                    Text(
+                                        text = "Tocar para ver",
+                                        style = LelouchTypography.bodySmall,
+                                        color = LelouchCyanAccent
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        val sampleChannels = listOf("ESPN HD", "Fox Sports", "TyC Sports", "HBO Max", "Star Channel")
+                        items(sampleChannels.size) { index ->
+                            val chName = sampleChannels[index]
+                            Box(
+                                modifier = Modifier
+                                    .width(140.dp)
+                                    .height(85.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(LelouchSurfaceVariant)
+                                    .clickable {
+                                        activeChannelName = chName
+                                        activeStreamUrl = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
+                                    }
+                                    .padding(10.dp)
+                            ) {
+                                Column(modifier = Modifier.align(Alignment.BottomStart)) {
+                                    Text(
+                                        text = chName,
+                                        style = LelouchTypography.labelLarge,
+                                        color = LelouchTextPrimary,
+                                        maxLines = 1
+                                    )
+                                    Text(
+                                        text = "Tocar para ver",
+                                        style = LelouchTypography.bodySmall,
+                                        color = LelouchCyanAccent
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -241,3 +380,4 @@ fun MobileHomeScreen(
         }
     }
 }
+
