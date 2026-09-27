@@ -346,6 +346,18 @@ fun TvHomeScreen(
     val topTabs = listOf("Inicio", "En Vivo", "Películas", "Series", "Favoritos", "⚙️ Admin", "🧪 Lab")
     val coroutineScope = rememberCoroutineScope()
 
+    LaunchedEffect(selectedTopTab) {
+        focusTracker.currentScreen = when (selectedTopTab) {
+            0 -> "HOME"
+            1 -> "LIVE"
+            2 -> "MOVIES"
+            3 -> "SERIES"
+            4 -> "FAVORITES"
+            5 -> "ADMIN"
+            else -> "LAB"
+        }
+    }
+
     if (selectedTopTab == 6) {
         DpadFocusLabScreen(
             onBack = { selectedTopTab = 2 }
@@ -356,8 +368,18 @@ fun TvHomeScreen(
     val playerFocusRequester = remember { FocusRequester() }
     val initialNavFocusRequester = remember { FocusRequester() }
 
+    var initialFocusDone by remember { mutableStateOf(false) }
+    LaunchedEffect(displayMovies.isNotEmpty()) {
+        if (displayMovies.isNotEmpty() && !initialFocusDone && selectedTopTab == 2) {
+            initialFocusDone = true
+            focusTracker.getRecentRequester(0).requestFocus()
+        }
+    }
+
     LaunchedEffect(Unit) {
-        focusTracker.navMoviesAnchor.requestFocus()
+        if (!initialFocusDone) {
+            focusTracker.navMoviesAnchor.requestFocus()
+        }
     }
 
     LaunchedEffect(isFullscreen) {
@@ -539,7 +561,7 @@ fun TvHomeScreen(
                                     }
                                     TvFocusZone.TOP_NAV -> {
                                         targetIndex = (currentIndex - 1).coerceAtLeast(0)
-                                        targetTag = "nav_${topTabs.getOrNull(targetIndex)?.lowercase() ?: targetIndex}"
+                                        targetTag = focusTracker.getNavTabTag(targetIndex)
                                     }
                                     else -> {}
                                 }
@@ -560,7 +582,7 @@ fun TvHomeScreen(
                                     }
                                     TvFocusZone.TOP_NAV -> {
                                         targetIndex = (currentIndex + 1).coerceAtMost(topTabs.lastIndex)
-                                        targetTag = "nav_${topTabs.getOrNull(targetIndex)?.lowercase() ?: targetIndex}"
+                                        targetTag = focusTracker.getNavTabTag(targetIndex)
                                     }
                                     else -> {}
                                 }
@@ -834,49 +856,113 @@ fun TvHomeScreen(
 
                         Spacer(modifier = Modifier.width(20.dp))
 
-                        // Pestañas Oficiales Compose for TV con navegación D-Pad instantánea
-                        TabRow(
-                            selectedTabIndex = selectedTopTab,
-                            separator = { Spacer(modifier = Modifier.width(6.dp)) }
+                        // Barra de Navegación Determinista con 4 estados visuales claros (FOCUSED != SELECTED)
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             topTabs.forEachIndexed { index, title ->
-                                val tabRequester = when (index) {
-                                    0 -> initialNavFocusRequester
-                                    2 -> focusTracker.navMoviesAnchor
-                                    else -> null
-                                }
-                                val tabModifier = Modifier
-                                    .then(if (tabRequester != null) Modifier.focusRequester(tabRequester) else Modifier)
-                                    .focusProperties {
-                                        if (index == 2) { // Películas
-                                            down = focusTracker.heroPlayAnchor
+                                key(index) {
+                                    val tabRequester = focusTracker.getNavRequester(index)
+                                    var isThisTabFocused by remember { mutableStateOf(false) }
+                                    val isSelected = (selectedTopTab == index)
+                                    val tabInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+
+                                    // 4 ESTADOS VISUALES INEQUÍVOCOS
+                                    val bgColor = when {
+                                        isThisTabFocused && isSelected -> LelouchCyanAccent
+                                        isThisTabFocused && !isSelected -> LelouchSurfaceVariant
+                                        !isThisTabFocused && isSelected -> LelouchCyanAccent.copy(alpha = 0.18f)
+                                        else -> Color.Transparent
+                                    }
+                                    val borderColor = when {
+                                        isThisTabFocused && isSelected -> Color.White
+                                        isThisTabFocused && !isSelected -> LelouchCyanAccent
+                                        !isThisTabFocused && isSelected -> LelouchCyanAccent.copy(alpha = 0.6f)
+                                        else -> Color.Transparent
+                                    }
+                                    val borderWidth = when {
+                                        isThisTabFocused -> 2.5.dp
+                                        isSelected -> 1.5.dp
+                                        else -> 1.dp
+                                    }
+                                    val textColor = when {
+                                        isThisTabFocused && isSelected -> Color.Black
+                                        isThisTabFocused && !isSelected -> Color.White
+                                        !isThisTabFocused && isSelected -> LelouchCyanAccent
+                                        else -> LelouchTextSecondary
+                                    }
+                                    val textWeight = when {
+                                        isThisTabFocused && isSelected -> FontWeight.Black
+                                        isThisTabFocused || isSelected -> FontWeight.Bold
+                                        else -> FontWeight.Medium
+                                    }
+
+                                    Box(
+                                        modifier = Modifier
+                                            .focusRequester(tabRequester)
+                                            .focusProperties {
+                                                up = FocusRequester.Cancel // Límite superior: no perder foco
+                                                down = focusTracker.heroPlayAnchor // Destino determinista hacia Hero Play
+                                                left = if (index > 0) focusTracker.getNavRequester(index - 1) else FocusRequester.Cancel
+                                                right = if (index < topTabs.lastIndex) focusTracker.getNavRequester(index + 1) else FocusRequester.Cancel
+                                            }
+                                            .onFocusChanged {
+                                                isThisTabFocused = it.isFocused
+                                                if (it.isFocused) {
+                                                    focusedTopTab = index
+                                                    val tag = focusTracker.getNavTabTag(index)
+                                                    focusTracker.onFocusChanged(
+                                                        tag = tag,
+                                                        zone = TvFocusZone.TOP_NAV,
+                                                        rowIndex = 0,
+                                                        cardIndex = index,
+                                                        isFocused = true
+                                                    )
+                                                }
+                                            }
+                                            .onKeyEvent { keyEvent ->
+                                                if (keyEvent.type == KeyEventType.KeyDown &&
+                                                    (keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                                                     keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ENTER ||
+                                                     keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER)
+                                                ) {
+                                                    selectedTopTab = index
+                                                    true
+                                                } else {
+                                                    false
+                                                }
+                                            }
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(bgColor)
+                                            .border(borderWidth, borderColor, RoundedCornerShape(8.dp))
+                                            .clickable(
+                                                interactionSource = tabInteraction,
+                                                indication = null
+                                            ) {
+                                                selectedTopTab = index
+                                            }
+                                            .padding(horizontal = 14.dp, vertical = 7.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            if (isSelected && !isThisTabFocused) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(6.dp)
+                                                        .clip(CircleShape)
+                                                        .background(LelouchCyanAccent)
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                            }
+                                            Text(
+                                                text = title,
+                                                fontSize = 13.sp,
+                                                fontWeight = textWeight,
+                                                color = textColor
+                                            )
                                         }
                                     }
-                                Tab(
-                                    modifier = tabModifier,
-                                    selected = selectedTopTab == index,
-                                    onFocus = {
-                                        focusedTopTab = index
-                                        val tag = when (index) {
-                                            0 -> "nav_home"
-                                            1 -> "nav_live"
-                                            2 -> "nav_movies"
-                                            3 -> "nav_series"
-                                            4 -> "nav_favorites"
-                                            5 -> "nav_admin"
-                                            else -> "nav_lab"
-                                        }
-                                        focusTracker.onFocusChanged(tag, TvFocusZone.TOP_NAV, rowIndex = 0, cardIndex = index)
-                                    },
-                                    onClick = { selectedTopTab = index }
-                                ) {
-                                    Text(
-                                        text = title,
-                                        fontSize = 14.sp,
-                                        fontWeight = if (selectedTopTab == index) FontWeight.Bold else FontWeight.Medium,
-                                        color = if (selectedTopTab == index) LelouchCyanAccent else LelouchTextSecondary,
-                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
-                                    )
                                 }
                             }
                         }
@@ -1106,18 +1192,19 @@ fun TvHomeScreen(
                                             down = focusTracker.getRecentRequester(
                                                 focusTracker.recentMovieLastIndex.coerceIn(0, (displayMovies.size - 1).coerceAtLeast(0))
                                             )
+                                            right = focusTracker.heroDetailAnchor
                                         }
                                     }
                                     .onFocusChanged {
                                         isPlayFocused = it.isFocused
                                         if (it.isFocused) {
-                                            focusTracker.onFocusChanged("hero_play", TvFocusZone.HERO)
+                                            focusTracker.onFocusChanged("hero_play", TvFocusZone.HERO, rowIndex = 0, cardIndex = 0)
                                         }
                                     }
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(if (isPlayFocused) LelouchCyanAccent else LelouchSurfaceVariant)
                                     .border(
-                                        width = if (isPlayFocused) 2.dp else 1.dp,
+                                        width = if (isPlayFocused) 2.5.dp else 1.dp,
                                         color = if (isPlayFocused) Color.White else LelouchBorder,
                                         shape = RoundedCornerShape(8.dp)
                                     )
@@ -1234,24 +1321,26 @@ fun TvHomeScreen(
                                 val detailInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                                 Box(
                                     modifier = Modifier
+                                        .then(if (isMoviesTab) Modifier.focusRequester(focusTracker.heroDetailAnchor) else Modifier)
                                         .focusProperties {
                                             if (isMoviesTab) {
                                                 up = focusTracker.navMoviesAnchor
                                                 down = focusTracker.getRecentRequester(
                                                     focusTracker.recentMovieLastIndex.coerceIn(0, (displayMovies.size - 1).coerceAtLeast(0))
                                                 )
+                                                left = focusTracker.heroPlayAnchor
                                             }
                                         }
                                         .onFocusChanged {
                                             isDetailFocused = it.isFocused
                                             if (it.isFocused) {
-                                                focusTracker.onFocusChanged("hero_detail", TvFocusZone.HERO)
+                                                focusTracker.onFocusChanged("hero_detail", TvFocusZone.HERO, rowIndex = 0, cardIndex = 1)
                                             }
                                         }
                                         .clip(RoundedCornerShape(8.dp))
-                                        .background(if (isDetailFocused) LelouchCyanAccent.copy(alpha = 0.25f) else Color.Transparent)
+                                        .background(if (isDetailFocused) LelouchSurfaceVariant else Color.Transparent)
                                         .border(
-                                            width = if (isDetailFocused) 2.dp else 1.dp,
+                                            width = if (isDetailFocused) 2.5.dp else 1.dp,
                                             color = if (isDetailFocused) LelouchCyanAccent else LelouchBorder,
                                             shape = RoundedCornerShape(8.dp)
                                         )
@@ -1282,14 +1371,15 @@ fun TvHomeScreen(
                                         Icon(
                                             imageVector = Icons.Default.Info,
                                             contentDescription = null,
-                                            tint = if (isDetailFocused) LelouchCyanAccent else LelouchTextSecondary,
+                                            tint = if (isDetailFocused) Color.White else LelouchTextSecondary,
                                             modifier = Modifier.size(16.dp)
                                         )
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
                                             text = "Más Detalles",
-                                            color = if (isDetailFocused) LelouchTextPrimary else LelouchTextSecondary,
-                                            fontSize = 13.sp
+                                            color = if (isDetailFocused) Color.White else LelouchTextSecondary,
+                                            fontSize = 13.sp,
+                                            fontWeight = if (isDetailFocused) FontWeight.Bold else FontWeight.Medium
                                         )
                                     }
                                 }

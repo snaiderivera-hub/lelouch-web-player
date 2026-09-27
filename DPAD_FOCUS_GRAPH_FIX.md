@@ -100,43 +100,55 @@ Box(
 
 ---
 
-## 4. Desacoplamiento de Pestañas Superiores (Paso 10)
+## 4. Arquitectura de Navegación Superior y 4 Estados Visuales (FOCUSED != SELECTED)
 
-En `TvHomeScreen.kt`, se separó la variable observada del foco de la variable de selección:
-```kotlin
-var focusedTopTab by remember { mutableIntStateOf(2) }
-var selectedTopTab by remember { mutableIntStateOf(2) }
+Para erradicar la trampa de foco interna y la falta de indicación visual de `androidx.tv.material3.TabRow`, se implementó una barra superior mediante `Row` estándar de Compose con `FocusRequester` deterministas (`navRequesters[0..6]`) y 4 estados visuales de alto contraste:
 
-Tab(
-    modifier = tabModifier,
-    selected = selectedTopTab == index,
-    onFocus = { focusedTopTab = index },     // Solo registra posición de foco
-    onClick = { selectedTopTab = index }      // Recomposición solo al presionar OK/CENTER
-)
+```text
+ESTADO 1: FOCUSED + SELECTED (Pestaña actual con foco activo)
+- Fondo: Cyan Neón Sólido (#00E5FF)
+- Borde: Blanco Puro 2.5dp
+- Texto: Negro (#000000), FontWeight.Black
+
+ESTADO 2: FOCUSED (Pestaña destino con foco, pero no seleccionada)
+- Fondo: Superficie Oscura (#1F293D)
+- Borde: Cyan Neón 2.5dp
+- Texto: Blanco Puro (#FFFFFF), FontWeight.Bold
+
+ESTADO 3: SELECTED (Pantalla activa, pero foco en Hero o Rieles)
+- Fondo: Cyan Translúcido (alpha = 0.18f)
+- Borde: Cyan Translúcido 1.5dp (alpha = 0.6f)
+- Texto: Cyan Neón (#00E5FF), FontWeight.Bold
+- Indicador: Punto Cyan de 6dp
+
+ESTADO 4: NORMAL (Inactivo y sin foco)
+- Fondo: Transparente
+- Borde: Transparente 1.0dp
+- Texto: Gris Secundario (#94A3B8), FontWeight.Medium
 ```
-Esto erradica la destrucción y recreación en bucle de la `TvLazyColumn` durante la navegación horizontal en la barra de navegación.
+
+### Separación de Foco y Selección:
+- `isThisTabFocused`: Actualizado inmediatamente por `onFocusChanged`. Muestra el cursor del D-pad sin cambiar de pantalla.
+- `selectedTopTab`: Actualizado **únicamente** al presionar `DPAD_CENTER`, `ENTER` o `OK`.
 
 ---
 
 ## 5. Herramientas de Verificación Física en Xiaomi TV Box
 
-### A. Focus Debug HUD de Ciclo Completo (Paso 3 y Nueva Directiva)
+### A. Focus Debug HUD de Ciclo Completo
 Visible en la esquina superior derecha del televisor, **exclusivamente condicionado a compilaciones DEBUG** (`BuildConfig.DEBUG`):
 
 ```text
 ┌────────────────────────────────────────────────────────┐
 │ XIAOMI D-PAD TRACE                             MOVIES  │
-│ KEY: DPAD_DOWN                        CONSUMED: TRUE   │
+│ KEY: DPAD_UP                          CONSUMED: TRUE   │
 │ ┌────────────────────────────────────────────────────┐ │
 │ │ RESULT: SUCCESS                                    │ │ ◄── [Código de Colores Dinámico]
+│ │ BEFORE: hero_play [HERO | #0]                      │ │
+│ │ TARGET: nav_movies [TOP_NAV | #2]                  │ │
+│ │ AFTER:  nav_movies [TOP_NAV | #2]                  │ │
 │ └────────────────────────────────────────────────────┘ │
-│ BEFORE:  movies_recent_14                              │
-│          [RAIL_RECENT | #14]                           │
-│ TARGET:  movies_top_1                                  │
-│          [RAIL_TOP_RATED | #0]                         │
-│ AFTER:   movies_top_1                                  │
-│          [RAIL_TOP_RATED | #0]                         │
-│ MEMORY:  RECENT=#14 | TOP_RATED=#0                     │
+│ MEMORY:  RECENT=#0 | TOP_RATED=#0                      │
 └────────────────────────────────────────────────────────┘
 ```
 
@@ -147,40 +159,40 @@ Visible en la esquina superior derecha del televisor, **exclusivamente condicion
 - `FOCUS_LOST` (Rojo `#EF4444`): Ningún control en la jerarquía retuvo o ganó foco (`currentTag = NONE`).
 - `REQUEST_FAILED` (Magenta `#EC4899`): El foco se movió a un elemento distinto del destino esperado.
 
-> [!IMPORTANT]
-> **Sin Delays Arbitrarios**: No se utiliza ningún `delay()` para deducir el estado `AFTER`. El estado proviene en tiempo real del evento `onFocusChanged` disparado por el sistema de foco de Compose.
-
-### B. Laboratorio Aislado: DpadFocusLabScreen (Paso 11)
-Disponible directamente seleccionando la pestaña **"🧪 Lab"** en el Top Nav (o `selectedTopTab == 6`):
-- 0 llamadas de red (sin Xtream).
-- 0 imágenes Coil.
-- 0 instancias de ExoPlayer / Room.
-- Matriz pura de botones:
-  - `NAV`: `[NAV_LAB]` y `[NAV_BACK]`
-  - `ROW A`: `[A1]` a `[A5]`
-  - `ROW B`: `[B1]` a `[B5]`
-  - `ROW C`: `[C1]` a `[C5]`
-Certifica que el hardware de Xiaomi TV Box y el protocolo Bluetooth del control XMRM-M3 responden al 100% de manera determinista.
-
 ---
 
-## 6. Secuencia Obligatoria de Validación Física (Criterio de Éxito)
+## 6. Secuencia Obligatoria de Validación Física (Contrato MOVIES → TOP NAV)
 
-En el televisor Xiaomi TV Box:
-1. Iniciar la aplicación (abre directamente en **Películas** con el HUD visible arriba a la derecha).
-2. Ejecutar la secuencia física de prueba en el control remoto:
-   - `RIGHT x 15` (recorre de la película 0 a la 15 en Recientes)
-   - `DOWN` (salta al Riel Top Rated en Card 0)
-   - `RIGHT x 8` (avanza hasta la tarjeta 8 en Top Rated)
-   - `DOWN` (límite inferior: permanece en Card 8, `RESULT = UNCHANGED`, nunca `FOCUS_LOST`)
-   - `LEFT x 5` (retrocede a Card 3 en Top Rated)
-   - `UP` (salta exactamente a Card 15 de Recientes, comprobando memoria de riel)
-   - `UP` (salta al botón "Ver Película" del Hero Spotlight)
-   - `DOWN` (retorna a Card 15 de Recientes)
-3. Mirar la TV y confirmar en el HUD:
-   - `KEY`
-   - `BEFORE`
-   - `TARGET`
-   - `AFTER`
-   - `RESULT = SUCCESS` en cada transición válida.
-   - **0 focus lost**, **0 saltos geométricos fallidos**.
+Empezar en: **MOVIES / RECENT CARD #0**
+
+1. `UP`
+   - Esperado: `HERO / hero_play`
+   - HUD: BEFORE: `movies_recent_...`, TARGET: `hero_play`, AFTER: `hero_play`, RESULT: `SUCCESS`
+2. `UP`
+   - Esperado: `TOP_NAV / nav_movies` (Destino explícito, NO `nav_home`, NO `nav_live`)
+   - HUD: BEFORE: `hero_play`, TARGET: `nav_movies`, AFTER: `nav_movies`, RESULT: `SUCCESS`
+   - Visual: Tab "Películas" en estado **FOCUSED + SELECTED** (Fondo Cyan, Texto Negro, Borde Blanco 2.5dp).
+3. `LEFT`
+   - Esperado: `TOP_NAV / nav_live`
+   - Visual: "En Vivo" = **FOCUSED** (Borde Cyan 2.5dp, Texto Blanco), "Películas" = **SELECTED** (Fondo Cyan suave + punto cyan).
+4. `LEFT`
+   - Esperado: `TOP_NAV / nav_home`
+   - Visual: "Inicio" = **FOCUSED**, "Películas" = **SELECTED**.
+5. `RIGHT`
+   - Esperado: `TOP_NAV / nav_live`
+6. `RIGHT`
+   - Esperado: `TOP_NAV / nav_movies`
+   - Visual: "Películas" = **FOCUSED + SELECTED**.
+7. `RIGHT`
+   - Esperado: `TOP_NAV / nav_series`
+   - Visual: "Series" = **FOCUSED**, "Películas" = **SELECTED**.
+8. `LEFT`
+   - Esperado: `TOP_NAV / nav_movies`
+   - Visual: "Películas" = **FOCUSED + SELECTED**.
+9. `DOWN`
+   - Esperado: `HERO / hero_play`
+   - Visual: Botón "Ver Película" enfocado en Cyan con borde blanco 2.5dp.
+10. `DOWN`
+   - Esperado: `RAIL_RECENT / recentMovieLastIndex` (#0 o último recordado).
+
+Cada movimiento requiere **EXACTAMENTE UNA pulsación**. El elemento enfocado permanece **VISUALMENTE IDENTIFICABLE** en todo momento.

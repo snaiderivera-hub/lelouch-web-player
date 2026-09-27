@@ -81,6 +81,24 @@ class FocusTracker {
     val composedRecentIndices = mutableStateListOf<Int>()
     val composedTopRatedIndices = mutableStateListOf<Int>()
 
+    val navRequesters = mutableStateMapOf<Int, FocusRequester>()
+
+    fun getNavRequester(index: Int): FocusRequester {
+        return navRequesters.getOrPut(index) {
+            if (index == 2) navMoviesAnchor else FocusRequester()
+        }
+    }
+
+    fun getNavTabTag(index: Int): String = when (index) {
+        0 -> "nav_home"
+        1 -> "nav_live"
+        2 -> "nav_movies"
+        3 -> "nav_series"
+        4 -> "nav_favorites"
+        5 -> "nav_admin"
+        else -> "nav_lab"
+    }
+
     fun getRecentRequester(index: Int): FocusRequester {
         return recentMovieRequesters.getOrPut(index) { FocusRequester() }
     }
