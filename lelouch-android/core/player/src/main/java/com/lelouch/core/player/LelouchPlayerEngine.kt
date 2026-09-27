@@ -235,6 +235,21 @@ class LelouchPlayerEngine(
         exoPlayer.seekTo(positionMs)
     }
 
+    fun seekBy(offsetMs: Long) {
+        val current = exoPlayer.currentPosition
+        val duration = exoPlayer.duration.coerceAtLeast(0L)
+        val target = (current + offsetMs).coerceIn(0L, if (duration > 0) duration else Long.MAX_VALUE)
+        seekTo(target)
+    }
+
+    fun togglePlayPause() {
+        if (exoPlayer.playWhenReady) {
+            pause()
+        } else {
+            resume()
+        }
+    }
+
     fun setMuted(muted: Boolean) {
         _isMuted.value = muted
         exoPlayer.volume = if (muted) 0f else 1f

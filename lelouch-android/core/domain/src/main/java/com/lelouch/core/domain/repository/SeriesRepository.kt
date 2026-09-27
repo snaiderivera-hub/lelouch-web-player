@@ -13,6 +13,12 @@ interface SeriesRepository {
 
     suspend fun getSeriesDetail(seriesId: Int): Series?
     suspend fun getEpisodes(seriesId: Int, seasonNumber: Int): List<Episode>
+    suspend fun getSeriesDetailAndEpisodes(
+        serverUrl: String,
+        username: String,
+        password: String,
+        seriesId: Int
+    ): Pair<List<Int>, List<Episode>>
     suspend fun toggleFavorite(seriesId: Int, isFavorite: Boolean)
     suspend fun syncSeries(sourceId: String, serverUrl: String, user: String, pass: String): Result<Unit>
 }

@@ -154,7 +154,17 @@ class MainActivity : ComponentActivity() {
                                 onAddSource = ::onAddSource,
                                 onSyncCloudSources = ::onSyncCloud,
                                 onForceSync = ::onForceSync,
-                                onLogout = ::onLogout
+                                onLogout = ::onLogout,
+                                onFetchSeriesDetails = { seriesId ->
+                                    activeSource?.let { src ->
+                                        app.seriesRepository.getSeriesDetailAndEpisodes(
+                                            src.serverUrl,
+                                            src.username,
+                                            src.password,
+                                            seriesId
+                                        )
+                                    } ?: Pair(listOf(1), emptyList())
+                                }
                             )
                         } else {
                             TvLoginScreen(

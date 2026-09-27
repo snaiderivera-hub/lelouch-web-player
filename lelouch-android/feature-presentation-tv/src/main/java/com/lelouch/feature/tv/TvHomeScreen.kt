@@ -47,11 +47,13 @@ import com.lelouch.core.player.PlaybackState
 import com.lelouch.core.player.rememberLelouchPlayer
 import com.lelouch.feature.tv.components.EpgTimelineModal
 import com.lelouch.feature.tv.components.MediaDetailUiModel
+import com.lelouch.core.model.Episode
 import com.lelouch.feature.tv.components.TvAdminPanelModal
 import com.lelouch.feature.tv.components.TvMediaDetailModal
 import com.lelouch.feature.tv.components.TvPosterCard
 import com.lelouch.feature.tv.components.TvSearchModal
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 data class ChannelUiModel(
     val streamId: Int,
@@ -82,7 +84,8 @@ fun TvHomeScreen(
     onSyncCloudSources: () -> Unit = {},
     onForceSync: () -> Unit = {},
     onLogout: () -> Unit = {},
-    onNavigateToSettings: () -> Unit = {}
+    onNavigateToSettings: () -> Unit = {},
+    onFetchSeriesDetails: (suspend (seriesId: Int) -> Pair<List<Int>, List<Episode>>)? = null
 ) {
     val playerEngine = rememberLelouchPlayer()
     val playbackState by playerEngine.playbackState.collectAsStateWithLifecycle()
@@ -322,8 +325,51 @@ fun TvHomeScreen(
 
     var isFullscreen by remember { mutableStateOf(false) }
     var isHudVisible by remember { mutableStateOf(false) }
+    var isQuickZappingOpen by remember { mutableStateOf(false) }
+    var seekFeedbackText by remember { mutableStateOf<String?>(null) }
     var selectedTopTab by remember { mutableIntStateOf(0) } // 0 = Inicio, 1 = En Vivo, 2 = Películas, 3 = Series, 4 = Favoritos, 5 = Admin
     val topTabs = listOf("Inicio", "En Vivo", "Películas", "Series", "Favoritos", "⚙️ Admin")
+    val coroutineScope = rememberCoroutineScope()
+
+    LaunchedEffect(seekFeedbackText) {
+        if (seekFeedbackText != null) {
+            delay(1500)
+            seekFeedbackText = null
+        }
+    }
+
+    fun openSeriesDetails(series: Series) {
+        activeDetailMedia = MediaDetailUiModel(
+            id = series.seriesId,
+            title = series.name,
+            posterUrl = series.cover,
+            backdropUrl = series.backdropPath,
+            rating = series.rating ?: 0.0,
+            year = series.releaseDate?.take(4),
+            synopsis = series.plot ?: "Serie completa en catálogo de streaming.",
+            genre = series.genre,
+            isSeries = true,
+            isFavorite = series.isFavorite,
+            seasons = (1..(series.seasonsCount.takeIf { it > 0 } ?: 3)).toList(),
+            episodes = emptyList()
+        )
+
+        if (onFetchSeriesDetails != null) {
+            coroutineScope.launch {
+                try {
+                    val (seasons, episodes) = onFetchSeriesDetails(series.seriesId)
+                    if (activeDetailMedia?.id == series.seriesId) {
+                        activeDetailMedia = activeDetailMedia?.copy(
+                            seasons = if (seasons.isNotEmpty()) seasons else listOf(1),
+                            episodes = episodes
+                        )
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("TvHomeScreen", "Error cargando episodios de serie: ${e.message}")
+                }
+            }
+        }
+    }
 
     // Backdrop cinemático dinámico para la portada (EveryCine Style)
     val currentBackdropUrl = remember(selectedTopTab, focusedHeroMovie, focusedHeroSeries, focusedChannel) {
@@ -364,8 +410,10 @@ fun TvHomeScreen(
     }
 
     // Manejo de tecla BACK en Pantalla Completa: regresa al carrusel sin cortar la señal
-    BackHandler(enabled = isFullscreen) {
-        if (isHudVisible) {
+    BackHandler(enabled = isFullscreen || isQuickZappingOpen) {
+        if (isQuickZappingOpen) {
+            isQuickZappingOpen = false
+        } else if (isHudVisible) {
             isHudVisible = false
         } else {
             isFullscreen = false
@@ -378,27 +426,104 @@ fun TvHomeScreen(
             .background(LelouchBackground)
             .onKeyEvent { keyEvent ->
                 if (isFullscreen && keyEvent.type == KeyEventType.KeyDown) {
+                    val isLiveStream = (selectedTopTab == 0 || selectedTopTab == 1)
                     when (keyEvent.nativeKeyEvent.keyCode) {
+                        // CAMBIO DE CANALES CON CONTROL REMOTO XIAOMI (D-Pad Arriba / Channel Up)
                         KeyEvent.KEYCODE_DPAD_UP,
+                        KeyEvent.KEYCODE_CHANNEL_UP,
+                        KeyEvent.KEYCODE_PAGE_UP -> {
+                            if (isLiveStream && displayChannels.isNotEmpty()) {
+                                focusedChannelIndex = if (focusedChannelIndex < displayChannels.lastIndex) focusedChannelIndex + 1 else 0
+                                playerEngine.playStream(displayChannels[focusedChannelIndex].streamUrl, isLive = true)
+                                isHudVisible = true
+                            } else {
+                                isHudVisible = true
+                            }
+                            true
+                        }
+
+                        // CAMBIO DE CANALES CON CONTROL REMOTO XIAOMI (D-Pad Abajo / Channel Down)
                         KeyEvent.KEYCODE_DPAD_DOWN,
+                        KeyEvent.KEYCODE_CHANNEL_DOWN,
+                        KeyEvent.KEYCODE_PAGE_DOWN -> {
+                            if (isLiveStream && displayChannels.isNotEmpty()) {
+                                focusedChannelIndex = if (focusedChannelIndex > 0) focusedChannelIndex - 1 else displayChannels.lastIndex
+                                playerEngine.playStream(displayChannels[focusedChannelIndex].streamUrl, isLive = true)
+                                isHudVisible = true
+                            } else {
+                                isHudVisible = true
+                            }
+                            true
+                        }
+
+                        // D-Pad Izquierda: Abre Guía Rápida de Canales en Vivo, o Rebobina 10s en Película/Serie
+                        KeyEvent.KEYCODE_DPAD_LEFT,
+                        KeyEvent.KEYCODE_MEDIA_REWIND -> {
+                            if (isLiveStream) {
+                                isQuickZappingOpen = !isQuickZappingOpen
+                                isHudVisible = true
+                            } else {
+                                playerEngine.seekBy(-10_000)
+                                seekFeedbackText = "⏪ -10s"
+                                isHudVisible = true
+                            }
+                            true
+                        }
+
+                        // D-Pad Derecha: Info en Vivo, o Avanza 10s en Película/Serie
+                        KeyEvent.KEYCODE_DPAD_RIGHT,
+                        KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
+                            if (isLiveStream) {
+                                isHudVisible = !isHudVisible
+                            } else {
+                                playerEngine.seekBy(10_000)
+                                seekFeedbackText = "⏩ +10s"
+                                isHudVisible = true
+                            }
+                            true
+                        }
+
+                        // Botón Centro / OK: Toggle OSD o Play/Pause
                         KeyEvent.KEYCODE_DPAD_CENTER,
-                        KeyEvent.KEYCODE_ENTER -> {
-                            isHudVisible = !isHudVisible
-                            true
-                        }
-                        KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                            if (focusedChannelIndex < displayChannels.lastIndex) {
-                                focusedChannelIndex++
+                        KeyEvent.KEYCODE_ENTER,
+                        KeyEvent.KEYCODE_NUMPAD_ENTER -> {
+                            if (isLiveStream) {
+                                isHudVisible = !isHudVisible
+                            } else {
+                                playerEngine.togglePlayPause()
                                 isHudVisible = true
                             }
                             true
                         }
-                        KeyEvent.KEYCODE_DPAD_LEFT -> {
-                            if (focusedChannelIndex > 0) {
-                                focusedChannelIndex--
-                                isHudVisible = true
-                            }
+
+                        // Teclas multimedia dedicadas
+                        KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
+                            playerEngine.togglePlayPause()
+                            isHudVisible = true
                             true
+                        }
+                        KeyEvent.KEYCODE_MEDIA_PLAY -> {
+                            playerEngine.resume()
+                            isHudVisible = true
+                            true
+                        }
+                        KeyEvent.KEYCODE_MEDIA_PAUSE -> {
+                            playerEngine.pause()
+                            isHudVisible = true
+                            true
+                        }
+
+                        KeyEvent.KEYCODE_BACK -> {
+                            if (isQuickZappingOpen) {
+                                isQuickZappingOpen = false
+                                true
+                            } else if (isHudVisible) {
+                                isHudVisible = false
+                                true
+                            } else {
+                                isFullscreen = false
+                                true
+                            }
                         }
                         else -> false
                     }
@@ -802,8 +927,12 @@ fun TvHomeScreen(
                                             } ?: run {
                                                 playerEngine.playStream("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4", isLive = false)
                                             }
+                                            isFullscreen = true
+                                        } else if (selectedTopTab == 3 && focusedHeroSeries != null) {
+                                            openSeriesDetails(focusedHeroSeries!!)
+                                        } else {
+                                            isFullscreen = true
                                         }
-                                        isFullscreen = true
                                     }
                                     .padding(horizontal = 18.dp, vertical = 10.dp)
                             ) {
@@ -914,19 +1043,7 @@ fun TvHomeScreen(
                                                     isFavorite = focusedHeroMovie!!.isFavorite
                                                 )
                                             } else if (selectedTopTab == 3 && focusedHeroSeries != null) {
-                                                activeDetailMedia = MediaDetailUiModel(
-                                                    id = focusedHeroSeries!!.seriesId,
-                                                    title = focusedHeroSeries!!.name,
-                                                    posterUrl = focusedHeroSeries!!.cover,
-                                                    backdropUrl = focusedHeroSeries!!.backdropPath,
-                                                    rating = focusedHeroSeries!!.rating ?: 0.0,
-                                                    year = focusedHeroSeries!!.releaseDate?.take(4),
-                                                    synopsis = focusedHeroSeries!!.plot ?: "Serie completa en streaming.",
-                                                    genre = focusedHeroSeries!!.genre,
-                                                    isSeries = true,
-                                                    isFavorite = focusedHeroSeries!!.isFavorite,
-                                                    seasons = listOf(1, 2, 3, 4)
-                                                )
+                                                openSeriesDetails(focusedHeroSeries!!)
                                             }
                                         }
                                         .padding(horizontal = 14.dp, vertical = 10.dp)
@@ -1377,19 +1494,7 @@ fun TvHomeScreen(
                                         focusedHeroMovie = null
                                     },
                                     onClick = {
-                                        activeDetailMedia = MediaDetailUiModel(
-                                            id = series.seriesId,
-                                            title = series.name,
-                                            posterUrl = series.cover,
-                                            backdropUrl = series.backdropPath,
-                                            rating = series.rating ?: 0.0,
-                                            year = series.releaseDate?.take(4),
-                                            synopsis = series.plot ?: "Serie completa en catálogo.",
-                                            genre = series.genre,
-                                            isSeries = true,
-                                            isFavorite = series.isFavorite,
-                                            seasons = listOf(1, 2, 3, 4)
-                                        )
+                                        openSeriesDetails(series)
                                     }
                                 )
                             }
@@ -1427,19 +1532,7 @@ fun TvHomeScreen(
                                         focusedHeroSeries = series
                                     },
                                     onClick = {
-                                        activeDetailMedia = MediaDetailUiModel(
-                                            id = series.seriesId,
-                                            title = series.name,
-                                            posterUrl = series.cover,
-                                            backdropUrl = series.backdropPath,
-                                            rating = series.rating ?: 0.0,
-                                            year = series.releaseDate?.take(4),
-                                            synopsis = series.plot ?: "Serie completa en catálogo.",
-                                            genre = series.genre,
-                                            isSeries = true,
-                                            isFavorite = series.isFavorite,
-                                            seasons = listOf(1, 2, 3, 4)
-                                        )
+                                        openSeriesDetails(series)
                                     }
                                 )
                             }
@@ -1709,19 +1802,7 @@ fun TvHomeScreen(
                     isSearchModalVisible = false
                 },
                 onSelectSeries = { series ->
-                    activeDetailMedia = MediaDetailUiModel(
-                        id = series.seriesId,
-                        title = series.name,
-                        posterUrl = series.cover,
-                        backdropUrl = series.backdropPath,
-                        rating = series.rating ?: 0.0,
-                        year = series.releaseDate?.take(4),
-                        synopsis = series.plot ?: "Serie completa en catálogo.",
-                        genre = series.genre,
-                        isSeries = true,
-                        isFavorite = series.isFavorite,
-                        seasons = listOf(1, 2, 3, 4)
-                    )
+                    openSeriesDetails(series)
                     isSearchModalVisible = false
                 },
                 onDismiss = { isSearchModalVisible = false }
@@ -1765,6 +1846,196 @@ fun TvHomeScreen(
                 },
                 onDismiss = { isAdminModalVisible = false }
             )
+        }
+
+        // CAPA 9: Modal de Detalle de Película / Serie y Selector de Episodios
+        if (activeDetailMedia != null) {
+            TvMediaDetailModal(
+                media = activeDetailMedia!!,
+                onPlayClick = { episodeId ->
+                    if (activeDetailMedia!!.isSeries) {
+                        val ep = activeDetailMedia!!.episodes.find { it.episodeId == episodeId }
+                            ?: activeDetailMedia!!.episodes.firstOrNull()
+                        if (ep != null && ep.streamUrl.isNotEmpty()) {
+                            playerEngine.playStream(ep.streamUrl, isLive = false)
+                        } else {
+                            activeSource?.let { src ->
+                                val fallbackUrl = XtreamUrlBuilder.buildSeriesStreamUrl(
+                                    src.serverUrl,
+                                    src.username,
+                                    src.password,
+                                    episodeId ?: activeDetailMedia!!.id,
+                                    "mp4"
+                                )
+                                playerEngine.playStream(fallbackUrl, isLive = false)
+                            }
+                        }
+                    } else {
+                        activeSource?.let { src ->
+                            val movieUrl = XtreamUrlBuilder.buildVodStreamUrl(
+                                src.serverUrl,
+                                src.username,
+                                src.password,
+                                activeDetailMedia!!.id,
+                                "mp4"
+                            )
+                            playerEngine.playStream(movieUrl, isLive = false)
+                        }
+                    }
+                    isFullscreen = true
+                    activeDetailMedia = null
+                },
+                onToggleFavorite = {
+                    if (!activeDetailMedia!!.isSeries) {
+                        onToggleFavoriteMovie(activeDetailMedia!!.id, !activeDetailMedia!!.isFavorite)
+                    }
+                    activeDetailMedia = activeDetailMedia?.copy(isFavorite = !activeDetailMedia!!.isFavorite)
+                },
+                onDismiss = { activeDetailMedia = null }
+            )
+        }
+
+        // CAPA 10: Drawer de Zapping Rápido de Canales (para mandos Xiaomi en Pantalla Completa)
+        if (isFullscreen && isQuickZappingOpen) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(360.dp)
+                    .background(LelouchBackground.copy(alpha = 0.94f))
+                    .padding(24.dp)
+            ) {
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "📺 ZAPPING RÁPIDO",
+                            color = LelouchCyanAccent,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                        Text(
+                            text = "BACK: Salir",
+                            color = LelouchTextMuted,
+                            fontSize = 11.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    TvLazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        itemsIndexed(displayChannels) { idx, ch ->
+                            var isChFocused by remember { mutableStateOf(false) }
+                            val isCurrentPlaying = (idx == focusedChannelIndex)
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusable()
+                                    .onFocusChanged { isChFocused = it.isFocused }
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(
+                                        when {
+                                            isChFocused -> LelouchCardFocused
+                                            isCurrentPlaying -> LelouchCyanAccent.copy(alpha = 0.2f)
+                                            else -> LelouchSurface
+                                        }
+                                    )
+                                    .border(
+                                        width = if (isChFocused) 2.dp else if (isCurrentPlaying) 1.dp else 0.dp,
+                                        color = if (isChFocused) LelouchCyanAccent else if (isCurrentPlaying) LelouchCyanAccent.copy(alpha = 0.5f) else Color.Transparent,
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
+                                    .clickable {
+                                        focusedChannelIndex = idx
+                                        playerEngine.playStream(ch.streamUrl, isLive = true)
+                                        isQuickZappingOpen = false
+                                        isHudVisible = true
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 10.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "${ch.num}",
+                                        color = if (isChFocused || isCurrentPlaying) LelouchCyanAccent else LelouchTextMuted,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.width(36.dp)
+                                    )
+
+                                    if (!ch.streamIcon.isNullOrBlank()) {
+                                        AsyncImage(
+                                            model = ch.streamIcon,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(32.dp, 22.dp),
+                                            contentScale = ContentScale.Fit
+                                        )
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                    }
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = ch.name,
+                                            color = if (isChFocused) Color.White else LelouchTextPrimary,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = ch.currentProgram,
+                                            color = LelouchTextSecondary,
+                                            fontSize = 10.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+
+                                    if (isCurrentPlaying) {
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Box(
+                                            modifier = Modifier
+                                                .size(8.dp)
+                                                .clip(CircleShape)
+                                                .background(LelouchLiveRed)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // CAPA 11: Feedback Flotante de Búsqueda/Avance (ej: ⏪ -10s o ⏩ +10s para control Xiaomi)
+        if (seekFeedbackText != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = 90.dp),
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(Color.Black.copy(alpha = 0.85f))
+                        .border(1.5.dp, LelouchCyanAccent, RoundedCornerShape(24.dp))
+                        .padding(horizontal = 24.dp, vertical = 10.dp)
+                ) {
+                    Text(
+                        text = seekFeedbackText!!,
+                        color = Color.White,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                }
+            }
         }
     }
 }
