@@ -57,6 +57,12 @@ class MainActivity : ComponentActivity() {
                 errorMessage = (syncState as SyncState.Error).message
             }
 
+            val allSources by app.authRepository.getAllSources().collectAsStateWithLifecycle(initialValue = emptyList())
+
+            LaunchedEffect(Unit) {
+                app.authRepository.syncCloudSources()
+            }
+
             fun onLogin(serverUrl: String, user: String, pass: String) {
                 errorMessage = null
                 lifecycleScope.launch {
@@ -67,6 +73,52 @@ class MainActivity : ComponentActivity() {
                     }.onFailure { error ->
                         errorMessage = error.localizedMessage ?: "Error al conectar con el servidor IPTV"
                     }
+                }
+            }
+
+            fun onActivateSource(sourceId: String) {
+                lifecycleScope.launch {
+                    val activated = app.authRepository.activateSource(sourceId)
+                    if (activated != null) {
+                        app.syncManager.syncAll(activated.id, activated.serverUrl, activated.username, activated.password)
+                    }
+                }
+            }
+
+            fun onDeleteSource(sourceId: String) {
+                lifecycleScope.launch {
+                    app.authRepository.removeSource(sourceId)
+                }
+            }
+
+            fun onAddSource(serverUrl: String, user: String, pass: String, name: String) {
+                lifecycleScope.launch {
+                    val authResult = app.authRepository.validateXtream(serverUrl, user, pass, name)
+                    authResult.onSuccess { source ->
+                        app.syncManager.syncAll(source.id, source.serverUrl, source.username, source.password)
+                    }.onFailure { error ->
+                        errorMessage = error.localizedMessage ?: "Error al conectar"
+                    }
+                }
+            }
+
+            fun onSyncCloud() {
+                lifecycleScope.launch {
+                    app.authRepository.syncCloudSources()
+                }
+            }
+
+            fun onForceSync() {
+                activeSource?.let { src ->
+                    lifecycleScope.launch {
+                        app.syncManager.syncAll(src.id, src.serverUrl, src.username, src.password)
+                    }
+                }
+            }
+
+            fun onLogout() {
+                lifecycleScope.launch {
+                    app.authRepository.logout()
                 }
             }
 
@@ -85,6 +137,7 @@ class MainActivity : ComponentActivity() {
                         if (activeSource != null) {
                             TvHomeScreen(
                                 activeSource = activeSource,
+                                allSources = allSources,
                                 liveChannels = liveChannels,
                                 movies = movies,
                                 seriesList = seriesList,
@@ -95,14 +148,24 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onToggleFavoriteMovie = { streamId, isFav ->
                                     lifecycleScope.launch { app.vodRepository.toggleFavorite(streamId, isFav) }
-                                }
+                                },
+                                onActivateSource = ::onActivateSource,
+                                onDeleteSource = ::onDeleteSource,
+                                onAddSource = ::onAddSource,
+                                onSyncCloudSources = ::onSyncCloud,
+                                onForceSync = ::onForceSync,
+                                onLogout = ::onLogout
                             )
                         } else {
-
                             TvLoginScreen(
                                 isLoading = isLoading,
                                 errorMessage = errorMessage,
                                 syncStatusText = syncStatusText,
+                                savedSources = allSources,
+                                onSelectSavedSource = { src ->
+                                    onLogin(src.serverUrl, src.username, src.password)
+                                },
+                                onSyncCloudSources = ::onSyncCloud,
                                 onLoginClick = ::onLogin
                             )
                         }
@@ -117,12 +180,24 @@ class MainActivity : ComponentActivity() {
                         if (activeSource != null) {
                             MobileHomeScreen(
                                 activeSource = activeSource,
-                                liveChannels = liveChannels
+                                allSources = allSources,
+                                liveChannels = liveChannels,
+                                onActivateSource = ::onActivateSource,
+                                onDeleteSource = ::onDeleteSource,
+                                onAddSource = ::onAddSource,
+                                onSyncCloudSources = ::onSyncCloud,
+                                onForceSync = ::onForceSync,
+                                onLogout = ::onLogout
                             )
                         } else {
                             MobileLoginScreen(
                                 isLoading = isLoading,
                                 errorMessage = errorMessage,
+                                savedSources = allSources,
+                                onSelectSavedSource = { src ->
+                                    onLogin(src.serverUrl, src.username, src.password)
+                                },
+                                onSyncCloudSources = ::onSyncCloud,
                                 onLoginClick = ::onLogin
                             )
                         }
