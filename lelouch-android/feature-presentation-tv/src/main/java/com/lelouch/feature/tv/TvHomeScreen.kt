@@ -25,12 +25,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.*
+import androidx.tv.foundation.lazy.list.rememberTvLazyListState
+import com.lelouch.feature.tv.focus.*
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -333,15 +336,24 @@ fun TvHomeScreen(
     var isHudVisible by remember { mutableStateOf(false) }
     var isQuickZappingOpen by remember { mutableStateOf(false) }
     var seekFeedbackText by remember { mutableStateOf<String?>(null) }
-    var selectedTopTab by remember { mutableIntStateOf(0) } // 0 = Inicio, 1 = En Vivo, 2 = Películas, 3 = Series, 4 = Favoritos, 5 = Admin
-    val topTabs = listOf("Inicio", "En Vivo", "Películas", "Series", "Favoritos", "⚙️ Admin")
+    val focusTracker = remember { FocusTracker() }
+    var focusedTopTab by remember { mutableIntStateOf(2) } // Desacoplado de selectedTopTab (Paso 10)
+    var selectedTopTab by remember { mutableIntStateOf(2) } // Iniciamos en Películas para validar MOVIES (Paso 12)
+    val topTabs = listOf("Inicio", "En Vivo", "Películas", "Series", "Favoritos", "⚙️ Admin", "🧪 Lab")
     val coroutineScope = rememberCoroutineScope()
+
+    if (selectedTopTab == 6) {
+        DpadFocusLabScreen(
+            onBack = { selectedTopTab = 2 }
+        )
+        return
+    }
 
     val playerFocusRequester = remember { FocusRequester() }
     val initialNavFocusRequester = remember { FocusRequester() }
 
     LaunchedEffect(Unit) {
-        initialNavFocusRequester.requestFocus()
+        focusTracker.navMoviesAnchor.requestFocus()
     }
 
     LaunchedEffect(isFullscreen) {
@@ -442,6 +454,23 @@ fun TvHomeScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(LelouchBackground)
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown) {
+                    val keyName = when (event.nativeKeyEvent.keyCode) {
+                        KeyEvent.KEYCODE_DPAD_UP -> "DPAD_UP"
+                        KeyEvent.KEYCODE_DPAD_DOWN -> "DPAD_DOWN"
+                        KeyEvent.KEYCODE_DPAD_LEFT -> "DPAD_LEFT"
+                        KeyEvent.KEYCODE_DPAD_RIGHT -> "DPAD_RIGHT"
+                        KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> "DPAD_CENTER"
+                        KeyEvent.KEYCODE_BACK -> "BACK"
+                        else -> null
+                    }
+                    if (keyName != null) {
+                        focusTracker.recordKey(keyName)
+                    }
+                }
+                false
+            }
     ) {
         // Capa de control D-pad para Pantalla Completa (Garantiza foco 100% permanente en Xiaomi Remote)
         if (isFullscreen) {
@@ -704,10 +733,34 @@ fun TvHomeScreen(
                             separator = { Spacer(modifier = Modifier.width(6.dp)) }
                         ) {
                             topTabs.forEachIndexed { index, title ->
+                                val tabRequester = when (index) {
+                                    0 -> initialNavFocusRequester
+                                    2 -> focusTracker.navMoviesAnchor
+                                    else -> null
+                                }
+                                val tabModifier = Modifier
+                                    .then(if (tabRequester != null) Modifier.focusRequester(tabRequester) else Modifier)
+                                    .focusProperties {
+                                        if (index == 2) { // Películas
+                                            down = focusTracker.heroPlayAnchor
+                                        }
+                                    }
                                 Tab(
-                                    modifier = if (index == 0) Modifier.focusRequester(initialNavFocusRequester) else Modifier,
+                                    modifier = tabModifier,
                                     selected = selectedTopTab == index,
-                                    onFocus = { selectedTopTab = index },
+                                    onFocus = {
+                                        focusedTopTab = index
+                                        val tag = when (index) {
+                                            0 -> "nav_home"
+                                            1 -> "nav_live"
+                                            2 -> "nav_movies"
+                                            3 -> "nav_series"
+                                            4 -> "nav_favorites"
+                                            5 -> "nav_admin"
+                                            else -> "nav_lab"
+                                        }
+                                        focusTracker.onFocusChanged(tag, TvFocusZone.TOP_NAV, rowIndex = 0, cardIndex = index)
+                                    },
                                     onClick = { selectedTopTab = index }
                                 ) {
                                     Text(
@@ -935,10 +988,25 @@ fun TvHomeScreen(
                         // Botones de Acción Hero Spotlight
                         Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                             var isPlayFocused by remember { mutableStateOf(false) }
+                            val playInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                            val isMoviesTab = (selectedTopTab == 2)
                             Box(
                                 modifier = Modifier
-                                    .focusable()
-                                    .onFocusChanged { isPlayFocused = it.isFocused }
+                                    .then(if (isMoviesTab) Modifier.focusRequester(focusTracker.heroPlayAnchor) else Modifier)
+                                    .focusProperties {
+                                        if (isMoviesTab) {
+                                            up = focusTracker.navMoviesAnchor
+                                            down = focusTracker.getRecentRequester(
+                                                focusTracker.recentMovieLastIndex.coerceIn(0, (displayMovies.size - 1).coerceAtLeast(0))
+                                            )
+                                        }
+                                    }
+                                    .onFocusChanged {
+                                        isPlayFocused = it.isFocused
+                                        if (it.isFocused) {
+                                            focusTracker.onFocusChanged("hero_play", TvFocusZone.HERO)
+                                        }
+                                    }
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(if (isPlayFocused) LelouchCyanAccent else LelouchSurfaceVariant)
                                     .border(
@@ -946,7 +1014,10 @@ fun TvHomeScreen(
                                         color = if (isPlayFocused) Color.White else LelouchBorder,
                                         shape = RoundedCornerShape(8.dp)
                                     )
-                                    .clickable {
+                                    .clickable(
+                                        interactionSource = playInteraction,
+                                        indication = null
+                                    ) {
                                         if (selectedTopTab == 2 && focusedHeroMovie != null) {
                                             activeSource?.let { src ->
                                                 val url = XtreamUrlBuilder.buildVodStreamUrl(
@@ -1053,10 +1124,23 @@ fun TvHomeScreen(
                             } else {
                                 // Botón de Más Detalles para Películas y Series
                                 var isDetailFocused by remember { mutableStateOf(false) }
+                                val detailInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                                 Box(
                                     modifier = Modifier
-                                        .focusable()
-                                        .onFocusChanged { isDetailFocused = it.isFocused }
+                                        .focusProperties {
+                                            if (isMoviesTab) {
+                                                up = focusTracker.navMoviesAnchor
+                                                down = focusTracker.getRecentRequester(
+                                                    focusTracker.recentMovieLastIndex.coerceIn(0, (displayMovies.size - 1).coerceAtLeast(0))
+                                                )
+                                            }
+                                        }
+                                        .onFocusChanged {
+                                            isDetailFocused = it.isFocused
+                                            if (it.isFocused) {
+                                                focusTracker.onFocusChanged("hero_detail", TvFocusZone.HERO)
+                                            }
+                                        }
                                         .clip(RoundedCornerShape(8.dp))
                                         .background(if (isDetailFocused) LelouchCyanAccent.copy(alpha = 0.25f) else Color.Transparent)
                                         .border(
@@ -1064,7 +1148,10 @@ fun TvHomeScreen(
                                             color = if (isDetailFocused) LelouchCyanAccent else LelouchBorder,
                                             shape = RoundedCornerShape(8.dp)
                                         )
-                                        .clickable {
+                                        .clickable(
+                                            interactionSource = detailInteraction,
+                                            indication = null
+                                        ) {
                                             if (selectedTopTab == 2 && focusedHeroMovie != null) {
                                                 activeDetailMedia = MediaDetailUiModel(
                                                     id = focusedHeroMovie!!.streamId,
@@ -1424,7 +1511,9 @@ fun TvHomeScreen(
                             displayMovies
                         }
 
+                        val recentRowState = rememberTvLazyListState()
                         TvLazyRow(
+                            state = recentRowState,
                             modifier = Modifier.focusRestorer(),
                             contentPadding = PaddingValues(horizontal = 48.dp),
                             horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -1432,15 +1521,33 @@ fun TvHomeScreen(
                             itemsIndexed(
                                 items = moviesToRender,
                                 key = { _, movie -> "movie_${movie.streamId}" }
-                            ) { _, movie ->
+                            ) { index, movie ->
+                                val cardRequester = focusTracker.getRecentRequester(index)
+                                val cardTag = "movies_recent_${movie.streamId}"
+                                val isMoviesTab = (selectedTopTab == 2)
+                                val cardModifier = if (isMoviesTab) {
+                                    Modifier
+                                        .focusRequester(cardRequester)
+                                        .focusProperties {
+                                            up = focusTracker.heroPlayAnchor
+                                            down = focusTracker.getTopRatedRequester(
+                                                focusTracker.topRatedMovieLastIndex.coerceIn(0, (displayMovies.size - 1).coerceAtLeast(0))
+                                            )
+                                            if (index == 0) left = FocusRequester.Cancel
+                                            if (index == moviesToRender.lastIndex) right = FocusRequester.Cancel
+                                        }
+                                } else Modifier
+
                                 TvPosterCard(
                                     title = movie.name,
                                     posterUrl = movie.streamIcon,
                                     rating = movie.rating ?: 0.0,
                                     year = movie.year,
+                                    modifier = cardModifier,
                                     onFocused = {
                                         focusedHeroMovie = movie
                                         focusedHeroSeries = null
+                                        focusTracker.onFocusChanged(cardTag, TvFocusZone.RAIL_RECENT, rowIndex = 1, cardIndex = index)
                                     },
                                     onClick = {
                                         activeDetailMedia = MediaDetailUiModel(
@@ -1478,7 +1585,9 @@ fun TvHomeScreen(
                             displayMovies.sortedByDescending { it.rating ?: 0.0 }
                         }
 
+                        val topRatedRowState = rememberTvLazyListState()
                         TvLazyRow(
+                            state = topRatedRowState,
                             modifier = Modifier.focusRestorer(),
                             contentPadding = PaddingValues(horizontal = 48.dp),
                             horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -1486,14 +1595,29 @@ fun TvHomeScreen(
                             itemsIndexed(
                                 items = topRatedMovies,
                                 key = { _, movie -> "top_movie_${movie.streamId}" }
-                            ) { _, movie ->
+                            ) { index, movie ->
+                                val cardRequester = focusTracker.getTopRatedRequester(index)
+                                val cardTag = "movies_top_${movie.streamId}"
+                                val cardModifier = Modifier
+                                    .focusRequester(cardRequester)
+                                    .focusProperties {
+                                        up = focusTracker.getRecentRequester(
+                                            focusTracker.recentMovieLastIndex.coerceIn(0, (displayMovies.size - 1).coerceAtLeast(0))
+                                        )
+                                        down = FocusRequester.Cancel // Límite inferior: nunca perder foco
+                                        if (index == 0) left = FocusRequester.Cancel
+                                        if (index == topRatedMovies.lastIndex) right = FocusRequester.Cancel
+                                    }
+
                                 TvPosterCard(
                                     title = movie.name,
                                     posterUrl = movie.streamIcon,
                                     rating = movie.rating ?: 0.0,
                                     year = movie.year,
+                                    modifier = cardModifier,
                                     onFocused = {
                                         focusedHeroMovie = movie
+                                        focusTracker.onFocusChanged(cardTag, TvFocusZone.RAIL_TOP_RATED, rowIndex = 2, cardIndex = index)
                                     },
                                     onClick = {
                                         activeDetailMedia = MediaDetailUiModel(
@@ -2098,6 +2222,14 @@ fun TvHomeScreen(
                 }
             }
         }
+
+        // HUD de Depuración en tiempo real para Xiaomi TV Box Remote (Paso 3)
+        if (!isFullscreen) {
+            FocusDebugHud(
+                tracker = focusTracker,
+                modifier = Modifier.align(Alignment.TopEnd)
+            )
+        }
     }
 }
 
@@ -2120,12 +2252,13 @@ fun TvChannelCard(
         label = "channelCardScale"
     )
 
+    val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+
     Box(
         modifier = modifier
             .width(215.dp)
             .height(125.dp)
             .scale(scale)
-            .focusable()
             .onFocusChanged {
                 isFocused = it.isFocused
                 if (it.isFocused) {
@@ -2145,7 +2278,10 @@ fun TvChannelCard(
                 color = if (isFocused) LelouchCyanAccent else if (isSelected) LelouchCyanAccent.copy(alpha = 0.5f) else LelouchBorder,
                 shape = RoundedCornerShape(12.dp)
             )
-            .clickable { onClick() }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null
+            ) { onClick() }
             .padding(12.dp)
     ) {
         Column(

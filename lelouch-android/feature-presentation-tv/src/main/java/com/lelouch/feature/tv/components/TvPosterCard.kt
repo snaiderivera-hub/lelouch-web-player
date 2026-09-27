@@ -52,12 +52,13 @@ fun TvPosterCard(
         label = "posterScale"
     )
 
+    val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+
     Box(
         modifier = modifier
             .width(width)
             .height(height)
             .scale(scale)
-            .focusable()
             .onFocusChanged {
                 isFocused = it.isFocused
                 if (it.isFocused) {
@@ -71,7 +72,10 @@ fun TvPosterCard(
                 color = if (isFocused) LelouchCyanAccent else LelouchBorder,
                 shape = RoundedCornerShape(12.dp)
             )
-            .clickable { onClick() }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null
+            ) { onClick() }
     ) {
         // Poster Image
         if (!posterUrl.isNullOrBlank()) {
