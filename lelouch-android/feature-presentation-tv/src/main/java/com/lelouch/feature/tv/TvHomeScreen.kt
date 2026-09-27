@@ -28,6 +28,10 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
+import com.lelouch.feature.tv.focus.MoviesFocusGraph
+import com.lelouch.feature.tv.focus.NavResult
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -345,6 +349,11 @@ fun TvHomeScreen(
     var selectedTopTab by remember { mutableIntStateOf(2) } // Iniciamos en Películas para validar MOVIES (Paso 12)
     val topTabs = listOf("Inicio", "En Vivo", "Películas", "Series", "Favoritos", "⚙️ Admin", "🧪 Lab")
     val coroutineScope = rememberCoroutineScope()
+    // Estado de scroll de los rieles de Movies — nivel superior para coordinación en Single Owner
+    val recentRowState = rememberTvLazyListState()
+    val topRatedRowState = rememberTvLazyListState()
+    // Job de scroll pendiente — cancelable si llega una nueva pulsación antes de que el item se compose
+    var pendingScrollJob by remember { mutableStateOf<Job?>(null) }
 
     LaunchedEffect(selectedTopTab) {
         focusTracker.currentScreen = when (selectedTopTab) {
@@ -356,6 +365,16 @@ fun TvHomeScreen(
             5 -> "ADMIN"
             else -> "LAB"
         }
+        // FIX F2/F7: Después de que CENTER cambia selectedTopTab, el contenido de la
+        // pantalla se recompone. Sin un requestFocus() explícito, Compose TV asigna
+        // foco al primer focusable geométrico (que puede ser nav_live u otro).
+        // Garantizamos que el foco permanezca en el tab que el usuario acaba de activar
+        // (focusedTopTab), que es el tab que tenía el foco físico cuando se presionó CENTER.
+        // Solo aplicamos en tabs 0-5 (no en LAB que tiene su propio handler).
+        if (selectedTopTab < 6) {
+            val tabToFocus = focusedTopTab.coerceIn(0, 5)
+            try { focusTracker.getNavRequester(tabToFocus).requestFocus() } catch (_: Exception) {}
+        }
     }
 
     if (selectedTopTab == 6) {
@@ -366,19 +385,16 @@ fun TvHomeScreen(
     }
 
     val playerFocusRequester = remember { FocusRequester() }
-    val initialNavFocusRequester = remember { FocusRequester() }
 
-    var initialFocusDone by remember { mutableStateOf(false) }
-    LaunchedEffect(displayMovies.isNotEmpty()) {
-        if (displayMovies.isNotEmpty() && !initialFocusDone && selectedTopTab == 2) {
-            initialFocusDone = true
-            focusTracker.getRecentRequester(0).requestFocus()
-        }
-    }
-
+    // ── PUNTO DE INICIALIZACIÓN ÚNICO (FIX F1) ────────────────────────────────
+    // Un único LaunchedEffect controla el foco inicial en MOVIES.
+    // Target inicial: navMoviesAnchor (nav_movies, TOP_NAV).
+    // Se ejecuta una sola vez al montar el composable.
+    // NO hay segundo LaunchedEffect compitiendo por getRecentRequester(0).
+    // Si el usuario quiere navegar al carrusel, usa DPAD_DOWN desde TOP_NAV.
     LaunchedEffect(Unit) {
-        if (!initialFocusDone) {
-            focusTracker.navMoviesAnchor.requestFocus()
+        if (selectedTopTab == 2) {
+            try { focusTracker.navMoviesAnchor.requestFocus() } catch (_: Exception) {}
         }
     }
 
@@ -481,124 +497,100 @@ fun TvHomeScreen(
             .fillMaxSize()
             .background(LelouchBackground)
             .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown) {
-                    val keyName = when (event.nativeKeyEvent.keyCode) {
-                        KeyEvent.KEYCODE_DPAD_UP -> "DPAD_UP"
-                        KeyEvent.KEYCODE_DPAD_DOWN -> "DPAD_DOWN"
-                        KeyEvent.KEYCODE_DPAD_LEFT -> "DPAD_LEFT"
-                        KeyEvent.KEYCODE_DPAD_RIGHT -> "DPAD_RIGHT"
-                        KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> "DPAD_CENTER"
-                        KeyEvent.KEYCODE_BACK -> "BACK"
-                        else -> null
+                // ══════════════════════════════════════════════════════════════
+                // SINGLE OWNER D-PAD — MOVIES (FIX F3)
+                //
+                // Este handler es el ÚNICO propietario del movimiento direccional
+                // en la pantalla MOVIES. Para ACTION_DOWN + dirección:
+                //   A. Capturar BEFORE
+                //   B. Calcular TARGET via MoviesFocusGraph
+                //   C. recordKeyRequest() (metadata HUD)
+                //   D. requestFocus() en el FocusRequester real
+                //   E. Retornar TRUE → Compose NO realiza búsqueda geométrica
+                //
+                // CENTER, BACK, CHANNEL_UP/DOWN: NO manejados aquí.
+                // ACTION_UP de cualquier tecla: ignorado (sin movimiento doble).
+                // ══════════════════════════════════════════════════════════════
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                if (selectedTopTab != 2) return@onPreviewKeyEvent false
+
+                val keyName = when (event.nativeKeyEvent.keyCode) {
+                    KeyEvent.KEYCODE_DPAD_UP    -> "DPAD_UP"
+                    KeyEvent.KEYCODE_DPAD_DOWN  -> "DPAD_DOWN"
+                    KeyEvent.KEYCODE_DPAD_LEFT  -> "DPAD_LEFT"
+                    KeyEvent.KEYCODE_DPAD_RIGHT -> "DPAD_RIGHT"
+                    else -> return@onPreviewKeyEvent false  // CENTER, BACK, etc.: no manejado aquí
+                }
+
+                // Cancelar cualquier scroll pendiente de la pulsación anterior
+                pendingScrollJob?.cancel()
+                pendingScrollJob = null
+
+                // Construir el grafo con tamaños actuales de los rieles
+                // topRatedMovies está disponible desde el nivel del Composable (remember(displayMovies))
+                val graph = MoviesFocusGraph(
+                    tracker       = focusTracker,
+                    navTabCount   = topTabs.size,
+                    recentCount   = displayMovies.size,
+                    topRatedCount = topRatedMovies.size
+                )
+
+                when (val navResult = graph.resolve(keyName)) {
+                    is NavResult.Ready -> {
+                        val target = navResult.target
+                        focusTracker.recordKeyRequest(
+                            key         = keyName,
+                            targetTag   = target.tag,
+                            targetZone  = target.zone,
+                            targetIndex = target.index,
+                            consumed    = true
+                        )
+                        try { target.requester?.requestFocus() } catch (_: Exception) {}
+                        true  // Consumido: Compose NO aplica búsqueda geométrica
                     }
-                    if (keyName != null && selectedTopTab == 2) {
-                        val currentZone = focusTracker.currentZone
-                        val currentIndex = focusTracker.lastCardIndex
-
-                        var targetTag = focusTracker.currentTag
-                        var targetZone = currentZone
-                        var targetIndex = currentIndex
-
-                        when (keyName) {
-                            "DPAD_UP" -> {
-                                when (currentZone) {
-                                    TvFocusZone.RAIL_RECENT -> {
-                                        targetTag = "hero_play"
-                                        targetZone = TvFocusZone.HERO
-                                        targetIndex = 0
-                                    }
-                                    TvFocusZone.RAIL_TOP_RATED -> {
-                                        targetIndex = focusTracker.recentMovieLastIndex.coerceIn(0, (displayMovies.size - 1).coerceAtLeast(0))
-                                        targetTag = "movies_recent_${displayMovies.getOrNull(targetIndex)?.streamId ?: targetIndex}"
-                                        targetZone = TvFocusZone.RAIL_RECENT
-                                    }
-                                    TvFocusZone.HERO -> {
-                                        targetTag = "nav_movies"
-                                        targetZone = TvFocusZone.TOP_NAV
-                                        targetIndex = 2
-                                    }
-                                    else -> {}
-                                }
+                    is NavResult.ScrollNeeded -> {
+                        val target = navResult.target
+                        val scrollIdx = navResult.scrollToIndex
+                        focusTracker.recordKeyRequest(
+                            key         = keyName,
+                            targetTag   = target.tag,
+                            targetZone  = target.zone,
+                            targetIndex = target.index,
+                            consumed    = true
+                        )
+                        // Coordinar scroll + esperar composición + requestFocus
+                        // El Job es cancelable si llega una nueva pulsación antes de completarse
+                        pendingScrollJob = coroutineScope.launch {
+                            val listState = when (target.zone) {
+                                TvFocusZone.RAIL_RECENT    -> recentRowState
+                                TvFocusZone.RAIL_TOP_RATED -> topRatedRowState
+                                else -> return@launch
                             }
-                            "DPAD_DOWN" -> {
-                                when (currentZone) {
-                                    TvFocusZone.TOP_NAV -> {
-                                        targetTag = "hero_play"
-                                        targetZone = TvFocusZone.HERO
-                                        targetIndex = 0
-                                    }
-                                    TvFocusZone.HERO -> {
-                                        targetIndex = focusTracker.recentMovieLastIndex.coerceIn(0, (displayMovies.size - 1).coerceAtLeast(0))
-                                        targetTag = "movies_recent_${displayMovies.getOrNull(targetIndex)?.streamId ?: targetIndex}"
-                                        targetZone = TvFocusZone.RAIL_RECENT
-                                    }
-                                    TvFocusZone.RAIL_RECENT -> {
-                                        targetIndex = focusTracker.topRatedMovieLastIndex.coerceIn(0, (topRatedMovies.size - 1).coerceAtLeast(0))
-                                        targetTag = "movies_top_${topRatedMovies.getOrNull(targetIndex)?.streamId ?: targetIndex}"
-                                        targetZone = TvFocusZone.RAIL_TOP_RATED
-                                    }
-                                    TvFocusZone.RAIL_TOP_RATED -> {
-                                        targetTag = focusTracker.currentTag
-                                        targetZone = TvFocusZone.RAIL_TOP_RATED
-                                        targetIndex = currentIndex
-                                    }
-                                    else -> {}
-                                }
+                            // 1. Solicitar scroll hacia el índice destino
+                            listState.animateScrollToItem(scrollIdx)
+                            // 2. Esperar hasta que el item esté compuesto (máx ~10 frames @ 60fps)
+                            var waitCount = 0
+                            while (!focusTracker.isComposed(target.zone, scrollIdx) && isActive && waitCount < 10) {
+                                kotlinx.coroutines.delay(16)
+                                waitCount++
                             }
-                            "DPAD_LEFT" -> {
-                                when (currentZone) {
-                                    TvFocusZone.RAIL_RECENT -> {
-                                        targetIndex = (currentIndex - 1).coerceAtLeast(0)
-                                        targetTag = "movies_recent_${displayMovies.getOrNull(targetIndex)?.streamId ?: targetIndex}"
-                                    }
-                                    TvFocusZone.RAIL_TOP_RATED -> {
-                                        targetIndex = (currentIndex - 1).coerceAtLeast(0)
-                                        targetTag = "movies_top_${topRatedMovies.getOrNull(targetIndex)?.streamId ?: targetIndex}"
-                                    }
-                                    TvFocusZone.HERO -> {
-                                        targetTag = "hero_play"
-                                        targetIndex = 0
-                                    }
-                                    TvFocusZone.TOP_NAV -> {
-                                        targetIndex = (currentIndex - 1).coerceAtLeast(0)
-                                        targetTag = focusTracker.getNavTabTag(targetIndex)
-                                    }
-                                    else -> {}
-                                }
-                            }
-                            "DPAD_RIGHT" -> {
-                                when (currentZone) {
-                                    TvFocusZone.RAIL_RECENT -> {
-                                        targetIndex = (currentIndex + 1).coerceAtMost(displayMovies.lastIndex)
-                                        targetTag = "movies_recent_${displayMovies.getOrNull(targetIndex)?.streamId ?: targetIndex}"
-                                    }
-                                    TvFocusZone.RAIL_TOP_RATED -> {
-                                        targetIndex = (currentIndex + 1).coerceAtMost(topRatedMovies.lastIndex)
-                                        targetTag = "movies_top_${topRatedMovies.getOrNull(targetIndex)?.streamId ?: targetIndex}"
-                                    }
-                                    TvFocusZone.HERO -> {
-                                        targetTag = "hero_detail"
-                                        targetIndex = 1
-                                    }
-                                    TvFocusZone.TOP_NAV -> {
-                                        targetIndex = (currentIndex + 1).coerceAtMost(topTabs.lastIndex)
-                                        targetTag = focusTracker.getNavTabTag(targetIndex)
-                                    }
-                                    else -> {}
-                                }
+                            if (!isActive) return@launch  // cancelado por nueva pulsación
+                            // 3. Ejecutar requestFocus si el item está compuesto
+                            if (focusTracker.isComposed(target.zone, scrollIdx)) {
+                                try {
+                                    focusTracker.resolveFocusRequester(target.zone, scrollIdx)?.requestFocus()
+                                } catch (_: Exception) {}
                             }
                         }
-
-                        focusTracker.recordKeyRequest(
-                            key = keyName,
-                            targetTag = targetTag,
-                            targetZone = targetZone,
-                            targetIndex = targetIndex,
-                            consumed = true
-                        )
+                        true  // Consumido aunque el scroll sea asíncrono
                     }
+                    is NavResult.Cancel -> {
+                        // Borde del grafo: no mover foco, pero consumir la tecla para
+                        // evitar que el motor TV intente escapar del área actual
+                        true
+                    }
+                    is NavResult.NotHandled -> false
                 }
-                false
             }
     ) {
         // Capa de control D-pad para Pantalla Completa (Garantiza foco 100% permanente en Xiaomi Remote)
@@ -902,10 +894,14 @@ fun TvHomeScreen(
                                         modifier = Modifier
                                             .focusRequester(tabRequester)
                                             .focusProperties {
-                                                up = FocusRequester.Cancel // Límite superior: no perder foco
-                                                down = focusTracker.heroPlayAnchor // Destino determinista hacia Hero Play
-                                                left = if (index > 0) focusTracker.getNavRequester(index - 1) else FocusRequester.Cancel
-                                                right = if (index < topTabs.lastIndex) focusTracker.getNavRequester(index + 1) else FocusRequester.Cancel
+                                                // Single Owner controla UP/DOWN/LEFT/RIGHT desde onPreviewKeyEvent.
+                                                // focusProperties solo declara los límites de borde para
+                                                // evitar que el motor TV escape por búsqueda geométrica
+                                                // en caso de que un evento no sea consumido.
+                                                up    = FocusRequester.Cancel
+                                                down  = FocusRequester.Cancel
+                                                left  = FocusRequester.Cancel
+                                                right = FocusRequester.Cancel
                                             }
                                             .onFocusChanged {
                                                 isThisTabFocused = it.isFocused
@@ -1186,15 +1182,9 @@ fun TvHomeScreen(
                             Box(
                                 modifier = Modifier
                                     .then(if (isMoviesTab) Modifier.focusRequester(focusTracker.heroPlayAnchor) else Modifier)
-                                    .focusProperties {
-                                        if (isMoviesTab) {
-                                            up = focusTracker.navMoviesAnchor
-                                            down = focusTracker.getRecentRequester(
-                                                focusTracker.recentMovieLastIndex.coerceIn(0, (displayMovies.size - 1).coerceAtLeast(0))
-                                            )
-                                            right = focusTracker.heroDetailAnchor
-                                        }
-                                    }
+                                    // Single Owner (onPreviewKeyEvent) controla UP/DOWN/LEFT/RIGHT.
+                                    // focusProperties se retira de hero_play para no competir con el grafo.
+                                    // El FocusRequester es suficiente para que el grafo pueda llamar requestFocus().
                                     .onFocusChanged {
                                         isPlayFocused = it.isFocused
                                         if (it.isFocused) {
@@ -1322,15 +1312,9 @@ fun TvHomeScreen(
                                 Box(
                                     modifier = Modifier
                                         .then(if (isMoviesTab) Modifier.focusRequester(focusTracker.heroDetailAnchor) else Modifier)
-                                        .focusProperties {
-                                            if (isMoviesTab) {
-                                                up = focusTracker.navMoviesAnchor
-                                                down = focusTracker.getRecentRequester(
-                                                    focusTracker.recentMovieLastIndex.coerceIn(0, (displayMovies.size - 1).coerceAtLeast(0))
-                                                )
-                                                left = focusTracker.heroPlayAnchor
-                                            }
-                                        }
+                                        // Single Owner (onPreviewKeyEvent) controla UP/DOWN/LEFT/RIGHT.
+                                        // focusProperties se retira de hero_detail para no competir con el grafo.
+                                        // El FocusRequester es suficiente para que el grafo pueda llamar requestFocus().
                                         .onFocusChanged {
                                             isDetailFocused = it.isFocused
                                             if (it.isFocused) {
@@ -1708,10 +1692,14 @@ fun TvHomeScreen(
                             displayMovies
                         }
 
-                        val recentRowState = rememberTvLazyListState()
+                        // recentRowState se declara a nivel superior del composable
+                        // para permitir que el Single Owner (onPreviewKeyEvent) coordine
+                        // el scroll antes de requestFocus() cuando el item no está compuesto.
                         TvLazyRow(
                             state = recentRowState,
-                            modifier = Modifier.focusRestorer(),
+                            // focusRestorer() eliminado: Single Owner + grafo determinista
+                            // controla 100% de la navegación en Movies. (FIX F6)
+                            modifier = Modifier,
                             contentPadding = PaddingValues(horizontal = 48.dp),
                             horizontalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
@@ -1732,13 +1720,15 @@ fun TvHomeScreen(
                                 val cardModifier = if (isMoviesTab) {
                                     Modifier
                                         .focusRequester(cardRequester)
+                                        // focusProperties en RAIL_RECENT: solo límites de borde.
+                                        // UP/DOWN son responsabilidad del Single Owner (onPreviewKeyEvent).
+                                        // Eliminado el bridge competidor a heroPlayAnchor y getTopRatedRequester.
+                                        // (FIX F5 + FIX F6)
                                         .focusProperties {
-                                            up = focusTracker.heroPlayAnchor
-                                            down = focusTracker.getTopRatedRequester(
-                                                focusTracker.topRatedMovieLastIndex.coerceIn(0, (displayMovies.size - 1).coerceAtLeast(0))
-                                            )
                                             if (index == 0) left = FocusRequester.Cancel
                                             if (index == moviesToRender.lastIndex) right = FocusRequester.Cancel
+                                            up   = FocusRequester.Cancel
+                                            down = FocusRequester.Cancel
                                         }
                                 } else Modifier
 
@@ -1789,10 +1779,11 @@ fun TvHomeScreen(
                             displayMovies.sortedByDescending { it.rating ?: 0.0 }
                         }
 
-                        val topRatedRowState = rememberTvLazyListState()
+                        // topRatedRowState se declara a nivel superior del composable.
                         TvLazyRow(
                             state = topRatedRowState,
-                            modifier = Modifier.focusRestorer(),
+                            // focusRestorer() eliminado: Single Owner controla navegación en Movies. (FIX F6)
+                            modifier = Modifier,
                             contentPadding = PaddingValues(horizontal = 48.dp),
                             horizontalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
@@ -1811,13 +1802,14 @@ fun TvHomeScreen(
                                 val cardTag = "movies_top_${movie.streamId}"
                                 val cardModifier = Modifier
                                     .focusRequester(cardRequester)
+                                    // focusProperties en RAIL_TOP_RATED: solo límites de borde.
+                                    // UP/DOWN son responsabilidad del Single Owner (onPreviewKeyEvent).
+                                    // Eliminado el bridge competidor a getRecentRequester. (FIX F5 + FIX F6)
                                     .focusProperties {
-                                        up = focusTracker.getRecentRequester(
-                                            focusTracker.recentMovieLastIndex.coerceIn(0, (displayMovies.size - 1).coerceAtLeast(0))
-                                        )
-                                        down = FocusRequester.Cancel // Límite inferior: nunca perder foco
                                         if (index == 0) left = FocusRequester.Cancel
                                         if (index == topRatedMovies.lastIndex) right = FocusRequester.Cancel
+                                        up   = FocusRequester.Cancel
+                                        down = FocusRequester.Cancel
                                     }
 
                                 TvPosterCard(

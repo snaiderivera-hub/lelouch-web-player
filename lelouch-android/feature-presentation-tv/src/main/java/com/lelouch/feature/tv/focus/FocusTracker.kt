@@ -19,18 +19,29 @@ enum class TvFocusZone(val label: String) {
 
 /**
  * Resultado estricto del ciclo de evento D-Pad según confirmación real de Compose.
+ *
+ * SUCCESS         → onFocusChanged del destino confirmó recepción Y coincide con el target solicitado.
+ * UNCHANGED       → onFocusChanged no disparó (el foco no se movió en absoluto).
+ * FOCUS_LOST      → El foco salió del árbol sin destino conocido.
+ * TARGET_NOT_COMPOSED → El item del grafo no estaba en la ventana visible del TvLazyRow.
+ * REQUEST_FAILED  → onFocusChanged disparó pero en un elemento distinto al target.
+ * ACTION_CENTER   → Tecla CENTER/ENTER — no es un movimiento direccional, no produce FocusResult.
  */
 enum class FocusResult(val label: String) {
     SUCCESS("SUCCESS"),
     UNCHANGED("UNCHANGED"),
     FOCUS_LOST("FOCUS_LOST"),
     TARGET_NOT_COMPOSED("TARGET_NOT_COMPOSED"),
-    REQUEST_FAILED("REQUEST_FAILED")
+    REQUEST_FAILED("REQUEST_FAILED"),
+    ACTION_CENTER("ACTION_CENTER")   // CENTER no genera resultado de movimiento
 }
 
 /**
  * Estado observable en tiempo real para rastrear el ciclo completo de cada KeyEvent
- * en Xiaomi TV Box (XMRM-M3): BEFORE -> REQUESTED TARGET -> AFTER -> RESULT.
+ * en Xiaomi TV Box (XMRM-M3): BEFORE → REQUESTED TARGET → AFTER → RESULT.
+ *
+ * onFocusChanged es el único punto que puede marcar SUCCESS.
+ * recordKeyRequest() solo puede marcar UNCHANGED o TARGET_NOT_COMPOSED como estado inicial.
  */
 @Stable
 class FocusTracker {
@@ -69,7 +80,7 @@ class FocusTracker {
     val railRecentAnchor = FocusRequester()
     val railTopRatedAnchor = FocusRequester()
 
-    // Memoria por rail (Paso 6): recuerda el último índice enfocado en cada riel
+    // Memoria de posición en cada rail (usado SOLO para restauración desde HERO, NO para navegación columnar)
     var recentMovieLastIndex by mutableIntStateOf(0)
     var topRatedMovieLastIndex by mutableIntStateOf(0)
 
@@ -109,16 +120,35 @@ class FocusTracker {
 
     fun isComposed(zone: TvFocusZone, index: Int): Boolean {
         return when (zone) {
-            TvFocusZone.RAIL_RECENT -> composedRecentIndices.contains(index)
-            TvFocusZone.RAIL_TOP_RATED -> composedTopRatedIndices.contains(index)
+            TvFocusZone.RAIL_RECENT     -> composedRecentIndices.contains(index)
+            TvFocusZone.RAIL_TOP_RATED  -> composedTopRatedIndices.contains(index)
             else -> true // Top Nav y Hero siempre están compuestos
         }
     }
 
     /**
-     * Registra el inicio de un evento de tecla. Congela BEFORE, calcula REQUESTED TARGET
-     * y comprueba si el destino está compuesto o si el foco permanece UNCHANGED.
-     * NO UTILIZA DELAYS.
+     * Resuelve el [FocusRequester] real para una zona+índice dados.
+     * Utilizado por onPreviewKeyEvent para ejecutar requestFocus() sin acceder directamente
+     * a los mapas internos.
+     *
+     * @return FocusRequester listo para requestFocus(), o null si el índice no está compuesto.
+     */
+    fun resolveFocusRequester(zone: TvFocusZone, index: Int): FocusRequester? {
+        return when (zone) {
+            TvFocusZone.TOP_NAV        -> getNavRequester(index)
+            TvFocusZone.HERO           -> if (index == 0) heroPlayAnchor else heroDetailAnchor
+            TvFocusZone.RAIL_RECENT    -> if (isComposed(zone, index)) getRecentRequester(index) else null
+            TvFocusZone.RAIL_TOP_RATED -> if (isComposed(zone, index)) getTopRatedRequester(index) else null
+            else                       -> null
+        }
+    }
+
+    /**
+     * Registra el inicio de un evento de tecla. Congela BEFORE, registra REQUESTED TARGET.
+     * NO llama requestFocus() — esa responsabilidad pertenece exclusivamente a onPreviewKeyEvent.
+     * NO utiliza delays.
+     *
+     * Para CENTER (ACTION_CENTER): registrar sin estado de movimiento.
      */
     fun recordKeyRequest(
         key: String,
@@ -130,33 +160,44 @@ class FocusTracker {
         lastKey = key
         eventConsumed = consumed
 
+        // Para teclas de acción (CENTER) no congela BEFORE ni registra movimiento
+        if (key == "DPAD_CENTER") {
+            actualResult = FocusResult.ACTION_CENTER
+            Log.d("XIAOMI_DPAD_TRACE", "ACTION_CENTER: consumed=[$consumed]")
+            return
+        }
+
         // Congelar estado BEFORE
-        beforeTag = currentTag
-        beforeZone = currentZone
+        beforeTag   = currentTag
+        beforeZone  = currentZone
         beforeIndex = lastCardIndex
 
         // Registrar REQUESTED TARGET
-        requestedTargetTag = targetTag
-        requestedTargetZone = targetZone
+        requestedTargetTag   = targetTag
+        requestedTargetZone  = targetZone
         requestedTargetIndex = targetIndex
 
-        // Validar si el destino ya fue compuesto por Compose TvLazyRow
-        if (!isComposed(targetZone, targetIndex)) {
-            actualResult = FocusResult.TARGET_NOT_COMPOSED
+        // Estado inicial: UNCHANGED hasta que onFocusChanged del destino confirme recepción
+        // (TARGET_NOT_COMPOSED se establece si el destino no está en pantalla)
+        actualResult = if (!isComposed(targetZone, targetIndex)) {
+            FocusResult.TARGET_NOT_COMPOSED
         } else {
-            // Inicialmente UNCHANGED hasta que onFocusChanged del destino confirme recepción
-            actualResult = FocusResult.UNCHANGED
+            FocusResult.UNCHANGED
         }
 
         Log.d(
             "XIAOMI_DPAD_TRACE",
-            "KEY_REQUEST: key=[$key] before=[$beforeTag, ${beforeZone.label}, #$beforeIndex] target=[$requestedTargetTag, ${requestedTargetZone.label}, #$requestedTargetIndex] initialResult=[${actualResult.label}]"
+            "KEY_REQUEST: key=[$key] before=[$beforeTag, ${beforeZone.label}, #$beforeIndex] " +
+            "target=[$requestedTargetTag, ${requestedTargetZone.label}, #$requestedTargetIndex] " +
+            "initialResult=[${actualResult.label}]"
         )
     }
 
     /**
      * Se invoca EXCLUSIVAMENTE cuando el Composable destino dispara onFocusChanged con isFocused = true.
-     * TARGET != AFTER: Certifica si se alcanzó SUCCESS o si hubo REQUEST_FAILED.
+     *
+     * SUCCESS ESTRICTO: requiere que tag, zone Y cardIndex coincidan con el target solicitado.
+     * (eliminada la validación permisiva con OR que podía producir falsos SUCCESS)
      */
     fun onFocusChanged(
         tag: String,
@@ -165,22 +206,17 @@ class FocusTracker {
         cardIndex: Int = 0,
         isFocused: Boolean = true
     ) {
-        if (!isFocused) {
-            if (currentTag == tag) {
-                // El elemento actual perdió foco
-            }
-            return
-        }
+        if (!isFocused) return
 
         // El elemento destino confirmó que TIENE foco real
         if (currentTag != tag || currentZone != zone || lastCardIndex != cardIndex) {
-            previousTag = currentTag
-            previousZone = currentZone
+            previousTag      = currentTag
+            previousZone     = currentZone
             previousCardIndex = lastCardIndex
 
-            currentTag = tag
-            currentZone = zone
-            lastRowIndex = rowIndex
+            currentTag    = tag
+            currentZone   = zone
+            lastRowIndex  = rowIndex
             lastCardIndex = cardIndex
 
             if (zone == TvFocusZone.RAIL_RECENT) {
@@ -189,18 +225,27 @@ class FocusTracker {
                 topRatedMovieLastIndex = cardIndex
             }
 
-            // Comprobar si el foco aterrizó en el target solicitado
-            actualResult = if (tag == requestedTargetTag || (zone == requestedTargetZone && cardIndex == requestedTargetIndex)) {
+            // SUCCESS ESTRICTO: tag, zone E index deben coincidir con el target solicitado.
+            // Para CENTER (ACTION_CENTER) o inicio sin navegación, no actualizar resultado.
+            actualResult = if (actualResult == FocusResult.ACTION_CENTER) {
+                FocusResult.ACTION_CENTER
+            } else if (
+                tag == requestedTargetTag &&
+                zone == requestedTargetZone &&
+                cardIndex == requestedTargetIndex
+            ) {
                 FocusResult.SUCCESS
-            } else if (tag == beforeTag) {
+            } else if (tag == beforeTag && zone == beforeZone && cardIndex == beforeIndex) {
                 FocusResult.UNCHANGED
             } else {
+                // El foco llegó a un lugar real pero diferente al target solicitado
                 FocusResult.REQUEST_FAILED
             }
 
             Log.d(
                 "XIAOMI_DPAD_TRACE",
-                "FOCUS_CONFIRMED: after=[$currentTag, ${currentZone.label}, #$cardIndex] result=[${actualResult.label}]"
+                "FOCUS_CONFIRMED: after=[$currentTag, ${currentZone.label}, #$cardIndex] " +
+                "result=[${actualResult.label}]"
             )
         }
     }

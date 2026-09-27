@@ -28,11 +28,12 @@ fun FocusDebugHud(
     modifier: Modifier = Modifier
 ) {
     val resultColor = when (tracker.actualResult) {
-        FocusResult.SUCCESS -> Color(0xFF10B981) // Verde esmeralda
-        FocusResult.UNCHANGED -> Color(0xFFFFD700) // Amarillo dorado
+        FocusResult.SUCCESS             -> Color(0xFF10B981) // Verde esmeralda
+        FocusResult.UNCHANGED           -> Color(0xFFFFD700) // Amarillo dorado
         FocusResult.TARGET_NOT_COMPOSED -> Color(0xFFFF8C00) // Naranja intenso
-        FocusResult.FOCUS_LOST -> Color(0xFFEF4444) // Rojo crítico
-        FocusResult.REQUEST_FAILED -> Color(0xFFEC4899) // Magenta advertencia
+        FocusResult.FOCUS_LOST          -> Color(0xFFEF4444) // Rojo crítico
+        FocusResult.REQUEST_FAILED      -> Color(0xFFEC4899) // Magenta advertencia
+        FocusResult.ACTION_CENTER       -> Color(0xFF818CF8) // Violeta — acción, no movimiento
     }
 
     Box(
