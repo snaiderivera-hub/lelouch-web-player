@@ -3,6 +3,7 @@ package com.lelouch.feature.tv
 import android.view.KeyEvent
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -561,38 +562,41 @@ fun TvHomeScreen(
             enter = fadeIn(tween(250)),
             exit = fadeOut(tween(250))
         ) {
+            val verticalScrimBrush = remember {
+                Brush.verticalGradient(
+                    colorStops = arrayOf(
+                        0.0f to LelouchBackground.copy(alpha = 0.90f),
+                        0.18f to LelouchBackground.copy(alpha = 0.40f),
+                        0.45f to Color.Transparent,
+                        0.65f to LelouchBackground.copy(alpha = 0.85f),
+                        0.88f to LelouchBackground,
+                        1.0f to LelouchBackground
+                    )
+                )
+            }
+            val horizontalScrimBrush = remember {
+                Brush.horizontalGradient(
+                    colorStops = arrayOf(
+                        0.0f to LelouchBackground.copy(alpha = 0.95f),
+                        0.35f to LelouchBackground.copy(alpha = 0.70f),
+                        0.65f to Color.Transparent,
+                        1.0f to Color.Transparent
+                    )
+                )
+            }
+
             Box(modifier = Modifier.fillMaxSize()) {
                 // Scrim Vertical: Protege la barra de pestañas superior y difumina hacia los carruseles inferiores
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                colorStops = arrayOf(
-                                    0.0f to LelouchBackground.copy(alpha = 0.90f),
-                                    0.18f to LelouchBackground.copy(alpha = 0.40f),
-                                    0.45f to Color.Transparent,
-                                    0.65f to LelouchBackground.copy(alpha = 0.85f),
-                                    0.88f to LelouchBackground,
-                                    1.0f to LelouchBackground
-                                )
-                            )
-                        )
+                        .background(verticalScrimBrush)
                 )
                 // Scrim Horizontal: Oscurece el lateral izquierdo para máxima legibilidad de títulos y sinopsis
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(
-                            Brush.horizontalGradient(
-                                colorStops = arrayOf(
-                                    0.0f to LelouchBackground.copy(alpha = 0.95f),
-                                    0.35f to LelouchBackground.copy(alpha = 0.70f),
-                                    0.65f to Color.Transparent,
-                                    1.0f to Color.Transparent
-                                )
-                            )
-                        )
+                        .background(horizontalScrimBrush)
                 )
             }
         }
@@ -2055,6 +2059,7 @@ fun TvChannelCard(
     var isFocused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
         targetValue = if (isFocused) 1.08f else 1.0f,
+        animationSpec = tween(durationMillis = 120, easing = FastOutSlowInEasing),
         label = "channelCardScale"
     )
 

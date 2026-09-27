@@ -1,6 +1,8 @@
 package com.lelouch.feature.tv.components
 
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -24,6 +26,8 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.lelouch.core.designsystem.*
 
+private val PosterBottomScrim = Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.9f)))
+
 /**
  * Xbox/Leanback style TV card with 2:3 poster ratio, Coil image loading,
  * 1.08x D-Pad focus zoom, and Cyan Lelouch border glow.
@@ -43,6 +47,7 @@ fun TvPosterCard(
     var isFocused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
         targetValue = if (isFocused) 1.08f else 1.0f,
+        animationSpec = tween(durationMillis = 120, easing = FastOutSlowInEasing),
         label = "posterScale"
     )
 
@@ -96,11 +101,7 @@ fun TvPosterCard(
                 .fillMaxWidth()
                 .fillMaxHeight(0.5f)
                 .align(Alignment.BottomCenter)
-                .background(
-                    Brush.verticalGradient(
-                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.9f))
-                    )
-                )
+                .background(PosterBottomScrim)
         )
 
         // Badge de Rating en la esquina superior derecha

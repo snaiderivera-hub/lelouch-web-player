@@ -74,6 +74,7 @@ class LelouchPlayerEngine(
 
     private val renderersFactory by lazy {
         DefaultRenderersFactory(context).apply {
+            setEnableDecoderFallback(true)
             if (config.enableHardwareAcceleration) {
                 setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
             }
@@ -169,6 +170,8 @@ class LelouchPlayerEngine(
             return
         }
 
+        // Cancelar buffer previo de inmediato para cambio instantáneo de canal
+        exoPlayer.stop()
         _currentUrl.value = url
         isCurrentStreamLive = isLive
         _playbackState.value = PlaybackState.Buffering

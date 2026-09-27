@@ -1,6 +1,8 @@
 package com.lelouch.feature.tv.components
 
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -400,7 +402,11 @@ fun TvMediaDetailModal(
                     ) {
                         itemsIndexed(filteredEpisodes) { _, ep ->
                             var isEpFocused by remember { mutableStateOf(false) }
-                            val scale by animateFloatAsState(targetValue = if (isEpFocused) 1.06f else 1.0f, label = "epScale")
+                            val scale by animateFloatAsState(
+                                targetValue = if (isEpFocused) 1.06f else 1.0f,
+                                animationSpec = tween(durationMillis = 120, easing = FastOutSlowInEasing),
+                                label = "epScale"
+                            )
 
                             Box(
                                 modifier = Modifier
