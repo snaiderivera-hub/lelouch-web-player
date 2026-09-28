@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>M3U Filter & Link Extractor — LELOUCH</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #070d19;
+      --card-bg: #0d1726;
+      --card-sub: #132238;
+      --accent: #00e5ff;
+      --accent-glow: 0 0 20px rgba(0, 229, 255, 0.4);
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --border: rgba(255, 255, 255, 0.08);
+      --green: #10b981;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
+      min-height: 100vh;
+      padding: 1.5rem;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 1rem;
+    }
+    .logo-area { display: flex; align-items: center; gap: 0.75rem; }
+    .bolt { font-size: 2rem; }
+    h1 { font-family: 'Outfit', sans-serif; font-size: 1.5rem; font-weight: 800; }
+    .sub { font-size: 0.8rem; color: var(--text-muted); }
+    .badge-pill {
+      background: rgba(0, 229, 255, 0.12);
+      border: 1px solid rgba(0, 229, 255, 0.3);
+      color: var(--accent);
+      padding: 4px 12px;
+      border-radius: 99px;
+      font-size: 0.75rem;
+      font-weight: 700;
+    }
+    .main-grid {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 1.5rem;
+    }
+    @media (max-width: 900px) {
+      .main-grid { grid-template-columns: 1fr; }
+    }
+    .panel-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+    .drop-zone {
+      border: 2px dashed rgba(0, 229, 255, 0.35);
+      border-radius: 12px;
+      padding: 1.5rem 1rem;
+      text-align: center;
+      background: rgba(0, 229, 255, 0.02);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .drop-zone:hover {
+      border-color: var(--accent);
+      background: rgba(0, 229, 255, 0.06);
+    }
+    .input-field {
+      width: 100%;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 0.65rem 0.85rem;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-family: inherit;
+      outline: none;
+    }
+    .input-field:focus { border-color: var(--accent); }
+    textarea.input-field {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.78rem;
+      resize: vertical;
+      min-height: 140px;
+    }
+    .btn {
+      background: var(--card-sub);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 0.6rem 1rem;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.4rem;
+      transition: all 0.2s;
+    }
+    .btn:hover { background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.2); }
+    .btn-primary {
+      background: linear-gradient(135deg, #00e5ff, #0088ff);
+      color: #02070d;
+      font-weight: 700;
+      border: none;
+    }
+    .btn-primary:hover {
+      box-shadow: var(--accent-glow);
+      transform: translateY(-1px);
+    }
+    .btn-sm { padding: 0.35rem 0.65rem; font-size: 0.75rem; }
+    .results-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.75rem;
+    }
+    .results-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .table-container {
+      overflow-x: auto;
+      max-height: 600px;
+      overflow-y: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+    th, td {
+      padding: 0.65rem 0.75rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      text-align: left;
+    }
+    th {
+      color: var(--text-muted);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      position: sticky;
+      top: 0;
+      background: var(--card-bg);
+      z-index: 2;
+    }
+    .url-chip {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+      color: var(--accent);
+      background: rgba(0, 229, 255, 0.06);
+      border: 1px solid rgba(0, 229, 255, 0.15);
+      border-radius: 4px;
+      padding: 2px 6px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 280px;
+      display: inline-block;
+      cursor: pointer;
+    }
+    .tag-cat {
+      font-size: 0.72rem;
+      background: rgba(255, 255, 255, 0.05);
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: var(--text-muted);
+    }
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: #10b981;
+      color: #02070d;
+      font-weight: 700;
+      padding: 0.75rem 1.25rem;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+      transform: translateY(100px);
+      opacity: 0;
+      transition: all 0.25s ease;
+      z-index: 999;
+    }
+    .toast.show { transform: translateY(0); opacity: 1; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="logo-area">
+      <span class="bolt">⚡</span>
+      <div>
+        <h1>M3U FILTER & EXTRACTOR</h1>
+        <p class="sub">Extrae canales, copia enlaces directos y genera listas M3U personalizadas</p>
+      </div>
+    </div>
+    <span class="badge-pill" id="total-badge">0 canales cargados</span>
+  </header>
+
+  <div class="main-grid">
+    <!-- PANEL IZQUIERDO: CARGA Y FILTROS -->
+    <div class="panel-card">
+      <h3 style="font-size:0.95rem; font-family:'Outfit'">1. Cargar Archivo M3U o URL</h3>
+      
+      <div class="drop-zone" id="drop-zone">
+        <div style="font-size:2rem; margin-bottom:0.4rem;">📁</div>
+        <strong style="font-size:0.85rem;">Arrastra aquí tu archivo .m3u</strong>
+        <p style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">o haz clic para examinar</p>
+        <input type="file" id="file-input" accept=".m3u,.m3u8,.txt" style="display:none">
+      </div>
+
+      <div>
+        <label style="font-size:0.75rem; color:var(--text-muted); display:block; margin-bottom:4px;">O introduce URL directa del M3U:</label>
+        <div style="display:flex; gap:0.4rem;">
+          <input type="text" id="url-input" class="input-field" placeholder="http://servidor:puerto/get.php?..." />
+          <button class="btn btn-sm" id="btn-load-url">Cargar</button>
+        </div>
+      </div>
+
+      <div style="border-top:1px solid var(--border); padding-top:1rem;">
+        <h3 style="font-size:0.95rem; font-family:'Outfit'; margin-bottom:0.5rem;">2. Canales a Filtrar</h3>
+        <p style="font-size:0.75rem; color:var(--text-muted); margin-bottom:0.5rem;">Escribe nombres o palabras clave (un término por línea):</p>
+        <textarea id="filter-text" class="input-field" placeholder="ESPN&#10;Fox Sports&#10;HBO&#10;DAZN&#10;Deportes"></textarea>
+      </div>
+
+      <button class="btn btn-primary" id="btn-filter" style="width:100%; height:42px;">
+        ⚡ Filtrar y Extraer Enlaces
+      </button>
+    </div>
+
+    <!-- PANEL DERECHO: RESULTADOS -->
+    <div class="panel-card">
+      <div class="results-header">
+        <div>
+          <h3 style="font-size:1rem; font-family:'Outfit'; display:inline-flex; align-items:center; gap:8px;">
+            <span>Canales Extraídos</span>
+            <span class="badge-pill" id="match-badge">0 resultados</span>
+          </h3>
+        </div>
+        <div class="results-actions">
+          <button class="btn btn-sm" id="btn-copy-links" title="Copiar todas las URLs directas">📋 Copiar Enlaces</button>
+          <button class="btn btn-sm" id="btn-download-m3u" title="Descargar como archivo M3U">⬇ Descargar M3U</button>
+          <button class="btn btn-sm" id="btn-download-csv" title="Descargar hoja CSV">📊 Descargar CSV</button>
+        </div>
+      </div>
+
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:40px;">#</th>
+              <th>Canal</th>
+              <th>Categoría</th>
+              <th>Enlace Directo (Clic para copiar)</th>
+              <th style="text-align:right;">Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="results-body">
+            <tr>
+              <td colspan="5" style="text-align:center; padding:3rem; color:var(--text-muted);">
+                Carga un archivo M3U a la izquierda para comenzar a extraer enlaces.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast">Enlace copiado</div>
+
+  <script>
+    let allEntries = [];
+    let matchedEntries = [];
+
+    const toastEl = document.getElementById('toast');
+    function showToast(msg) {
+      toastEl.textContent = msg;
+      toastEl.classList.add('show');
+      setTimeout(() => toastEl.classList.remove('show'), 2500);
+    }
+
+    function parseM3U(text) {
+      const entries = [];
+      const lines = text.split(/\r?\n/);
+      let currentExtinf = null;
+      let extras = [];
+
+      for (const line of lines) {
+        const trim = line.trim();
+        if (!trim || trim.startsWith('#EXTM3U')) continue;
+
+        if (trim.startsWith('#EXTINF:')) {
+          currentExtinf = trim;
+          extras = [];
+        } else if (trim.startsWith('#') && currentExtinf) {
+          extras.push(trim);
+        } else if (!trim.startsWith('#') && currentExtinf) {
+          const url = trim;
+          const commaIdx = currentExtinf.lastIndexOf(',');
+          const name = commaIdx !== -1 ? currentExtinf.substring(commaIdx + 1).trim() : 'Canal';
+          
+          const grpMatch = currentExtinf.match(/group-title="([^"]*)"/i);
+          const category = grpMatch ? grpMatch[1].trim() : '';
+
+          const logoMatch = currentExtinf.match(/tvg-logo="([^"]*)"/i);
+          const logo = logoMatch ? logoMatch[1].trim() : '';
+
+          entries.push({ extinf: currentExtinf, extras, url, name, category, logo });
+          currentExtinf = null;
+          extras = [];
+        }
+      }
+      return entries;
+    }
+
+    function loadM3UText(text) {
+      allEntries = parseM3U(text);
+      document.getElementById('total-badge').textContent = `${allEntries.length} canales cargados`;
+      showToast(`✓ ${allEntries.length} canales cargados`);
+      applyFilter();
+    }
+
+    function applyFilter() {
+      if (allEntries.length === 0) return;
+
+      const rawFilters = document.getElementById('filter-text').value;
+      const terms = rawFilters.split('\n')
+        .map(t => t.trim().toLowerCase())
+        .filter(t => t.length > 0 && !t.startsWith('#'));
+
+      if (terms.length === 0) {
+        matchedEntries = [...allEntries];
+      } else {
+        const seenUrls = new Set();
+        matchedEntries = allEntries.filter(entry => {
+          const n = entry.name.toLowerCase();
+          const c = entry.category.toLowerCase();
+          const hit = terms.some(t => n.includes(t) || c.includes(t));
+          if (hit && !seenUrls.has(entry.url)) {
+            seenUrls.add(entry.url);
+            return true;
+          }
+          return false;
+        });
+      }
+
+      renderResults();
+    }
+
+    function renderResults() {
+      const tbody = document.getElementById('results-body');
+      document.getElementById('match-badge').textContent = `${matchedEntries.length} resultados`;
+
+      if (matchedEntries.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:3rem; color:var(--text-muted);">No se encontraron canales con los filtros actuales.</td></tr>`;
+        return;
+      }
+
+      // Renderizar máximo 300 filas para fluidez
+      const visible = matchedEntries.slice(0, 300);
+      tbody.innerHTML = visible.map((m, i) => `
+        <tr>
+          <td style="color:var(--text-muted); font-size:0.75rem;">${i + 1}</td>
+          <td style="font-weight:600;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              ${m.logo ? `<img src="${m.logo}" style="width:20px;height:20px;object-fit:contain;" onerror="this.style.display='none'">` : '📺'}
+              <span>${escapeHtml(m.name)}</span>
+            </div>
+          </td>
+          <td><span class="tag-cat">${escapeHtml(m.category || 'General')}</span></td>
+          <td>
+            <span class="url-chip" title="Haz clic para copiar" onclick="copyLink('${m.url}', '${escapeHtml(m.name)}')">${escapeHtml(m.url)}</span>
+          </td>
+          <td style="text-align:right;">
+            <button class="btn btn-sm" onclick="copyLink('${m.url}', '${escapeHtml(m.name)}')">🔗 Copiar</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function copyLink(url, name) {
+      navigator.clipboard.writeText(url).then(() => {
+        showToast(`📋 Copiado: ${name}`);
+      });
+    }
+
+    function escapeHtml(s) {
+      return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // Drag & Drop
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.style.borderColor = '#00e5ff'; });
+    dropZone.addEventListener('dragleave', () => { dropZone.style.borderColor = ''; });
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.style.borderColor = '';
+      if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+    });
+
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files.length) handleFile(e.target.files[0]);
+    });
+
+    function handleFile(file) {
+      const reader = new FileReader();
+      reader.onload = (e) => loadM3UText(e.target.result);
+      reader.readAsText(file);
+    }
+
+    // Botón URL
+    document.getElementById('btn-load-url').addEventListener('click', async () => {
+      const url = document.getElementById('url-input').value.trim();
+      if (!url) return alert('Introduce una URL');
+      showToast('Descargando M3U...');
+      try {
+        const res = await fetch(url);
+        const txt = await res.text();
+        loadM3UText(txt);
+      } catch (e) {
+        alert('Error al descargar: ' + e.message);
+      }
+    });
+
+    // Botón Filtrar
+    document.getElementById('btn-filter').addEventListener('click', applyFilter);
+
+    // Botón Copiar Todos los Enlaces
+    document.getElementById('btn-copy-links').addEventListener('click', () => {
+      if (!matchedEntries.length) return alert('No hay canales para copiar');
+      const txt = matchedEntries.map(m => `${m.name}\n${m.url}`).join('\n\n');
+      navigator.clipboard.writeText(txt).then(() => showToast(`📋 ${matchedEntries.length} enlaces copiados`));
+    });
+
+    // Botón Descargar M3U
+    document.getElementById('btn-download-m3u').addEventListener('click', () => {
+      if (!matchedEntries.length) return alert('No hay canales para exportar');
+      let m3u = '#EXTM3U name="Lista Filtrada LELOUCH"\n\n';
+      matchedEntries.forEach(m => {
+        m3u += `${m.extinf}\n`;
+        m.extras.forEach(ex => m3u += `${ex}\n`);
+        m3u += `${m.url}\n\n`;
+      });
+      const blob = new Blob([m3u], { type: 'audio/x-mpegurl;charset=utf-8' });
+      downloadBlob(blob, 'lista_filtrada.m3u');
+    });
+
+    // Botón Descargar CSV
+    document.getElementById('btn-download-csv').addEventListener('click', () => {
+      if (!matchedEntries.length) return alert('No hay canales para exportar');
+      let csv = 'Numero,Nombre,Categoria,Logo,URL\n';
+      matchedEntries.forEach((m, idx) => {
+        csv += `${idx + 1},"${m.name.replace(/"/g, '""')}","${m.category.replace(/"/g, '""')}","${m.logo}","${m.url}"\n`;
+      });
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      downloadBlob(blob, 'canales_extraidos.csv');
+    });
+
+    function downloadBlob(blob, filename) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast(`⬇ Descargado: ${filename}`);
+    }
+  </script>
+</body>
+</html>
