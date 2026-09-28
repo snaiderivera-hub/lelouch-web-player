@@ -392,6 +392,8 @@
                 </select>
                 <span class="stream-badge-quality" id="integrated-quality-badge">AUTO</span>
                 <button id="btn-integrated-stats" class="tool-btn tool-btn-stats" title="Estadísticas en tiempo real">📊 Estadísticas</button>
+                <button id="btn-integrated-copy-url" class="tool-btn" title="Copiar enlace de streaming directo">🔗 Copiar Enlace</button>
+                <button id="btn-integrated-add-m3u" class="tool-btn" title="Añadir a Mi Lista M3U Personalizada">➕ Mi Lista M3U</button>
                 <button id="btn-integrated-fav" class="tool-btn" title="Agregar a favoritos">☆</button>
                 <button id="btn-integrated-rewind" class="tool-btn" title="Retroceder 10s (←)">⏪</button>
                 <button id="btn-integrated-forward" class="tool-btn" title="Adelantar / En Vivo (→)">⏩</button>
@@ -519,6 +521,7 @@
         <!-- Pestañas de Ajustes -->
         <div class="settings-tabs-nav">
           <button class="settings-tab-btn active" data-tab="playlists"><i class="ph ph-list-dashes"></i> Playlists Guardadas</button>
+          <button class="settings-tab-btn" data-tab="custom-m3u"><i class="ph ph-playlist"></i> Creador de Lista M3U</button>
           <button class="settings-tab-btn" data-tab="diagnostics"><i class="ph ph-stethoscope"></i> Diagnóstico de Servidor</button>
           <button class="settings-tab-btn" data-tab="export"><i class="ph ph-export"></i> Exportar Catálogo</button>
           <button class="settings-tab-btn" data-tab="categories"><i class="ph-fill ph-funnel"></i> Categorías Visibles</button>
@@ -638,6 +641,61 @@
                 </div>
                 <button class="btn btn-primary btn-sm" onclick="window.appExport('m3u')">⬇ Descargar M3U</button>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB CREADOR DE LISTA M3U PERSONALIZADA -->
+        <div class="settings-tab-content" id="tab-custom-m3u">
+          <div class="settings-card">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem; margin-bottom:1.5rem;">
+              <div>
+                <h3 style="margin:0; display:flex; align-items:center; gap:0.6rem;">
+                  <span>🛠️ Creador y Gestor de Lista M3U</span>
+                  <span id="custom-m3u-badge" class="badge-mini" style="background:rgba(6,182,212,0.15); color:var(--accent-cyan); border:1px solid rgba(6,182,212,0.3); padding:4px 10px; border-radius:6px; font-size:12px; font-weight:700;">0 items</span>
+                </h3>
+                <p class="card-desc" style="margin:0.35rem 0 0">
+                  Extrae enlaces directos de canales o películas con el botón <b>🔗</b> o <b>➕</b>, organízalos y descarga tu archivo <b>.M3U</b> para usarlo en VLC, TV Box o cualquier reproductor.
+                </p>
+              </div>
+              <div style="display:flex; gap:0.6rem; flex-wrap:wrap;">
+                <button id="btn-custom-m3u-copy-all" class="btn btn-secondary btn-sm" title="Copiar todo el contenido M3U al portapapeles">
+                  <i class="ph ph-copy"></i> 📋 Copiar M3U
+                </button>
+                <button id="btn-custom-m3u-download" class="btn btn-primary btn-sm" title="Descargar como archivo .m3u">
+                  <i class="ph ph-download-simple"></i> ⬇ Descargar Lista (.m3u)
+                </button>
+                <button id="btn-custom-m3u-clear" class="btn btn-secondary btn-sm" style="color:#ef4444; border-color:rgba(239,68,68,0.3);" title="Vaciar toda la lista personalizada">
+                  <i class="ph ph-trash"></i> Vaciar
+                </button>
+              </div>
+            </div>
+
+            <!-- FORMULARIO PARA AÑADIR ENLACE DIRECTO MANUAL -->
+            <div style="background:rgba(255,255,255,0.02); border:1px solid var(--border-subtle); border-radius:12px; padding:1.25rem; margin-bottom:1.5rem;">
+              <h4 style="margin:0 0 0.75rem 0; font-size:0.9rem; color:var(--accent-cyan); font-weight:700;">
+                ➕ Añadir Canal o Enlace Directo a Mi Lista
+              </h4>
+              <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)) 120px; gap:0.75rem; align-items:end;">
+                <div>
+                  <label style="font-size:0.75rem; color:var(--text-secondary); display:block; margin-bottom:4px;">Nombre del Canal o Película</label>
+                  <input type="text" id="custom-item-name" class="form-input" placeholder="Ej: ESPN Deportes HD" style="width:100%" />
+                </div>
+                <div>
+                  <label style="font-size:0.75rem; color:var(--text-secondary); display:block; margin-bottom:4px;">Categoría (Opcional)</label>
+                  <input type="text" id="custom-item-cat" class="form-input" placeholder="Ej: Deportes" style="width:100%" />
+                </div>
+                <div>
+                  <label style="font-size:0.75rem; color:var(--text-secondary); display:block; margin-bottom:4px;">URL Directa de Streaming</label>
+                  <input type="text" id="custom-item-url" class="form-input" placeholder="http://servidor:puerto/live/user/pass/id.ts" style="width:100%" />
+                </div>
+                <button id="btn-custom-item-add" class="btn btn-primary" style="height:40px; width:100%;">+ Añadir</button>
+              </div>
+            </div>
+
+            <!-- CONTENEDOR DE LA LISTA M3U PERSONALIZADA -->
+            <div id="custom-m3u-list-container">
+              <!-- Render dinámico desde JS -->
             </div>
           </div>
         </div>

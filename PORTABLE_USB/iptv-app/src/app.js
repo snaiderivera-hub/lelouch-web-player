@@ -208,6 +208,33 @@ async function initApp() {
     // ── Stats button ──
     $('btn-integrated-stats')?.addEventListener('click', () => toggleLiveStats());
 
+    // ── Copiar enlace directo del canal actual ──
+    $('btn-integrated-copy-url')?.addEventListener('click', () => {
+      const ch = uiState.currentLiveChannel;
+      if (!ch || !ch.streamUrl) {
+        toast('Selecciona un canal en vivo primero.', 'info');
+        return;
+      }
+      copyStreamUrl(ch.streamUrl, ch.name);
+    });
+
+    // ── Añadir canal actual a Mi Lista M3U ──
+    $('btn-integrated-add-m3u')?.addEventListener('click', () => {
+      const ch = uiState.currentLiveChannel;
+      if (!ch || !ch.streamUrl) {
+        toast('Selecciona un canal en vivo primero.', 'info');
+        return;
+      }
+      addCustomM3UItem({
+        id: ch.id || String(Date.now()),
+        name: ch.name,
+        category: ch.categoryName || 'Canales en Vivo',
+        logo: ch.logo || '',
+        url: ch.streamUrl,
+        epgId: ch.epgChannelId || ''
+      });
+    });
+
     // ── Fav button en reproductor integrado ──
     $('btn-integrated-fav')?.addEventListener('click', async () => {
       const ch = uiState.currentLiveChannel;
@@ -280,6 +307,7 @@ async function initApp() {
   setupHeroActions();
   setupParentalControl();
   setupCategoryManager();
+  setupCustomM3UManager();
   updateActivePlaylistUI();
 
   const handleHashRoute = () => {
@@ -793,14 +821,43 @@ function renderLiveChannelsList() {
         <div class="channel-title">${healthDot}${escHtml(ch.name)}</div>
         <div class="channel-cat-sub">${escHtml(ch.categoryName)}</div>
       </div>
-      <button class="channel-fav-btn" title="Favorito">☆</button>
+      <div class="channel-row-actions">
+        <button class="channel-action-btn channel-copy-btn" title="Copiar enlace de streaming directo">🔗</button>
+        <button class="channel-action-btn channel-add-m3u-btn" title="Añadir a Mi Lista M3U">➕</button>
+        <button class="channel-fav-btn" title="Favorito">☆</button>
+      </div>
     `;
 
     // Clic en canal para reproducir en el reproductor integrado
     row.addEventListener('click', (e) => {
-      if (e.target.classList.contains('channel-fav-btn')) return;
+      if (e.target.closest('.channel-row-actions')) return;
       selectLiveChannel(ch);
     });
+
+    // Copiar enlace directo
+    const copyBtn = row.querySelector('.channel-copy-btn');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        copyStreamUrl(ch.streamUrl, ch.name);
+      });
+    }
+
+    // Añadir a Mi Lista M3U
+    const addM3uBtn = row.querySelector('.channel-add-m3u-btn');
+    if (addM3uBtn) {
+      addM3uBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        addCustomM3UItem({
+          id: ch.id || String(Date.now()),
+          name: ch.name,
+          category: ch.categoryName || 'Canales en Vivo',
+          logo: ch.logo || '',
+          url: ch.streamUrl,
+          epgId: ch.epgChannelId || ''
+        });
+      });
+    }
 
     // Botón favorito
     const favBtn = row.querySelector('.channel-fav-btn');
@@ -1319,6 +1376,7 @@ function setupSettingsTabs() {
 
       if (btn.dataset.tab === 'playlists') renderSettingsPlaylists();
       if (btn.dataset.tab === 'diagnostics') renderDiagnostics(iptvService.getDiagnostics());
+      if (btn.dataset.tab === 'custom-m3u') renderCustomM3UManager();
     });
   });
 
@@ -1517,6 +1575,269 @@ window.appExport = function (type) {
     }
   }
 };
+
+// ════════════ UTILIDAD COPIAR ENLACES DIRECTOS ════════════
+export function copyStreamUrl(url, name = 'Stream') {
+  if (!url) {
+    toast('⚠️ No hay enlace disponible para este contenido', 'warning');
+    return;
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(() => {
+      toast(`📋 Enlace copiado al portapapeles:\n${name}`, 'success', 3500);
+    }).catch(() => {
+      prompt(`Copia el enlace directo de "${name}":`, url);
+    });
+  } else {
+    prompt(`Copia el enlace directo de "${name}":`, url);
+  }
+}
+window.copyStreamUrl = copyStreamUrl;
+
+// ════════════ CREADOR Y GESTOR DE LISTA M3U PERSONALIZADA ════════════
+const CUSTOM_M3U_STORAGE_KEY = 'lelouch_custom_m3u_list';
+
+export function getCustomM3UList() {
+  try {
+    const raw = localStorage.getItem(CUSTOM_M3U_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveCustomM3UList(list) {
+  try {
+    localStorage.setItem(CUSTOM_M3U_STORAGE_KEY, JSON.stringify(list));
+    updateCustomM3UBadges();
+  } catch (err) {
+    console.error('Error guardando lista M3U personalizada:', err);
+  }
+}
+
+export function addCustomM3UItem(item) {
+  if (!item || !item.url) {
+    toast('URL de streaming inválida', 'error');
+    return;
+  }
+  const list = getCustomM3UList();
+  const exists = list.some(x => x.url === item.url);
+  if (exists) {
+    toast(`ℹ️ "${item.name}" ya está en tu lista personalizada`, 'info');
+    return;
+  }
+  list.push({
+    id: item.id || String(Date.now()),
+    name: item.name || 'Canal sin nombre',
+    category: item.category || 'Personalizada',
+    logo: item.logo || '',
+    url: item.url,
+    epgId: item.epgId || '',
+    addedAt: Date.now()
+  });
+  saveCustomM3UList(list);
+  toast(`➕ "${item.name}" agregado a tu Lista M3U (${list.length} en total)`, 'success');
+  renderCustomM3UManager();
+}
+window.addCustomM3UItem = addCustomM3UItem;
+
+export function removeCustomM3UItem(index) {
+  const list = getCustomM3UList();
+  if (index >= 0 && index < list.length) {
+    const removed = list.splice(index, 1);
+    saveCustomM3UList(list);
+    toast(`🗑 "${removed[0]?.name}" eliminado de tu lista`, 'info');
+    renderCustomM3UManager();
+  }
+}
+window.removeCustomM3UItem = removeCustomM3UItem;
+
+export function clearCustomM3UList() {
+  const list = getCustomM3UList();
+  if (list.length === 0) return;
+  if (!confirm(`¿Estás seguro de vaciar los ${list.length} elementos de tu lista personalizada?`)) return;
+  saveCustomM3UList([]);
+  toast('🗑 Lista personalizada vaciada', 'info');
+  renderCustomM3UManager();
+}
+window.clearCustomM3UList = clearCustomM3UList;
+
+export function generateCustomM3UContent() {
+  const list = getCustomM3UList();
+  let m3u = '#EXTM3U name="Mi Lista Personalizada LELOUCH"\n\n';
+  list.forEach(item => {
+    const logoAttr = item.logo ? ` tvg-logo="${item.logo}"` : '';
+    const idAttr = item.epgId ? ` tvg-id="${item.epgId}"` : '';
+    const groupAttr = item.category ? ` group-title="${item.category}"` : ' group-title="Personalizada"';
+    m3u += `#EXTINF:-1${idAttr} tvg-name="${item.name}"${logoAttr}${groupAttr},${item.name}\n${item.url}\n\n`;
+  });
+  return m3u;
+}
+
+export function copyCustomM3UAll() {
+  const list = getCustomM3UList();
+  if (list.length === 0) {
+    toast('Tu lista personalizada está vacía. Añade canales primero.', 'warning');
+    return;
+  }
+  const content = generateCustomM3UContent();
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(content).then(() => {
+      toast(`📋 ¡Lista M3U copiada! (${list.length} canales en formato #EXTM3U)`, 'success', 3500);
+    }).catch(() => {
+      prompt('Copia todo el contenido de tu lista M3U:', content);
+    });
+  } else {
+    prompt('Copia todo el contenido de tu lista M3U:', content);
+  }
+}
+
+export function downloadCustomM3U() {
+  const list = getCustomM3UList();
+  if (list.length === 0) {
+    toast('Tu lista personalizada está vacía. Añade canales primero.', 'warning');
+    return;
+  }
+  const content = generateCustomM3UContent();
+  const blob = new Blob([content], { type: 'audio/x-mpegurl;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `mi_lista_iptv_${new Date().toISOString().slice(0, 10)}.m3u`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast(`⬇ Lista M3U descargada (${list.length} elementos)`, 'success');
+}
+
+export function playCustomStream(url, title) {
+  if (!url) return;
+  if (uiState.activePage === 'live') {
+    playerService.play({
+      id: String(Date.now()),
+      title: title || 'Canal Personalizado',
+      url: url,
+      type: 'live'
+    });
+    const titleEl = $('integrated-channel-name');
+    if (titleEl) titleEl.textContent = title || 'Canal Personalizado';
+  } else {
+    playerModal.open({
+      title: title || 'Canal Personalizado',
+      url: url,
+      type: 'live'
+    });
+  }
+  toast(`▶️ Reproduciendo: ${title}`, 'info');
+}
+window.playCustomStream = playCustomStream;
+
+export function updateCustomM3UBadges() {
+  const count = getCustomM3UList().length;
+  const badge = $('custom-m3u-badge');
+  if (badge) badge.textContent = `${count} ${count === 1 ? 'item' : 'items'}`;
+}
+
+export function renderCustomM3UManager() {
+  const container = $('custom-m3u-list-container');
+  if (!container) return;
+  updateCustomM3UBadges();
+
+  const list = getCustomM3UList();
+  if (list.length === 0) {
+    container.innerHTML = `
+      <div style="text-align:center; padding:3rem 1.5rem; background:rgba(255,255,255,0.01); border:1px dashed var(--border-subtle); border-radius:12px;">
+        <span style="font-size:3rem; display:block; margin-bottom:0.75rem;">📋</span>
+        <h4 style="margin:0 0 0.5rem 0; color:var(--text-primary);">Aún no has añadido elementos a tu lista</h4>
+        <p style="margin:0 auto 1.25rem; max-width:520px; font-size:0.85rem; color:var(--text-secondary);">
+          Navega por la sección <b>TV en Vivo</b> o <b>Películas</b> y pulsa el botón <b>➕</b> para coleccionar tus canales favoritos, o bien pega tus enlaces directos arriba para construir tu lista M3U a tu gusto.
+        </p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = `
+    <div style="overflow-x:auto;">
+      <table class="custom-m3u-table" style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+        <thead>
+          <tr style="border-bottom:1px solid var(--border-subtle); text-align:left; color:var(--text-secondary); font-size:0.75rem;">
+            <th style="padding:10px 8px; width:40px;">#</th>
+            <th style="padding:10px 8px;">Canal / Contenido</th>
+            <th style="padding:10px 8px;">Categoría</th>
+            <th style="padding:10px 8px;">Enlace Directo</th>
+            <th style="padding:10px 8px; text-align:right;">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${list.map((item, idx) => `
+            <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+              <td style="padding:10px 8px; color:var(--text-muted); font-size:0.75rem;">${idx + 1}</td>
+              <td style="padding:10px 8px; font-weight:600; color:var(--text-primary);">
+                <div style="display:flex; align-items:center; gap:8px;">
+                  ${item.logo ? `<img src="${escHtml(item.logo)}" style="width:26px; height:26px; object-fit:contain; border-radius:4px;" onerror="this.style.display='none'">` : '📺'}
+                  <span>${escHtml(item.name)}</span>
+                </div>
+              </td>
+              <td style="padding:10px 8px;">
+                <span class="badge-mini" style="font-size:0.72rem; background:rgba(255,255,255,0.06); color:var(--text-secondary); padding:2px 8px; border-radius:4px;">${escHtml(item.category)}</span>
+              </td>
+              <td style="padding:10px 8px; max-width:280px;">
+                <div class="m3u-url-code" title="${escHtml(item.url)}" style="font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:var(--accent-cyan); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; background:rgba(6,182,212,0.06); padding:4px 8px; border-radius:4px; border:1px solid rgba(6,182,212,0.15);">
+                  ${escHtml(item.url)}
+                </div>
+              </td>
+              <td style="padding:10px 8px; text-align:right;">
+                <div style="display:inline-flex; gap:6px;">
+                  <button class="btn btn-secondary btn-sm" onclick="window.copyStreamUrl('${escHtml(item.url)}', '${escHtml(item.name)}')" title="Copiar enlace directo">🔗 Copiar</button>
+                  <button class="btn btn-secondary btn-sm" onclick="window.playCustomStream('${escHtml(item.url)}', '${escHtml(item.name)}')" title="Probar reproducción">▶️ Ver</button>
+                  <button class="btn btn-secondary btn-sm" style="color:#ef4444; border-color:rgba(239,68,68,0.25);" onclick="window.removeCustomM3UItem(${idx})" title="Eliminar de mi lista">🗑</button>
+                </div>
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+export function setupCustomM3UManager() {
+  updateCustomM3UBadges();
+
+  $('btn-custom-m3u-copy-all')?.addEventListener('click', () => copyCustomM3UAll());
+  $('btn-custom-m3u-download')?.addEventListener('click', () => downloadCustomM3U());
+  $('btn-custom-m3u-clear')?.addEventListener('click', () => clearCustomM3UList());
+
+  $('btn-custom-item-add')?.addEventListener('click', () => {
+    const nameInput = $('custom-item-name');
+    const catInput = $('custom-item-cat');
+    const urlInput = $('custom-item-url');
+
+    const name = nameInput?.value?.trim();
+    const cat = catInput?.value?.trim() || 'Manual';
+    const url = urlInput?.value?.trim();
+
+    if (!url) {
+      toast('Por favor introduce la URL directa de streaming.', 'error');
+      urlInput?.focus();
+      return;
+    }
+
+    addCustomM3UItem({
+      id: String(Date.now()),
+      name: name || 'Canal sin nombre',
+      category: cat,
+      url: url,
+      logo: ''
+    });
+
+    if (nameInput) nameInput.value = '';
+    if (catInput) catInput.value = '';
+    if (urlInput) urlInput.value = '';
+  });
+}
 
 // ════════════ PAGINACIÓN REUTILIZABLE ════════════
 function renderPagination(containerId, currentPage, totalPages, onPage) {

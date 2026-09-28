@@ -176,10 +176,18 @@ fun MobileHomeScreen(
         ) { paddingValues ->
             Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
                 if (activeStreamUrl != null && !isPlayerFullscreen) {
+                    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+                    val context = LocalContext.current
                     MiniPlayerOverlay(
                         channelName = activeChannelName,
                         playerEngine = playerEngine,
                         onToggleFullscreen = { isPlayerFullscreen = true },
+                        onCopyUrl = {
+                            activeStreamUrl?.let { url ->
+                                clipboard.setText(androidx.compose.ui.text.AnnotatedString(url))
+                                android.widget.Toast.makeText(context, "📋 Enlace copiado: $activeChannelName", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        },
                         onClose = { playerEngine.stop(); activeStreamUrl = null }
                     )
                 }
@@ -283,11 +291,26 @@ fun MobileHomeScreen(
                         )
                     }
 
-                    IconButton(
-                        onClick = { isPlayerFullscreen = false },
-                        modifier = Modifier.background(Color.Black.copy(0.6f), CircleShape)
-                    ) {
-                        Icon(Icons.Default.FullscreenExit, contentDescription = "Minimizar", tint = Color.White)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+                        val context = LocalContext.current
+                        IconButton(
+                            onClick = {
+                                activeStreamUrl?.let { url ->
+                                    clipboard.setText(androidx.compose.ui.text.AnnotatedString(url))
+                                    android.widget.Toast.makeText(context, "📋 Enlace copiado: $activeChannelName", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.background(Color.Black.copy(0.6f), CircleShape)
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = "Copiar Enlace", tint = Color.White)
+                        }
+                        IconButton(
+                            onClick = { isPlayerFullscreen = false },
+                            modifier = Modifier.background(Color.Black.copy(0.6f), CircleShape)
+                        ) {
+                            Icon(Icons.Default.FullscreenExit, contentDescription = "Minimizar", tint = Color.White)
+                        }
                     }
                 }
             }
@@ -752,6 +775,7 @@ private fun MiniPlayerOverlay(
     channelName: String,
     playerEngine: com.lelouch.core.player.LelouchPlayerEngine,
     onToggleFullscreen: () -> Unit,
+    onCopyUrl: () -> Unit,
     onClose: () -> Unit
 ) {
     Box(modifier = Modifier.fillMaxWidth().height(220.dp).background(Color.Black)) {
@@ -760,6 +784,12 @@ private fun MiniPlayerOverlay(
             modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
+            IconButton(
+                onClick = onCopyUrl,
+                modifier = Modifier.background(Color.Black.copy(0.6f), CircleShape)
+            ) {
+                Icon(Icons.Default.Share, contentDescription = "Copiar Enlace", tint = Color.White)
+            }
             IconButton(
                 onClick = onToggleFullscreen,
                 modifier = Modifier.background(Color.Black.copy(0.6f), CircleShape)
@@ -834,14 +864,29 @@ private fun MobileMovieDetailDialog(
                             maxLines = 4, overflow = TextOverflow.Ellipsis)
                     }
                     Spacer(Modifier.height(16.dp))
-                    Button(
-                        onClick = { onPlay(streamUrl) },
-                        colors = ButtonDefaults.buttonColors(containerColor = LelouchCyanAccent),
-                        modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Icon(Icons.Default.PlayArrow, null, tint = Color.Black, modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("REPRODUCIR", color = Color.Black, fontWeight = FontWeight.Bold)
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+                        val context = LocalContext.current
+                        Button(
+                            onClick = { onPlay(streamUrl) },
+                            colors = ButtonDefaults.buttonColors(containerColor = LelouchCyanAccent),
+                            modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.PlayArrow, null, tint = Color.Black, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("REPRODUCIR", color = Color.Black, fontWeight = FontWeight.Bold)
+                        }
+                        IconButton(
+                            onClick = {
+                                if (streamUrl.isNotBlank()) {
+                                    clipboard.setText(androidx.compose.ui.text.AnnotatedString(streamUrl))
+                                    android.widget.Toast.makeText(context, "📋 Enlace copiado: ${movie.name}", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(LelouchSurfaceVariant).size(48.dp)
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = "Copiar Enlace", tint = LelouchCyanAccent)
+                        }
                     }
                 }
             }

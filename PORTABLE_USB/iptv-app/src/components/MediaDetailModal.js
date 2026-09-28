@@ -114,6 +114,8 @@ export class MediaDetailModal {
               <button id="btn-fav-vod" class="btn btn-secondary btn-lg ${isFav ? 'fav-active' : ''}" data-fav="${isFav ? '1' : '0'}">
                 ${isFav ? '★ En favoritos' : '☆ Favorito'}
               </button>
+              <button id="btn-copy-vod-url" class="btn btn-secondary btn-lg" title="Copiar enlace de streaming directo">🔗 Copiar Enlace</button>
+              <button id="btn-add-vod-custom-m3u" class="btn btn-secondary btn-lg" title="Añadir a mi lista M3U personalizada">➕ A Mi Lista M3U</button>
               <button id="btn-vlc-vod" class="btn btn-secondary btn-lg">▶️ Abrir en VLC</button>
             </div>
           </div>
@@ -124,6 +126,27 @@ export class MediaDetailModal {
     document.getElementById('btn-play-vod').addEventListener('click', () => {
       this.close();
       playerModal.open({ title, url: vodData.streamUrl, type: 'vod' });
+    });
+
+    document.getElementById('btn-copy-vod-url')?.addEventListener('click', () => {
+      if (window.copyStreamUrl) {
+        window.copyStreamUrl(vodData.streamUrl, title);
+      } else {
+        navigator.clipboard?.writeText(vodData.streamUrl);
+        toast(`📋 Enlace copiado: ${title}`, 'success');
+      }
+    });
+
+    document.getElementById('btn-add-vod-custom-m3u')?.addEventListener('click', () => {
+      if (window.addCustomM3UItem) {
+        window.addCustomM3UItem({
+          id: itemId,
+          name: title,
+          category: vodData.categoryName || genre || 'Películas',
+          logo: posterUrl,
+          url: vodData.streamUrl
+        });
+      }
     });
 
     document.getElementById('btn-pip-vod')?.addEventListener('click', () => {
@@ -255,7 +278,13 @@ export class MediaDetailModal {
             </div>
             <div class="episode-info">
               <h4 class="episode-title">${epTitle}</h4>
-              <p class="episode-duration">${ep.info?.duration || '45m'}</p>
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+                <span class="episode-duration">${ep.info?.duration || '45m'}</span>
+                <div style="display:flex; gap:4px;">
+                  <button class="episode-action-btn episode-copy-btn" data-url="${epStreamUrl}" data-title="${seriesData.title} - ${epTitle}" title="Copiar enlace directo">🔗</button>
+                  <button class="episode-action-btn episode-add-m3u-btn" data-url="${epStreamUrl}" data-title="${seriesData.title} - ${epTitle}" data-cat="${seriesData.genre || 'Series'}" title="Añadir a Mi Lista M3U">➕</button>
+                </div>
+              </div>
             </div>
           </div>
         `;
@@ -268,6 +297,40 @@ export class MediaDetailModal {
           const epTitle = e.currentTarget.getAttribute('data-title');
           this.close();
           playerModal.open({ title: epTitle, url, type: 'series' });
+        });
+      });
+
+      // Copiar enlace directo del episodio
+      epContainer.querySelectorAll('.episode-copy-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const url = e.currentTarget.getAttribute('data-url');
+          const epTitle = e.currentTarget.getAttribute('data-title');
+          if (window.copyStreamUrl) {
+            window.copyStreamUrl(url, epTitle);
+          } else {
+            navigator.clipboard?.writeText(url);
+            toast(`📋 Enlace copiado: ${epTitle}`, 'success');
+          }
+        });
+      });
+
+      // Añadir episodio a Mi Lista M3U
+      epContainer.querySelectorAll('.episode-add-m3u-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const url = e.currentTarget.getAttribute('data-url');
+          const epTitle = e.currentTarget.getAttribute('data-title');
+          const cat = e.currentTarget.getAttribute('data-cat') || 'Series';
+          if (window.addCustomM3UItem) {
+            window.addCustomM3UItem({
+              id: String(Date.now()),
+              name: epTitle,
+              category: cat,
+              logo: seriesData.cover || '',
+              url
+            });
+          }
         });
       });
 

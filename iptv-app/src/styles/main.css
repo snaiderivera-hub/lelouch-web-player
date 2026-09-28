@@ -2829,3 +2829,105 @@ video::-webkit-media-controls-buffering-indicator {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(0, 0, 0, 0.25);
 }
+
+/* ════ CHANNEL ROW ACTIONS (COPIAR ENLACE & M3U) ════ */
+.channel-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.channel-action-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-secondary);
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  padding: 0;
+}
+
+.channel-action-btn:hover {
+  background: rgba(6, 182, 212, 0.2);
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+  transform: scale(1.08);
+}
+
+.channel-copy-btn:hover {
+  box-shadow: 0 0 10px rgba(6, 182, 212, 0.35);
+}
+
+.channel-add-m3u-btn:hover {
+  background: rgba(16, 185, 129, 0.2);
+  border-color: #10b981;
+  color: #10b981;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.35);
+}
+
+.channel-fav-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  border-radius: 6px;
+}
+
+.channel-fav-btn:hover {
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.12);
+}
+
+.channel-fav-btn.active {
+  color: #fbbf24;
+}
+
+/* ════ EPISODE ACTION BUTTONS ════ */
+.episode-action-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-secondary);
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.episode-action-btn:hover {
+  background: var(--accent-cyan);
+  color: #02070D;
+  border-color: var(--accent-cyan);
+}
+
+/* ════ TABLA CUSTOM M3U ════ */
+.custom-m3u-table th {
+  font-family: var(--font-display, sans-serif);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.custom-m3u-table tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.m3u-url-code {
+  user-select: all;
+}
+
