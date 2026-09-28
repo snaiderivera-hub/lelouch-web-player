@@ -336,13 +336,26 @@ async function loadCatalogWithProgress(url) {
   const progressFill = $('import-progress-fill');
   const progressLog = $('import-progress-log');
 
+  const homeBanner = $('home-loading-banner');
+  const homeText = $('home-loading-text');
+  const homePercent = $('home-loading-percent');
+  const homeFill = $('home-loading-bar-fill');
+  const reloadBtn = $('hero-reload-btn');
+
+  if (homeBanner) homeBanner.style.display = 'block';
   progressBox?.classList.remove('hidden');
   if (progressLog) progressLog.innerHTML = '';
+  if (reloadBtn) reloadBtn.classList.add('loading');
 
   iptvService.onProgress(({ step, percent, detail }) => {
-    if (progressTitle) progressTitle.textContent = step + (detail ? ` — ${detail}` : '');
+    const fullText = step + (detail ? ` — ${detail}` : '');
+    if (progressTitle) progressTitle.textContent = fullText;
     if (progressPercent) progressPercent.textContent = `${percent}%`;
     if (progressFill) progressFill.style.width = `${percent}%`;
+
+    if (homeText) homeText.textContent = fullText;
+    if (homePercent) homePercent.textContent = `${percent}%`;
+    if (homeFill) homeFill.style.width = `${percent}%`;
 
     if (progressLog) {
       const entry = document.createElement('div');
@@ -358,20 +371,24 @@ async function loadCatalogWithProgress(url) {
     await playlistService.addOrUpdate(url);
     updateAllViews(state);
     toast('✓ Catálogo importado y guardado correctamente.', 'success');
-    $('empty-welcome-banner').style.display = 'none';
+    const emptyBanner = $('empty-welcome-banner');
+    if (emptyBanner) emptyBanner.style.display = 'none';
   } catch (err) {
     if (iptvService.state?.live?.length > 0) {
       updateAllViews(iptvService.state);
       toast(`ℹ Catálogo parcialmente cargado (${iptvService.state.live.length} canales en vivo disponibles)`, 'info', 5000);
-      $('empty-welcome-banner').style.display = 'none';
+      const emptyBanner = $('empty-welcome-banner');
+      if (emptyBanner) emptyBanner.style.display = 'none';
     } else {
       toast(`❌ Error al importar: ${err.message}`, 'error', 7000);
       throw err;
     }
   } finally {
+    if (reloadBtn) reloadBtn.classList.remove('loading');
     setTimeout(() => {
       progressBox?.classList.add('hidden');
-    }, 2000);
+      if (homeBanner) homeBanner.style.display = 'none';
+    }, 2500);
   }
 }
 
@@ -433,6 +450,11 @@ function updateHomeMetrics(state) {
   if (elSeries) elSeries.textContent = (state.series?.length || 0).toLocaleString();
   const elSports = $('count-sports-home');
   if (elSports) elSports.textContent = (state.sportsCount || 0).toLocaleString();
+
+  if (state.live?.length > 0 || state.movies?.length > 0) {
+    const emptyBanner = $('empty-welcome-banner');
+    if (emptyBanner) emptyBanner.style.display = 'none';
+  }
 }
 
 function updateBadges(state) {

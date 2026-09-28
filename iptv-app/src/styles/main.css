@@ -3008,4 +3008,61 @@ video::-webkit-media-controls-buffering-indicator {
   cursor: pointer;
 }
 
+/* ════════════ HOME LOADING PROGRESS BANNER ════════════ */
+.home-loading-banner {
+  width: 100%;
+  max-width: 900px;
+  margin: 0.75rem auto 1.5rem;
+  background: rgba(7, 21, 38, 0.92);
+  border: 1px solid rgba(0, 229, 255, 0.45);
+  box-shadow: 0 0 25px rgba(0, 229, 255, 0.18), inset 0 0 15px rgba(0, 150, 255, 0.1);
+  border-radius: 14px;
+  padding: 14px 20px;
+  backdrop-filter: blur(12px);
+  animation: fadeInBanner 0.3s ease;
+}
+
+@keyframes fadeInBanner {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.home-loading-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #00e5ff;
+  margin-bottom: 10px;
+  letter-spacing: 0.02em;
+}
+
+.home-loading-spinner {
+  font-size: 1.1rem;
+  animation: pulseGlow 1.2s infinite alternate;
+}
+
+@keyframes pulseGlow {
+  from { transform: scale(1); filter: drop-shadow(0 0 2px #00e5ff); }
+  to { transform: scale(1.2); filter: drop-shadow(0 0 8px #00e5ff); }
+}
+
+.home-loading-bar-track {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.home-loading-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #00e5ff, #0088ff, #38bdf8);
+  transition: width 0.25s ease-out;
+  border-radius: 4px;
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.6);
+}
+
+
 
