@@ -21,5 +21,8 @@ Para iniciar la aplicación en tu PC:
 - **`docs/`**: Reportes de auditoría QA forense y refinamiento visual XALB.
 - **`backups/`**: Copias de seguridad de versiones anteriores del proyecto.
 - **`knowledge_base/`**: Base de conocimiento y especificaciones técnicas.
+- **`lelouch-android/`**: Aplicación nativa Android para TV Box (Android TV) y teléfonos móviles (Compose Multiplatform/Material3).
+- **`GUIA_ACTUALIZACIONES_OTA.md`**: Guía paso a paso para publicar e instalar actualizaciones automáticas por Wi-Fi.
 - **`IPTV-Data-Architect.exe`**: Lanzador nativo de Windows (AppHost) que gestiona el servidor y el gateway local.
 - **`procesar_iptv.ps1`**: Utilidad PowerShell para convertir listas M3U/Xtream a la base de datos JSON local.
+- **`version.json`**: Referencia de control de versiones para el actualizador OTA.
