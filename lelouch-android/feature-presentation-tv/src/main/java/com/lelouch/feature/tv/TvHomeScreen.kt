@@ -365,6 +365,33 @@ fun TvHomeScreen(
     var isSearchModalVisible by remember { mutableStateOf(false) }
     var isEpgModalVisible by remember { mutableStateOf(false) }
     var isAdminModalVisible by remember { mutableStateOf(false) }
+    var isCategoryManagerVisible by remember { mutableStateOf(false) }
+    var categoryManagerInitialScope by remember { mutableStateOf(CategoryScope.LIVE) }
+
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val hiddenPrefs = remember { context.getSharedPreferences("iptv_hidden_categories", android.content.Context.MODE_PRIVATE) }
+    var hiddenLiveCategories by remember {
+        mutableStateOf(hiddenPrefs.getStringSet("live", emptySet())?.toSet() ?: emptySet())
+    }
+    var hiddenMovieCategories by remember {
+        mutableStateOf(hiddenPrefs.getStringSet("movies", emptySet())?.toSet() ?: emptySet())
+    }
+    var hiddenSeriesCategories by remember {
+        mutableStateOf(hiddenPrefs.getStringSet("series", emptySet())?.toSet() ?: emptySet())
+    }
+
+    fun saveHiddenLive(newSet: Set<String>) {
+        hiddenLiveCategories = newSet
+        hiddenPrefs.edit().putStringSet("live", newSet).apply()
+    }
+    fun saveHiddenMovies(newSet: Set<String>) {
+        hiddenMovieCategories = newSet
+        hiddenPrefs.edit().putStringSet("movies", newSet).apply()
+    }
+    fun saveHiddenSeries(newSet: Set<String>) {
+        hiddenSeriesCategories = newSet
+        hiddenPrefs.edit().putStringSet("series", newSet).apply()
+    }
 
     var isFullscreen by remember { mutableStateOf(false) }
     var isHudVisible by remember { mutableStateOf(false) }
@@ -401,8 +428,72 @@ fun TvHomeScreen(
 
     var lastFullscreenEntryTime by remember { mutableLongStateOf(0L) }
 
-    // Categorías y filtrado por categoría para Canales, Películas y Series
-    val channelCategoryList = remember(liveCategories, displayChannels) {
+    // Modelos para el gestor de visibilidad con conteo de elementos
+    val liveCategoryItemModels = remember(liveCategories, displayChannels) {
+        val counts = displayChannels.groupingBy { it.categoryName.ifBlank { "General" } }.eachCount()
+        val cats = (liveCategories.map { it.categoryName } + displayChannels.map { it.categoryName.ifBlank { "General" } })
+            .distinct()
+            .filter { it.isNotBlank() }
+            .sortedWith(String.CASE_INSENSITIVE_ORDER)
+        cats.map { catName ->
+            val matchingLive = liveCategories.find { it.categoryName.equals(catName, ignoreCase = true) }
+            val isAdult = matchingLive?.isAdult == true ||
+                    catName.contains("+18", ignoreCase = true) ||
+                    catName.contains("XXX", ignoreCase = true) ||
+                    catName.contains("adult", ignoreCase = true)
+            CategoryItemUiModel(
+                id = matchingLive?.categoryId ?: catName,
+                name = catName,
+                itemCount = counts[catName] ?: 0,
+                isAdult = isAdult
+            )
+        }
+    }
+
+    val movieCategoryItemModels = remember(vodCategories, displayMovies) {
+        val counts = displayMovies.groupingBy { it.categoryName.ifBlank { "General" } }.eachCount()
+        val cats = (vodCategories.map { it.categoryName } + displayMovies.map { it.categoryName.ifBlank { "General" } })
+            .distinct()
+            .filter { it.isNotBlank() }
+            .sortedWith(String.CASE_INSENSITIVE_ORDER)
+        cats.map { catName ->
+            val matchingVod = vodCategories.find { it.categoryName.equals(catName, ignoreCase = true) }
+            val isAdult = matchingVod?.isAdult == true ||
+                    catName.contains("+18", ignoreCase = true) ||
+                    catName.contains("XXX", ignoreCase = true) ||
+                    catName.contains("adult", ignoreCase = true)
+            CategoryItemUiModel(
+                id = matchingVod?.categoryId ?: catName,
+                name = catName,
+                itemCount = counts[catName] ?: 0,
+                isAdult = isAdult
+            )
+        }
+    }
+
+    val seriesCategoryItemModels = remember(seriesCategories, displaySeries) {
+        val counts = displaySeries.groupingBy { it.categoryName.ifBlank { "General" } }.eachCount()
+        val cats = (seriesCategories.map { it.categoryName } + displaySeries.map { it.categoryName.ifBlank { "General" } })
+            .distinct()
+            .filter { it.isNotBlank() }
+            .sortedWith(String.CASE_INSENSITIVE_ORDER)
+        cats.map { catName ->
+            val matchingSer = seriesCategories.find { it.categoryName.equals(catName, ignoreCase = true) }
+            val isAdult = matchingSer?.isAdult == true ||
+                    catName.contains("+18", ignoreCase = true) ||
+                    catName.contains("XXX", ignoreCase = true) ||
+                    catName.contains("adult", ignoreCase = true)
+            CategoryItemUiModel(
+                id = matchingSer?.categoryId ?: catName,
+                name = catName,
+                itemCount = counts[catName] ?: 0,
+                isAdult = isAdult
+            )
+        }
+    }
+
+    // Categorías y filtrado por categoría para Canales, Películas y Series (respetando categorías ocultas)
+    val channelCategoryList = remember(liveCategories, displayChannels, hiddenLiveCategories) {
         val fromDb = liveCategories.map { CategoryUiItem(id = it.categoryId, name = it.categoryName) }
         val fromChannels = displayChannels.mapNotNull { ch ->
             if (ch.categoryName.isNotBlank() && ch.categoryId.isNotBlank()) {
@@ -410,18 +501,27 @@ fun TvHomeScreen(
             } else null
         }.distinctBy { it.id }
         val combined = (fromDb + fromChannels).distinctBy { it.id }.sortedBy { it.name }
-        listOf(CategoryUiItem(id = "all", name = "Todos")) + combined
+        val visibleCats = combined.filter { it.name !in hiddenLiveCategories && it.id !in hiddenLiveCategories }
+        listOf(CategoryUiItem(id = "all", name = "Todos")) + visibleCats
     }
     var selectedChannelCategoryId by remember { mutableStateOf("all") }
-    val filteredChannels = remember(displayChannels, selectedChannelCategoryId) {
-        if (selectedChannelCategoryId == "all") displayChannels
-        else displayChannels.filter { it.categoryId == selectedChannelCategoryId }
-    }
     val activeChannelCatName = remember(channelCategoryList, selectedChannelCategoryId) {
         channelCategoryList.find { it.id == selectedChannelCategoryId }?.name ?: "Todos"
     }
+    val filteredChannels = remember(displayChannels, selectedChannelCategoryId, hiddenLiveCategories) {
+        val unhidden = displayChannels.filter { it.categoryName !in hiddenLiveCategories && it.categoryId !in hiddenLiveCategories }
+        if (selectedChannelCategoryId == "all") unhidden
+        else unhidden.filter { it.categoryId == selectedChannelCategoryId || it.categoryName == activeChannelCatName }
+    }
+    LaunchedEffect(hiddenLiveCategories) {
+        if (selectedChannelCategoryId != "all" &&
+            (selectedChannelCategoryId in hiddenLiveCategories || activeChannelCatName in hiddenLiveCategories)
+        ) {
+            selectedChannelCategoryId = "all"
+        }
+    }
 
-    val movieCategoryList = remember(vodCategories, displayMovies) {
+    val movieCategoryList = remember(vodCategories, displayMovies, hiddenMovieCategories) {
         val fromDb = vodCategories.map { CategoryUiItem(id = it.categoryId, name = it.categoryName) }
         val fromMovies = displayMovies.mapNotNull { mov ->
             if (mov.categoryName.isNotBlank() && mov.categoryId.isNotBlank()) {
@@ -429,18 +529,27 @@ fun TvHomeScreen(
             } else null
         }.distinctBy { it.id }
         val combined = (fromDb + fromMovies).distinctBy { it.id }.sortedBy { it.name }
-        listOf(CategoryUiItem(id = "all", name = "Todas")) + combined
+        val visibleCats = combined.filter { it.name !in hiddenMovieCategories && it.id !in hiddenMovieCategories }
+        listOf(CategoryUiItem(id = "all", name = "Todas")) + visibleCats
     }
     var selectedMovieCategoryId by remember { mutableStateOf("all") }
-    val filteredMovies = remember(displayMovies, selectedMovieCategoryId) {
-        if (selectedMovieCategoryId == "all") displayMovies
-        else displayMovies.filter { it.categoryId == selectedMovieCategoryId }
-    }
     val activeMovieCatName = remember(movieCategoryList, selectedMovieCategoryId) {
         movieCategoryList.find { it.id == selectedMovieCategoryId }?.name ?: "Todas"
     }
+    val filteredMovies = remember(displayMovies, selectedMovieCategoryId, hiddenMovieCategories) {
+        val unhidden = displayMovies.filter { it.categoryName !in hiddenMovieCategories && it.categoryId !in hiddenMovieCategories }
+        if (selectedMovieCategoryId == "all") unhidden
+        else unhidden.filter { it.categoryId == selectedMovieCategoryId || it.categoryName == activeMovieCatName }
+    }
+    LaunchedEffect(hiddenMovieCategories) {
+        if (selectedMovieCategoryId != "all" &&
+            (selectedMovieCategoryId in hiddenMovieCategories || activeMovieCatName in hiddenMovieCategories)
+        ) {
+            selectedMovieCategoryId = "all"
+        }
+    }
 
-    val seriesCategoryList = remember(seriesCategories, displaySeries) {
+    val seriesCategoryList = remember(seriesCategories, displaySeries, hiddenSeriesCategories) {
         val fromDb = seriesCategories.map { CategoryUiItem(id = it.categoryId, name = it.categoryName) }
         val fromSeries = displaySeries.mapNotNull { ser ->
             if (ser.categoryName.isNotBlank() && ser.categoryId.isNotBlank()) {
@@ -448,15 +557,24 @@ fun TvHomeScreen(
             } else null
         }.distinctBy { it.id }
         val combined = (fromDb + fromSeries).distinctBy { it.id }.sortedBy { it.name }
-        listOf(CategoryUiItem(id = "all", name = "Todas")) + combined
+        val visibleCats = combined.filter { it.name !in hiddenSeriesCategories && it.id !in hiddenSeriesCategories }
+        listOf(CategoryUiItem(id = "all", name = "Todas")) + visibleCats
     }
     var selectedSeriesCategoryId by remember { mutableStateOf("all") }
-    val filteredSeries = remember(displaySeries, selectedSeriesCategoryId) {
-        if (selectedSeriesCategoryId == "all") displaySeries
-        else displaySeries.filter { it.categoryId == selectedSeriesCategoryId }
-    }
     val activeSeriesCatName = remember(seriesCategoryList, selectedSeriesCategoryId) {
         seriesCategoryList.find { it.id == selectedSeriesCategoryId }?.name ?: "Todas"
+    }
+    val filteredSeries = remember(displaySeries, selectedSeriesCategoryId, hiddenSeriesCategories) {
+        val unhidden = displaySeries.filter { it.categoryName !in hiddenSeriesCategories && it.categoryId !in hiddenSeriesCategories }
+        if (selectedSeriesCategoryId == "all") unhidden
+        else unhidden.filter { it.categoryId == selectedSeriesCategoryId || it.categoryName == activeSeriesCatName }
+    }
+    LaunchedEffect(hiddenSeriesCategories) {
+        if (selectedSeriesCategoryId != "all" &&
+            (selectedSeriesCategoryId in hiddenSeriesCategories || activeSeriesCatName in hiddenSeriesCategories)
+        ) {
+            selectedSeriesCategoryId = "all"
+        }
     }
 
     val playerFocusRequester = remember { FocusRequester() }
@@ -1311,6 +1429,22 @@ fun TvHomeScreen(
                                         )
                                     }
 
+                                    Spacer(modifier = Modifier.height(24.dp))
+
+                                    // 🎯 GESTIÓN DE CATEGORÍAS VISIBLES (Exacto al diseño Web solicitado)
+                                    TvCategoryVisibilitySection(
+                                        liveTotal = liveCategoryItemModels.size,
+                                        liveHiddenCount = liveCategoryItemModels.count { hiddenLiveCategories.contains(it.name) || hiddenLiveCategories.contains(it.id) },
+                                        moviesTotal = movieCategoryItemModels.size,
+                                        moviesHiddenCount = movieCategoryItemModels.count { hiddenMovieCategories.contains(it.name) || hiddenMovieCategories.contains(it.id) },
+                                        seriesTotal = seriesCategoryItemModels.size,
+                                        seriesHiddenCount = seriesCategoryItemModels.count { hiddenSeriesCategories.contains(it.name) || hiddenSeriesCategories.contains(it.id) },
+                                        onOpenManager = { scope ->
+                                            categoryManagerInitialScope = scope
+                                            isCategoryManagerVisible = true
+                                        }
+                                    )
+
                                     Spacer(modifier = Modifier.height(28.dp))
                                     Text(
                                         text = "📋 LISTAS IPTV DISPONIBLES (${allSources.size}):",
@@ -1779,6 +1913,38 @@ fun TvHomeScreen(
                     isAdminModalVisible = false
                 },
                 onDismiss = { isAdminModalVisible = false }
+            )
+        }
+
+        // CAPA 8.5: Modal de Gestión de Categorías Visibles
+        if (isCategoryManagerVisible) {
+            TvCategoryManagerModal(
+                initialScope = categoryManagerInitialScope,
+                liveCategories = liveCategoryItemModels,
+                hiddenLiveCategoryNames = hiddenLiveCategories,
+                movieCategories = movieCategoryItemModels,
+                hiddenMovieCategoryNames = hiddenMovieCategories,
+                seriesCategories = seriesCategoryItemModels,
+                hiddenSeriesCategoryNames = hiddenSeriesCategories,
+                onToggleLiveCategory = { catName, isVis ->
+                    val next = if (isVis) hiddenLiveCategories - catName else hiddenLiveCategories + catName
+                    saveHiddenLive(next)
+                },
+                onToggleMovieCategory = { catName, isVis ->
+                    val next = if (isVis) hiddenMovieCategories - catName else hiddenMovieCategories + catName
+                    saveHiddenMovies(next)
+                },
+                onToggleSeriesCategory = { catName, isVis ->
+                    val next = if (isVis) hiddenSeriesCategories - catName else hiddenSeriesCategories + catName
+                    saveHiddenSeries(next)
+                },
+                onShowAllLive = { saveHiddenLive(emptySet()) },
+                onHideAllLive = { saveHiddenLive(liveCategoryItemModels.map { it.name }.toSet()) },
+                onShowAllMovies = { saveHiddenMovies(emptySet()) },
+                onHideAllMovies = { saveHiddenMovies(movieCategoryItemModels.map { it.name }.toSet()) },
+                onShowAllSeries = { saveHiddenSeries(emptySet()) },
+                onHideAllSeries = { saveHiddenSeries(seriesCategoryItemModels.map { it.name }.toSet()) },
+                onDismiss = { isCategoryManagerVisible = false }
             )
         }
 
