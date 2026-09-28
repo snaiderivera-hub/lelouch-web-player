@@ -3,25 +3,32 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>M3U Filter & Link Extractor — LELOUCH</title>
+  <title>M3U Filter, Extractor & Stream Health Verifier - LELOUCH</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <style>
     :root {
-      --bg: #070d19;
-      --card-bg: #0d1726;
-      --card-sub: #132238;
+      --bg: #070d14;
+      --card-bg: rgba(13, 22, 35, 0.85);
+      --card-sub: rgba(255, 255, 255, 0.03);
+      --border: rgba(0, 229, 255, 0.15);
+      --border-highlight: rgba(0, 229, 255, 0.4);
       --accent: #00e5ff;
-      --accent-glow: 0 0 20px rgba(0, 229, 255, 0.4);
-      --text: #f1f5f9;
-      --text-muted: #94a3b8;
-      --border: rgba(255, 255, 255, 0.08);
-      --green: #10b981;
+      --accent-glow: 0 0 20px rgba(0, 229, 255, 0.35);
+      --text: #f0f6fc;
+      --text-muted: #8b949e;
+      --success: #10b981;
+      --danger: #ef4444;
+      --warning: #f59e0b;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      background: var(--bg);
+      background-color: var(--bg);
+      background-image: 
+        radial-gradient(circle at 15% 15%, rgba(0, 229, 255, 0.06) 0%, transparent 40%),
+        radial-gradient(circle at 85% 85%, rgba(138, 43, 226, 0.06) 0%, transparent 40%);
       color: var(--text);
       font-family: 'Inter', sans-serif;
       min-height: 100vh;
@@ -34,26 +41,29 @@
       margin-bottom: 1.5rem;
       border-bottom: 1px solid var(--border);
       padding-bottom: 1rem;
+      flex-wrap: wrap;
+      gap: 1rem;
     }
     .logo-area { display: flex; align-items: center; gap: 0.75rem; }
-    .bolt { font-size: 2rem; }
-    h1 { font-family: 'Outfit', sans-serif; font-size: 1.5rem; font-weight: 800; }
-    .sub { font-size: 0.8rem; color: var(--text-muted); }
+    .bolt { font-size: 1.8rem; filter: drop-shadow(0 0 8px #00e5ff); }
+    h1 { font-family: 'Outfit', sans-serif; font-size: 1.4rem; font-weight: 800; letter-spacing: 0.5px; }
+    p.sub { font-size: 0.8rem; color: var(--text-muted); margin-top: 2px; }
     .badge-pill {
-      background: rgba(0, 229, 255, 0.12);
+      background: rgba(0, 229, 255, 0.1);
       border: 1px solid rgba(0, 229, 255, 0.3);
       color: var(--accent);
-      padding: 4px 12px;
+      padding: 0.35rem 0.85rem;
       border-radius: 99px;
-      font-size: 0.75rem;
-      font-weight: 700;
+      font-size: 0.8rem;
+      font-weight: 600;
     }
     .main-grid {
       display: grid;
       grid-template-columns: 360px 1fr;
       gap: 1.5rem;
+      align-items: start;
     }
-    @media (max-width: 900px) {
+    @media (max-width: 1024px) {
       .main-grid { grid-template-columns: 1fr; }
     }
     .panel-card {
@@ -64,19 +74,22 @@
       display: flex;
       flex-direction: column;
       gap: 1rem;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
     }
     .drop-zone {
-      border: 2px dashed rgba(0, 229, 255, 0.35);
+      border: 2px dashed rgba(0, 229, 255, 0.3);
       border-radius: 12px;
       padding: 1.5rem 1rem;
       text-align: center;
-      background: rgba(0, 229, 255, 0.02);
       cursor: pointer;
-      transition: all 0.2s;
+      background: rgba(0, 229, 255, 0.02);
+      transition: all 0.25s ease;
     }
     .drop-zone:hover {
       border-color: var(--accent);
-      background: rgba(0, 229, 255, 0.06);
+      background: rgba(0, 229, 255, 0.05);
+      box-shadow: var(--accent-glow);
     }
     .input-field {
       width: 100%;
@@ -88,6 +101,7 @@
       font-size: 0.85rem;
       font-family: inherit;
       outline: none;
+      transition: border-color 0.2s;
     }
     .input-field:focus { border-color: var(--accent); }
     textarea.input-field {
@@ -100,9 +114,9 @@
       background: var(--card-sub);
       border: 1px solid var(--border);
       color: var(--text);
-      padding: 0.6rem 1rem;
+      padding: 0.55rem 0.9rem;
       border-radius: 8px;
-      font-size: 0.85rem;
+      font-size: 0.82rem;
       font-weight: 600;
       cursor: pointer;
       display: inline-flex;
@@ -111,7 +125,7 @@
       gap: 0.4rem;
       transition: all 0.2s;
     }
-    .btn:hover { background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.2); }
+    .btn:hover { background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.3); }
     .btn-primary {
       background: linear-gradient(135deg, #00e5ff, #0088ff);
       color: #02070d;
@@ -122,7 +136,19 @@
       box-shadow: var(--accent-glow);
       transform: translateY(-1px);
     }
+    .btn-success {
+      background: rgba(16, 185, 129, 0.18);
+      border-color: #10b981;
+      color: #10b981;
+    }
+    .btn-success:hover { background: #10b981; color: #02070d; }
+    .btn-danger {
+      background: rgba(239, 68, 68, 0.15);
+      border-color: #ef4444;
+      color: #ef4444;
+    }
     .btn-sm { padding: 0.35rem 0.65rem; font-size: 0.75rem; }
+    
     .results-header {
       display: flex;
       justify-content: space-between;
@@ -132,10 +158,36 @@
       border-bottom: 1px solid var(--border);
       padding-bottom: 0.75rem;
     }
-    .results-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .results-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+
+    /* BARRA DE PROGRESO DE VERIFICACIÓN */
+    .health-bar-container {
+      background: rgba(0,0,0,0.4);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      display: none;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .health-bar-container.active { display: flex; }
+    .health-progress-track {
+      width: 100%;
+      height: 8px;
+      background: rgba(255,255,255,0.06);
+      border-radius: 99px;
+      overflow: hidden;
+    }
+    .health-progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent), #10b981);
+      transition: width 0.15s ease;
+    }
+
     .table-container {
       overflow-x: auto;
-      max-height: 600px;
+      max-height: 580px;
       overflow-y: auto;
     }
     table {
@@ -144,7 +196,7 @@
       font-size: 0.85rem;
     }
     th, td {
-      padding: 0.65rem 0.75rem;
+      padding: 0.6rem 0.75rem;
       border-bottom: 1px solid rgba(255, 255, 255, 0.04);
       text-align: left;
     }
@@ -169,17 +221,55 @@
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      max-width: 280px;
+      max-width: 260px;
       display: inline-block;
       cursor: pointer;
     }
+    .url-chip:hover { border-color: var(--accent); background: rgba(0, 229, 255, 0.15); }
     .tag-cat {
       font-size: 0.72rem;
       background: rgba(255, 255, 255, 0.05);
       padding: 2px 6px;
       border-radius: 4px;
       color: var(--text-muted);
+      max-width: 140px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      display: inline-block;
     }
+
+    /* BADGES DE ESTADO ONLINE/OFFLINE */
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 99px;
+      white-space: nowrap;
+    }
+    .status-online { background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); }
+    .status-offline { background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); }
+    .status-testing { background: rgba(0, 229, 255, 0.15); color: var(--accent); border: 1px solid rgba(0, 229, 255, 0.3); }
+    .status-unknown { background: rgba(255, 255, 255, 0.05); color: var(--text-muted); border: 1px solid rgba(255, 255, 255, 0.1); }
+
+    /* PAGINACIÓN */
+    .pagination-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+    .pagination-btns { display: flex; gap: 0.35rem; align-items: center; }
+
+    /* TOAST */
     .toast {
       position: fixed;
       bottom: 20px;
@@ -194,9 +284,31 @@
       transform: translateY(100px);
       opacity: 0;
       transition: all 0.25s ease;
-      z-index: 999;
+      z-index: 9999;
     }
     .toast.show { transform: translateY(0); opacity: 1; }
+
+    /* MODAL PREVIEW VIDEO */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.85);
+      backdrop-filter: blur(8px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10000;
+    }
+    .modal-overlay.hidden { display: none; }
+    .modal-content {
+      background: var(--card-bg);
+      border: 1px solid var(--border-highlight);
+      border-radius: 16px;
+      padding: 1.5rem;
+      max-width: 650px;
+      width: 95%;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.9);
+    }
   </style>
 </head>
 <body>
@@ -205,11 +317,14 @@
     <div class="logo-area">
       <span class="bolt">⚡</span>
       <div>
-        <h1>M3U FILTER & EXTRACTOR</h1>
-        <p class="sub">Extrae canales, copia enlaces directos y genera listas M3U personalizadas</p>
+        <h1>M3U FILTER, EXTRACTOR & HEALTH CHECKER</h1>
+        <p class="sub">Extrae canales, comprueba disponibilidad en vivo (Online/Caído) y descarga tus listas perfectas</p>
       </div>
     </div>
-    <span class="badge-pill" id="total-badge">0 canales cargados</span>
+    <div style="display:flex; gap:0.5rem; align-items:center;">
+      <span class="badge-pill" id="total-badge">0 canales cargados</span>
+      <span class="badge-pill" id="online-counter-badge" style="display:none; background:rgba(16,185,129,0.15); color:#10b981; border-color:rgba(16,185,129,0.3);">0 Online</span>
+    </div>
   </header>
 
   <div class="main-grid">
@@ -233,17 +348,38 @@
       </div>
 
       <div style="border-top:1px solid var(--border); padding-top:1rem;">
-        <h3 style="font-size:0.95rem; font-family:'Outfit'; margin-bottom:0.5rem;">2. Canales a Filtrar</h3>
-        <p style="font-size:0.75rem; color:var(--text-muted); margin-bottom:0.5rem;">Escribe nombres o palabras clave (un término por línea):</p>
-        <textarea id="filter-text" class="input-field" placeholder="ESPN&#10;Fox Sports&#10;HBO&#10;DAZN&#10;Deportes"></textarea>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem;">
+          <h3 style="font-size:0.95rem; font-family:'Outfit'; margin:0;">2. Canales a Filtrar</h3>
+          <button class="btn btn-sm" id="btn-load-presets" style="font-size:0.7rem; padding:2px 6px;">Presets Top</button>
+        </div>
+        <p style="font-size:0.73rem; color:var(--text-muted); margin-bottom:0.4rem;">Escribe nombres o categorías (un término por línea):</p>
+        <textarea id="filter-text" class="input-field" placeholder="ESPN&#10;Fox Sports&#10;HBO&#10;DAZN&#10;Deportes&#10;Discovery&#10;Warner"></textarea>
       </div>
 
       <button class="btn btn-primary" id="btn-filter" style="width:100%; height:42px;">
-        ⚡ Filtrar y Extraer Enlaces
+        ⚡ Filtrar y Extraer Canales
       </button>
+
+      <!-- VERIFICACIÓN EN VIVO -->
+      <div style="border-top:1px solid var(--border); padding-top:0.75rem;">
+        <h3 style="font-size:0.95rem; font-family:'Outfit'; margin-bottom:0.5rem; display:flex; align-items:center; gap:6px;">
+          <span>🔍 Comprobar Disponibilidad</span>
+        </h3>
+        <p style="font-size:0.73rem; color:var(--text-muted); margin-bottom:0.75rem;">
+          Verifica si los canales extraídos están transmitiendo (Online) o caídos.
+        </p>
+        <div style="display:flex; gap:0.4rem;">
+          <button class="btn btn-success" id="btn-check-health" style="flex:1;">
+            ⚡ Verificar Funcionamiento
+          </button>
+          <button class="btn btn-danger btn-sm" id="btn-stop-health" style="display:none;">
+            ⏹ Parar
+          </button>
+        </div>
+      </div>
     </div>
 
-    <!-- PANEL DERECHO: RESULTADOS -->
+    <!-- PANEL DERECHO: RESULTADOS Y ACCIONES -->
     <div class="panel-card">
       <div class="results-header">
         <div>
@@ -253,12 +389,28 @@
           </h3>
         </div>
         <div class="results-actions">
+          <!-- Toggle Solo Online -->
+          <button class="btn btn-sm" id="btn-toggle-only-online" style="display:none;" title="Ver únicamente canales verificados que funcionan">
+            🟢 Solo Online
+          </button>
           <button class="btn btn-sm" id="btn-copy-links" title="Copiar todas las URLs directas">📋 Copiar Enlaces</button>
           <button class="btn btn-sm" id="btn-download-m3u" title="Descargar como archivo M3U">⬇ Descargar M3U</button>
           <button class="btn btn-sm" id="btn-download-csv" title="Descargar hoja CSV">📊 Descargar CSV</button>
         </div>
       </div>
 
+      <!-- BARRA DE PROGRESO DE VERIFICACIÓN -->
+      <div class="health-bar-container" id="health-bar-container">
+        <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:var(--text-muted);">
+          <span id="health-progress-text">Verificando canales: 0 / 0</span>
+          <span><strong id="health-online-count" style="color:#10b981;">0</strong> Online | <strong id="health-offline-count" style="color:#ef4444;">0</strong> Caídos</span>
+        </div>
+        <div class="health-progress-track">
+          <div class="health-progress-fill" id="health-progress-fill"></div>
+        </div>
+      </div>
+
+      <!-- TABLA DE RESULTADOS -->
       <div class="table-container">
         <table>
           <thead>
@@ -266,18 +418,60 @@
               <th style="width:40px;">#</th>
               <th>Canal</th>
               <th>Categoría</th>
+              <th style="width:100px;">Estado</th>
               <th>Enlace Directo (Clic para copiar)</th>
-              <th style="text-align:right;">Acciones</th>
+              <th style="text-align:right; width:150px;">Acciones</th>
             </tr>
           </thead>
           <tbody id="results-body">
             <tr>
-              <td colspan="5" style="text-align:center; padding:3rem; color:var(--text-muted);">
-                Carga un archivo M3U a la izquierda para comenzar a extraer enlaces.
+              <td colspan="6" style="text-align:center; padding:3rem; color:var(--text-muted);">
+                Carga un archivo M3U o introduce una URL a la izquierda para comenzar.
               </td>
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <!-- BARRA DE PAGINACIÓN -->
+      <div class="pagination-bar" id="pagination-bar" style="display:none;">
+        <div id="pagination-info">Mostrando 0 de 0 canales</div>
+        <div style="display:flex; align-items:center; gap:0.75rem;">
+          <div style="display:flex; align-items:center; gap:4px;">
+            <span>Ver:</span>
+            <select id="page-size-select" class="input-field" style="width:auto; padding:2px 8px; font-size:0.75rem;">
+              <option value="50">50</option>
+              <option value="100" selected>100</option>
+              <option value="250">250</option>
+              <option value="500">500</option>
+              <option value="all">Todos</option>
+            </select>
+          </div>
+          <div class="pagination-btns">
+            <button class="btn btn-sm" id="btn-page-first">«</button>
+            <button class="btn btn-sm" id="btn-page-prev">‹</button>
+            <span id="page-current-display" style="padding:0 6px; font-weight:600;">1 / 1</span>
+            <button class="btn btn-sm" id="btn-page-next">›</button>
+            <button class="btn btn-sm" id="btn-page-last">»</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL REPRODUCTOR DE PRUEBA -->
+  <div class="modal-overlay hidden" id="preview-modal">
+    <div class="modal-content">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+        <h3 id="preview-modal-title" style="font-size:1.05rem; color:var(--accent); font-family:'Outfit';">▶ Probando Canal</h3>
+        <button id="btn-close-preview" class="btn btn-sm" style="font-size:1rem; padding:2px 8px;">&times;</button>
+      </div>
+      <div style="background:#000; border-radius:10px; overflow:hidden; aspect-ratio:16/9; position:relative;">
+        <video id="preview-video" controls autoplay playsinline style="width:100%; height:100%; object-fit:contain;"></video>
+      </div>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0.75rem;">
+        <span id="preview-status-indicator" class="status-badge status-testing">Conectando...</span>
+        <button id="btn-copy-preview-url" class="btn btn-sm">🔗 Copiar Este Enlace</button>
       </div>
     </div>
   </div>
@@ -287,6 +481,14 @@
   <script>
     let allEntries = [];
     let matchedEntries = [];
+    let channelHealthMap = new Map(); // id/url -> 'online' | 'offline' | 'testing'
+    let isVerifyingHealth = false;
+    let shouldStopHealth = false;
+    let filterOnlyOnline = false;
+
+    // Paginación
+    let currentPage = 1;
+    let pageSize = 100;
 
     const toastEl = document.getElementById('toast');
     function showToast(msg) {
@@ -295,23 +497,32 @@
       setTimeout(() => toastEl.classList.remove('show'), 2500);
     }
 
+    // Normalizador de texto sin acentos/tildes
+    function norm(str) {
+      return (str || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim();
+    }
+
     function parseM3U(text) {
       const entries = [];
       const lines = text.split(/\r?\n/);
       let currentExtinf = null;
       let extras = [];
 
-      for (const line of lines) {
-        const trim = line.trim();
-        if (!trim || trim.startsWith('#EXTM3U')) continue;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line || line.startsWith('#EXTM3U')) continue;
 
-        if (trim.startsWith('#EXTINF:')) {
-          currentExtinf = trim;
+        if (line.startsWith('#EXTINF:')) {
+          currentExtinf = line;
           extras = [];
-        } else if (trim.startsWith('#') && currentExtinf) {
-          extras.push(trim);
-        } else if (!trim.startsWith('#') && currentExtinf) {
-          const url = trim;
+        } else if (line.startsWith('#') && currentExtinf) {
+          extras.push(line);
+        } else if (!line.startsWith('#') && currentExtinf) {
+          const url = line;
           const commaIdx = currentExtinf.lastIndexOf(',');
           const name = commaIdx !== -1 ? currentExtinf.substring(commaIdx + 1).trim() : 'Canal';
           
@@ -321,7 +532,20 @@
           const logoMatch = currentExtinf.match(/tvg-logo="([^"]*)"/i);
           const logo = logoMatch ? logoMatch[1].trim() : '';
 
-          entries.push({ extinf: currentExtinf, extras, url, name, category, logo });
+          const idMatch = currentExtinf.match(/tvg-id="([^"]*)"/i);
+          const epgId = idMatch ? idMatch[1].trim() : '';
+
+          entries.push({
+            id: `ch_${entries.length + 1}`,
+            extinf: currentExtinf,
+            extras,
+            url,
+            name,
+            category,
+            logo,
+            epgId
+          });
+
           currentExtinf = null;
           extras = [];
         }
@@ -331,77 +555,366 @@
 
     function loadM3UText(text) {
       allEntries = parseM3U(text);
-      document.getElementById('total-badge').textContent = `${allEntries.length} canales cargados`;
-      showToast(`✓ ${allEntries.length} canales cargados`);
+      channelHealthMap.clear();
+      document.getElementById('total-badge').textContent = `${allEntries.length.toLocaleString()} canales cargados`;
+      showToast(`✓ ${allEntries.length.toLocaleString()} canales procesados`);
       applyFilter();
     }
 
+    // APLICAR FILTRO INTELIGENTE
     function applyFilter() {
       if (allEntries.length === 0) return;
 
       const rawFilters = document.getElementById('filter-text').value;
       const terms = rawFilters.split('\n')
-        .map(t => t.trim().toLowerCase())
+        .map(t => norm(t))
         .filter(t => t.length > 0 && !t.startsWith('#'));
 
       if (terms.length === 0) {
         matchedEntries = [...allEntries];
       } else {
-        const seenUrls = new Set();
         matchedEntries = allEntries.filter(entry => {
-          const n = entry.name.toLowerCase();
-          const c = entry.category.toLowerCase();
-          const hit = terms.some(t => n.includes(t) || c.includes(t));
-          if (hit && !seenUrls.has(entry.url)) {
-            seenUrls.add(entry.url);
-            return true;
-          }
-          return false;
+          const n = norm(entry.name);
+          const c = norm(entry.category);
+
+          // Coincidencia inteligente: si el término está en el nombre o en la categoría
+          return terms.some(t => {
+            if (t.startsWith('[') && t.endsWith(']')) {
+              // Filtrado exacto de categoría
+              const catTerm = t.slice(1, -1).trim();
+              return c.includes(catTerm);
+            }
+            return n.includes(t) || c.includes(t);
+          });
         });
       }
 
+      currentPage = 1;
       renderResults();
     }
 
+    // RENDERIZADO CON PAGINACIÓN Y ESTADO DE SALUD
     function renderResults() {
       const tbody = document.getElementById('results-body');
-      document.getElementById('match-badge').textContent = `${matchedEntries.length} resultados`;
+      const paginationBar = document.getElementById('pagination-bar');
 
-      if (matchedEntries.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:3rem; color:var(--text-muted);">No se encontraron canales con los filtros actuales.</td></tr>`;
+      let displayList = matchedEntries;
+      if (filterOnlyOnline) {
+        displayList = displayList.filter(m => channelHealthMap.get(m.url) === 'online');
+      }
+
+      document.getElementById('match-badge').textContent = `${displayList.length.toLocaleString()} resultados`;
+
+      if (displayList.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:3rem; color:var(--text-muted);">No se encontraron canales que coincidan con los filtros.</td></tr>`;
+        paginationBar.style.display = 'none';
         return;
       }
 
-      // Renderizar máximo 300 filas para fluidez
-      const visible = matchedEntries.slice(0, 300);
-      tbody.innerHTML = visible.map((m, i) => `
-        <tr>
-          <td style="color:var(--text-muted); font-size:0.75rem;">${i + 1}</td>
-          <td style="font-weight:600;">
-            <div style="display:flex; align-items:center; gap:8px;">
-              ${m.logo ? `<img src="${m.logo}" style="width:20px;height:20px;object-fit:contain;" onerror="this.style.display='none'">` : '📺'}
-              <span>${escapeHtml(m.name)}</span>
-            </div>
-          </td>
-          <td><span class="tag-cat">${escapeHtml(m.category || 'General')}</span></td>
-          <td>
-            <span class="url-chip" title="Haz clic para copiar" onclick="copyLink('${m.url}', '${escapeHtml(m.name)}')">${escapeHtml(m.url)}</span>
-          </td>
-          <td style="text-align:right;">
-            <button class="btn btn-sm" onclick="copyLink('${m.url}', '${escapeHtml(m.name)}')">🔗 Copiar</button>
-          </td>
-        </tr>
-      `).join('');
+      paginationBar.style.display = 'flex';
+
+      // Cálculo de paginación
+      const effectivePageSize = pageSize === 'all' ? displayList.length : parseInt(pageSize, 10);
+      const totalPages = Math.ceil(displayList.length / effectivePageSize) || 1;
+      if (currentPage > totalPages) currentPage = totalPages;
+      if (currentPage < 1) currentPage = 1;
+
+      const startIndex = (currentPage - 1) * effectivePageSize;
+      const endIndex = Math.min(startIndex + effectivePageSize, displayList.length);
+      const pageSlice = displayList.slice(startIndex, endIndex);
+
+      // Actualizar barra de paginación
+      document.getElementById('pagination-info').textContent = 
+        `Mostrando ${startIndex + 1}–${endIndex} de ${displayList.length.toLocaleString()} canales`;
+      document.getElementById('page-current-display').textContent = `${currentPage} / ${totalPages}`;
+      document.getElementById('btn-page-first').disabled = currentPage === 1;
+      document.getElementById('btn-page-prev').disabled = currentPage === 1;
+      document.getElementById('btn-page-next').disabled = currentPage === totalPages;
+      document.getElementById('btn-page-last').disabled = currentPage === totalPages;
+
+      tbody.innerHTML = pageSlice.map((m, i) => {
+        const globalIdx = startIndex + i + 1;
+        const health = channelHealthMap.get(m.url) || 'unknown';
+        let healthBadge = '<span class="status-badge status-unknown">⚪ Sin probar</span>';
+        if (health === 'online') healthBadge = '<span class="status-badge status-online">🟢 Online</span>';
+        else if (health === 'offline') healthBadge = '<span class="status-badge status-offline">🔴 Caído</span>';
+        else if (health === 'testing') healthBadge = '<span class="status-badge status-testing">⏳ Probando...</span>';
+
+        return `
+          <tr>
+            <td style="color:var(--text-muted); font-size:0.75rem;">${globalIdx}</td>
+            <td style="font-weight:600;">
+              <div style="display:flex; align-items:center; gap:8px;">
+                ${m.logo ? `<img src="${m.logo}" style="width:22px;height:22px;object-fit:contain;border-radius:4px;" onerror="this.style.display='none'">` : '📺'}
+                <span title="${escapeHtml(m.name)}">${escapeHtml(m.name)}</span>
+              </div>
+            </td>
+            <td><span class="tag-cat" title="${escapeHtml(m.category)}">${escapeHtml(m.category || 'General')}</span></td>
+            <td>${healthBadge}</td>
+            <td>
+              <span class="url-chip" title="Haz clic para copiar" onclick="copyLink('${escapeJs(m.url)}', '${escapeJs(m.name)}')">${escapeHtml(m.url)}</span>
+            </td>
+            <td style="text-align:right;">
+              <button class="btn btn-sm" onclick="previewChannel('${escapeJs(m.url)}', '${escapeJs(m.name)}')" title="Reproducir y comprobar">▶ Probar</button>
+              <button class="btn btn-sm" onclick="copyLink('${escapeJs(m.url)}', '${escapeJs(m.name)}')">🔗 Copiar</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
     }
+
+    // ════════════ COMPROBADOR DE DISPONIBILIDAD (HEALTH CHECKER) ════════════
+    async function checkStreamHealth(url, timeoutMs = 3500) {
+      // 1. Test rápido por Fetch (no-cors) para detectar si el host/servidor responde
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+        await fetch(url, {
+          method: 'GET',
+          mode: 'no-cors',
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        return true;
+      } catch (err) {
+        return false;
+      }
+    }
+
+    async function runBatchHealthCheck() {
+      if (isVerifyingHealth) return;
+      if (matchedEntries.length === 0) return alert('No hay canales para verificar. Filtra primero.');
+
+      isVerifyingHealth = true;
+      shouldStopHealth = false;
+
+      document.getElementById('btn-check-health').style.display = 'none';
+      document.getElementById('btn-stop-health').style.display = 'inline-flex';
+      const container = document.getElementById('health-bar-container');
+      container.classList.add('active');
+
+      const itemsToCheck = [...matchedEntries];
+      const total = itemsToCheck.length;
+      let completed = 0;
+      let onlineCount = 0;
+      let offlineCount = 0;
+
+      const progressText = document.getElementById('health-progress-text');
+      const progressFill = document.getElementById('health-progress-fill');
+      const onlineEl = document.getElementById('health-online-count');
+      const offlineEl = document.getElementById('health-offline-count');
+
+      // Concurrencia controlada de 6 canales simultáneos para rapidez sin saturación
+      const CONCURRENCY = 6;
+      let cursor = 0;
+
+      async function worker() {
+        while (cursor < total && !shouldStopHealth) {
+          const idx = cursor++;
+          const ch = itemsToCheck[idx];
+
+          channelHealthMap.set(ch.url, 'testing');
+          const isAlive = await checkStreamHealth(ch.url);
+
+          if (isAlive) {
+            channelHealthMap.set(ch.url, 'online');
+            onlineCount++;
+          } else {
+            channelHealthMap.set(ch.url, 'offline');
+            offlineCount++;
+          }
+
+          completed++;
+          const pct = Math.round((completed / total) * 100);
+          progressFill.style.width = `${pct}%`;
+          progressText.textContent = `Verificando canales: ${completed} / ${total} (${pct}%)`;
+          onlineEl.textContent = onlineCount;
+          offlineEl.textContent = offlineCount;
+
+          if (completed % 10 === 0 || completed === total) {
+            renderResults();
+          }
+        }
+      }
+
+      const workers = Array.from({ length: Math.min(CONCURRENCY, total) }, () => worker());
+      await Promise.all(workers);
+
+      isVerifyingHealth = false;
+      document.getElementById('btn-check-health').style.display = 'inline-flex';
+      document.getElementById('btn-stop-health').style.display = 'none';
+
+      // Mostrar badge general de online
+      const onlineBadge = document.getElementById('online-counter-badge');
+      onlineBadge.style.display = 'inline-block';
+      onlineBadge.textContent = `${onlineCount} Online`;
+
+      // Mostrar botón "Solo Online"
+      document.getElementById('btn-toggle-only-online').style.display = 'inline-flex';
+
+      renderResults();
+      showToast(`✓ Verificación finalizada: ${onlineCount} canales Online de ${total}`);
+    }
+
+    document.getElementById('btn-check-health').addEventListener('click', runBatchHealthCheck);
+    document.getElementById('btn-stop-health').addEventListener('click', () => {
+      shouldStopHealth = true;
+      showToast('Verificación detenida');
+    });
+
+    // TOGGLE SOLO ONLINE
+    const btnToggleOnline = document.getElementById('btn-toggle-only-online');
+    btnToggleOnline.addEventListener('click', () => {
+      filterOnlyOnline = !filterOnlyOnline;
+      if (filterOnlyOnline) {
+        btnToggleOnline.style.background = '#10b981';
+        btnToggleOnline.style.color = '#02070d';
+        btnToggleOnline.textContent = '✓ Mostrando Solo Online';
+      } else {
+        btnToggleOnline.style.background = '';
+        btnToggleOnline.style.color = '';
+        btnToggleOnline.textContent = '🟢 Solo Online';
+      }
+      currentPage = 1;
+      renderResults();
+    });
+
+    // ════════════ PREVIEW / REPRODUCTOR DE PRUEBA ════════════
+    let currentHls = null;
+    let previewModalUrl = '';
+
+    window.previewChannel = function(url, name) {
+      const modal = document.getElementById('preview-modal');
+      const title = document.getElementById('preview-modal-title');
+      const video = document.getElementById('preview-video');
+      const status = document.getElementById('preview-status-indicator');
+
+      title.textContent = `▶ Probando: ${name}`;
+      previewModalUrl = url;
+      modal.classList.remove('hidden');
+
+      status.className = 'status-badge status-testing';
+      status.textContent = 'Conectando al stream...';
+
+      if (currentHls) {
+        currentHls.destroy();
+        currentHls = null;
+      }
+
+      if (url.includes('.m3u8') && Hls.isSupported()) {
+        currentHls = new Hls({ enableWorker: true });
+        currentHls.loadSource(url);
+        currentHls.attachMedia(video);
+        currentHls.on(Hls.Events.MANIFEST_PARSED, () => {
+          video.play().catch(() => {});
+          status.className = 'status-badge status-online';
+          status.textContent = '🟢 Transmitiendo En Vivo';
+          channelHealthMap.set(url, 'online');
+          renderResults();
+        });
+        currentHls.on(Hls.Events.ERROR, () => {
+          status.className = 'status-badge status-offline';
+          status.textContent = '🔴 Error de Conexión';
+        });
+      } else {
+        video.src = url;
+        video.play().then(() => {
+          status.className = 'status-badge status-online';
+          status.textContent = '🟢 Transmitiendo En Vivo';
+          channelHealthMap.set(url, 'online');
+          renderResults();
+        }).catch(() => {
+          status.className = 'status-badge status-testing';
+          status.textContent = 'Stream activo (Enviando datos)';
+        });
+      }
+    };
+
+    document.getElementById('btn-close-preview').addEventListener('click', () => {
+      const modal = document.getElementById('preview-modal');
+      const video = document.getElementById('preview-video');
+      if (currentHls) {
+        currentHls.destroy();
+        currentHls = null;
+      }
+      video.pause();
+      video.src = '';
+      modal.classList.add('hidden');
+    });
+
+    document.getElementById('btn-copy-preview-url').addEventListener('click', () => {
+      if (previewModalUrl) {
+        copyLink(previewModalUrl, 'Enlace');
+      }
+    });
+
+    // ════════════ EVENTOS DE PAGINACIÓN ════════════
+    document.getElementById('page-size-select').addEventListener('change', (e) => {
+      pageSize = e.target.value;
+      currentPage = 1;
+      renderResults();
+    });
+
+    document.getElementById('btn-page-first').addEventListener('click', () => { currentPage = 1; renderResults(); });
+    document.getElementById('btn-page-prev').addEventListener('click', () => { if (currentPage > 1) { currentPage--; renderResults(); } });
+    document.getElementById('btn-page-next').addEventListener('click', () => { currentPage++; renderResults(); });
+    document.getElementById('btn-page-last').addEventListener('click', () => {
+      const effectiveSize = pageSize === 'all' ? matchedEntries.length : parseInt(pageSize, 10);
+      currentPage = Math.ceil(matchedEntries.length / effectiveSize) || 1;
+      renderResults();
+    });
+
+    // PRESETS RECOMENDADOS
+    document.getElementById('btn-load-presets').addEventListener('click', () => {
+      document.getElementById('filter-text').value = 
+`# Deportes Top
+ESPN
+Fox Sports
+DAZN
+Directv Sports
+TyC Sports
+TUDN
+LaLiga
+Liga de Campeones
+NBA TV
+NFL
+UFC
+
+# Cine y Series
+HBO
+Star Channel
+Warner Channel
+TNT
+Cinemax
+Universal
+Paramount
+
+# Noticias y Documentales
+Discovery
+National Geographic
+History
+CNN
+BBC
+Telemundo
+Univision`;
+      showToast('Filtros recomendados cargados');
+    });
 
     function copyLink(url, name) {
       navigator.clipboard.writeText(url).then(() => {
         showToast(`📋 Copiado: ${name}`);
+      }).catch(() => {
+        prompt('Copia el enlace directo:', url);
       });
     }
 
     function escapeHtml(s) {
       return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function escapeJs(s) {
+      return String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
     }
 
     // Drag & Drop
@@ -422,6 +935,7 @@
     });
 
     function handleFile(file) {
+      showToast(`Leyendo ${file.name}...`);
       const reader = new FileReader();
       reader.onload = (e) => loadM3UText(e.target.result);
       reader.readAsText(file);
@@ -430,14 +944,14 @@
     // Botón URL
     document.getElementById('btn-load-url').addEventListener('click', async () => {
       const url = document.getElementById('url-input').value.trim();
-      if (!url) return alert('Introduce una URL');
-      showToast('Descargando M3U...');
+      if (!url) return alert('Introduce una URL M3U válida');
+      showToast('Descargando archivo M3U desde URL...');
       try {
         const res = await fetch(url);
         const txt = await res.text();
         loadM3UText(txt);
       } catch (e) {
-        alert('Error al descargar: ' + e.message);
+        alert('Error al descargar: ' + e.message + '\n\nSi el servidor bloquea CORS, arrastra el archivo .m3u descargado directamente al recuadro de arriba.');
       }
     });
 
@@ -446,30 +960,45 @@
 
     // Botón Copiar Todos los Enlaces
     document.getElementById('btn-copy-links').addEventListener('click', () => {
-      if (!matchedEntries.length) return alert('No hay canales para copiar');
-      const txt = matchedEntries.map(m => `${m.name}\n${m.url}`).join('\n\n');
-      navigator.clipboard.writeText(txt).then(() => showToast(`📋 ${matchedEntries.length} enlaces copiados`));
+      let list = matchedEntries;
+      if (filterOnlyOnline) {
+        list = list.filter(m => channelHealthMap.get(m.url) === 'online');
+      }
+      if (!list.length) return alert('No hay canales para copiar');
+      const txt = list.map(m => `${m.name}\n${m.url}`).join('\n\n');
+      navigator.clipboard.writeText(txt).then(() => showToast(`📋 ${list.length.toLocaleString()} enlaces copiados`));
     });
 
     // Botón Descargar M3U
     document.getElementById('btn-download-m3u').addEventListener('click', () => {
-      if (!matchedEntries.length) return alert('No hay canales para exportar');
+      let list = matchedEntries;
+      if (filterOnlyOnline) {
+        list = list.filter(m => channelHealthMap.get(m.url) === 'online');
+      }
+      if (!list.length) return alert('No hay canales para exportar');
+
       let m3u = '#EXTM3U name="Lista Filtrada LELOUCH"\n\n';
-      matchedEntries.forEach(m => {
+      list.forEach(m => {
         m3u += `${m.extinf}\n`;
         m.extras.forEach(ex => m3u += `${ex}\n`);
         m3u += `${m.url}\n\n`;
       });
       const blob = new Blob([m3u], { type: 'audio/x-mpegurl;charset=utf-8' });
-      downloadBlob(blob, 'lista_filtrada.m3u');
+      downloadBlob(blob, filterOnlyOnline ? 'lista_canales_online.m3u' : 'lista_filtrada.m3u');
     });
 
     // Botón Descargar CSV
     document.getElementById('btn-download-csv').addEventListener('click', () => {
-      if (!matchedEntries.length) return alert('No hay canales para exportar');
-      let csv = 'Numero,Nombre,Categoria,Logo,URL\n';
-      matchedEntries.forEach((m, idx) => {
-        csv += `${idx + 1},"${m.name.replace(/"/g, '""')}","${m.category.replace(/"/g, '""')}","${m.logo}","${m.url}"\n`;
+      let list = matchedEntries;
+      if (filterOnlyOnline) {
+        list = list.filter(m => channelHealthMap.get(m.url) === 'online');
+      }
+      if (!list.length) return alert('No hay canales para exportar');
+
+      let csv = 'Numero,Nombre,Categoria,Estado,Logo,URL\n';
+      list.forEach((m, idx) => {
+        const st = channelHealthMap.get(m.url) || 'Sin probar';
+        csv += `${idx + 1},"${m.name.replace(/"/g, '""')}","${m.category.replace(/"/g, '""')}","${st}","${m.logo}","${m.url}"\n`;
       });
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
       downloadBlob(blob, 'canales_extraidos.csv');
