@@ -50,6 +50,12 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'Acceso a loopback no permitido' });
     }
 
+    // Optimizar servidores IPTV con puertos lentos conocidos (ej. LionTV en puerto 80)
+    if (host === 'liontv.es' && (parsed.port === '80' || !parsed.port)) {
+      parsed.port = '8080';
+      targetUrl = parsed.href;
+    }
+
     const abortController = new AbortController();
     req.on('close', () => {
       abortController.abort();
@@ -105,7 +111,21 @@ export default async function handler(req, res) {
       return res.send(rewrittenManifest);
     }
 
-    // Para streams de video, audio, imágenes y respuestas JSON
+    // Respuestas de API JSON (player_api.php, categorías, canales, VOD)
+    const isApiJson = contentType.includes('json') || targetUrl.includes('player_api.php') || targetUrl.includes('get.php');
+    if (isApiJson) {
+      res.status(response.status);
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      if (response.ok && req.method === 'GET') {
+        // Cachear en el CDN Edge de Vercel para aceleración instantánea (2 minutos en CDN, 10 min stale)
+        res.setHeader('Cache-Control', 'public, s-maxage=120, stale-while-revalidate=600');
+      }
+      const jsonText = await response.text();
+      res.setHeader('Content-Length', Buffer.byteLength(jsonText, 'utf8'));
+      return res.send(jsonText);
+    }
+
+    // Para streams continuos de video/audio (MPEG-TS, MP4, MKV)
     res.setHeader('Content-Type', contentType);
 
     const contentLength = response.headers.get('content-length');

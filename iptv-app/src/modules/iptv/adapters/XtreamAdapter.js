@@ -133,7 +133,11 @@ export class XtreamAdapter {
    */
   constructor(parsedUrl) {
     this.parsedUrl = parsedUrl;
-    this.serverBaseUrl = parsedUrl.serverBaseUrl;
+    let base = parsedUrl.serverBaseUrl;
+    if (parsedUrl.hostname?.toLowerCase() === 'liontv.es' && (parsedUrl.port === '80' || !parsedUrl.port)) {
+      base = 'http://liontv.es:8080';
+    }
+    this.serverBaseUrl = base;
     this.username = parsedUrl.username;
     this.password = parsedUrl._password;
     this.diagnostics = [];
@@ -153,17 +157,27 @@ export class XtreamAdapter {
    * @returns {Promise<{ connected: boolean, responseTimeMs: number, error: string|null }>}
    */
   async testConnection(timeoutMs = DEFAULT_TIMEOUT_MS) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
     const safeUrl = this._safeUrl(null);
 
     try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
       const { responseTimeMs } = await fetchJson(this._buildUrl(), safeUrl, controller.signal);
       clearTimeout(timer);
       this._logDiagnostic(safeUrl, 200, 'application/json', responseTimeMs, null, null, true);
       return { connected: true, responseTimeMs, error: null };
     } catch (err) {
-      clearTimeout(timer);
+      // Reintento inteligente: si falló por timeout en puerto estándar, probar 8080 si es liontv.es o similar
+      if (this.serverBaseUrl.includes('liontv.es') && !this.serverBaseUrl.includes(':8080')) {
+        try {
+          this.serverBaseUrl = 'http://liontv.es:8080';
+          const retryCtrl = new AbortController();
+          const retryTimer = setTimeout(() => retryCtrl.abort(), 10000);
+          const { responseTimeMs } = await fetchJson(this._buildUrl(), this._safeUrl(null), retryCtrl.signal);
+          clearTimeout(retryTimer);
+          return { connected: true, responseTimeMs, error: null };
+        } catch {}
+      }
       this._logDiagnostic(safeUrl, null, null, null, null, err.message, false);
       return { connected: false, responseTimeMs: null, error: err.message };
     }
@@ -180,7 +194,18 @@ export class XtreamAdapter {
 
     const { data, responseTimeMs } = await fetchJson(this._buildUrl(), safeUrl, controller.signal);
     this._logDiagnostic(safeUrl, 200, 'application/json', responseTimeMs, null, null, true);
-    return normalizeAccountInfo(data, this.serverBaseUrl);
+    const normalized = normalizeAccountInfo(data, this.serverBaseUrl);
+
+    // Si el servidor reporta un puerto específico (ej. 8080), actualizar serverBaseUrl para acelerar endpoints
+    if (normalized?.server?.port && normalized.server.port !== '80' && normalized.server.port !== '443') {
+      try {
+        const u = new URL(this.serverBaseUrl);
+        u.port = normalized.server.port;
+        this.serverBaseUrl = u.origin;
+      } catch {}
+    }
+
+    return normalized;
   }
 
   /**

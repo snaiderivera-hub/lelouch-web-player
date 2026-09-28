@@ -262,19 +262,17 @@ async function initApp() {
     });
   }
 
-  // Sincronizar cuentas y playlists con Supabase Cloud
-  try {
-    await playlistService.getAll();
-  } catch (e) {
-    console.warn('[App] Error al sincronizar con Supabase Cloud:', e);
-  }
+  // Escuchar actualizaciones parciales progresivas para renderizar TV en vivo y métricas al instante
+  iptvService.onPartialUpdate((partialState) => {
+    updateAllViews(partialState);
+  });
 
   // Comprobar playlist activa guardada
   let activePlaylist = await playlistService.getActive();
   if (!activePlaylist) {
     try {
       activePlaylist = await playlistService.addOrUpdate(
-        'http://liontv.es:80/get.php?username=Hermanos503&password=BysckXDynC&type=m3u_plus&output=m3u8',
+        'http://liontv.es:8080/get.php?username=Hermanos503&password=BysckXDynC&type=m3u_plus&output=m3u8',
         'LionTV (Principal)'
       );
     } catch (e) {
@@ -283,6 +281,10 @@ async function initApp() {
   }
 
   if (activePlaylist && activePlaylist.url) {
+    // Normalizar URLs antiguas de LionTV que tenían puerto 80 para evitar bloqueos del proveedor
+    if (activePlaylist.url.includes('liontv.es:80/')) {
+      activePlaylist.url = activePlaylist.url.replace('liontv.es:80/', 'liontv.es:8080/');
+    }
     try {
       await iptvService.connect(activePlaylist.url);
       const restored = await iptvService.tryRestoreFromCache();
@@ -294,7 +296,12 @@ async function initApp() {
       }
     } catch (err) {
       console.warn('[App] Error al conectar con playlist activa:', err);
-      $('empty-welcome-banner').style.display = 'block';
+      const restored = await iptvService.tryRestoreFromCache();
+      if (restored) {
+        updateAllViews(iptvService.state);
+      } else {
+        $('empty-welcome-banner').style.display = 'block';
+      }
     }
   } else {
     // Si no hay ninguna playlist guardada, mostrar sugerencia de configuración
@@ -353,8 +360,14 @@ async function loadCatalogWithProgress(url) {
     toast('✓ Catálogo importado y guardado correctamente.', 'success');
     $('empty-welcome-banner').style.display = 'none';
   } catch (err) {
-    toast(`❌ Error al importar: ${err.message}`, 'error', 7000);
-    throw err;
+    if (iptvService.state?.live?.length > 0) {
+      updateAllViews(iptvService.state);
+      toast(`ℹ Catálogo parcialmente cargado (${iptvService.state.live.length} canales en vivo disponibles)`, 'info', 5000);
+      $('empty-welcome-banner').style.display = 'none';
+    } else {
+      toast(`❌ Error al importar: ${err.message}`, 'error', 7000);
+      throw err;
+    }
   } finally {
     setTimeout(() => {
       progressBox?.classList.add('hidden');

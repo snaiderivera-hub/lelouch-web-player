@@ -34,11 +34,17 @@ export function parseIPTVUrl(rawUrl) {
 
   const username = params['username'] || '';
   const password = params['password'] || '';
-  const port = url.port || (url.protocol === 'https:' ? '443' : '80');
+  let port = url.port || (url.protocol === 'https:' ? '443' : '80');
+  let hostname = url.hostname;
 
-  const serverBaseUrl = url.port
-    ? `${url.protocol}//${url.hostname}:${url.port}`
-    : `${url.protocol}//${url.hostname}`;
+  // Optimización de rendimiento para servidores conocidos como LionTV (el puerto 80 experimenta cuellos de botella severos)
+  if (hostname.toLowerCase() === 'liontv.es' && (port === '80' || !url.port)) {
+    port = '8080';
+  }
+
+  const serverBaseUrl = (port && port !== '80' && port !== '443')
+    ? `${url.protocol}//${hostname}:${port}`
+    : `${url.protocol}//${hostname}${url.port ? `:${url.port}` : ''}`;
 
   const sourceType = detectSourceType(url.pathname, params, trimmed);
 

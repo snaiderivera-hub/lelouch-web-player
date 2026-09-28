@@ -113,7 +113,11 @@ class PlaylistService {
    * @param {string} customName
    */
   async addOrUpdate(rawUrl, customName = '') {
-    const parsed = parseIPTVUrl(rawUrl);
+    let cleanUrl = (rawUrl || '').trim();
+    if (cleanUrl.includes('liontv.es:80/')) {
+      cleanUrl = cleanUrl.replace('liontv.es:80/', 'liontv.es:8080/');
+    }
+    const parsed = parseIPTVUrl(cleanUrl);
     const id = `pl_${btoa(unescape(encodeURIComponent(parsed.serverBaseUrl + '_' + (parsed.username || 'anon')))).replace(/[^a-zA-Z0-9]/g, '').slice(0, 16)}`;
 
     const existingLists = await cacheService.getPlaylists();
@@ -121,7 +125,8 @@ class PlaylistService {
     // Buscar si ya existe una lista con la misma URL exacta O el mismo servidor+usuario
     const existing = existingLists.find(p => 
       p.id === id || 
-      p.url === rawUrl || 
+      p.url === cleanUrl ||
+      p.url === rawUrl ||
       (p.serverBaseUrl === parsed.serverBaseUrl && p.username === (parsed.username || ''))
     );
 
@@ -140,7 +145,7 @@ class PlaylistService {
     const playlist = {
       id: finalId,
       name: customName.trim() || (existing && existing.name) || `${parsed.hostname} (${parsed.username ? maskUsername(parsed.username) : 'Playlist'})`,
-      url: rawUrl,
+      url: cleanUrl,
       serverBaseUrl: parsed.serverBaseUrl,
       username: parsed.username || '',
       maskedUsername: parsed.username ? maskUsername(parsed.username) : '',

@@ -53,8 +53,22 @@ export class IPTVService {
     this._onProgress = cb;
   }
 
+  onPartialUpdate(cb) {
+    this._onPartialUpdate = cb;
+  }
+
   _progress(step, percent, detail = '') {
     if (this._onProgress) this._onProgress({ step, percent, detail });
+  }
+
+  _emitUpdate() {
+    if (this._onPartialUpdate) {
+      try {
+        this._onPartialUpdate({ ...this.state });
+      } catch (e) {
+        console.warn('[IPTVService] Error en partial update callback:', e);
+      }
+    }
   }
 
   /**
@@ -69,7 +83,7 @@ export class IPTVService {
     this._adapter = new XtreamAdapter(this._parsedUrl);
     this._progress('Probando conexión con el servidor...', 10);
 
-    const test = await this._adapter.testConnection(15000);
+    const test = await this._adapter.testConnection(20000);
     if (!test.connected) {
       this.state.connected = false;
       throw Object.assign(
@@ -99,15 +113,15 @@ export class IPTVService {
         cacheService.get(`${prefix}series`),
       ]);
 
-      if (accountData && categories && (live || movies || series)) {
-        this.state.account = accountData.account;
-        this.state.server = accountData.server;
-        this.state.categories = categories;
+      if (categories && (live?.length || movies?.length || series?.length)) {
+        this.state.account = accountData?.account || null;
+        this.state.server = accountData?.server || null;
+        this.state.categories = categories || { live: [], vod: [], series: [] };
         this.state.live = live || [];
         this.state.movies = movies || [];
         this.state.series = series || [];
         this.state.sportsCount = this._calculateSportsCount(this.state.live);
-        this.state.lastUpdated = accountData.updatedAt || Date.now();
+        this.state.lastUpdated = accountData?.updatedAt || Date.now();
 
         // Indexar en el buscador
         searchService.buildIndex({
@@ -116,6 +130,7 @@ export class IPTVService {
           series: this.state.series
         });
 
+        this._emitUpdate();
         return true;
       }
     } catch (e) {
@@ -126,6 +141,8 @@ export class IPTVService {
 
   /**
    * Importa todo el catálogo desde la API y lo persiste en IndexedDB.
+   * Envía actualizaciones progresivas en tiempo real a la interfaz conforme
+   * cada sección (Cuenta, Categorías, En Vivo, Películas, Series) se completa.
    */
   async importAll() {
     if (!this._adapter) throw new Error('Llama a connect() primero.');
@@ -133,7 +150,7 @@ export class IPTVService {
     this.state.errors = [];
     const prefix = `cat_${btoa(unescape(encodeURIComponent(this._parsedUrl.serverBaseUrl))).slice(0, 12)}_`;
 
-    // 1. Cuenta
+    // 1. Cuenta (Ultrarrápido)
     this._progress('Obteniendo información de cuenta...', 20);
     try {
       const { account, server } = await this._adapter.getAccountInfo();
@@ -141,6 +158,7 @@ export class IPTVService {
       this.state.server = server;
       await cacheService.set(`${prefix}account`, { account, server, updatedAt: Date.now() }, CACHE_TTL.account);
       this._progress('✓ Cuenta', 25, `${account.username} — vence: ${account.expiresAt?.toLocaleDateString() ?? 'N/A'}`);
+      this._emitUpdate();
     } catch (err) {
       this.state.errors.push({ context: 'account', message: err.message });
       this._progress('⚠ Error en cuenta', 25, err.message);
@@ -162,12 +180,13 @@ export class IPTVService {
         `✓ ${cats.live.length} categ. LIVE, ${cats.vod.length} VOD, ${cats.series.length} Series`,
         35
       );
+      this._emitUpdate();
     } catch (err) {
       this.state.errors.push({ context: 'categories', message: err.message });
       this._progress('⚠ Error en categorías', 35, err.message);
     }
 
-    // 3. Canales Live
+    // 3. Canales Live (¡Se actualiza inmediatamente en pantalla para que el usuario pueda ver TV ya!)
     this._progress('Descargando canales en vivo...', 40);
     try {
       const channels = await this._adapter.getLiveChannels(categoryMap);
@@ -175,6 +194,7 @@ export class IPTVService {
       this.state.sportsCount = this._calculateSportsCount(channels);
       await cacheService.set(`${prefix}live`, channels, CACHE_TTL.catalog);
       this._progress(`✓ ${channels.length.toLocaleString()} canales LIVE (${this.state.sportsCount} Deportes)`, 55);
+      this._emitUpdate();
     } catch (err) {
       this.state.errors.push({ context: 'live', message: err.message });
       this._progress('⚠ Error en canales LIVE', 55, err.message);
@@ -187,6 +207,7 @@ export class IPTVService {
       this.state.movies = movies;
       await cacheService.set(`${prefix}movies`, movies, CACHE_TTL.catalog);
       this._progress(`✓ ${movies.length.toLocaleString()} películas VOD`, 80);
+      this._emitUpdate();
     } catch (err) {
       this.state.errors.push({ context: 'movies', message: err.message });
       this._progress('⚠ Error en VOD', 80, err.message);
@@ -199,6 +220,7 @@ export class IPTVService {
       this.state.series = series;
       await cacheService.set(`${prefix}series`, series, CACHE_TTL.catalog);
       this._progress(`✓ ${series.length.toLocaleString()} series`, 95);
+      this._emitUpdate();
     } catch (err) {
       this.state.series = [];
       this._progress('ℹ Series no disponibles', 95, err.message);
@@ -219,6 +241,7 @@ export class IPTVService {
       100,
       hasErrors ? `${this.state.errors.length} error(es)` : ''
     );
+    this._emitUpdate();
 
     return this.state;
   }
