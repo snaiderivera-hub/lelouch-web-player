@@ -55,6 +55,7 @@ import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.text.BasicTextField
 import coil.compose.AsyncImage
 import com.lelouch.core.designsystem.*
+import com.lelouch.core.model.Category
 import com.lelouch.core.model.LiveStream
 import com.lelouch.core.model.Series
 import com.lelouch.core.model.SourceConfig
@@ -83,6 +84,7 @@ data class ChannelUiModel(
     val name: String,
     val num: Int,
     val categoryName: String,
+    val categoryId: String = "",
     val streamIcon: String? = null,
     val currentProgram: String = "Transmisión en Directo",
     val nextProgram: String = "Continuación de Programación",
@@ -96,8 +98,11 @@ fun TvHomeScreen(
     allSources: List<SourceConfig> = emptyList(),
     liveChannels: List<LiveStream> = emptyList(),
     liveChannelsPaging: Flow<PagingData<ChannelEntity>> = emptyFlow(),
+    liveCategories: List<Category> = emptyList(),
     movies: List<VodMovie> = emptyList(),
+    vodCategories: List<Category> = emptyList(),
     seriesList: List<Series> = emptyList(),
+    seriesCategories: List<Category> = emptyList(),
     favoriteChannels: List<LiveStream> = emptyList(),
     favoriteMovies: List<VodMovie> = emptyList(),
     onToggleFavoriteChannel: (streamId: Int, isFav: Boolean) -> Unit = { _, _ -> },
@@ -136,7 +141,8 @@ fun TvHomeScreen(
                     streamId = stream.streamId,
                     name = stream.name,
                     num = stream.num.takeIf { it > 0 } ?: (index + 1),
-                    categoryName = stream.categoryName ?: "General",
+                    categoryName = stream.categoryName.ifBlank { "General" },
+                    categoryId = stream.categoryId,
                     streamIcon = stream.streamIcon,
                     currentProgram = stream.epgChannelId ?: "En Directo",
                     streamUrl = streamUrl
@@ -149,6 +155,7 @@ fun TvHomeScreen(
                     name = "ESPN HD",
                     num = 101,
                     categoryName = "Deportes",
+                    categoryId = "deportes",
                     streamIcon = "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/ESPN_wordmark.svg/512px-ESPN_wordmark.svg.png",
                     currentProgram = "UEFA Champions League: En Directo",
                     nextProgram = "SportsCenter en Vivo",
@@ -159,6 +166,7 @@ fun TvHomeScreen(
                     name = "Fox Sports",
                     num = 102,
                     categoryName = "Deportes",
+                    categoryId = "deportes",
                     streamIcon = "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Fox_Sports_logo.svg/512px-Fox_Sports_logo.svg.png",
                     currentProgram = "Fórmula 1: Gran Premio en Directo",
                     nextProgram = "Fox Sports Radio",
@@ -169,6 +177,7 @@ fun TvHomeScreen(
                     name = "TyC Sports HD",
                     num = 103,
                     categoryName = "Deportes",
+                    categoryId = "deportes",
                     streamIcon = "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4c/TyC_Sports_Logo_2019.svg/512px-TyC_Sports_Logo_2019.svg.png",
                     currentProgram = "Fútbol de Primera en Directo",
                     nextProgram = "Líbero",
@@ -179,6 +188,7 @@ fun TvHomeScreen(
                     name = "DirecTV Sports",
                     num = 104,
                     categoryName = "Deportes",
+                    categoryId = "deportes",
                     streamIcon = "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/DSports_logo_2022.svg/512px-DSports_logo_2022.svg.png",
                     currentProgram = "Copa Libertadores: Partido de Ida",
                     nextProgram = "De Fútbol Se Habla Así",
@@ -189,6 +199,7 @@ fun TvHomeScreen(
                     name = "HBO Max HD",
                     num = 105,
                     categoryName = "Cine & Series",
+                    categoryId = "cine",
                     streamIcon = "https://upload.wikimedia.org/wikipedia/commons/thumb/d/de/HBO_logo.svg/512px-HBO_logo.svg.png",
                     currentProgram = "Duna: Parte Dos (Estreno 4K)",
                     nextProgram = "House of the Dragon",
@@ -199,6 +210,7 @@ fun TvHomeScreen(
                     name = "Star Channel",
                     num = 106,
                     categoryName = "Entretenimiento",
+                    categoryId = "entretenimiento",
                     streamIcon = "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fa/Star_Channel_2021.svg/512px-Star_Channel_2021.svg.png",
                     currentProgram = "Los Simpson: Maratón Especial",
                     nextProgram = "Futurama",
@@ -390,31 +402,61 @@ fun TvHomeScreen(
     var lastFullscreenEntryTime by remember { mutableLongStateOf(0L) }
 
     // Categorías y filtrado por categoría para Canales, Películas y Series
-    val channelCategories = remember(displayChannels) {
-        listOf("Todos") + displayChannels.mapNotNull { it.categoryName.takeIf { c -> c.isNotBlank() } }.distinct().sorted()
+    val channelCategoryList = remember(liveCategories, displayChannels) {
+        val fromDb = liveCategories.map { CategoryUiItem(id = it.categoryId, name = it.categoryName) }
+        val fromChannels = displayChannels.mapNotNull { ch ->
+            if (ch.categoryName.isNotBlank() && ch.categoryId.isNotBlank()) {
+                CategoryUiItem(id = ch.categoryId, name = ch.categoryName)
+            } else null
+        }.distinctBy { it.id }
+        val combined = (fromDb + fromChannels).distinctBy { it.id }.sortedBy { it.name }
+        listOf(CategoryUiItem(id = "all", name = "Todos")) + combined
     }
-    var selectedChannelCategory by remember { mutableStateOf("Todos") }
-    val filteredChannels = remember(displayChannels, selectedChannelCategory) {
-        if (selectedChannelCategory == "Todos") displayChannels
-        else displayChannels.filter { it.categoryName == selectedChannelCategory }
+    var selectedChannelCategoryId by remember { mutableStateOf("all") }
+    val filteredChannels = remember(displayChannels, selectedChannelCategoryId) {
+        if (selectedChannelCategoryId == "all") displayChannels
+        else displayChannels.filter { it.categoryId == selectedChannelCategoryId }
+    }
+    val activeChannelCatName = remember(channelCategoryList, selectedChannelCategoryId) {
+        channelCategoryList.find { it.id == selectedChannelCategoryId }?.name ?: "Todos"
     }
 
-    val movieCategories = remember(displayMovies) {
-        listOf("Todas") + displayMovies.mapNotNull { it.categoryName.takeIf { c -> c.isNotBlank() } }.distinct().sorted()
+    val movieCategoryList = remember(vodCategories, displayMovies) {
+        val fromDb = vodCategories.map { CategoryUiItem(id = it.categoryId, name = it.categoryName) }
+        val fromMovies = displayMovies.mapNotNull { mov ->
+            if (mov.categoryName.isNotBlank() && mov.categoryId.isNotBlank()) {
+                CategoryUiItem(id = mov.categoryId, name = mov.categoryName)
+            } else null
+        }.distinctBy { it.id }
+        val combined = (fromDb + fromMovies).distinctBy { it.id }.sortedBy { it.name }
+        listOf(CategoryUiItem(id = "all", name = "Todas")) + combined
     }
-    var selectedMovieCategory by remember { mutableStateOf("Todas") }
-    val filteredMovies = remember(displayMovies, selectedMovieCategory) {
-        if (selectedMovieCategory == "Todas") displayMovies
-        else displayMovies.filter { it.categoryName == selectedMovieCategory }
+    var selectedMovieCategoryId by remember { mutableStateOf("all") }
+    val filteredMovies = remember(displayMovies, selectedMovieCategoryId) {
+        if (selectedMovieCategoryId == "all") displayMovies
+        else displayMovies.filter { it.categoryId == selectedMovieCategoryId }
+    }
+    val activeMovieCatName = remember(movieCategoryList, selectedMovieCategoryId) {
+        movieCategoryList.find { it.id == selectedMovieCategoryId }?.name ?: "Todas"
     }
 
-    val seriesCategories = remember(displaySeries) {
-        listOf("Todas") + displaySeries.mapNotNull { it.categoryName.takeIf { c -> c.isNotBlank() } }.distinct().sorted()
+    val seriesCategoryList = remember(seriesCategories, displaySeries) {
+        val fromDb = seriesCategories.map { CategoryUiItem(id = it.categoryId, name = it.categoryName) }
+        val fromSeries = displaySeries.mapNotNull { ser ->
+            if (ser.categoryName.isNotBlank() && ser.categoryId.isNotBlank()) {
+                CategoryUiItem(id = ser.categoryId, name = ser.categoryName)
+            } else null
+        }.distinctBy { it.id }
+        val combined = (fromDb + fromSeries).distinctBy { it.id }.sortedBy { it.name }
+        listOf(CategoryUiItem(id = "all", name = "Todas")) + combined
     }
-    var selectedSeriesCategory by remember { mutableStateOf("Todas") }
-    val filteredSeries = remember(displaySeries, selectedSeriesCategory) {
-        if (selectedSeriesCategory == "Todas") displaySeries
-        else displaySeries.filter { it.categoryName == selectedSeriesCategory }
+    var selectedSeriesCategoryId by remember { mutableStateOf("all") }
+    val filteredSeries = remember(displaySeries, selectedSeriesCategoryId) {
+        if (selectedSeriesCategoryId == "all") displaySeries
+        else displaySeries.filter { it.categoryId == selectedSeriesCategoryId }
+    }
+    val activeSeriesCatName = remember(seriesCategoryList, selectedSeriesCategoryId) {
+        seriesCategoryList.find { it.id == selectedSeriesCategoryId }?.name ?: "Todas"
     }
 
     val playerFocusRequester = remember { FocusRequester() }
@@ -903,7 +945,7 @@ fun TvHomeScreen(
                                             letterSpacing = 1.sp
                                         )
                                         Text(
-                                            text = "${filteredChannels.size} señales en directo • Categoría: $selectedChannelCategory",
+                                            text = "${filteredChannels.size} señales en directo • Categoría: $activeChannelCatName",
                                             color = LelouchTextSecondary,
                                             fontSize = 13.sp
                                         )
@@ -918,9 +960,9 @@ fun TvHomeScreen(
                                 }
 
                                 TvCategorySelectorBar(
-                                    categories = channelCategories,
-                                    selectedCategory = selectedChannelCategory,
-                                    onSelectCategory = { selectedChannelCategory = it },
+                                    categories = channelCategoryList,
+                                    selectedCategoryId = selectedChannelCategoryId,
+                                    onSelectCategory = { selectedChannelCategoryId = it.id },
                                     firstItemRequester = contentFocusRequester,
                                     sidebarRequester = sidebarRequesters[2],
                                     modifier = Modifier.padding(bottom = 12.dp)
@@ -981,7 +1023,7 @@ fun TvHomeScreen(
                                             letterSpacing = 1.sp
                                         )
                                         Text(
-                                            text = "${filteredMovies.size} películas disponibles • Categoría: $selectedMovieCategory",
+                                            text = "${filteredMovies.size} películas disponibles • Categoría: $activeMovieCatName",
                                             color = LelouchTextSecondary,
                                             fontSize = 13.sp
                                         )
@@ -996,9 +1038,9 @@ fun TvHomeScreen(
                                 }
 
                                 TvCategorySelectorBar(
-                                    categories = movieCategories,
-                                    selectedCategory = selectedMovieCategory,
-                                    onSelectCategory = { selectedMovieCategory = it },
+                                    categories = movieCategoryList,
+                                    selectedCategoryId = selectedMovieCategoryId,
+                                    onSelectCategory = { selectedMovieCategoryId = it.id },
                                     firstItemRequester = contentFocusRequester,
                                     sidebarRequester = sidebarRequesters[3],
                                     modifier = Modifier.padding(bottom = 12.dp)
@@ -1055,7 +1097,7 @@ fun TvHomeScreen(
                                             letterSpacing = 1.sp
                                         )
                                         Text(
-                                            text = "${filteredSeries.size} series completas • Categoría: $selectedSeriesCategory",
+                                            text = "${filteredSeries.size} series completas • Categoría: $activeSeriesCatName",
                                             color = LelouchTextSecondary,
                                             fontSize = 13.sp
                                         )
@@ -1070,9 +1112,9 @@ fun TvHomeScreen(
                                 }
 
                                 TvCategorySelectorBar(
-                                    categories = seriesCategories,
-                                    selectedCategory = selectedSeriesCategory,
-                                    onSelectCategory = { selectedSeriesCategory = it },
+                                    categories = seriesCategoryList,
+                                    selectedCategoryId = selectedSeriesCategoryId,
+                                    onSelectCategory = { selectedSeriesCategoryId = it.id },
                                     firstItemRequester = contentFocusRequester,
                                     sidebarRequester = sidebarRequesters[4],
                                     modifier = Modifier.padding(bottom = 12.dp)

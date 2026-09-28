@@ -1,5 +1,8 @@
 package com.lelouch.feature.mobile
 
+import android.app.Activity
+import android.content.pm.ActivityInfo
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -28,6 +31,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -38,6 +42,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.lelouch.core.designsystem.*
+import com.lelouch.core.model.Category
 import com.lelouch.core.model.LiveStream
 import com.lelouch.core.model.VodMovie
 import com.lelouch.core.model.Series
@@ -46,13 +51,21 @@ import com.lelouch.core.network.XtreamUrlBuilder
 import com.lelouch.core.player.LelouchVideoPlayer
 import com.lelouch.core.player.rememberLelouchPlayer
 
+data class MobileCategoryItem(
+    val id: String,
+    val name: String
+)
+
 @Composable
 fun MobileHomeScreen(
     activeSource: SourceConfig? = null,
     allSources: List<SourceConfig> = emptyList(),
     liveChannels: List<LiveStream> = emptyList(),
+    liveCategories: List<Category> = emptyList(),
     movies: List<VodMovie> = emptyList(),
+    vodCategories: List<Category> = emptyList(),
     seriesList: List<Series> = emptyList(),
+    seriesCategories: List<Category> = emptyList(),
     onActivateSource: (String) -> Unit = {},
     onDeleteSource: (String) -> Unit = {},
     onAddSource: (String, String, String, String) -> Unit = { _, _, _, _ -> },
@@ -64,7 +77,60 @@ fun MobileHomeScreen(
     var activeStreamUrl by remember { mutableStateOf<String?>(null) }
     var activeChannelName by remember { mutableStateOf("") }
     var searchQuery by remember { mutableStateOf("") }
+    var isPlayerFullscreen by remember { mutableStateOf(false) }
     val playerEngine = rememberLelouchPlayer()
+
+    val context = LocalContext.current
+    val activity = context as? Activity
+
+    // Rotación automática horizontal para reproducción a pantalla completa en teléfonos
+    DisposableEffect(isPlayerFullscreen) {
+        if (isPlayerFullscreen) {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        } else {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+        onDispose {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
+
+    BackHandler(enabled = isPlayerFullscreen) {
+        isPlayerFullscreen = false
+    }
+
+    val liveCategoryList = remember(liveCategories, liveChannels) {
+        val fromDb = liveCategories.map { MobileCategoryItem(id = it.categoryId, name = it.categoryName) }
+        val fromChannels = liveChannels.mapNotNull { ch ->
+            if (ch.categoryName.isNotBlank() && ch.categoryId.isNotBlank()) {
+                MobileCategoryItem(id = ch.categoryId, name = ch.categoryName)
+            } else null
+        }.distinctBy { it.id }
+        val combined = (fromDb + fromChannels).distinctBy { it.id }.sortedBy { it.name }
+        listOf(MobileCategoryItem(id = "all", name = "Todos")) + combined
+    }
+
+    val movieCategoryList = remember(vodCategories, movies) {
+        val fromDb = vodCategories.map { MobileCategoryItem(id = it.categoryId, name = it.categoryName) }
+        val fromMovies = movies.mapNotNull { mov ->
+            if (mov.categoryName.isNotBlank() && mov.categoryId.isNotBlank()) {
+                MobileCategoryItem(id = mov.categoryId, name = mov.categoryName)
+            } else null
+        }.distinctBy { it.id }
+        val combined = (fromDb + fromMovies).distinctBy { it.id }.sortedBy { it.name }
+        listOf(MobileCategoryItem(id = "all", name = "Todas")) + combined
+    }
+
+    val seriesCategoryList = remember(seriesCategories, seriesList) {
+        val fromDb = seriesCategories.map { MobileCategoryItem(id = it.categoryId, name = it.categoryName) }
+        val fromSeries = seriesList.mapNotNull { s ->
+            if (s.categoryName.isNotBlank() && s.categoryId.isNotBlank()) {
+                MobileCategoryItem(id = s.categoryId, name = s.categoryName)
+            } else null
+        }.distinctBy { it.id }
+        val combined = (fromDb + fromSeries).distinctBy { it.id }.sortedBy { it.name }
+        listOf(MobileCategoryItem(id = "all", name = "Todas")) + combined
+    }
 
     var newServerUrl by remember { mutableStateOf("") }
     var newUsername by remember { mutableStateOf("") }
@@ -96,63 +162,70 @@ fun MobileHomeScreen(
         MobileSeriesDetailDialog(series = series, onDismiss = { selectedSeries = null })
     }
 
-    Scaffold(
-        bottomBar = {
-            MobileBottomNavBar(selectedTab = selectedTab, onTabChange = {
-                selectedTab = it
-                searchQuery = ""
-            })
-        },
-        containerColor = LelouchBackground
-    ) { paddingValues ->
-        Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
-            if (activeStreamUrl != null) {
-                MiniPlayerOverlay(
-                    channelName = activeChannelName,
-                    playerEngine = playerEngine,
-                    onClose = { playerEngine.stop(); activeStreamUrl = null }
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            bottomBar = {
+                if (!isPlayerFullscreen) {
+                    MobileBottomNavBar(selectedTab = selectedTab, onTabChange = {
+                        selectedTab = it
+                        searchQuery = ""
+                    })
+                }
+            },
+            containerColor = LelouchBackground
+        ) { paddingValues ->
+            Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+                if (activeStreamUrl != null && !isPlayerFullscreen) {
+                    MiniPlayerOverlay(
+                        channelName = activeChannelName,
+                        playerEngine = playerEngine,
+                        onToggleFullscreen = { isPlayerFullscreen = true },
+                        onClose = { playerEngine.stop(); activeStreamUrl = null }
+                    )
+                }
+                MobileTopBar(
+                    activeSource = activeSource,
+                    showSearch = selectedTab != 4,
+                    searchQuery = searchQuery,
+                    onSearchChange = { searchQuery = it },
+                    onSettingsTap = { selectedTab = 4 }
                 )
-            }
-            MobileTopBar(
-                activeSource = activeSource,
-                showSearch = selectedTab != 4,
-                searchQuery = searchQuery,
-                onSearchChange = { searchQuery = it },
-                onSettingsTap = { selectedTab = 4 }
-            )
-            AnimatedContent(
-                targetState = selectedTab,
-                transitionSpec = { fadeIn() togetherWith fadeOut() },
-                modifier = Modifier.fillMaxSize(),
-                label = "tab_content"
-            ) { tab ->
-                when (tab) {
-                    0 -> MobileHomeTab(
-                        liveChannels = liveChannels, movies = movies, seriesList = seriesList,
-                        activeSource = activeSource,
-                        onChannelClick = { ch, url -> activeChannelName = ch; activeStreamUrl = url },
-                        onMovieClick = { selectedMovie = it },
-                        onSeriesClick = { selectedSeries = it },
-                        onSeeAllLive = { selectedTab = 1 },
-                        onSeeAllMovies = { selectedTab = 2 },
-                        onSeeAllSeries = { selectedTab = 3 }
-                    )
-                    1 -> MobileLiveTab(
-                        channels = if (searchQuery.isBlank()) liveChannels
-                                   else liveChannels.filter { it.name.contains(searchQuery, ignoreCase = true) },
-                        activeSource = activeSource,
-                        onChannelClick = { ch, url -> activeChannelName = ch; activeStreamUrl = url }
-                    )
-                    2 -> MobileMoviesTab(
-                        movies = if (searchQuery.isBlank()) movies
-                                 else movies.filter { it.name.contains(searchQuery, ignoreCase = true) },
-                        onMovieClick = { selectedMovie = it }
-                    )
-                    3 -> MobileSeriesTab(
-                        seriesList = if (searchQuery.isBlank()) seriesList
-                                     else seriesList.filter { it.name.contains(searchQuery, ignoreCase = true) },
-                        onSeriesClick = { selectedSeries = it }
-                    )
+                AnimatedContent(
+                    targetState = selectedTab,
+                    transitionSpec = { fadeIn() togetherWith fadeOut() },
+                    modifier = Modifier.fillMaxSize(),
+                    label = "tab_content"
+                ) { tab ->
+                    when (tab) {
+                        0 -> MobileHomeTab(
+                            liveChannels = liveChannels, movies = movies, seriesList = seriesList,
+                            activeSource = activeSource,
+                            onChannelClick = { ch, url -> activeChannelName = ch; activeStreamUrl = url },
+                            onMovieClick = { selectedMovie = it },
+                            onSeriesClick = { selectedSeries = it },
+                            onSeeAllLive = { selectedTab = 1 },
+                            onSeeAllMovies = { selectedTab = 2 },
+                            onSeeAllSeries = { selectedTab = 3 }
+                        )
+                        1 -> MobileLiveTab(
+                            channels = if (searchQuery.isBlank()) liveChannels
+                                       else liveChannels.filter { it.name.contains(searchQuery, ignoreCase = true) },
+                            activeSource = activeSource,
+                            categories = liveCategoryList,
+                            onChannelClick = { ch, url -> activeChannelName = ch; activeStreamUrl = url }
+                        )
+                        2 -> MobileMoviesTab(
+                            movies = if (searchQuery.isBlank()) movies
+                                     else movies.filter { it.name.contains(searchQuery, ignoreCase = true) },
+                            categories = movieCategoryList,
+                            onMovieClick = { selectedMovie = it }
+                        )
+                        3 -> MobileSeriesTab(
+                            seriesList = if (searchQuery.isBlank()) seriesList
+                                         else seriesList.filter { it.name.contains(searchQuery, ignoreCase = true) },
+                            categories = seriesCategoryList,
+                            onSeriesClick = { selectedSeries = it }
+                        )
                     4 -> MobileSettingsTab(
                         activeSource = activeSource, allSources = allSources,
                         newServerUrl = newServerUrl, newUsername = newUsername,
@@ -166,6 +239,56 @@ fun MobileHomeScreen(
                         },
                         onSyncCloud = onSyncCloudSources, onForceSync = onForceSync, onLogout = onLogout
                     )
+                }
+            }
+        }
+    }
+
+        // REPRODUCTOR HORIZONTAL A PANTALLA COMPLETA
+        if (isPlayerFullscreen && activeStreamUrl != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black)
+            ) {
+                LelouchVideoPlayer(
+                    playerEngine = playerEngine,
+                    modifier = Modifier.fillMaxSize()
+                )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.TopCenter)
+                        .background(Brush.verticalGradient(listOf(Color.Black.copy(0.8f), Color.Transparent)))
+                        .padding(horizontal = 20.dp, vertical = 14.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        IconButton(
+                            onClick = { isPlayerFullscreen = false },
+                            modifier = Modifier.background(Color.Black.copy(0.6f), CircleShape)
+                        ) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Regresar", tint = Color.White)
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Text(
+                            text = activeChannelName,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { isPlayerFullscreen = false },
+                        modifier = Modifier.background(Color.Black.copy(0.6f), CircleShape)
+                    ) {
+                        Icon(Icons.Default.FullscreenExit, contentDescription = "Minimizar", tint = Color.White)
+                    }
                 }
             }
         }
@@ -351,39 +474,49 @@ private fun MobileHomeTab(
 // TAB 1: EN VIVO
 @Composable
 private fun MobileLiveTab(
-    channels: List<LiveStream>, activeSource: SourceConfig?,
+    channels: List<LiveStream>,
+    activeSource: SourceConfig?,
+    categories: List<MobileCategoryItem> = emptyList(),
     onChannelClick: (String, String) -> Unit
 ) {
     if (channels.isEmpty()) {
-        EmptyState("No hay canales disponibles", "Sincroniza tu lista desde la pestana Listas")
+        EmptyState("No hay canales disponibles", "Sincroniza tu lista desde la pestaña Listas")
         return
     }
-    var selectedCategory by remember { mutableStateOf<String?>(null) }
-    val categories = remember(channels) {
-        listOf("Todos") + channels.mapNotNull { it.categoryName.ifBlank { null } }.distinct().sorted()
-    }
-    val filtered = if (selectedCategory == null || selectedCategory == "Todos") channels
-                   else channels.filter { it.categoryName == selectedCategory }
+    var selectedCategoryId by remember { mutableStateOf("all") }
+    val filtered = if (selectedCategoryId == "all") channels
+                   else channels.filter { it.categoryId == selectedCategoryId }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(categories) { cat ->
-                val isSel = (cat == "Todos" && selectedCategory == null) || cat == selectedCategory
-                Box(
-                    modifier = Modifier.clip(RoundedCornerShape(20.dp))
-                        .background(if (isSel) LelouchCyanAccent else LelouchSurface)
-                        .clickable { selectedCategory = if (cat == "Todos") null else cat }
-                        .padding(horizontal = 14.dp, vertical = 7.dp)
-                ) {
-                    Text(cat, color = if (isSel) Color.Black else LelouchTextSecondary, fontSize = 12.sp,
-                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal)
+        if (categories.isNotEmpty()) {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(categories) { cat ->
+                    val isSel = cat.id == selectedCategoryId
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(if (isSel) LelouchCyanAccent else LelouchSurface)
+                            .clickable { selectedCategoryId = cat.id }
+                            .padding(horizontal = 14.dp, vertical = 7.dp)
+                    ) {
+                        Text(
+                            cat.name,
+                            color = if (isSel) Color.Black else LelouchTextSecondary,
+                            fontSize = 12.sp,
+                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
+                        )
+                    }
                 }
             }
         }
-        LazyColumn(modifier = Modifier.fillMaxSize(),
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
             items(filtered, key = { it.streamId }) { ch ->
                 val url = activeSource?.let {
                     XtreamUrlBuilder.buildLiveStreamUrl(it.serverUrl, it.username, it.password, ch.streamId, "m3u8")
@@ -396,40 +529,108 @@ private fun MobileLiveTab(
 
 // TAB 2: PELICULAS
 @Composable
-private fun MobileMoviesTab(movies: List<VodMovie>, onMovieClick: (VodMovie) -> Unit) {
+private fun MobileMoviesTab(
+    movies: List<VodMovie>,
+    categories: List<MobileCategoryItem> = emptyList(),
+    onMovieClick: (VodMovie) -> Unit
+) {
     if (movies.isEmpty()) {
-        EmptyState("No hay peliculas", "Sincroniza tu lista desde la pestana Listas")
+        EmptyState("No hay películas", "Sincroniza tu lista desde la pestaña Listas")
         return
     }
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(2),
-        contentPadding = PaddingValues(12.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-        modifier = Modifier.fillMaxSize()
-    ) {
-        items(movies, key = { it.streamId }) { movie ->
-            MovieGridCard(movie = movie, onClick = { onMovieClick(movie) })
+    var selectedCategoryId by remember { mutableStateOf("all") }
+    val filtered = if (selectedCategoryId == "all") movies
+                   else movies.filter { it.categoryId == selectedCategoryId }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        if (categories.isNotEmpty()) {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(categories) { cat ->
+                    val isSel = cat.id == selectedCategoryId
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(if (isSel) LelouchCyanAccent else LelouchSurface)
+                            .clickable { selectedCategoryId = cat.id }
+                            .padding(horizontal = 14.dp, vertical = 7.dp)
+                    ) {
+                        Text(
+                            cat.name,
+                            color = if (isSel) Color.Black else LelouchTextSecondary,
+                            fontSize = 12.sp,
+                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
+                        )
+                    }
+                }
+            }
+        }
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            contentPadding = PaddingValues(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            items(filtered, key = { it.streamId }) { movie ->
+                MovieGridCard(movie = movie, onClick = { onMovieClick(movie) })
+            }
         }
     }
 }
 
 // TAB 3: SERIES
 @Composable
-private fun MobileSeriesTab(seriesList: List<Series>, onSeriesClick: (Series) -> Unit) {
+private fun MobileSeriesTab(
+    seriesList: List<Series>,
+    categories: List<MobileCategoryItem> = emptyList(),
+    onSeriesClick: (Series) -> Unit
+) {
     if (seriesList.isEmpty()) {
-        EmptyState("No hay series", "Sincroniza tu lista desde la pestana Listas")
+        EmptyState("No hay series", "Sincroniza tu lista desde la pestaña Listas")
         return
     }
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(2),
-        contentPadding = PaddingValues(12.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-        modifier = Modifier.fillMaxSize()
-    ) {
-        items(seriesList, key = { it.seriesId }) { s ->
-            SeriesGridCard(series = s, onClick = { onSeriesClick(s) })
+    var selectedCategoryId by remember { mutableStateOf("all") }
+    val filtered = if (selectedCategoryId == "all") seriesList
+                   else seriesList.filter { it.categoryId == selectedCategoryId }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        if (categories.isNotEmpty()) {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(categories) { cat ->
+                    val isSel = cat.id == selectedCategoryId
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(if (isSel) LelouchCyanAccent else LelouchSurface)
+                            .clickable { selectedCategoryId = cat.id }
+                            .padding(horizontal = 14.dp, vertical = 7.dp)
+                    ) {
+                        Text(
+                            cat.name,
+                            color = if (isSel) Color.Black else LelouchTextSecondary,
+                            fontSize = 12.sp,
+                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
+                        )
+                    }
+                }
+            }
+        }
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            contentPadding = PaddingValues(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            items(filtered, key = { it.seriesId }) { s ->
+                SeriesGridCard(series = s, onClick = { onSeriesClick(s) })
+            }
         }
     }
 }
@@ -550,14 +751,28 @@ private fun MobileSettingsTab(
 private fun MiniPlayerOverlay(
     channelName: String,
     playerEngine: com.lelouch.core.player.LelouchPlayerEngine,
+    onToggleFullscreen: () -> Unit,
     onClose: () -> Unit
 ) {
-    Box(modifier = Modifier.fillMaxWidth().height(210.dp).background(Color.Black)) {
+    Box(modifier = Modifier.fillMaxWidth().height(220.dp).background(Color.Black)) {
         LelouchVideoPlayer(playerEngine = playerEngine, modifier = Modifier.fillMaxSize())
-        IconButton(
-            onClick = onClose,
-            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).background(Color.Black.copy(0.6f), CircleShape)
-        ) { Icon(Icons.Default.Close, null, tint = Color.White) }
+        Row(
+            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            IconButton(
+                onClick = onToggleFullscreen,
+                modifier = Modifier.background(Color.Black.copy(0.6f), CircleShape)
+            ) {
+                Icon(Icons.Default.Fullscreen, contentDescription = "Pantalla Completa", tint = Color.White)
+            }
+            IconButton(
+                onClick = onClose,
+                modifier = Modifier.background(Color.Black.copy(0.6f), CircleShape)
+            ) {
+                Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = Color.White)
+            }
+        }
         Row(
             modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth()
                 .background(Color.Black.copy(0.7f)).padding(horizontal = 12.dp, vertical = 6.dp),
@@ -565,9 +780,10 @@ private fun MiniPlayerOverlay(
         ) {
             Text(channelName, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp,
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Spacer(Modifier.width(8.dp))
             Box(modifier = Modifier.clip(RoundedCornerShape(3.dp)).background(LelouchLiveRed)
                 .padding(horizontal = 6.dp, vertical = 2.dp)) {
-                Text("LIVE", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                Text("EN VIVO", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
             }
         }
     }

@@ -362,28 +362,36 @@ fun ActionButton(
 }
 
 /**
+ * Model representing a category chip for TV filter bars.
+ */
+data class CategoryUiItem(
+    val id: String,
+    val name: String
+)
+
+/**
  * Leanback category selector bar for filtering Live Channels, Movies, and Series.
  * Supports D-Pad horizontal navigation, active category highlight, and sidebar escape.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun TvCategorySelectorBar(
-    categories: List<String>,
-    selectedCategory: String,
-    onSelectCategory: (String) -> Unit,
+    categories: List<CategoryUiItem>,
+    selectedCategoryId: String,
+    onSelectCategory: (CategoryUiItem) -> Unit,
     firstItemRequester: FocusRequester? = null,
     sidebarRequester: FocusRequester? = null,
     modifier: Modifier = Modifier
 ) {
-    if (categories.size <= 1) return
+    if (categories.isEmpty()) return
 
     TvLazyRow(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         contentPadding = PaddingValues(vertical = 6.dp),
         modifier = modifier.fillMaxWidth()
     ) {
-        itemsIndexed(categories, key = { _, cat -> "cat_$cat" }) { index, cat ->
-            val isSelected = (cat == selectedCategory)
+        itemsIndexed(categories, key = { _, cat -> "cat_${cat.id}_${cat.name}" }) { index, cat ->
+            val isSelected = (cat.id == selectedCategoryId)
             var isFocused by remember { mutableStateOf(false) }
 
             val itemModifier = when {
@@ -430,12 +438,12 @@ fun TvCategorySelectorBar(
                             modifier = Modifier
                                 .size(6.dp)
                                 .clip(RoundedCornerShape(3.dp))
-                                .background(if (isFocused) Color.Black else Color.Black)
+                                .background(Color.Black)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                     }
                     Text(
-                        text = cat,
+                        text = cat.name,
                         color = if (isSelected) Color.Black else if (isFocused) Color.White else LelouchTextPrimary,
                         fontSize = 13.sp,
                         fontWeight = if (isSelected || isFocused) FontWeight.Bold else FontWeight.Medium

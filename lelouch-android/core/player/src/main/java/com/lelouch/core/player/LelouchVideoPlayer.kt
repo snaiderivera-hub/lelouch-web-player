@@ -1,6 +1,8 @@
 package com.lelouch.core.player
 
+import android.app.Activity
 import android.view.ViewGroup
+import android.view.WindowManager
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -54,6 +56,7 @@ fun rememberLelouchPlayer(
 
 /**
  * Native Video Player surface view composable powered by AndroidX Media3 PlayerView.
+ * Prevents screen timeout via window FLAG_KEEP_SCREEN_ON and PlayerView.keepScreenOn.
  */
 @OptIn(UnstableApi::class)
 @Composable
@@ -63,6 +66,15 @@ fun LelouchVideoPlayer(
     resizeMode: Int = AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
     overlayContent: @Composable () -> Unit = {}
 ) {
+    val context = LocalContext.current
+    DisposableEffect(Unit) {
+        val activity = context as? Activity
+        activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose {
+            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -79,11 +91,13 @@ fun LelouchVideoPlayer(
                     useController = false
                     isFocusable = false
                     isFocusableInTouchMode = false
+                    keepScreenOn = true
                     this.resizeMode = resizeMode
                     player = playerEngine.exoPlayer
                 }
             },
             update = { playerView ->
+                playerView.keepScreenOn = true
                 playerView.player = playerEngine.exoPlayer
                 playerView.resizeMode = resizeMode
             }

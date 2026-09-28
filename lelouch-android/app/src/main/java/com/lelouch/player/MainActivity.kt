@@ -22,6 +22,7 @@ import com.lelouch.feature.mobile.MobileHomeScreen
 import com.lelouch.feature.mobile.MobileLoginScreen
 import com.lelouch.feature.tv.TvHomeScreen
 import com.lelouch.feature.tv.TvLoginScreen
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -128,6 +129,9 @@ class MainActivity : ComponentActivity() {
             
             val movies by (if (activeSource != null) app.vodRepository.getAllMovies(activeSource!!.id) else app.vodRepository.getAllMovies()).collectAsStateWithLifecycle(initialValue = emptyList())
             val seriesList by (if (activeSource != null) app.seriesRepository.getAllSeries(activeSource!!.id) else app.seriesRepository.getAllSeries()).collectAsStateWithLifecycle(initialValue = emptyList())
+            val liveCategories by (if (activeSource != null) app.channelRepository.getCategories(activeSource!!.id) else emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
+            val vodCategories by (if (activeSource != null) app.vodRepository.getCategories(activeSource!!.id) else emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
+            val seriesCategories by (if (activeSource != null) app.seriesRepository.getCategories(activeSource!!.id) else emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
             val favoriteChannels by app.channelRepository.getFavoriteChannels().collectAsStateWithLifecycle(initialValue = emptyList())
             val favoriteMovies by app.vodRepository.getFavoriteMovies().collectAsStateWithLifecycle(initialValue = emptyList())
 
@@ -143,8 +147,11 @@ class MainActivity : ComponentActivity() {
                                 allSources = allSources,
                                 liveChannels = liveChannels,
                                 liveChannelsPaging = liveChannelsPaging,
+                                liveCategories = liveCategories,
                                 movies = movies,
+                                vodCategories = vodCategories,
                                 seriesList = seriesList,
+                                seriesCategories = seriesCategories,
                                 favoriteChannels = favoriteChannels,
                                 favoriteMovies = favoriteMovies,
                                 onToggleFavoriteChannel = { streamId, isFav ->
@@ -196,8 +203,11 @@ class MainActivity : ComponentActivity() {
                                 activeSource = activeSource,
                                 allSources = allSources,
                                 liveChannels = liveChannels,
+                                liveCategories = liveCategories,
                                 movies = movies,
+                                vodCategories = vodCategories,
                                 seriesList = seriesList,
+                                seriesCategories = seriesCategories,
                                 onActivateSource = ::onActivateSource,
                                 onDeleteSource = ::onDeleteSource,
                                 onAddSource = ::onAddSource,
