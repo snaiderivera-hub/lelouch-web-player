@@ -334,9 +334,14 @@
               <h3>Categorías</h3>
               <span class="badge-mini" id="live-cats-count">0</span>
             </div>
-            <button id="btn-open-cat-manager" class="btn-manage-cats-pill" title="Seleccionar qué categorías mostrar u ocultar">
-              <i class="ph-fill ph-funnel"></i> Filtrar
-            </button>
+            <div style="display:flex; gap:5px; align-items:center;">
+              <button id="btn-quick-create-cat" class="btn-manage-cats-pill" style="color:var(--accent-cyan); border-color:rgba(0,229,255,0.4); background:rgba(0,229,255,0.1);" title="Crear Mi Propia Categoría de Canales">
+                <i class="ph-bold ph-plus"></i> Crear
+              </button>
+              <button id="btn-open-cat-manager" class="btn-manage-cats-pill" title="Seleccionar qué categorías mostrar u ocultar">
+                <i class="ph-fill ph-funnel"></i> Filtrar
+              </button>
+            </div>
           </div>
           <div class="cat-search-box">
             <input type="text" id="live-cat-search" class="cat-search-input" placeholder="Filtrar categorías..." />
@@ -833,6 +838,34 @@
       <button id="btn-cat-modal-close" class="modal-close-btn" title="Cerrar">&times;</button>
     </div>
 
+    <!-- SECCIÓN DESTACADA: CREAR TUS PROPIAS CATEGORÍAS (ARMA TU LISTA) -->
+    <div class="custom-cat-manager-section" style="background:rgba(0,229,255,0.05); border:1px solid rgba(0,229,255,0.25); border-radius:12px; padding:1.15rem; margin:1rem 1.5rem 0.75rem 1.5rem;">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem;">
+        <div>
+          <h4 style="margin:0; color:var(--accent-cyan); font-size:1rem; font-weight:700; display:flex; align-items:center; gap:8px;">
+            <span>⭐ Mis Categorías Creadas (Arma tu Lista)</span>
+            <span class="badge-mini" id="user-cat-count-badge" style="background:rgba(0,229,255,0.15); color:var(--accent-cyan); font-size:11px;">0 creadas</span>
+          </h4>
+          <p style="margin:4px 0 0; font-size:0.8rem; color:var(--text-secondary);">
+            Crea tus propias categorías y escoge exactamente qué canales quieres incluir.
+          </p>
+        </div>
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+          <button id="btn-open-create-cat-dialog" class="btn btn-primary btn-sm" style="font-weight:700;">
+            <i class="ph-bold ph-plus"></i> Crear Nueva Categoría
+          </button>
+          <button id="btn-toggle-only-my-list" class="btn btn-secondary btn-sm" title="Ocultar todas las categorías del proveedor y dejar únicamente tus categorías creadas">
+            ⭐ Ver Solo Mis Categorías
+          </button>
+        </div>
+      </div>
+
+      <!-- CHIPS DE CATEGORÍAS CREADAS POR EL USUARIO -->
+      <div id="user-created-cats-chips" style="display:flex; gap:0.6rem; flex-wrap:wrap; margin-top:0.85rem;">
+        <!-- Se renderizan dinámicamente -->
+      </div>
+    </div>
+
     <div class="cat-modal-tabs">
       <button class="cat-scope-btn active" data-scope="live"><i class="ph-fill ph-television"></i> TV en Vivo</button>
       <button class="cat-scope-btn" data-scope="movies"><i class="ph-fill ph-film-strip"></i> Películas</button>
@@ -863,6 +896,76 @@
       <button id="btn-cat-manager-save" class="btn btn-primary btn-lg">✓ Guardar y Aplicar</button>
       <button id="btn-cat-manager-cancel" class="btn btn-secondary btn-lg">Cancelar</button>
     </div>
+  </div>
+</div>
+
+<!-- SUB-MODAL: CREAR / EDITAR CATEGORÍA PERSONALIZADA Y ESCOGER CANALES -->
+<div id="custom-cat-creator-dialog" class="modal-overlay hidden" style="z-index:10005;">
+  <div class="custom-cat-dialog-content glass-card" style="max-width:650px; width:95%; background:var(--bg-card); border:1px solid var(--border-highlight); border-radius:16px; padding:1.75rem; box-shadow:0 24px 60px rgba(0,0,0,0.9);">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.25rem;">
+      <h3 style="margin:0; font-size:1.15rem; color:var(--accent-cyan); display:flex; align-items:center; gap:8px;">
+        <span>⭐ Crear / Editar Mi Categoría</span>
+      </h3>
+      <button id="btn-close-cat-creator" class="modal-close-btn" style="position:static;">&times;</button>
+    </div>
+
+    <div style="margin-bottom:1rem;">
+      <label style="display:block; font-size:0.8rem; color:var(--text-secondary); margin-bottom:6px; font-weight:600;">Nombre de la Categoría</label>
+      <input type="text" id="custom-cat-name-input" class="form-input" placeholder="Ej: Mis Deportes Favoritos, Películas Top, Canales Familia..." style="width:100%" />
+      <input type="hidden" id="custom-cat-editing-id" value="" />
+    </div>
+
+    <div>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <label style="font-size:0.8rem; color:var(--text-secondary); font-weight:600;">
+          Escoge los canales para esta categoría:
+        </label>
+        <span id="custom-cat-selected-counter" class="badge-mini" style="background:rgba(16,185,129,0.15); color:#10b981; font-weight:700;">
+          0 canales seleccionados
+        </span>
+      </div>
+
+      <div style="margin-bottom:0.75rem;">
+        <input type="text" id="custom-cat-channel-search" class="form-input" placeholder="Buscar canales para agregar (ej: ESPN, HBO, Fox, Discovery)..." style="width:100%" />
+      </div>
+
+      <!-- LISTA DE CANALES CON CHECKBOXES -->
+      <div id="custom-cat-channels-picker-list" style="max-height:280px; overflow-y:auto; background:rgba(0,0,0,0.3); border:1px solid var(--border-subtle); border-radius:8px; padding:0.5rem;">
+        <!-- Se renderizan los canales con checkboxes -->
+      </div>
+    </div>
+
+    <div style="display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1.5rem; border-top:1px solid var(--border-subtle); padding-top:1rem;">
+      <button id="btn-save-custom-cat" class="btn btn-primary">✓ Guardar Categoría</button>
+      <button id="btn-cancel-custom-cat" class="btn btn-secondary">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- SUB-MODAL: AGREGAR CANAL RÁPIDAMENTE A UNA CATEGORÍA -->
+<div id="quick-add-to-cat-modal" class="modal-overlay hidden" style="z-index:10006;">
+  <div class="glass-card" style="max-width:440px; width:92%; background:var(--bg-card); border:1px solid var(--border-highlight); border-radius:16px; padding:1.5rem; box-shadow:0 24px 60px rgba(0,0,0,0.9);">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+      <h3 style="margin:0; font-size:1.05rem; color:var(--accent-cyan); display:flex; align-items:center; gap:8px;">
+        <span>➕ Añadir a Mi Categoría</span>
+      </h3>
+      <button id="btn-close-quick-add" class="modal-close-btn" style="position:static;">&times;</button>
+    </div>
+
+    <p style="font-size:0.85rem; color:var(--text-secondary); margin-bottom:1rem;">
+      Canal: <strong id="quick-add-channel-title" style="color:var(--text-main);">—</strong>
+    </p>
+
+    <div style="margin-bottom:1.25rem;">
+      <label style="display:block; font-size:0.75rem; color:var(--text-secondary); margin-bottom:6px;">Selecciona la categoría donde guardarlo:</label>
+      <div id="quick-add-cat-options-list" style="display:flex; flex-direction:column; gap:6px; max-height:180px; overflow-y:auto;">
+        <!-- Opciones dinámicas -->
+      </div>
+    </div>
+
+    <button id="btn-quick-add-new-cat" class="btn btn-secondary" style="width:100%; margin-bottom:0.75rem;">
+      <i class="ph-bold ph-plus"></i> + Crear Nueva Categoría
+    </button>
   </div>
 </div>
 

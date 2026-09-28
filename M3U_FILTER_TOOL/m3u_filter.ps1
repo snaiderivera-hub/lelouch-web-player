@@ -27,7 +27,8 @@ if (-not $FilterPath) {
     if (Test-Path "canales_filtro.txt") {
         $FilterPath = "canales_filtro.txt"
         Write-Host "[*] Usando archivo de filtros por defecto: canales_filtro.txt" -ForegroundColor Yellow
-    } else {
+    }
+    else {
         $FilterPath = Read-Host "Ruta al archivo de texto con canales a buscar (ej: canales.txt)"
     }
 }
@@ -43,11 +44,13 @@ if ($M3uPath.StartsWith("http://") -or $M3uPath.StartsWith("https://")) {
     Write-Host "[*] Descargando lista M3U desde URL..." -ForegroundColor Gray
     try {
         $m3uRaw = (Invoke-RestMethod -Uri $M3uPath -TimeoutSec 45)
-    } catch {
+    }
+    catch {
         Write-Host "ERROR al descargar M3U: $_" -ForegroundColor Red
         exit 1
     }
-} else {
+}
+else {
     if (-not (Test-Path $M3uPath)) {
         Write-Host "ERROR: No existe el archivo '$M3uPath'" -ForegroundColor Red
         exit 1
@@ -61,10 +64,11 @@ $filters = @()
 if (Test-Path $FilterPath) {
     Write-Host "[*] Leyendo lista de filtros: $FilterPath..." -ForegroundColor Gray
     $filters = Get-Content -Path $FilterPath -Encoding UTF8 | 
-        ForEach-Object { $_.Trim() } | 
-        Where-Object { $_ -ne "" -and -not $_.StartsWith("#") }
+    ForEach-Object { $_.Trim() } | 
+    Where-Object { $_ -ne "" -and -not $_.StartsWith("#") }
     Write-Host "[✓] $($filters.Count) filtros cargados." -ForegroundColor Green
-} else {
+}
+else {
     Write-Host "AVISO: No se encontró '$FilterPath'. Extrayendo TODOS los canales." -ForegroundColor Yellow
 }
 
@@ -83,9 +87,11 @@ foreach ($line in $lines) {
     if ($trim.StartsWith("#EXTINF:")) {
         $currentExtinf = $trim
         $currentExtras.Clear()
-    } elseif ($trim.StartsWith("#") -and $currentExtinf) {
+    }
+    elseif ($trim.StartsWith("#") -and $currentExtinf) {
         $currentExtras.Add($trim)
-    } elseif (-not $trim.StartsWith("#") -and $currentExtinf) {
+    }
+    elseif (-not $trim.StartsWith("#") -and $currentExtinf) {
         $url = $trim
 
         # Extraer nombre tras la última coma
@@ -111,14 +117,14 @@ foreach ($line in $lines) {
         }
 
         $entries.Add([PSCustomObject]@{
-            Extinf   = $currentExtinf
-            Extras   = ($currentExtras -join "`n")
-            Url      = $url
-            Name     = $name
-            TvgName  = $tvgName
-            Category = $category
-            Logo     = $logo
-        })
+                Extinf   = $currentExtinf
+                Extras   = ($currentExtras -join "`n")
+                Url      = $url
+                Name     = $name
+                TvgName  = $tvgName
+                Category = $category
+                Logo     = $logo
+            })
 
         $currentExtinf = $null
         $currentExtras.Clear()
@@ -137,7 +143,8 @@ foreach ($e in $entries) {
 
     if ($filters.Count -eq 0) {
         $isMatch = $true
-    } else {
+    }
+    else {
         foreach ($f in $filters) {
             $pattern = [regex]::Escape($f)
             if ($e.Name -match "(?i)$pattern" -or $e.TvgName -match "(?i)$pattern" -or $e.Category -match "(?i)$pattern") {
@@ -193,7 +200,7 @@ foreach ($m in $matched) {
 
 # C. Escribir CSV
 $matched | Select-Object Name, Category, Url, Logo, Filtro |
-    Export-Csv -Path $outCsvFile -NoTypeInformation -Encoding UTF8
+Export-Csv -Path $outCsvFile -NoTypeInformation -Encoding UTF8
 
 Write-Host ""
 Write-Host "============================================================" -ForegroundColor Green

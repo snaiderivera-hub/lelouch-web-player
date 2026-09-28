@@ -28,6 +28,7 @@ const uiState = {
   liveSearch: '',
   currentLiveChannel: null,
   hideOfflineChannels: typeof localStorage !== 'undefined' && localStorage.getItem('iptv_hide_offline') === 'true',
+  onlyMyCategories: typeof localStorage !== 'undefined' && localStorage.getItem('iptv_only_my_cats') === 'true',
   moviesFiltered: [],
   moviesPage: 1,
   moviesCategoryFilter: '',
@@ -566,6 +567,74 @@ function saveHiddenCategories(hidden) {
   }
 }
 
+// ════════════ CATEGORÍAS CREADAS POR EL USUARIO (ARMA TU LISTA) ════════════
+const USER_CATS_KEY = 'lelouch_user_created_categories';
+
+export function getUserCreatedCategories() {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(USER_CATS_KEY) : null;
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    console.warn('[UserCats] Error leyendo categorías del usuario:', e);
+    return [];
+  }
+}
+
+export function saveUserCreatedCategories(cats) {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(USER_CATS_KEY, JSON.stringify(cats));
+    }
+  } catch (e) {
+    console.warn('[UserCats] Error guardando categorías del usuario:', e);
+  }
+}
+
+export function createUserCategory(name, channelIds = []) {
+  const cats = getUserCreatedCategories();
+  const newCat = {
+    id: 'ucat_' + Date.now(),
+    name: (name || 'Mi Categoría').trim(),
+    channelIds: [...new Set(channelIds.map(String))],
+    createdAt: Date.now()
+  };
+  cats.push(newCat);
+  saveUserCreatedCategories(cats);
+  return newCat;
+}
+
+export function updateUserCategory(id, name, channelIds) {
+  const cats = getUserCreatedCategories();
+  const idx = cats.findIndex(c => c.id === id);
+  if (idx !== -1) {
+    cats[idx].name = (name || cats[idx].name).trim();
+    if (channelIds !== undefined) {
+      cats[idx].channelIds = [...new Set(channelIds.map(String))];
+    }
+    saveUserCreatedCategories(cats);
+  }
+}
+
+export function deleteUserCategory(id) {
+  let cats = getUserCreatedCategories();
+  cats = cats.filter(c => c.id !== id);
+  saveUserCreatedCategories(cats);
+}
+
+export function addChannelToUserCategory(catId, channelId) {
+  const cats = getUserCreatedCategories();
+  const target = cats.find(c => c.id === catId);
+  if (target) {
+    const sId = String(channelId);
+    if (!target.channelIds.map(String).includes(sId)) {
+      target.channelIds.push(sId);
+      saveUserCreatedCategories(cats);
+      return true;
+    }
+  }
+  return false;
+}
+
 // ════════════ LIVE TV (3 PANELES) ════════════
 function setupLiveCategories(categories, channels) {
   const container = $('live-categories-list');
@@ -574,13 +643,13 @@ function setupLiveCategories(categories, channels) {
   const hiddenLive = new Set(getHiddenCategories().live);
 
   // Si la categoría seleccionada actualmente fue ocultada, restablecer a Todos
-  if (uiState.selectedLiveCategory && uiState.selectedLiveCategory !== '__SPORTS__' && hiddenLive.has(uiState.selectedLiveCategory)) {
+  if (uiState.selectedLiveCategory && !uiState.selectedLiveCategory.startsWith('__USER_CAT_') && uiState.selectedLiveCategory !== '__SPORTS__' && hiddenLive.has(uiState.selectedLiveCategory)) {
     uiState.selectedLiveCategory = '';
   }
 
   const sportsKeywords = ['sport', 'deport', 'futbol', 'football', 'espn', 'fox sport', 'laliga', 'nba'];
 
-  // Agrupamiento
+  // Agrupamiento de canales del proveedor
   const catCounts = new Map();
   channels.forEach((ch) => {
     catCounts.set(ch.categoryName, (catCounts.get(ch.categoryName) || 0) + 1);
@@ -588,6 +657,61 @@ function setupLiveCategories(categories, channels) {
 
   const renderCatList = (filterTerm = '') => {
     container.innerHTML = '';
+    const userCats = getUserCreatedCategories();
+
+    // 1. SECCIÓN DESTACADA: MIS CATEGORÍAS CREADAS (ARMA TU LISTA)
+    if (userCats.length > 0) {
+      const uheader = document.createElement('div');
+      uheader.style.cssText = 'padding:6px 10px; font-size:0.73rem; font-weight:800; text-transform:uppercase; letter-spacing:0.8px; color:var(--accent-cyan); display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(0,229,255,0.15); margin-bottom:4px;';
+      uheader.innerHTML = `
+        <span>⭐ MIS CATEGORÍAS (${userCats.length})</span>
+        <button id="btn-mini-add-cat" style="background:none; border:none; color:var(--accent-cyan); cursor:pointer; font-weight:700; font-size:0.75rem;" title="Crear nueva categoría">+ Crear</button>
+      `;
+      uheader.querySelector('#btn-mini-add-cat')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openCustomCatCreatorDialog();
+      });
+      container.appendChild(uheader);
+
+      userCats.forEach(ucat => {
+        if (filterTerm && !ucat.name.toLowerCase().includes(filterTerm.toLowerCase())) return;
+        const item = document.createElement('div');
+        const isActive = uiState.selectedLiveCategory === `__USER_CAT_${ucat.id}`;
+        item.className = `cat-list-item is-user-created ${isActive ? 'active' : ''}`;
+        item.innerHTML = `<span style="font-weight:600;">⭐ ${escHtml(ucat.name)}</span><span class="badge-mini" style="background:rgba(0,229,255,0.2); color:var(--accent-cyan); font-weight:700;">${(ucat.channelIds || []).length}</span>`;
+        item.addEventListener('click', () => {
+          uiState.selectedLiveCategory = `__USER_CAT_${ucat.id}`;
+          renderLiveTVView();
+        });
+        container.appendChild(item);
+      });
+    }
+
+    // 2. SI ESTÁ ACTIVO "VER SOLO MIS CATEGORÍAS", NO MOSTRAR LAS CATEGORÍAS DEL SERVIDOR
+    if (uiState.onlyMyCategories) {
+      if (userCats.length === 0) {
+        const emptyNotice = document.createElement('div');
+        emptyNotice.style.cssText = 'padding:1.5rem 0.8rem; text-align:center; color:var(--text-secondary);';
+        emptyNotice.innerHTML = `
+          <div style="font-size:1.6rem; margin-bottom:0.5rem;">⭐</div>
+          <strong style="color:var(--text-main); font-size:0.9rem;">Aún no has creado categorías</strong>
+          <p style="margin:6px 0 12px; font-size:0.78rem;">Crea tu propia categoría y añade tus canales favoritos para armar tu lista.</p>
+          <button id="btn-create-first-cat-live" class="btn btn-primary btn-sm" style="width:100%; font-weight:700;">+ Crear Mi Categoría</button>
+        `;
+        emptyNotice.querySelector('#btn-create-first-cat-live')?.addEventListener('click', () => openCustomCatCreatorDialog());
+        container.appendChild(emptyNotice);
+      }
+      $('live-cats-count').textContent = userCats.length;
+      return;
+    }
+
+    // 3. CATEGORÍAS DEL SERVIDOR IPTV
+    if (userCats.length > 0) {
+      const srvHeader = document.createElement('div');
+      srvHeader.style.cssText = 'padding:8px 10px 4px; font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.8px; color:var(--text-muted); border-top:1px solid var(--border-subtle); margin-top:8px;';
+      srvHeader.textContent = '📺 CATEGORÍAS DEL PROVEEDOR';
+      container.appendChild(srvHeader);
+    }
 
     // Opción Todos (muestra solo canales de categorías visibles)
     const visibleChannelsCount = channels.filter(ch => !hiddenLive.has(ch.categoryName)).length;
@@ -614,7 +738,7 @@ function setupLiveCategories(categories, channels) {
     }
 
     const uniqueCats = [...catCounts.keys()].sort();
-    let visibleCount = 0;
+    let visibleCount = userCats.length;
     uniqueCats.forEach((cat) => {
       if (filterTerm && !cat.toLowerCase().includes(filterTerm.toLowerCase())) return;
       // Control parental: ocultar categorías adultas cuando está bloqueado
@@ -638,6 +762,11 @@ function setupLiveCategories(categories, channels) {
   };
 
   renderCatList();
+
+  // Botón directo rápido Crear Categoría en barra de categorías
+  $('btn-quick-create-cat')?.addEventListener('click', () => {
+    openCustomCatCreatorDialog();
+  });
 
   $('live-cat-search')?.addEventListener('input', (e) => {
     renderCatList(e.target.value.trim());
@@ -739,6 +868,11 @@ function renderLiveTVView() {
   if (catTitle) {
     if (!uiState.selectedLiveCategory) catTitle.textContent = 'Todos los Canales';
     else if (uiState.selectedLiveCategory === '__SPORTS__') catTitle.textContent = '⚽ Deportes en Vivo';
+    else if (uiState.selectedLiveCategory.startsWith('__USER_CAT_')) {
+      const ucatId = uiState.selectedLiveCategory.replace('__USER_CAT_', '');
+      const ucat = getUserCreatedCategories().find(c => c.id === ucatId);
+      catTitle.textContent = ucat ? `⭐ ${ucat.name}` : 'Mi Categoría';
+    }
     else catTitle.textContent = uiState.selectedLiveCategory;
   }
 
@@ -760,19 +894,31 @@ function renderLiveChannelsList() {
   let channels = iptvService.state.live || [];
   const hiddenLive = new Set(getHiddenCategories().live);
 
-  // Filtrado de canales pertenecientes a categorías ocultadas por el usuario
-  channels = channels.filter((c) => !hiddenLive.has(c.categoryName));
+  // Filtrado si es una categoría creada por el usuario
+  if (uiState.selectedLiveCategory && uiState.selectedLiveCategory.startsWith('__USER_CAT_')) {
+    const ucatId = uiState.selectedLiveCategory.replace('__USER_CAT_', '');
+    const ucat = getUserCreatedCategories().find(c => c.id === ucatId);
+    if (ucat) {
+      const idSet = new Set((ucat.channelIds || []).map(String));
+      channels = channels.filter(c => idSet.has(String(c.id)));
+    } else {
+      channels = [];
+    }
+  } else {
+    // Filtrado de canales pertenecientes a categorías ocultadas por el usuario
+    channels = channels.filter((c) => !hiddenLive.has(c.categoryName));
 
-  // Filtrado por categoría
-  if (uiState.selectedLiveCategory === '__SPORTS__') {
-    const sportsKeywords = ['sport', 'deport', 'futbol', 'football', 'espn', 'fox sport', 'laliga', 'nba', 'nfl', 'ufc'];
-    channels = channels.filter((c) => {
-      const cat = (c.categoryName || '').toLowerCase();
-      const name = (c.name || '').toLowerCase();
-      return sportsKeywords.some(kw => cat.includes(kw) || name.includes(kw));
-    });
-  } else if (uiState.selectedLiveCategory) {
-    channels = channels.filter((c) => c.categoryName === uiState.selectedLiveCategory);
+    // Filtrado por categoría
+    if (uiState.selectedLiveCategory === '__SPORTS__') {
+      const sportsKeywords = ['sport', 'deport', 'futbol', 'football', 'espn', 'fox sport', 'laliga', 'nba', 'nfl', 'ufc'];
+      channels = channels.filter((c) => {
+        const cat = (c.categoryName || '').toLowerCase();
+        const name = (c.name || '').toLowerCase();
+        return sportsKeywords.some(kw => cat.includes(kw) || name.includes(kw));
+      });
+    } else if (uiState.selectedLiveCategory) {
+      channels = channels.filter((c) => c.categoryName === uiState.selectedLiveCategory);
+    }
   }
 
   // Filtrado por búsqueda
@@ -792,7 +938,18 @@ function renderLiveChannelsList() {
   container.innerHTML = '';
 
   if (channels.length === 0) {
-    container.innerHTML = `<div class="empty-state" style="padding:2rem"><div class="empty-title">Sin canales</div><div class="empty-sub">No se encontraron canales disponibles en esta categoría.</div></div>`;
+    const isUserCat = uiState.selectedLiveCategory && uiState.selectedLiveCategory.startsWith('__USER_CAT_');
+    container.innerHTML = `
+      <div class="empty-state" style="padding:2.5rem 1.5rem; text-align:center;">
+        <div style="font-size:2rem; margin-bottom:0.5rem;">${isUserCat ? '⭐' : '📺'}</div>
+        <div class="empty-title">${isUserCat ? 'Categoría vacía' : 'Sin canales'}</div>
+        <div class="empty-sub" style="margin-top:6px;">
+          ${isUserCat 
+            ? 'Esta categoría no tiene canales aún. Busca cualquier canal y presiona ➕ para agregarlo aquí.' 
+            : 'No se encontraron canales disponibles en esta categoría.'}
+        </div>
+      </div>
+    `;
     return;
   }
 
@@ -823,7 +980,7 @@ function renderLiveChannelsList() {
       </div>
       <div class="channel-row-actions">
         <button class="channel-action-btn channel-copy-btn" title="Copiar enlace de streaming directo">🔗</button>
-        <button class="channel-action-btn channel-add-m3u-btn" title="Añadir a Mi Lista M3U">➕</button>
+        <button class="channel-action-btn channel-add-m3u-btn" title="Añadir a Mi Categoría / Lista M3U">➕</button>
         <button class="channel-fav-btn" title="Favorito">☆</button>
       </div>
     `;
@@ -843,19 +1000,12 @@ function renderLiveChannelsList() {
       });
     }
 
-    // Añadir a Mi Lista M3U
+    // Añadir a Mi Categoría / Lista M3U
     const addM3uBtn = row.querySelector('.channel-add-m3u-btn');
     if (addM3uBtn) {
       addM3uBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        addCustomM3UItem({
-          id: ch.id || String(Date.now()),
-          name: ch.name,
-          category: ch.categoryName || 'Canales en Vivo',
-          logo: ch.logo || '',
-          url: ch.streamUrl,
-          epgId: ch.epgChannelId || ''
-        });
+        openQuickAddToCatModal(ch);
       });
     }
 
@@ -2575,5 +2725,312 @@ function setupCategoryManager() {
   modal?.addEventListener('click', (e) => {
     if (e.target === modal) closeModal();
   });
+
+  // ── SECCIÓN CATEGORÍAS CREADAS POR EL USUARIO (MODAL) ──
+  const btnOpenCreateDialog = $('btn-open-create-cat-dialog');
+  btnOpenCreateDialog?.addEventListener('click', () => {
+    openCustomCatCreatorDialog();
+  });
+
+  const toggleOnlyMyListBtn = $('btn-toggle-only-my-list');
+  const updateToggleBtnUI = () => {
+    if (!toggleOnlyMyListBtn) return;
+    if (uiState.onlyMyCategories) {
+      toggleOnlyMyListBtn.style.background = 'var(--accent-cyan)';
+      toggleOnlyMyListBtn.style.color = '#02070D';
+      toggleOnlyMyListBtn.style.fontWeight = 'bold';
+      toggleOnlyMyListBtn.innerHTML = '⭐ Ver Solo Mis Categorías (ACTIVO)';
+    } else {
+      toggleOnlyMyListBtn.style.background = '';
+      toggleOnlyMyListBtn.style.color = '';
+      toggleOnlyMyListBtn.style.fontWeight = '';
+      toggleOnlyMyListBtn.innerHTML = '⭐ Ver Solo Mis Categorías';
+    }
+  };
+  updateToggleBtnUI();
+
+  toggleOnlyMyListBtn?.addEventListener('click', () => {
+    uiState.onlyMyCategories = !uiState.onlyMyCategories;
+    try {
+      localStorage.setItem('iptv_only_my_cats', String(uiState.onlyMyCategories));
+    } catch {}
+    updateToggleBtnUI();
+    if (iptvService.state?.live) {
+      setupLiveCategories(iptvService.state.categories.live, iptvService.state.live);
+      renderLiveTVView();
+    }
+    toast(
+      uiState.onlyMyCategories
+        ? '⭐ Modo "Solo Mis Categorías" activado (categorías del servidor ocultas)'
+        : '📺 Mostrando todas las categorías de nuevo',
+      'info',
+      2500
+    );
+  });
+
+  renderUserCategoriesChips();
+}
+
+// ════════════ MODALES DE CATEGORÍAS CREADAS POR EL USUARIO ════════════
+export function renderUserCategoriesChips() {
+  const chipsContainer = $('user-created-cats-chips');
+  const countBadge = $('user-cat-count-badge');
+  if (!chipsContainer) return;
+
+  const cats = getUserCreatedCategories();
+  if (countBadge) countBadge.textContent = `${cats.length} creada${cats.length === 1 ? '' : 's'}`;
+
+  chipsContainer.innerHTML = '';
+  if (cats.length === 0) {
+    chipsContainer.innerHTML = `<span style="font-size:0.8rem; color:var(--text-muted); font-style:italic;">No has creado categorías todavía. Haz clic en "+ Crear Nueva Categoría" arriba para armar tu lista.</span>`;
+    return;
+  }
+
+  cats.forEach(cat => {
+    const chip = document.createElement('div');
+    chip.className = 'user-cat-chip';
+    chip.innerHTML = `
+      <span>⭐ <strong>${escHtml(cat.name)}</strong> (${(cat.channelIds || []).length})</span>
+      <button class="chip-btn-edit" title="Editar categoría y canales">✏️</button>
+      <button class="chip-btn-del" title="Eliminar categoría">🗑️</button>
+    `;
+
+    chip.querySelector('.chip-btn-edit')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openCustomCatCreatorDialog(cat.id);
+    });
+
+    chip.querySelector('.chip-btn-del')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (confirm(`¿Eliminar tu categoría "${cat.name}"?`)) {
+        deleteUserCategory(cat.id);
+        renderUserCategoriesChips();
+        if (iptvService.state?.live) {
+          if (uiState.selectedLiveCategory === `__USER_CAT_${cat.id}`) {
+            uiState.selectedLiveCategory = '';
+          }
+          setupLiveCategories(iptvService.state.categories.live, iptvService.state.live);
+          renderLiveTVView();
+        }
+        toast(`Categoría "${cat.name}" eliminada`, 'info');
+      }
+    });
+
+    chipsContainer.appendChild(chip);
+  });
+}
+
+export function openCustomCatCreatorDialog(catIdToEdit = null, preselectedChannelId = null) {
+  const dialog = $('custom-cat-creator-dialog');
+  if (!dialog) return;
+
+  const nameInput = $('custom-cat-name-input');
+  const editIdInput = $('custom-cat-editing-id');
+  const searchInput = $('custom-cat-channel-search');
+  const counterEl = $('custom-cat-selected-counter');
+  const pickerList = $('custom-cat-channels-picker-list');
+  const saveBtn = $('btn-save-custom-cat');
+  const cancelBtn = $('btn-cancel-custom-cat');
+  const closeBtn = $('btn-close-cat-creator');
+
+  let selectedChannelIds = new Set();
+
+  if (catIdToEdit) {
+    const cats = getUserCreatedCategories();
+    const existing = cats.find(c => c.id === catIdToEdit);
+    if (existing) {
+      if (nameInput) nameInput.value = existing.name;
+      if (editIdInput) editIdInput.value = existing.id;
+      selectedChannelIds = new Set((existing.channelIds || []).map(String));
+    }
+  } else {
+    if (nameInput) nameInput.value = '';
+    if (editIdInput) editIdInput.value = '';
+    if (preselectedChannelId) {
+      selectedChannelIds.add(String(preselectedChannelId));
+    }
+  }
+
+  const updateCounter = () => {
+    if (counterEl) {
+      counterEl.textContent = `${selectedChannelIds.size} canal${selectedChannelIds.size === 1 ? '' : 'es'} seleccionado${selectedChannelIds.size === 1 ? '' : 's'}`;
+    }
+  };
+  updateCounter();
+
+  const allChannels = iptvService.state?.live || [];
+
+  const renderPickerChannels = (query = '') => {
+    if (!pickerList) return;
+    pickerList.innerHTML = '';
+
+    const lowerQuery = query.toLowerCase().trim();
+    let filtered = allChannels;
+    if (lowerQuery) {
+      filtered = allChannels.filter(c =>
+        (c.name || '').toLowerCase().includes(lowerQuery) ||
+        (c.categoryName || '').toLowerCase().includes(lowerQuery)
+      );
+    }
+
+    if (filtered.length === 0) {
+      pickerList.innerHTML = `<div style="text-align:center; padding:1.5rem; color:var(--text-muted); font-size:0.85rem;">No se encontraron canales con "${escHtml(query)}"</div>`;
+      return;
+    }
+
+    // Renderizar primeros 120 canales para fluidez
+    const slice = filtered.slice(0, 120);
+    slice.forEach(ch => {
+      const chId = String(ch.id);
+      const isChecked = selectedChannelIds.has(chId);
+      const row = document.createElement('label');
+      row.className = 'custom-cat-picker-item';
+      row.innerHTML = `
+        <input type="checkbox" value="${escHtml(chId)}" ${isChecked ? 'checked' : ''} />
+        ${ch.logo ? `<img src="${escHtml(ch.logo)}" style="width:24px; height:24px; object-fit:contain; border-radius:3px;" onerror="this.style.display='none'">` : ''}
+        <span style="flex:1; font-size:0.85rem; color:var(--text-main); font-weight:500;">${escHtml(ch.name)}</span>
+        <span style="font-size:0.75rem; color:var(--text-muted);">${escHtml(ch.categoryName)}</span>
+      `;
+
+      const chk = row.querySelector('input');
+      chk.addEventListener('change', () => {
+        if (chk.checked) selectedChannelIds.add(chId);
+        else selectedChannelIds.delete(chId);
+        updateCounter();
+      });
+
+      pickerList.appendChild(row);
+    });
+  };
+
+  renderPickerChannels(searchInput?.value || '');
+
+  if (searchInput) {
+    searchInput.oninput = debounce((e) => {
+      renderPickerChannels(e.target.value);
+    }, 150);
+  }
+
+  const closeDialog = () => {
+    dialog.classList.add('hidden');
+    if (nameInput) nameInput.value = '';
+    if (editIdInput) editIdInput.value = '';
+  };
+
+  if (closeBtn) closeBtn.onclick = closeDialog;
+  if (cancelBtn) cancelBtn.onclick = closeDialog;
+
+  if (saveBtn) {
+    saveBtn.onclick = () => {
+      const name = (nameInput?.value || '').trim();
+      if (!name) {
+        toast('Por favor escribe un nombre para tu categoría', 'warning');
+        nameInput?.focus();
+        return;
+      }
+
+      const editId = editIdInput?.value;
+      let finalCatId = editId;
+
+      if (editId) {
+        updateUserCategory(editId, name, [...selectedChannelIds]);
+        toast(`✓ Categoría "${name}" actualizada`, 'success');
+      } else {
+        const created = createUserCategory(name, [...selectedChannelIds]);
+        finalCatId = created.id;
+        toast(`⭐ Categoría "${name}" creada exitosamente`, 'success');
+      }
+
+      // Añadir también a la lista custom M3U automáticamente
+      const idSet = selectedChannelIds;
+      allChannels.filter(c => idSet.has(String(c.id))).forEach(ch => {
+        addCustomM3UItem({
+          id: ch.id || String(Date.now()),
+          name: ch.name,
+          category: name,
+          logo: ch.logo || '',
+          url: ch.streamUrl,
+          epgId: ch.epgChannelId || ''
+        });
+      });
+
+      closeDialog();
+      renderUserCategoriesChips();
+
+      // Refrescar paneles y seleccionar automáticamente la nueva categoría
+      if (iptvService.state?.live) {
+        uiState.selectedLiveCategory = `__USER_CAT_${finalCatId}`;
+        setupLiveCategories(iptvService.state.categories.live, iptvService.state.live);
+        renderLiveTVView();
+      }
+    };
+  }
+
+  dialog.classList.remove('hidden');
+  nameInput?.focus();
+}
+
+export function openQuickAddToCatModal(channel) {
+  const modal = $('quick-add-to-cat-modal');
+  if (!modal) return;
+  const titleEl = $('quick-add-channel-title');
+  if (titleEl) titleEl.textContent = channel.name || 'Canal';
+
+  const listEl = $('quick-add-cat-options-list');
+  if (listEl) {
+    listEl.innerHTML = '';
+    const userCats = getUserCreatedCategories();
+
+    if (userCats.length === 0) {
+      listEl.innerHTML = `<div style="font-size:0.8rem; color:var(--text-muted); padding:0.5rem 0;">Aún no tienes categorías creadas. Crea una abajo:</div>`;
+    } else {
+      userCats.forEach(cat => {
+        const hasChannel = (cat.channelIds || []).map(String).includes(String(channel.id));
+        const item = document.createElement('div');
+        item.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding:8px 12px; background:rgba(255,255,255,0.04); border-radius:8px; border:1px solid var(--border-subtle);';
+        item.innerHTML = `
+          <span style="font-size:0.85rem; font-weight:600; color:var(--text-main);">⭐ ${escHtml(cat.name)}</span>
+          <button class="btn btn-sm ${hasChannel ? 'btn-secondary' : 'btn-primary'}" style="font-size:0.75rem; padding:3px 8px;">
+            ${hasChannel ? '✓ Ya incluido' : '+ Agregar aquí'}
+          </button>
+        `;
+        const btn = item.querySelector('button');
+        if (!hasChannel) {
+          btn.addEventListener('click', () => {
+            addChannelToUserCategory(cat.id, channel.id);
+            addCustomM3UItem({
+              id: channel.id || String(Date.now()),
+              name: channel.name,
+              category: cat.name,
+              logo: channel.logo || '',
+              url: channel.streamUrl,
+              epgId: channel.epgChannelId || ''
+            });
+            toast(`✓ "${channel.name}" añadido a "${cat.name}"`, 'success');
+            modal.classList.add('hidden');
+            if (iptvService.state?.live) {
+              setupLiveCategories(iptvService.state.categories.live, iptvService.state.live);
+              renderLiveChannelsList();
+            }
+          });
+        }
+        listEl.appendChild(item);
+      });
+    }
+  }
+
+  // Botón crear nueva categoría y añadir
+  const btnNewCat = $('btn-quick-add-new-cat');
+  if (btnNewCat) {
+    btnNewCat.onclick = () => {
+      modal.classList.add('hidden');
+      openCustomCatCreatorDialog(null, channel.id);
+    };
+  }
+
+  const btnClose = $('btn-close-quick-add');
+  if (btnClose) btnClose.onclick = () => modal.classList.add('hidden');
+
+  modal.classList.remove('hidden');
 }
 
