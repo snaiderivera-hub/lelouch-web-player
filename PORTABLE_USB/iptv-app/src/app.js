@@ -573,11 +573,91 @@ const USER_CATS_KEY = 'lelouch_user_created_categories';
 export function getUserCreatedCategories() {
   try {
     const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(USER_CATS_KEY) : null;
-    return raw ? JSON.parse(raw) : [];
+    let cats = raw ? JSON.parse(raw) : [];
+
+    // Auto-detectar e incluir categorías del Creador de Lista M3U (CUSTOM_M3U_STORAGE_KEY)
+    let m3uList = [];
+    try {
+      const m3uRaw = typeof localStorage !== 'undefined' ? localStorage.getItem('lelouch_custom_m3u_list') : null;
+      if (m3uRaw) m3uList = JSON.parse(m3uRaw);
+    } catch {}
+
+    const m3uCats = new Map();
+    m3uList.forEach(item => {
+      const cname = (item.category || 'Mi Lista').trim();
+      const nKey = cname.toLowerCase();
+      if (!m3uCats.has(nKey)) {
+        m3uCats.set(nKey, { name: cname, items: [] });
+      }
+      m3uCats.get(nKey).items.push(item);
+    });
+
+    m3uCats.forEach(({ name, items }, nKey) => {
+      let existing = cats.find(c => (c.name || '').toLowerCase() === nKey);
+      const itemIds = items.map(it => String(it.id || it.url));
+      if (!existing) {
+        let hash = 0;
+        for (let i = 0; i < nKey.length; i++) hash = ((hash << 5) - hash) + nKey.charCodeAt(i);
+        existing = {
+          id: 'ucat_' + Math.abs(hash),
+          name: name,
+          channelIds: itemIds,
+          createdAt: Date.now()
+        };
+        cats.push(existing);
+      } else {
+        const merged = new Set([...(existing.channelIds || []).map(String), ...itemIds]);
+        existing.channelIds = [...merged];
+      }
+    });
+
+    return cats;
   } catch (e) {
     console.warn('[UserCats] Error leyendo categorías del usuario:', e);
     return [];
   }
+}
+
+export function getUserCategoryChannels(ucat) {
+  if (!ucat) return [];
+  const ucatNameLower = (ucat.name || '').toLowerCase();
+  const idSet = new Set((ucat.channelIds || []).map(String));
+
+  // 1. Canales del custom M3U que pertenezcan a esta categoría
+  let m3uList = [];
+  try {
+    const m3uRaw = typeof localStorage !== 'undefined' ? localStorage.getItem('lelouch_custom_m3u_list') : null;
+    if (m3uRaw) m3uList = JSON.parse(m3uRaw);
+  } catch {}
+
+  const customItems = m3uList.filter(it => (it.category || '').toLowerCase() === ucatNameLower);
+  const customUrlSet = new Set(customItems.map(it => it.url));
+  const customNameSet = new Set(customItems.map(it => (it.name || '').toLowerCase()));
+
+  // 2. Canales del servidor que coincidan por ID, URL o Nombre
+  const serverChannels = (iptvService.state?.live || []).filter(c =>
+    idSet.has(String(c.id)) ||
+    customUrlSet.has(c.streamUrl) ||
+    customNameSet.has((c.name || '').toLowerCase())
+  );
+
+  // 3. Si hay items en custom M3U que no están en el servidor, agregarlos directamente
+  const existingUrls = new Set(serverChannels.map(c => c.streamUrl));
+  customItems.forEach(item => {
+    if (!existingUrls.has(item.url)) {
+      serverChannels.push({
+        id: item.id || `custom_${item.url}`,
+        name: item.name,
+        categoryName: item.category || ucat.name,
+        logo: item.logo || '',
+        streamUrl: item.url,
+        epgChannelId: item.epgId || ''
+      });
+      existingUrls.add(item.url);
+    }
+  });
+
+  return serverChannels;
 }
 
 export function saveUserCreatedCategories(cats) {
@@ -678,7 +758,9 @@ function setupLiveCategories(categories, channels) {
         const item = document.createElement('div');
         const isActive = uiState.selectedLiveCategory === `__USER_CAT_${ucat.id}`;
         item.className = `cat-list-item is-user-created ${isActive ? 'active' : ''}`;
-        item.innerHTML = `<span style="font-weight:600;">⭐ ${escHtml(ucat.name)}</span><span class="badge-mini" style="background:rgba(0,229,255,0.2); color:var(--accent-cyan); font-weight:700;">${(ucat.channelIds || []).length}</span>`;
+        const catChannels = getUserCategoryChannels(ucat);
+        const count = catChannels.length || (ucat.channelIds || []).length;
+        item.innerHTML = `<span style="font-weight:600;">⭐ ${escHtml(ucat.name)}</span><span class="badge-mini" style="background:rgba(0,229,255,0.2); color:var(--accent-cyan); font-weight:700;">${count}</span>`;
         item.addEventListener('click', () => {
           uiState.selectedLiveCategory = `__USER_CAT_${ucat.id}`;
           renderLiveTVView();
@@ -700,6 +782,8 @@ function setupLiveCategories(categories, channels) {
         `;
         emptyNotice.querySelector('#btn-create-first-cat-live')?.addEventListener('click', () => openCustomCatCreatorDialog());
         container.appendChild(emptyNotice);
+      } else if (!uiState.selectedLiveCategory || !uiState.selectedLiveCategory.startsWith('__USER_CAT_')) {
+        uiState.selectedLiveCategory = `__USER_CAT_${userCats[0].id}`;
       }
       $('live-cats-count').textContent = userCats.length;
       return;
@@ -897,10 +981,10 @@ function renderLiveChannelsList() {
   // Filtrado si es una categoría creada por el usuario
   if (uiState.selectedLiveCategory && uiState.selectedLiveCategory.startsWith('__USER_CAT_')) {
     const ucatId = uiState.selectedLiveCategory.replace('__USER_CAT_', '');
-    const ucat = getUserCreatedCategories().find(c => c.id === ucatId);
+    const userCats = getUserCreatedCategories();
+    const ucat = userCats.find(c => c.id === ucatId);
     if (ucat) {
-      const idSet = new Set((ucat.channelIds || []).map(String));
-      channels = channels.filter(c => idSet.has(String(c.id)));
+      channels = getUserCategoryChannels(ucat);
     } else {
       channels = [];
     }
@@ -1960,6 +2044,33 @@ export function setupCustomM3UManager() {
   $('btn-custom-m3u-download')?.addEventListener('click', () => downloadCustomM3U());
   $('btn-custom-m3u-clear')?.addEventListener('click', () => clearCustomM3UList());
 
+  $('btn-custom-m3u-play-live')?.addEventListener('click', () => {
+    const list = getCustomM3UList();
+    if (list.length === 0) {
+      toast('Tu lista personalizada está vacía. Añade canales primero.', 'warning');
+      return;
+    }
+
+    // Activar modo "Solo Mis Categorías"
+    uiState.onlyMyCategories = true;
+    try {
+      localStorage.setItem('iptv_only_my_cats', 'true');
+    } catch {}
+
+    const userCats = getUserCreatedCategories();
+    if (userCats.length > 0) {
+      uiState.selectedLiveCategory = `__USER_CAT_${userCats[0].id}`;
+    }
+
+    // Cambiar a TV en Vivo
+    switchPage('live');
+    if (iptvService.state?.live) {
+      setupLiveCategories(iptvService.state.categories.live, iptvService.state.live);
+      renderLiveTVView();
+    }
+    toast(`📺 Viendo tu lista personalizada (${list.length} canales)`, 'success', 3000);
+  });
+
   $('btn-custom-item-add')?.addEventListener('click', () => {
     const nameInput = $('custom-item-name');
     const catInput = $('custom-item-cat');
@@ -2789,8 +2900,10 @@ export function renderUserCategoriesChips() {
   cats.forEach(cat => {
     const chip = document.createElement('div');
     chip.className = 'user-cat-chip';
+    const chList = getUserCategoryChannels(cat);
+    const count = chList.length || (cat.channelIds || []).length;
     chip.innerHTML = `
-      <span>⭐ <strong>${escHtml(cat.name)}</strong> (${(cat.channelIds || []).length})</span>
+      <span>⭐ <strong>${escHtml(cat.name)}</strong> (${count})</span>
       <button class="chip-btn-edit" title="Editar categoría y canales">✏️</button>
       <button class="chip-btn-del" title="Eliminar categoría">🗑️</button>
     `;
