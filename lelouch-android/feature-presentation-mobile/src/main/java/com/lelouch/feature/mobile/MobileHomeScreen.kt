@@ -139,9 +139,16 @@ fun MobileHomeScreen(
 
     var selectedMovie by remember { mutableStateOf<VodMovie?>(null) }
     var selectedSeries by remember { mutableStateOf<Series?>(null) }
+    var isUpdateModalOpen by remember { mutableStateOf(false) }
 
     LaunchedEffect(activeStreamUrl) {
         activeStreamUrl?.let { url -> playerEngine.playStream(url, isLive = true) }
+    }
+
+    if (isUpdateModalOpen) {
+        MobileUpdateModal(
+            onDismiss = { isUpdateModalOpen = false }
+        )
     }
 
     selectedMovie?.let { movie ->
@@ -245,7 +252,8 @@ fun MobileHomeScreen(
                             onAddSource(s, u, p, n)
                             newServerUrl = ""; newUsername = ""; newPassword = ""; newName = ""
                         },
-                        onSyncCloud = onSyncCloudSources, onForceSync = onForceSync, onLogout = onLogout
+                        onSyncCloud = onSyncCloudSources, onForceSync = onForceSync, onLogout = onLogout,
+                        onOpenUpdate = { isUpdateModalOpen = true }
                     )
                 }
             }
@@ -667,7 +675,8 @@ private fun MobileSettingsTab(
     onNewPassword: (String) -> Unit, onNewName: (String) -> Unit,
     onActivateSource: (String) -> Unit, onDeleteSource: (String) -> Unit,
     onAddSource: (String, String, String, String) -> Unit,
-    onSyncCloud: () -> Unit, onForceSync: () -> Unit, onLogout: () -> Unit
+    onSyncCloud: () -> Unit, onForceSync: () -> Unit, onLogout: () -> Unit,
+    onOpenUpdate: () -> Unit
 ) {
     LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -678,7 +687,79 @@ private fun MobileSettingsTab(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MobileActionButton("Nube", Modifier.weight(1f), onClick = onSyncCloud)
                 MobileActionButton("Sync", Modifier.weight(1f), onClick = onForceSync)
+                MobileActionButton("Actualizar", Modifier.weight(1.2f), onClick = onOpenUpdate)
                 MobileDangerButton("Salir", Modifier.weight(1f), onClick = onLogout)
+            }
+        }
+        item {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(
+                                LelouchCyanAccent.copy(alpha = 0.15f),
+                                LelouchBlueSecondary.copy(alpha = 0.15f)
+                            )
+                        )
+                    )
+                    .border(1.dp, LelouchCyanAccent.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                    .clickable { onOpenUpdate() }
+                    .padding(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(LelouchCyanAccent.copy(alpha = 0.2f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Default.SystemUpdate,
+                                contentDescription = null,
+                                tint = LelouchCyanAccent,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                "Actualizaciones de App (OTA)",
+                                color = LelouchTextPrimary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                            Text(
+                                "Actualiza por Wi-Fi sin memorias USB",
+                                color = LelouchTextSecondary,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(LelouchCyanAccent)
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            "BUSCAR",
+                            color = Color.Black,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                    }
+                }
             }
         }
         item {
