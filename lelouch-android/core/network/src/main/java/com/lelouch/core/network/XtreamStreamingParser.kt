@@ -142,7 +142,7 @@ object XtreamStreamingParser {
                 "num" -> num = if (reader.peek() == JsonToken.NUMBER) reader.nextInt() else if (reader.peek() == JsonToken.STRING) reader.nextString().toIntOrNull() ?: 0 else { reader.skipValue(); 0 }
                 "stream_type" -> streamType = if (reader.peek() == JsonToken.STRING) reader.nextString() else { reader.skipValue(); "" }
                 "stream_icon" -> streamIcon = if (reader.peek() == JsonToken.STRING) reader.nextString() else { reader.skipValue(); "" }
-                "category_id" -> categoryId = if (reader.peek() == JsonToken.STRING) reader.nextString() else { reader.skipValue(); "" }
+                "category_id" -> categoryId = if (reader.peek() == JsonToken.STRING) reader.nextString().trim() else if (reader.peek() == JsonToken.NUMBER) reader.nextInt().toString() else { reader.skipValue(); "" }
                 "epg_channel_id" -> epgChannelId = if (reader.peek() == JsonToken.STRING) reader.nextString() else { reader.skipValue(); "" }
                 else -> reader.skipValue()
             }
@@ -186,7 +186,7 @@ object XtreamStreamingParser {
                 "name" -> name = if (reader.peek() == JsonToken.STRING) reader.nextString() else { reader.skipValue(); "" }
                 "num" -> num = if (reader.peek() == JsonToken.NUMBER) reader.nextInt() else if (reader.peek() == JsonToken.STRING) reader.nextString().toIntOrNull() ?: 0 else { reader.skipValue(); 0 }
                 "stream_icon" -> streamIcon = if (reader.peek() == JsonToken.STRING) reader.nextString() else { reader.skipValue(); "" }
-                "category_id" -> categoryId = if (reader.peek() == JsonToken.STRING) reader.nextString() else { reader.skipValue(); "" }
+                "category_id" -> categoryId = if (reader.peek() == JsonToken.STRING) reader.nextString().trim() else if (reader.peek() == JsonToken.NUMBER) reader.nextInt().toString() else { reader.skipValue(); "" }
                 "container_extension" -> containerExtension = if (reader.peek() == JsonToken.STRING) reader.nextString() else { reader.skipValue(); "mp4" }
                 "rating" -> rating = if (reader.peek() == JsonToken.NUMBER) reader.nextDouble() else if (reader.peek() == JsonToken.STRING) reader.nextString().toDoubleOrNull() ?: 0.0 else { reader.skipValue(); 0.0 }
                 "added" -> added = if (reader.peek() == JsonToken.STRING) reader.nextString() else { reader.skipValue(); "" }
@@ -229,7 +229,7 @@ object XtreamStreamingParser {
                 "name" -> name = if (reader.peek() == JsonToken.STRING) reader.nextString() else { reader.skipValue(); "" }
                 "num" -> num = if (reader.peek() == JsonToken.NUMBER) reader.nextInt() else if (reader.peek() == JsonToken.STRING) reader.nextString().toIntOrNull() ?: 0 else { reader.skipValue(); 0 }
                 "cover" -> cover = if (reader.peek() == JsonToken.STRING) reader.nextString() else { reader.skipValue(); "" }
-                "category_id" -> categoryId = if (reader.peek() == JsonToken.STRING) reader.nextString() else { reader.skipValue(); "" }
+                "category_id" -> categoryId = if (reader.peek() == JsonToken.STRING) reader.nextString().trim() else if (reader.peek() == JsonToken.NUMBER) reader.nextInt().toString() else { reader.skipValue(); "" }
                 "rating" -> rating = if (reader.peek() == JsonToken.NUMBER) reader.nextDouble() else if (reader.peek() == JsonToken.STRING) reader.nextString().toDoubleOrNull() ?: 0.0 else { reader.skipValue(); 0.0 }
                 else -> reader.skipValue()
             }

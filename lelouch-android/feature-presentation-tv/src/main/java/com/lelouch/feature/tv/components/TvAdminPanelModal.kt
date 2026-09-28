@@ -56,6 +56,7 @@ fun TvAdminPanelModal(
     onSyncCloudSources: () -> Unit,
     onForceSync: () -> Unit,
     onLogout: () -> Unit,
+    onCheckUpdates: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     var selectedTab by remember { mutableIntStateOf(0) } // 0 = Listas Guardadas, 1 = Agregar Nueva, 2 = Mantenimiento
@@ -582,6 +583,34 @@ fun TvAdminPanelModal(
                                             Text(
                                                 text = "Forzar Resincronización Completa",
                                                 color = if (isForceSyncFocused) Color.Black else LelouchTextPrimary,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+
+                                    var isUpdateFocused by remember { mutableStateOf(false) }
+                                    Box(
+                                        modifier = Modifier
+                                            .focusable()
+                                            .onFocusChanged { isUpdateFocused = it.isFocused }
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(if (isUpdateFocused) LelouchCyanAccent else LelouchSurfaceVariant)
+                                            .border(1.dp, if (isUpdateFocused) Color.White else LelouchBorder, RoundedCornerShape(8.dp))
+                                            .clickable {
+                                                onCheckUpdates()
+                                            }
+                                            .padding(horizontal = 18.dp, vertical = 10.dp)
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                text = "🚀",
+                                                fontSize = 15.sp
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "Actualizar App (OTA)",
+                                                color = if (isUpdateFocused) Color.Black else LelouchTextPrimary,
                                                 fontSize = 13.sp,
                                                 fontWeight = FontWeight.Bold
                                             )

@@ -309,9 +309,9 @@ fun TvCategoryManagerModal(
     hiddenMovieCategoryNames: Set<String>,
     seriesCategories: List<CategoryItemUiModel>,
     hiddenSeriesCategoryNames: Set<String>,
-    onToggleLiveCategory: (categoryName: String, isVisible: Boolean) -> Unit,
-    onToggleMovieCategory: (categoryName: String, isVisible: Boolean) -> Unit,
-    onToggleSeriesCategory: (categoryName: String, isVisible: Boolean) -> Unit,
+    onToggleLiveCategory: (category: CategoryItemUiModel, isVisible: Boolean) -> Unit,
+    onToggleMovieCategory: (category: CategoryItemUiModel, isVisible: Boolean) -> Unit,
+    onToggleSeriesCategory: (category: CategoryItemUiModel, isVisible: Boolean) -> Unit,
     onShowAllLive: () -> Unit,
     onHideAllLive: () -> Unit,
     onShowAllMovies: () -> Unit,
@@ -621,9 +621,9 @@ fun TvCategoryManagerModal(
                                 Surface(
                                     onClick = {
                                         when (currentScope) {
-                                            CategoryScope.LIVE -> onToggleLiveCategory(cat.name, !isVisible)
-                                            CategoryScope.MOVIES -> onToggleMovieCategory(cat.name, !isVisible)
-                                            CategoryScope.SERIES -> onToggleSeriesCategory(cat.name, !isVisible)
+                                            CategoryScope.LIVE -> onToggleLiveCategory(cat, !isVisible)
+                                            CategoryScope.MOVIES -> onToggleMovieCategory(cat, !isVisible)
+                                            CategoryScope.SERIES -> onToggleSeriesCategory(cat, !isVisible)
                                         }
                                     },
                                     modifier = Modifier

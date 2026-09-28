@@ -123,8 +123,19 @@ fun TvHomeScreen(
     // Flujo Paging 3 para canales en vivo (Miles de canales sin OOM)
     val pagedChannels = liveChannelsPaging.collectAsLazyPagingItems()
 
+    // Mapas de categorías para resolver nombres de categorías faltantes en Xtream Codes
+    val liveCatMap = remember(liveCategories) {
+        liveCategories.associate { it.categoryId to it.categoryName }
+    }
+    val vodCatMap = remember(vodCategories) {
+        vodCategories.associate { it.categoryId to it.categoryName }
+    }
+    val seriesCatMap = remember(seriesCategories) {
+        seriesCategories.associate { it.categoryId to it.categoryName }
+    }
+
     // Canales mapeados o canales de demostración con logos reales de alta resolución
-    val displayChannels = remember(liveChannels, activeSource) {
+    val displayChannels = remember(liveChannels, activeSource, liveCatMap) {
         if (liveChannels.isNotEmpty()) {
             liveChannels.mapIndexed { index, stream ->
                 val streamUrl = activeSource?.let {
@@ -137,11 +148,15 @@ fun TvHomeScreen(
                     )
                 } ?: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
 
+                val resolvedCategoryName = liveCatMap[stream.categoryId]
+                    ?: stream.categoryName.takeIf { it.isNotBlank() }
+                    ?: "General"
+
                 ChannelUiModel(
                     streamId = stream.streamId,
                     name = stream.name,
                     num = stream.num.takeIf { it > 0 } ?: (index + 1),
-                    categoryName = stream.categoryName.ifBlank { "General" },
+                    categoryName = resolvedCategoryName,
                     categoryId = stream.categoryId,
                     streamIcon = stream.streamIcon,
                     currentProgram = stream.epgChannelId ?: "En Directo",
@@ -221,9 +236,13 @@ fun TvHomeScreen(
     }
 
     // Catálogo de películas (real o demo enriquecido con carátulas y fondos HD)
-    val displayMovies = remember(movies) {
-        if (movies.isNotEmpty()) movies
-        else listOf(
+    val displayMovies = remember(movies, vodCatMap) {
+        if (movies.isNotEmpty()) {
+            movies.map { mov ->
+                val resolvedName = vodCatMap[mov.categoryId] ?: mov.categoryName.takeIf { it.isNotBlank() } ?: "General"
+                mov.copy(categoryName = resolvedName)
+            }
+        } else listOf(
             VodMovie(
                 id = "1",
                 streamId = 1,
@@ -287,9 +306,13 @@ fun TvHomeScreen(
     }
 
     // Catálogo de series (incluye Demon Slayer de EveryCine como primera opción)
-    val displaySeries = remember(seriesList) {
-        if (seriesList.isNotEmpty()) seriesList
-        else listOf(
+    val displaySeries = remember(seriesList, seriesCatMap) {
+        if (seriesList.isNotEmpty()) {
+            seriesList.map { ser ->
+                val resolvedName = seriesCatMap[ser.categoryId] ?: ser.categoryName.takeIf { it.isNotBlank() } ?: "General"
+                ser.copy(categoryName = resolvedName)
+            }
+        } else listOf(
             Series(
                 id = "1",
                 seriesId = 1,
@@ -353,20 +376,12 @@ fun TvHomeScreen(
         )
     }
 
-    var focusedChannelIndex by remember { mutableIntStateOf(0) }
-    val focusedChannel = displayChannels.getOrElse(focusedChannelIndex) { displayChannels.first() }
-
-    // Elementos destacados en el Spotlight Hero
-    var focusedHeroMovie by remember(displayMovies) { mutableStateOf<VodMovie?>(displayMovies.firstOrNull()) }
-    var focusedHeroSeries by remember(displaySeries) { mutableStateOf<Series?>(displaySeries.firstOrNull()) }
-
-    // Modal de Detalle de Película / Serie
-    var activeDetailMedia by remember { mutableStateOf<MediaDetailUiModel?>(null) }
     var isSearchModalVisible by remember { mutableStateOf(false) }
     var isEpgModalVisible by remember { mutableStateOf(false) }
     var isAdminModalVisible by remember { mutableStateOf(false) }
     var isCategoryManagerVisible by remember { mutableStateOf(false) }
     var categoryManagerInitialScope by remember { mutableStateOf(CategoryScope.LIVE) }
+    var isUpdateModalVisible by remember { mutableStateOf(false) }
 
     val context = androidx.compose.ui.platform.LocalContext.current
     val hiddenPrefs = remember { context.getSharedPreferences("iptv_hidden_categories", android.content.Context.MODE_PRIVATE) }
@@ -392,6 +407,32 @@ fun TvHomeScreen(
         hiddenSeriesCategories = newSet
         hiddenPrefs.edit().putStringSet("series", newSet).apply()
     }
+
+    val visibleChannels = remember(displayChannels, hiddenLiveCategories) {
+        displayChannels.filter { ch ->
+            ch.categoryId !in hiddenLiveCategories && ch.categoryName !in hiddenLiveCategories
+        }
+    }
+    val visibleMovies = remember(displayMovies, hiddenMovieCategories) {
+        displayMovies.filter { mov ->
+            mov.categoryId !in hiddenMovieCategories && mov.categoryName !in hiddenMovieCategories
+        }
+    }
+    val visibleSeries = remember(displaySeries, hiddenSeriesCategories) {
+        displaySeries.filter { ser ->
+            ser.categoryId !in hiddenSeriesCategories && ser.categoryName !in hiddenSeriesCategories
+        }
+    }
+
+    var focusedChannelIndex by remember { mutableIntStateOf(0) }
+    val focusedChannel = remember(visibleChannels, focusedChannelIndex) {
+        visibleChannels.getOrNull(focusedChannelIndex) ?: visibleChannels.firstOrNull()
+    }
+
+    // Elementos destacados en el Spotlight Hero
+    var focusedHeroMovie by remember(visibleMovies) { mutableStateOf<VodMovie?>(visibleMovies.firstOrNull()) }
+    var focusedHeroSeries by remember(visibleSeries) { mutableStateOf<Series?>(visibleSeries.firstOrNull()) }
+    var activeDetailMedia by remember { mutableStateOf<MediaDetailUiModel?>(null) }
 
     var isFullscreen by remember { mutableStateOf(false) }
     var isHudVisible by remember { mutableStateOf(false) }
@@ -428,90 +469,126 @@ fun TvHomeScreen(
 
     var lastFullscreenEntryTime by remember { mutableLongStateOf(0L) }
 
-    // Modelos para el gestor de visibilidad con conteo de elementos
+    // Modelos para el gestor de visibilidad con conteo exacto de elementos
     val liveCategoryItemModels = remember(liveCategories, displayChannels) {
-        val counts = displayChannels.groupingBy { it.categoryName.ifBlank { "General" } }.eachCount()
-        val cats = (liveCategories.map { it.categoryName } + displayChannels.map { it.categoryName.ifBlank { "General" } })
-            .distinct()
-            .filter { it.isNotBlank() }
-            .sortedWith(String.CASE_INSENSITIVE_ORDER)
-        cats.map { catName ->
-            val matchingLive = liveCategories.find { it.categoryName.equals(catName, ignoreCase = true) }
-            val isAdult = matchingLive?.isAdult == true ||
-                    catName.contains("+18", ignoreCase = true) ||
-                    catName.contains("XXX", ignoreCase = true) ||
-                    catName.contains("adult", ignoreCase = true)
-            CategoryItemUiModel(
-                id = matchingLive?.categoryId ?: catName,
-                name = catName,
-                itemCount = counts[catName] ?: 0,
-                isAdult = isAdult
-            )
+        val countsById = displayChannels.groupingBy { it.categoryId }.eachCount()
+        val countsByName = displayChannels.groupingBy { it.categoryName }.eachCount()
+
+        if (liveCategories.isNotEmpty()) {
+            liveCategories.map { cat ->
+                val count = countsById[cat.categoryId]
+                    ?: countsByName[cat.categoryName]
+                    ?: 0
+                val isAdult = cat.isAdult ||
+                        cat.categoryName.contains("+18", ignoreCase = true) ||
+                        cat.categoryName.contains("XXX", ignoreCase = true) ||
+                        cat.categoryName.contains("adult", ignoreCase = true)
+                CategoryItemUiModel(
+                    id = cat.categoryId,
+                    name = cat.categoryName,
+                    itemCount = count,
+                    isAdult = isAdult
+                )
+            }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+        } else {
+            displayChannels.groupBy { it.categoryName }
+                .map { (catName, chList) ->
+                    CategoryItemUiModel(
+                        id = chList.firstOrNull()?.categoryId ?: catName,
+                        name = catName,
+                        itemCount = chList.size,
+                        isAdult = catName.contains("+18", ignoreCase = true) || catName.contains("XXX", ignoreCase = true)
+                    )
+                }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
         }
     }
 
     val movieCategoryItemModels = remember(vodCategories, displayMovies) {
-        val counts = displayMovies.groupingBy { it.categoryName.ifBlank { "General" } }.eachCount()
-        val cats = (vodCategories.map { it.categoryName } + displayMovies.map { it.categoryName.ifBlank { "General" } })
-            .distinct()
-            .filter { it.isNotBlank() }
-            .sortedWith(String.CASE_INSENSITIVE_ORDER)
-        cats.map { catName ->
-            val matchingVod = vodCategories.find { it.categoryName.equals(catName, ignoreCase = true) }
-            val isAdult = matchingVod?.isAdult == true ||
-                    catName.contains("+18", ignoreCase = true) ||
-                    catName.contains("XXX", ignoreCase = true) ||
-                    catName.contains("adult", ignoreCase = true)
-            CategoryItemUiModel(
-                id = matchingVod?.categoryId ?: catName,
-                name = catName,
-                itemCount = counts[catName] ?: 0,
-                isAdult = isAdult
-            )
+        val countsById = displayMovies.groupingBy { it.categoryId }.eachCount()
+        val countsByName = displayMovies.groupingBy { it.categoryName }.eachCount()
+
+        if (vodCategories.isNotEmpty()) {
+            vodCategories.map { cat ->
+                val count = countsById[cat.categoryId]
+                    ?: countsByName[cat.categoryName]
+                    ?: 0
+                val isAdult = cat.isAdult ||
+                        cat.categoryName.contains("+18", ignoreCase = true) ||
+                        cat.categoryName.contains("XXX", ignoreCase = true) ||
+                        cat.categoryName.contains("adult", ignoreCase = true)
+                CategoryItemUiModel(
+                    id = cat.categoryId,
+                    name = cat.categoryName,
+                    itemCount = count,
+                    isAdult = isAdult
+                )
+            }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+        } else {
+            displayMovies.groupBy { it.categoryName }
+                .map { (catName, mList) ->
+                    CategoryItemUiModel(
+                        id = mList.firstOrNull()?.categoryId ?: catName,
+                        name = catName,
+                        itemCount = mList.size,
+                        isAdult = catName.contains("+18", ignoreCase = true) || catName.contains("XXX", ignoreCase = true)
+                    )
+                }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
         }
     }
 
     val seriesCategoryItemModels = remember(seriesCategories, displaySeries) {
-        val counts = displaySeries.groupingBy { it.categoryName.ifBlank { "General" } }.eachCount()
-        val cats = (seriesCategories.map { it.categoryName } + displaySeries.map { it.categoryName.ifBlank { "General" } })
-            .distinct()
-            .filter { it.isNotBlank() }
-            .sortedWith(String.CASE_INSENSITIVE_ORDER)
-        cats.map { catName ->
-            val matchingSer = seriesCategories.find { it.categoryName.equals(catName, ignoreCase = true) }
-            val isAdult = matchingSer?.isAdult == true ||
-                    catName.contains("+18", ignoreCase = true) ||
-                    catName.contains("XXX", ignoreCase = true) ||
-                    catName.contains("adult", ignoreCase = true)
-            CategoryItemUiModel(
-                id = matchingSer?.categoryId ?: catName,
-                name = catName,
-                itemCount = counts[catName] ?: 0,
-                isAdult = isAdult
-            )
+        val countsById = displaySeries.groupingBy { it.categoryId }.eachCount()
+        val countsByName = displaySeries.groupingBy { it.categoryName }.eachCount()
+
+        if (seriesCategories.isNotEmpty()) {
+            seriesCategories.map { cat ->
+                val count = countsById[cat.categoryId]
+                    ?: countsByName[cat.categoryName]
+                    ?: 0
+                val isAdult = cat.isAdult ||
+                        cat.categoryName.contains("+18", ignoreCase = true) ||
+                        cat.categoryName.contains("XXX", ignoreCase = true) ||
+                        cat.categoryName.contains("adult", ignoreCase = true)
+                CategoryItemUiModel(
+                    id = cat.categoryId,
+                    name = cat.categoryName,
+                    itemCount = count,
+                    isAdult = isAdult
+                )
+            }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+        } else {
+            displaySeries.groupBy { it.categoryName }
+                .map { (catName, sList) ->
+                    CategoryItemUiModel(
+                        id = sList.firstOrNull()?.categoryId ?: catName,
+                        name = catName,
+                        itemCount = sList.size,
+                        isAdult = catName.contains("+18", ignoreCase = true) || catName.contains("XXX", ignoreCase = true)
+                    )
+                }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
         }
     }
 
     // Categorías y filtrado por categoría para Canales, Películas y Series (respetando categorías ocultas)
-    val channelCategoryList = remember(liveCategories, displayChannels, hiddenLiveCategories) {
-        val fromDb = liveCategories.map { CategoryUiItem(id = it.categoryId, name = it.categoryName) }
-        val fromChannels = displayChannels.mapNotNull { ch ->
-            if (ch.categoryName.isNotBlank() && ch.categoryId.isNotBlank()) {
-                CategoryUiItem(id = ch.categoryId, name = ch.categoryName)
-            } else null
-        }.distinctBy { it.id }
-        val combined = (fromDb + fromChannels).distinctBy { it.id }.sortedBy { it.name }
-        val visibleCats = combined.filter { it.name !in hiddenLiveCategories && it.id !in hiddenLiveCategories }
+    val channelCategoryList = remember(liveCategoryItemModels, hiddenLiveCategories) {
+        val visibleCats = liveCategoryItemModels
+            .filter { it.id !in hiddenLiveCategories && it.name !in hiddenLiveCategories }
+            .map { CategoryUiItem(id = it.id, name = it.name) }
         listOf(CategoryUiItem(id = "all", name = "Todos")) + visibleCats
     }
     var selectedChannelCategoryId by remember { mutableStateOf("all") }
     val activeChannelCatName = remember(channelCategoryList, selectedChannelCategoryId) {
         channelCategoryList.find { it.id == selectedChannelCategoryId }?.name ?: "Todos"
     }
-    val filteredChannels = remember(displayChannels, selectedChannelCategoryId, hiddenLiveCategories) {
-        val unhidden = displayChannels.filter { it.categoryName !in hiddenLiveCategories && it.categoryId !in hiddenLiveCategories }
-        if (selectedChannelCategoryId == "all") unhidden
-        else unhidden.filter { it.categoryId == selectedChannelCategoryId || it.categoryName == activeChannelCatName }
+    val filteredChannels = remember(visibleChannels, selectedChannelCategoryId, activeChannelCatName) {
+        if (selectedChannelCategoryId == "all") {
+            visibleChannels
+        } else {
+            visibleChannels.filter {
+                it.categoryId == selectedChannelCategoryId ||
+                it.categoryName.equals(activeChannelCatName, ignoreCase = true)
+            }
+        }
     }
     LaunchedEffect(hiddenLiveCategories) {
         if (selectedChannelCategoryId != "all" &&
@@ -521,25 +598,25 @@ fun TvHomeScreen(
         }
     }
 
-    val movieCategoryList = remember(vodCategories, displayMovies, hiddenMovieCategories) {
-        val fromDb = vodCategories.map { CategoryUiItem(id = it.categoryId, name = it.categoryName) }
-        val fromMovies = displayMovies.mapNotNull { mov ->
-            if (mov.categoryName.isNotBlank() && mov.categoryId.isNotBlank()) {
-                CategoryUiItem(id = mov.categoryId, name = mov.categoryName)
-            } else null
-        }.distinctBy { it.id }
-        val combined = (fromDb + fromMovies).distinctBy { it.id }.sortedBy { it.name }
-        val visibleCats = combined.filter { it.name !in hiddenMovieCategories && it.id !in hiddenMovieCategories }
+    val movieCategoryList = remember(movieCategoryItemModels, hiddenMovieCategories) {
+        val visibleCats = movieCategoryItemModels
+            .filter { it.id !in hiddenMovieCategories && it.name !in hiddenMovieCategories }
+            .map { CategoryUiItem(id = it.id, name = it.name) }
         listOf(CategoryUiItem(id = "all", name = "Todas")) + visibleCats
     }
     var selectedMovieCategoryId by remember { mutableStateOf("all") }
     val activeMovieCatName = remember(movieCategoryList, selectedMovieCategoryId) {
         movieCategoryList.find { it.id == selectedMovieCategoryId }?.name ?: "Todas"
     }
-    val filteredMovies = remember(displayMovies, selectedMovieCategoryId, hiddenMovieCategories) {
-        val unhidden = displayMovies.filter { it.categoryName !in hiddenMovieCategories && it.categoryId !in hiddenMovieCategories }
-        if (selectedMovieCategoryId == "all") unhidden
-        else unhidden.filter { it.categoryId == selectedMovieCategoryId || it.categoryName == activeMovieCatName }
+    val filteredMovies = remember(visibleMovies, selectedMovieCategoryId, activeMovieCatName) {
+        if (selectedMovieCategoryId == "all") {
+            visibleMovies
+        } else {
+            visibleMovies.filter {
+                it.categoryId == selectedMovieCategoryId ||
+                it.categoryName.equals(activeMovieCatName, ignoreCase = true)
+            }
+        }
     }
     LaunchedEffect(hiddenMovieCategories) {
         if (selectedMovieCategoryId != "all" &&
@@ -549,25 +626,25 @@ fun TvHomeScreen(
         }
     }
 
-    val seriesCategoryList = remember(seriesCategories, displaySeries, hiddenSeriesCategories) {
-        val fromDb = seriesCategories.map { CategoryUiItem(id = it.categoryId, name = it.categoryName) }
-        val fromSeries = displaySeries.mapNotNull { ser ->
-            if (ser.categoryName.isNotBlank() && ser.categoryId.isNotBlank()) {
-                CategoryUiItem(id = ser.categoryId, name = ser.categoryName)
-            } else null
-        }.distinctBy { it.id }
-        val combined = (fromDb + fromSeries).distinctBy { it.id }.sortedBy { it.name }
-        val visibleCats = combined.filter { it.name !in hiddenSeriesCategories && it.id !in hiddenSeriesCategories }
+    val seriesCategoryList = remember(seriesCategoryItemModels, hiddenSeriesCategories) {
+        val visibleCats = seriesCategoryItemModels
+            .filter { it.id !in hiddenSeriesCategories && it.name !in hiddenSeriesCategories }
+            .map { CategoryUiItem(id = it.id, name = it.name) }
         listOf(CategoryUiItem(id = "all", name = "Todas")) + visibleCats
     }
     var selectedSeriesCategoryId by remember { mutableStateOf("all") }
     val activeSeriesCatName = remember(seriesCategoryList, selectedSeriesCategoryId) {
         seriesCategoryList.find { it.id == selectedSeriesCategoryId }?.name ?: "Todas"
     }
-    val filteredSeries = remember(displaySeries, selectedSeriesCategoryId, hiddenSeriesCategories) {
-        val unhidden = displaySeries.filter { it.categoryName !in hiddenSeriesCategories && it.categoryId !in hiddenSeriesCategories }
-        if (selectedSeriesCategoryId == "all") unhidden
-        else unhidden.filter { it.categoryId == selectedSeriesCategoryId || it.categoryName == activeSeriesCatName }
+    val filteredSeries = remember(visibleSeries, selectedSeriesCategoryId, activeSeriesCatName) {
+        if (selectedSeriesCategoryId == "all") {
+            visibleSeries
+        } else {
+            visibleSeries.filter {
+                it.categoryId == selectedSeriesCategoryId ||
+                it.categoryName.equals(activeSeriesCatName, ignoreCase = true)
+            }
+        }
     }
     LaunchedEffect(hiddenSeriesCategories) {
         if (selectedSeriesCategoryId != "all" &&
@@ -644,7 +721,7 @@ fun TvHomeScreen(
         }
     }
 
-    // Backdrop cinemÃ¡tico dinÃ¡mico para la portada (EveryCine Style)
+    // Backdrop cinemático dinámico para la portada (EveryCine Style)
     val currentBackdropUrl = remember(selectedTopTab, focusedHeroMovie, focusedHeroSeries, focusedChannel) {
         when (selectedTopTab) {
             3 -> focusedHeroMovie?.backdropPath ?: focusedHeroMovie?.streamIcon
@@ -655,18 +732,22 @@ fun TvHomeScreen(
                 } else if (focusedHeroSeries != null && selectedTopTab == 1) {
                     focusedHeroSeries?.backdropPath ?: focusedHeroSeries?.cover
                 } else {
-                    focusedChannel.streamIcon
+                    focusedChannel?.streamIcon
                 }
             }
         }
     }
 
     // Live Background Zapping instantáneo (activo en Inicio y En Vivo)
-    LaunchedEffect(focusedChannel.streamUrl, selectedTopTab) {
-        if (selectedTopTab == 1 || selectedTopTab == 2) {
-            if (focusedChannel.streamUrl.isNotEmpty() && !isFullscreen) {
+    LaunchedEffect(focusedChannel?.streamUrl, selectedTopTab, visibleChannels.isEmpty()) {
+        if (visibleChannels.isEmpty()) {
+            isPlayingLive = false
+            playerEngine.pause()
+        } else if (selectedTopTab == 1 || selectedTopTab == 2) {
+            val streamUrl = focusedChannel?.streamUrl
+            if (!streamUrl.isNullOrEmpty() && !isFullscreen) {
                 isPlayingLive = true
-                playerEngine.playStream(focusedChannel.streamUrl, isLive = true)
+                playerEngine.playStream(streamUrl, isLive = true)
             }
         } else if (!isFullscreen) {
             // Pausar video en vivo al explorar Películas, Series o Buscar si no está en pantalla completa
@@ -716,11 +797,11 @@ fun TvHomeScreen(
                             KeyEvent.KEYCODE_DPAD_UP,
                             KeyEvent.KEYCODE_CHANNEL_UP,
                             KeyEvent.KEYCODE_PAGE_UP -> {
-                                if (isLiveStream && displayChannels.isNotEmpty()) {
-                                    val nextIndex = if (focusedChannelIndex < displayChannels.lastIndex) focusedChannelIndex + 1 else 0
+                                if (isLiveStream && visibleChannels.isNotEmpty()) {
+                                    val nextIndex = if (focusedChannelIndex < visibleChannels.lastIndex) focusedChannelIndex + 1 else 0
                                     focusedChannelIndex = nextIndex
                                     isPlayingLive = true
-                                    playerEngine.playStream(displayChannels[nextIndex].streamUrl, isLive = true)
+                                    playerEngine.playStream(visibleChannels[nextIndex].streamUrl, isLive = true)
                                     isHudVisible = true
                                     true
                                 } else {
@@ -731,11 +812,11 @@ fun TvHomeScreen(
                             KeyEvent.KEYCODE_DPAD_DOWN,
                             KeyEvent.KEYCODE_CHANNEL_DOWN,
                             KeyEvent.KEYCODE_PAGE_DOWN -> {
-                                if (isLiveStream && displayChannels.isNotEmpty()) {
-                                    val prevIndex = if (focusedChannelIndex > 0) focusedChannelIndex - 1 else displayChannels.lastIndex
+                                if (isLiveStream && visibleChannels.isNotEmpty()) {
+                                    val prevIndex = if (focusedChannelIndex > 0) focusedChannelIndex - 1 else visibleChannels.lastIndex
                                     focusedChannelIndex = prevIndex
                                     isPlayingLive = true
-                                    playerEngine.playStream(displayChannels[prevIndex].streamUrl, isLive = true)
+                                    playerEngine.playStream(visibleChannels[prevIndex].streamUrl, isLive = true)
                                     isHudVisible = true
                                     true
                                 } else {
@@ -749,8 +830,11 @@ fun TvHomeScreen(
                                     isQuickZappingOpen = !isQuickZappingOpen
                                     isHudVisible = true
                                 } else {
-                                    playerEngine.seekBy(-10)
-                                    seekFeedbackText = "-10s"
+                                    val isRewindKey = keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_MEDIA_REWIND
+                                    val offsetMs = if (isRewindKey) -30_000L else -10_000L
+                                    playerEngine.seekBy(offsetMs)
+                                    seekFeedbackText = if (isRewindKey) "⏪ -30s" else "⏪ -10s"
+                                    isHudVisible = true
                                 }
                                 true
                             }
@@ -759,8 +843,11 @@ fun TvHomeScreen(
                                 if (isLiveStream) {
                                     isHudVisible = !isHudVisible
                                 } else {
-                                    playerEngine.seekBy(10)
-                                    seekFeedbackText = "+10s"
+                                    val isFfKey = keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD
+                                    val offsetMs = if (isFfKey) 30_000L else 10_000L
+                                    playerEngine.seekBy(offsetMs)
+                                    seekFeedbackText = if (isFfKey) "⏩ +30s" else "⏩ +10s"
+                                    isHudVisible = true
                                 }
                                 true
                             }
@@ -796,7 +883,8 @@ fun TvHomeScreen(
         // CAPA 1: Video de Fondo o Portada Cinemática de Alta Calidad (EveryCine Style)
         Box(modifier = Modifier.fillMaxSize()) {
             // Reproductor de video nativo para canales en vivo (Inicio y En Vivo) o cuando está en pantalla completa
-            if (selectedTopTab == 1 || selectedTopTab == 2 || isFullscreen) {
+            val canShowLivePlayer = (selectedTopTab == 1 || selectedTopTab == 2) && visibleChannels.isNotEmpty()
+            if (canShowLivePlayer || isFullscreen) {
                 LelouchVideoPlayer(
                     playerEngine = playerEngine,
                     modifier = Modifier.fillMaxSize(),
@@ -904,11 +992,11 @@ fun TvHomeScreen(
                         0 -> {
                             // 🔍 BUSCADOR NATIVO FLUIDO (Sin teclado virtual bloqueante, compatible con voz y control remoto)
                             TvSearchContent(
-                                channels = displayChannels,
-                                movies = displayMovies,
-                                seriesList = displaySeries,
+                                channels = visibleChannels,
+                                movies = visibleMovies,
+                                seriesList = visibleSeries,
                                 onSelectChannel = { ch ->
-                                    val idx = displayChannels.indexOfFirst { it.streamId == ch.streamId }
+                                    val idx = visibleChannels.indexOfFirst { it.streamId == ch.streamId }
                                     if (idx >= 0) focusedChannelIndex = idx
                                     selectedTopTab = 2
                                     isFullscreen = true
@@ -952,18 +1040,39 @@ fun TvHomeScreen(
                                 }
 
                                 item {
+                                    val heroTitle = focusedHeroMovie?.name ?: focusedChannel?.name ?: "Lelouch Stream TV"
+                                    val heroSubtitle = focusedHeroMovie?.plot ?: focusedChannel?.currentProgram ?: "Explora tus canales en directo, películas y series favoritas."
+                                    val heroBadge = if (focusedHeroMovie != null) "4K UHD" else if (focusedChannel != null) "EN VIVO" else "LIVETV"
+                                    val heroMeta = if (focusedHeroMovie != null) {
+                                        "★ ${focusedHeroMovie?.rating ?: 8.5}  •  ${focusedHeroMovie?.year ?: "2024"}  •  Cine"
+                                    } else if (focusedChannel != null) {
+                                        "CH ${focusedChannel.num}  •  ${focusedChannel.categoryName}  •  ${videoInfo.resolutionLabel}"
+                                    } else {
+                                        "0 canales visibles activados"
+                                    }
+                                    val heroButtonText = if (focusedHeroMovie != null) {
+                                        "Ver Película (OK)"
+                                    } else if (focusedChannel != null) {
+                                        "Ver Pantalla Completa (OK)"
+                                    } else {
+                                        "Gestionar Categorías"
+                                    }
+
                                     TvHeroSpotlight(
-                                        title = focusedHeroMovie?.name ?: focusedChannel.name,
-                                        subtitle = focusedHeroMovie?.plot ?: focusedChannel.currentProgram,
-                                        badge = if (focusedHeroMovie != null) "4K UHD" else "EN VIVO",
-                                        meta = if (focusedHeroMovie != null) "★ ${focusedHeroMovie?.rating ?: 8.5}  •  ${focusedHeroMovie?.year ?: "2024"}  •  Cine" else "CH ${focusedChannel.num}  •  ${focusedChannel.categoryName}  •  ${videoInfo.resolutionLabel}",
-                                        playButtonText = if (focusedHeroMovie != null) "Ver Película (OK)" else "Ver Pantalla Completa (OK)",
+                                        title = heroTitle,
+                                        subtitle = heroSubtitle,
+                                        badge = heroBadge,
+                                        meta = heroMeta,
+                                        playButtonText = heroButtonText,
                                         onPlayClick = {
                                             if (focusedHeroMovie != null) {
                                                 playMovie(focusedHeroMovie!!)
-                                            } else {
+                                            } else if (focusedChannel != null) {
                                                 isPlayingLive = true
                                                 isFullscreen = true
+                                            } else {
+                                                categoryManagerInitialScope = CategoryScope.LIVE
+                                                isCategoryManagerVisible = true
                                             }
                                         },
                                         playButtonRequester = contentFocusRequester,
@@ -971,72 +1080,79 @@ fun TvHomeScreen(
                                     )
                                 }
 
-                                item {
-                                    ContentSectionTitle("🔴 Canales en Directo")
-                                    TvLazyRow(
-                                        contentPadding = PaddingValues(horizontal = 32.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                                    ) {
-                                        itemsIndexed(displayChannels, key = { _, ch -> "home_ch_${ch.streamId}" }) { idx, ch ->
-                                            TvChannelCard(
-                                                channel = ch,
-                                                isSelected = (idx == focusedChannelIndex),
-                                                onFocused = {
-                                                    focusedChannelIndex = idx
-                                                    focusedHeroMovie = null
-                                                },
-                                                onClick = { 
-                                                    isPlayingLive = true
-                                                    isFullscreen = true 
-                                                },
-                                                cardWidth = 215.dp,
-                                                modifier = if (idx == 0) Modifier.focusProperties { left = sidebarRequesters[1] } else Modifier
-                                            )
+                                if (visibleChannels.isNotEmpty()) {
+                                    item {
+                                        ContentSectionTitle("🔴 Canales en Directo")
+                                        TvLazyRow(
+                                            contentPadding = PaddingValues(horizontal = 32.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                                        ) {
+                                            itemsIndexed(visibleChannels, key = { _, ch -> "home_ch_${ch.streamId}" }) { idx, ch ->
+                                                TvChannelCard(
+                                                    channel = ch,
+                                                    isSelected = (idx == focusedChannelIndex),
+                                                    onFocused = {
+                                                        focusedChannelIndex = idx
+                                                        focusedHeroMovie = null
+                                                    },
+                                                    onClick = { 
+                                                        isPlayingLive = true
+                                                        isFullscreen = true 
+                                                    },
+                                                    cardWidth = 215.dp,
+                                                    modifier = if (idx == 0) Modifier.focusProperties { left = sidebarRequesters[1] } else Modifier
+                                                )
+                                            }
                                         }
+                                        Spacer(modifier = Modifier.height(28.dp))
                                     }
-                                    Spacer(modifier = Modifier.height(28.dp))
                                 }
 
-                                item {
-                                    ContentSectionTitle("🎬 Películas Recientemente Añadidas")
-                                    TvLazyRow(
-                                        contentPadding = PaddingValues(horizontal = 32.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                                    ) {
-                                        itemsIndexed(displayMovies, key = { _, mov -> "home_mov_${mov.streamId}" }) { idx, mov ->
-                                            TvPosterCard(
-                                                title = mov.name,
-                                                posterUrl = mov.streamIcon,
-                                                rating = mov.rating ?: 0.0,
-                                                year = mov.year,
-                                                onFocused = { focusedHeroMovie = mov },
-                                                onClick = {
-                                                    playMovie(mov)
-                                                },
-                                                modifier = if (idx == 0) Modifier.focusProperties { left = sidebarRequesters[1] } else Modifier
-                                            )
+                                if (visibleMovies.isNotEmpty()) {
+                                    item {
+                                        ContentSectionTitle("🎬 Películas Recientemente Añadidas")
+                                        TvLazyRow(
+                                            contentPadding = PaddingValues(horizontal = 32.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                                        ) {
+                                            itemsIndexed(visibleMovies, key = { _, mov -> "home_mov_${mov.streamId}" }) { idx, mov ->
+                                                TvPosterCard(
+                                                    title = mov.name,
+                                                    posterUrl = mov.streamIcon,
+                                                    rating = mov.rating ?: 0.0,
+                                                    year = mov.year,
+                                                    onFocused = { focusedHeroMovie = mov },
+                                                    onClick = {
+                                                        playMovie(mov)
+                                                    },
+                                                    modifier = if (idx == 0) Modifier.focusProperties { left = sidebarRequesters[1] } else Modifier
+                                                )
+                                            }
                                         }
+                                        Spacer(modifier = Modifier.height(28.dp))
                                     }
-                                    Spacer(modifier = Modifier.height(28.dp))
                                 }
 
-                                item {
-                                    ContentSectionTitle("📺 Series Populares")
-                                    TvLazyRow(
-                                        contentPadding = PaddingValues(horizontal = 32.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                                    ) {
-                                        itemsIndexed(displaySeries, key = { _, ser -> "home_ser_${ser.seriesId}" }) { idx, ser ->
-                                            TvPosterCard(
-                                                title = ser.name,
-                                                posterUrl = ser.cover,
-                                                rating = ser.rating ?: 0.0,
-                                                year = ser.releaseDate?.take(4),
-                                                onFocused = { focusedHeroSeries = ser },
-                                                onClick = { openSeriesDetails(ser) },
-                                                modifier = if (idx == 0) Modifier.focusProperties { left = sidebarRequesters[1] } else Modifier
-                                            )
+                                if (visibleSeries.isNotEmpty()) {
+                                    item {
+                                        ContentSectionTitle("📺 Series Populares")
+                                        TvLazyRow(
+                                            contentPadding = PaddingValues(horizontal = 32.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                                        ) {
+                                            itemsIndexed(visibleSeries, key = { _, ser -> "home_ser_${ser.seriesId}" }) { idx, ser ->
+                                                TvPosterCard(
+                                                    title = ser.name,
+                                                    posterUrl = ser.cover,
+                                                    rating = ser.rating ?: 0.0,
+                                                    year = ser.releaseDate?.take(4),
+                                                    onFocused = { focusedHeroSeries = ser },
+                                                    onClick = { openSeriesDetails(ser) },
+                                                    modifier = if (idx == 0) Modifier.focusProperties { left = sidebarRequesters[1] } else Modifier
+                                                )
+                                            }
                                         }
+                                        Spacer(modifier = Modifier.height(28.dp))
                                     }
                                 }
                             }
@@ -1086,35 +1202,81 @@ fun TvHomeScreen(
                                     modifier = Modifier.padding(bottom = 12.dp)
                                 )
 
-                                LazyVerticalGrid(
-                                    columns = GridCells.Adaptive(minSize = 205.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                                    contentPadding = PaddingValues(bottom = 64.dp),
-                                    modifier = Modifier.fillMaxSize()
-                                ) {
-                                    itemsIndexed(filteredChannels, key = { _, ch -> "grid_live_ch_${ch.streamId}" }) { index, ch ->
-                                        val cardModifier = if (index == 0) {
-                                            Modifier
-                                                .fillMaxWidth()
-                                                .focusProperties { left = sidebarRequesters[2] }
-                                        } else {
-                                            Modifier.fillMaxWidth()
+                                if (filteredChannels.isEmpty()) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(bottom = 64.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Surface(
+                                            onClick = {
+                                                categoryManagerInitialScope = CategoryScope.LIVE
+                                                isCategoryManagerVisible = true
+                                            },
+                                            shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(18.dp)),
+                                            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+                                            colors = ClickableSurfaceDefaults.colors(
+                                                containerColor = LelouchSurfaceVariant.copy(alpha = 0.85f),
+                                                focusedContainerColor = LelouchCyanAccent
+                                            ),
+                                            modifier = Modifier.padding(24.dp)
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(horizontal = 32.dp, vertical = 24.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally
+                                            ) {
+                                                Text(
+                                                    text = "📺",
+                                                    fontSize = 36.sp
+                                                )
+                                                Spacer(modifier = Modifier.height(8.dp))
+                                                Text(
+                                                    text = if (visibleChannels.isEmpty()) "No hay canales visibles activados" else "No hay canales en '$activeChannelCatName'",
+                                                    color = Color.White,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 18.sp
+                                                )
+                                                Spacer(modifier = Modifier.height(6.dp))
+                                                Text(
+                                                    text = "Presiona OK para gestionar y activar categorías visibles",
+                                                    color = LelouchTextSecondary,
+                                                    fontSize = 14.sp
+                                                )
+                                            }
                                         }
+                                    }
+                                } else {
+                                    LazyVerticalGrid(
+                                        columns = GridCells.Adaptive(minSize = 205.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                                        contentPadding = PaddingValues(bottom = 64.dp),
+                                        modifier = Modifier.fillMaxSize()
+                                    ) {
+                                        itemsIndexed(filteredChannels, key = { _, ch -> "grid_live_ch_${ch.streamId}" }) { index, ch ->
+                                            val cardModifier = if (index == 0) {
+                                                Modifier
+                                                    .fillMaxWidth()
+                                                    .focusProperties { left = sidebarRequesters[2] }
+                                            } else {
+                                                Modifier.fillMaxWidth()
+                                            }
 
-                                        TvChannelCard(
-                                            channel = ch,
-                                            isSelected = (index == focusedChannelIndex),
-                                            onFocused = {
-                                                focusedChannelIndex = index
-                                            },
-                                            onClick = { 
-                                                isPlayingLive = true
-                                                playerEngine.playStream(ch.streamUrl, isLive = true)
-                                                isFullscreen = true 
-                                            },
-                                            modifier = cardModifier
-                                        )
+                                            TvChannelCard(
+                                                channel = ch,
+                                                isSelected = (index == focusedChannelIndex),
+                                                onFocused = {
+                                                    focusedChannelIndex = index
+                                                },
+                                                onClick = { 
+                                                    isPlayingLive = true
+                                                    playerEngine.playStream(ch.streamUrl, isLive = true)
+                                                    isFullscreen = true 
+                                                },
+                                                modifier = cardModifier
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -1164,31 +1326,74 @@ fun TvHomeScreen(
                                     modifier = Modifier.padding(bottom = 12.dp)
                                 )
 
-                                LazyVerticalGrid(
-                                    columns = GridCells.Adaptive(minSize = 145.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                                    verticalArrangement = Arrangement.spacedBy(20.dp),
-                                    contentPadding = PaddingValues(bottom = 48.dp),
-                                    modifier = Modifier.fillMaxSize()
-                                ) {
-                                    itemsIndexed(filteredMovies, key = { _, movie -> "grid_movie_${movie.streamId}" }) { idx, movie ->
-                                        val cardModifier = if (idx == 0) {
-                                            Modifier.focusProperties { left = sidebarRequesters[3] }
-                                        } else {
-                                            Modifier
-                                        }
-
-                                        TvPosterCard(
-                                            title = movie.name,
-                                            posterUrl = movie.streamIcon,
-                                            rating = movie.rating ?: 0.0,
-                                            year = movie.year,
-                                            onFocused = { focusedHeroMovie = movie },
+                                if (filteredMovies.isEmpty()) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(bottom = 48.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Surface(
                                             onClick = {
-                                                playMovie(movie)
+                                                categoryManagerInitialScope = CategoryScope.MOVIES
+                                                isCategoryManagerVisible = true
                                             },
-                                            modifier = cardModifier
-                                        )
+                                            shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(18.dp)),
+                                            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+                                            colors = ClickableSurfaceDefaults.colors(
+                                                containerColor = LelouchSurfaceVariant.copy(alpha = 0.85f),
+                                                focusedContainerColor = LelouchCyanAccent
+                                            ),
+                                            modifier = Modifier.padding(24.dp)
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(horizontal = 32.dp, vertical = 24.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally
+                                            ) {
+                                                Text(text = "🎬", fontSize = 36.sp)
+                                                Spacer(modifier = Modifier.height(8.dp))
+                                                Text(
+                                                    text = if (visibleMovies.isEmpty()) "No hay películas visibles activadas" else "No hay películas en '$activeMovieCatName'",
+                                                    color = Color.White,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 18.sp
+                                                )
+                                                Spacer(modifier = Modifier.height(6.dp))
+                                                Text(
+                                                    text = "Presiona OK para gestionar categorías de películas",
+                                                    color = LelouchTextSecondary,
+                                                    fontSize = 14.sp
+                                                )
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    LazyVerticalGrid(
+                                        columns = GridCells.Adaptive(minSize = 145.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                        verticalArrangement = Arrangement.spacedBy(20.dp),
+                                        contentPadding = PaddingValues(bottom = 48.dp),
+                                        modifier = Modifier.fillMaxSize()
+                                    ) {
+                                        itemsIndexed(filteredMovies, key = { _, movie -> "grid_movie_${movie.streamId}" }) { idx, movie ->
+                                            val cardModifier = if (idx == 0) {
+                                                Modifier.focusProperties { left = sidebarRequesters[3] }
+                                            } else {
+                                                Modifier
+                                            }
+
+                                            TvPosterCard(
+                                                title = movie.name,
+                                                posterUrl = movie.streamIcon,
+                                                rating = movie.rating ?: 0.0,
+                                                year = movie.year,
+                                                onFocused = { focusedHeroMovie = movie },
+                                                onClick = {
+                                                    playMovie(movie)
+                                                },
+                                                modifier = cardModifier
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -1238,29 +1443,72 @@ fun TvHomeScreen(
                                     modifier = Modifier.padding(bottom = 12.dp)
                                 )
 
-                                LazyVerticalGrid(
-                                    columns = GridCells.Adaptive(minSize = 145.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                                    verticalArrangement = Arrangement.spacedBy(20.dp),
-                                    contentPadding = PaddingValues(bottom = 48.dp),
-                                    modifier = Modifier.fillMaxSize()
-                                ) {
-                                    itemsIndexed(filteredSeries, key = { _, series -> "grid_series_${series.seriesId}" }) { idx, series ->
-                                        val cardModifier = if (idx == 0) {
-                                            Modifier.focusProperties { left = sidebarRequesters[4] }
-                                        } else {
-                                            Modifier
+                                if (filteredSeries.isEmpty()) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(bottom = 48.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Surface(
+                                            onClick = {
+                                                categoryManagerInitialScope = CategoryScope.SERIES
+                                                isCategoryManagerVisible = true
+                                            },
+                                            shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(18.dp)),
+                                            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+                                            colors = ClickableSurfaceDefaults.colors(
+                                                containerColor = LelouchSurfaceVariant.copy(alpha = 0.85f),
+                                                focusedContainerColor = LelouchCyanAccent
+                                            ),
+                                            modifier = Modifier.padding(24.dp)
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(horizontal = 32.dp, vertical = 24.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally
+                                            ) {
+                                                Text(text = "📺", fontSize = 36.sp)
+                                                Spacer(modifier = Modifier.height(8.dp))
+                                                Text(
+                                                    text = if (visibleSeries.isEmpty()) "No hay series visibles activadas" else "No hay series en '$activeSeriesCatName'",
+                                                    color = Color.White,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 18.sp
+                                                )
+                                                Spacer(modifier = Modifier.height(6.dp))
+                                                Text(
+                                                    text = "Presiona OK para gestionar categorías de series",
+                                                    color = LelouchTextSecondary,
+                                                    fontSize = 14.sp
+                                                )
+                                            }
                                         }
+                                    }
+                                } else {
+                                    LazyVerticalGrid(
+                                        columns = GridCells.Adaptive(minSize = 145.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                        verticalArrangement = Arrangement.spacedBy(20.dp),
+                                        contentPadding = PaddingValues(bottom = 48.dp),
+                                        modifier = Modifier.fillMaxSize()
+                                    ) {
+                                        itemsIndexed(filteredSeries, key = { _, series -> "grid_series_${series.seriesId}" }) { idx, series ->
+                                            val cardModifier = if (idx == 0) {
+                                                Modifier.focusProperties { left = sidebarRequesters[4] }
+                                            } else {
+                                                Modifier
+                                            }
 
-                                        TvPosterCard(
-                                            title = series.name,
-                                            posterUrl = series.cover,
-                                            rating = series.rating ?: 0.0,
-                                            year = series.releaseDate?.take(4),
-                                            onFocused = { focusedHeroSeries = series },
-                                            onClick = { openSeriesDetails(series) },
-                                            modifier = cardModifier
-                                        )
+                                            TvPosterCard(
+                                                title = series.name,
+                                                posterUrl = series.cover,
+                                                rating = series.rating ?: 0.0,
+                                                year = series.releaseDate?.take(4),
+                                                onFocused = { focusedHeroSeries = series },
+                                                onClick = { openSeriesDetails(series) },
+                                                modifier = cardModifier
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -1546,7 +1794,8 @@ fun TvHomeScreen(
                     )
                     .padding(horizontal = 48.dp, vertical = 20.dp)
             ) {
-                if (isPlayingLive) {
+                if (isPlayingLive && focusedChannel != null) {
+                    val currentHudCh = focusedChannel!!
                     Column {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -1565,7 +1814,7 @@ fun TvHomeScreen(
                                     }
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = "CH ${focusedChannel.num}  •  ${focusedChannel.categoryName}",
+                                        text = "CH ${currentHudCh.num}  •  ${currentHudCh.categoryName}",
                                         color = LelouchCyanAccent,
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.Bold
@@ -1573,13 +1822,13 @@ fun TvHomeScreen(
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = focusedChannel.name,
+                                    text = currentHudCh.name,
                                     color = LelouchTextPrimary,
                                     fontSize = 22.sp,
                                     fontWeight = FontWeight.Black
                                 )
                                 Text(
-                                    text = focusedChannel.currentProgram,
+                                    text = currentHudCh.currentProgram,
                                     color = LelouchTextSecondary,
                                     fontSize = 14.sp
                                 )
@@ -1594,7 +1843,7 @@ fun TvHomeScreen(
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "Siguiente: ${focusedChannel.nextProgram}",
+                                    text = "Siguiente: ${currentHudCh.nextProgram}",
                                     color = LelouchTextMuted,
                                     fontSize = 12.sp
                                 )
@@ -1608,7 +1857,7 @@ fun TvHomeScreen(
                             horizontalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
                             itemsIndexed(
-                                items = displayChannels,
+                                items = visibleChannels,
                                 key = { _, channel -> "hud_ch_${channel.streamId}" }
                             ) { index, channel ->
                                 val isSelected = (index == focusedChannelIndex)
@@ -1848,7 +2097,7 @@ fun TvHomeScreen(
                 movies = movies,
                 seriesList = seriesList,
                 onSelectChannel = { channel ->
-                    val idx = displayChannels.indexOfFirst { it.streamId == channel.streamId }
+                    val idx = visibleChannels.indexOfFirst { it.streamId == channel.streamId }
                     if (idx >= 0) focusedChannelIndex = idx
                     selectedTopTab = 1
                     isSearchModalVisible = false
@@ -1882,7 +2131,7 @@ fun TvHomeScreen(
             EpgTimelineModal(
                 channels = liveChannels,
                 onSelectChannel = { channel ->
-                    val idx = displayChannels.indexOfFirst { it.streamId == channel.streamId }
+                    val idx = visibleChannels.indexOfFirst { it.streamId == channel.streamId }
                     if (idx >= 0) focusedChannelIndex = idx
                     selectedTopTab = 1
                     isEpgModalVisible = false
@@ -1912,7 +2161,15 @@ fun TvHomeScreen(
                     onLogout()
                     isAdminModalVisible = false
                 },
+                onCheckUpdates = { isUpdateModalVisible = true },
                 onDismiss = { isAdminModalVisible = false }
+            )
+        }
+
+        // CAPA 8.2: Modal de Actualización Over-The-Air (OTA)
+        if (isUpdateModalVisible) {
+            TvUpdateModal(
+                onDismiss = { isUpdateModalVisible = false }
             )
         }
 
@@ -1926,24 +2183,36 @@ fun TvHomeScreen(
                 hiddenMovieCategoryNames = hiddenMovieCategories,
                 seriesCategories = seriesCategoryItemModels,
                 hiddenSeriesCategoryNames = hiddenSeriesCategories,
-                onToggleLiveCategory = { catName, isVis ->
-                    val next = if (isVis) hiddenLiveCategories - catName else hiddenLiveCategories + catName
+                onToggleLiveCategory = { cat, isVis ->
+                    val next = if (isVis) {
+                        hiddenLiveCategories - cat.id - cat.name
+                    } else {
+                        hiddenLiveCategories + cat.id + cat.name
+                    }
                     saveHiddenLive(next)
                 },
-                onToggleMovieCategory = { catName, isVis ->
-                    val next = if (isVis) hiddenMovieCategories - catName else hiddenMovieCategories + catName
+                onToggleMovieCategory = { cat, isVis ->
+                    val next = if (isVis) {
+                        hiddenMovieCategories - cat.id - cat.name
+                    } else {
+                        hiddenMovieCategories + cat.id + cat.name
+                    }
                     saveHiddenMovies(next)
                 },
-                onToggleSeriesCategory = { catName, isVis ->
-                    val next = if (isVis) hiddenSeriesCategories - catName else hiddenSeriesCategories + catName
+                onToggleSeriesCategory = { cat, isVis ->
+                    val next = if (isVis) {
+                        hiddenSeriesCategories - cat.id - cat.name
+                    } else {
+                        hiddenSeriesCategories + cat.id + cat.name
+                    }
                     saveHiddenSeries(next)
                 },
                 onShowAllLive = { saveHiddenLive(emptySet()) },
-                onHideAllLive = { saveHiddenLive(liveCategoryItemModels.map { it.name }.toSet()) },
+                onHideAllLive = { saveHiddenLive(liveCategoryItemModels.flatMap { listOf(it.id, it.name) }.toSet()) },
                 onShowAllMovies = { saveHiddenMovies(emptySet()) },
-                onHideAllMovies = { saveHiddenMovies(movieCategoryItemModels.map { it.name }.toSet()) },
+                onHideAllMovies = { saveHiddenMovies(movieCategoryItemModels.flatMap { listOf(it.id, it.name) }.toSet()) },
                 onShowAllSeries = { saveHiddenSeries(emptySet()) },
-                onHideAllSeries = { saveHiddenSeries(seriesCategoryItemModels.map { it.name }.toSet()) },
+                onHideAllSeries = { saveHiddenSeries(seriesCategoryItemModels.flatMap { listOf(it.id, it.name) }.toSet()) },
                 onDismiss = { isCategoryManagerVisible = false }
             )
         }
@@ -2038,7 +2307,7 @@ fun TvHomeScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        itemsIndexed(displayChannels) { idx, ch ->
+                        itemsIndexed(visibleChannels) { idx, ch ->
                             var isChFocused by remember { mutableStateOf(false) }
                             val isCurrentPlaying = (idx == focusedChannelIndex)
 
