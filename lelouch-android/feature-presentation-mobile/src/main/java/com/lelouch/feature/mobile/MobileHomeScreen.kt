@@ -1,16 +1,24 @@
 package com.lelouch.feature.mobile
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.LiveTv
-import androidx.compose.material.icons.filled.Movie
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,40 +26,33 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import coil.compose.AsyncImage
 import com.lelouch.core.designsystem.*
-
 import com.lelouch.core.model.LiveStream
+import com.lelouch.core.model.VodMovie
+import com.lelouch.core.model.Series
 import com.lelouch.core.model.SourceConfig
 import com.lelouch.core.network.XtreamUrlBuilder
 import com.lelouch.core.player.LelouchVideoPlayer
 import com.lelouch.core.player.rememberLelouchPlayer
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.ui.layout.ContentScale
-import coil.compose.AsyncImage
-
-
-import androidx.compose.foundation.border
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material.icons.filled.CloudSync
-import androidx.compose.material.icons.filled.Logout
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 
 @Composable
 fun MobileHomeScreen(
     activeSource: SourceConfig? = null,
     allSources: List<SourceConfig> = emptyList(),
     liveChannels: List<LiveStream> = emptyList(),
-    onNavigateToLive: () -> Unit = {},
-    onNavigateToMovies: () -> Unit = {},
-    onNavigateToSeries: () -> Unit = {},
-    onNavigateToSearch: () -> Unit = {},
+    movies: List<VodMovie> = emptyList(),
+    seriesList: List<Series> = emptyList(),
     onActivateSource: (String) -> Unit = {},
     onDeleteSource: (String) -> Unit = {},
     onAddSource: (String, String, String, String) -> Unit = { _, _, _, _ -> },
@@ -62,691 +63,842 @@ fun MobileHomeScreen(
     var selectedTab by remember { mutableIntStateOf(0) }
     var activeStreamUrl by remember { mutableStateOf<String?>(null) }
     var activeChannelName by remember { mutableStateOf("") }
+    var searchQuery by remember { mutableStateOf("") }
     val playerEngine = rememberLelouchPlayer()
 
-    // Formulario para nueva cuenta en móvil
     var newServerUrl by remember { mutableStateOf("") }
     var newUsername by remember { mutableStateOf("") }
     var newPassword by remember { mutableStateOf("") }
     var newName by remember { mutableStateOf("") }
 
+    var selectedMovie by remember { mutableStateOf<VodMovie?>(null) }
+    var selectedSeries by remember { mutableStateOf<Series?>(null) }
+
     LaunchedEffect(activeStreamUrl) {
-        activeStreamUrl?.let { url ->
-            playerEngine.playStream(url, isLive = true)
-        }
+        activeStreamUrl?.let { url -> playerEngine.playStream(url, isLive = true) }
+    }
+
+    selectedMovie?.let { movie ->
+        MobileMovieDetailDialog(
+            movie = movie,
+            activeSource = activeSource,
+            onPlay = { url ->
+                playerEngine.playStream(url, isLive = false)
+                activeStreamUrl = url
+                activeChannelName = movie.name
+                selectedMovie = null
+            },
+            onDismiss = { selectedMovie = null }
+        )
+    }
+
+    selectedSeries?.let { series ->
+        MobileSeriesDetailDialog(series = series, onDismiss = { selectedSeries = null })
     }
 
     Scaffold(
         bottomBar = {
-            NavigationBar(
-                containerColor = LelouchSurface,
-                tonalElevation = 8.dp
-            ) {
-                NavigationBarItem(
-                    selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
-                    icon = { Icon(Icons.Default.Home, contentDescription = "Inicio") },
-                    label = { Text("Inicio") },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = LelouchCyanAccent,
-                        selectedTextColor = LelouchCyanAccent,
-                        indicatorColor = LelouchSurfaceVariant,
-                        unselectedIconColor = LelouchTextSecondary,
-                        unselectedTextColor = LelouchTextSecondary
-                    )
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 1,
-                    onClick = { 
-                        selectedTab = 1
-                        onNavigateToLive()
-                    },
-                    icon = { Icon(Icons.Default.LiveTv, contentDescription = "En Vivo") },
-                    label = { Text("En Vivo") },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = LelouchCyanAccent,
-                        selectedTextColor = LelouchCyanAccent,
-                        indicatorColor = LelouchSurfaceVariant,
-                        unselectedIconColor = LelouchTextSecondary,
-                        unselectedTextColor = LelouchTextSecondary
-                    )
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 2,
-                    onClick = { 
-                        selectedTab = 2
-                        onNavigateToMovies()
-                    },
-                    icon = { Icon(Icons.Default.Movie, contentDescription = "Películas") },
-                    label = { Text("Películas") },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = LelouchCyanAccent,
-                        selectedTextColor = LelouchCyanAccent,
-                        indicatorColor = LelouchSurfaceVariant,
-                        unselectedIconColor = LelouchTextSecondary,
-                        unselectedTextColor = LelouchTextSecondary
-                    )
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 3,
-                    onClick = { 
-                        selectedTab = 3
-                        onNavigateToSeries()
-                    },
-                    icon = { Icon(Icons.Default.Tv, contentDescription = "Series") },
-                    label = { Text("Series") },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = LelouchCyanAccent,
-                        selectedTextColor = LelouchCyanAccent,
-                        indicatorColor = LelouchSurfaceVariant,
-                        unselectedIconColor = LelouchTextSecondary,
-                        unselectedTextColor = LelouchTextSecondary
-                    )
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 4,
-                    onClick = { selectedTab = 4 },
-                    icon = { Icon(Icons.Default.Settings, contentDescription = "Listas") },
-                    label = { Text("Listas") },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = LelouchCyanAccent,
-                        selectedTextColor = LelouchCyanAccent,
-                        indicatorColor = LelouchSurfaceVariant,
-                        unselectedIconColor = LelouchTextSecondary,
-                        unselectedTextColor = LelouchTextSecondary
-                    )
-                )
-            }
+            MobileBottomNavBar(selectedTab = selectedTab, onTabChange = {
+                selectedTab = it
+                searchQuery = ""
+            })
         },
         containerColor = LelouchBackground
     ) { paddingValues ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-        ) {
-            // Header con Logo, Chip de Lista Activa y Acciones
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "LELOUCH",
-                            style = LelouchTypography.titleLarge.copy(
-                                color = LelouchTextPrimary,
-                                fontWeight = FontWeight.Black,
-                                letterSpacing = 1.sp
-                            )
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(LelouchSurfaceVariant)
-                                .clickable { selectedTab = 4 }
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(6.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0xFF10B981))
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = activeSource?.name ?: "IPTV",
-                                    color = LelouchCyanAccent,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
-
-                    Row {
-                        IconButton(onClick = onNavigateToSearch) {
-                            Icon(
-                                Icons.Default.Search,
-                                contentDescription = "Buscar",
-                                tint = LelouchCyanAccent
-                            )
-                        }
-                        IconButton(onClick = { selectedTab = 4 }) {
-                            Icon(
-                                Icons.Default.Settings,
-                                contentDescription = "Listas / Admin",
-                                tint = if (selectedTab == 4) LelouchCyanAccent else LelouchTextSecondary
-                            )
-                        }
-                    }
+        Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+            if (activeStreamUrl != null) {
+                MiniPlayerOverlay(
+                    channelName = activeChannelName,
+                    playerEngine = playerEngine,
+                    onClose = { playerEngine.stop(); activeStreamUrl = null }
+                )
+            }
+            MobileTopBar(
+                activeSource = activeSource,
+                showSearch = selectedTab != 4,
+                searchQuery = searchQuery,
+                onSearchChange = { searchQuery = it },
+                onSettingsTap = { selectedTab = 4 }
+            )
+            AnimatedContent(
+                targetState = selectedTab,
+                transitionSpec = { fadeIn() togetherWith fadeOut() },
+                modifier = Modifier.fillMaxSize(),
+                label = "tab_content"
+            ) { tab ->
+                when (tab) {
+                    0 -> MobileHomeTab(
+                        liveChannels = liveChannels, movies = movies, seriesList = seriesList,
+                        activeSource = activeSource,
+                        onChannelClick = { ch, url -> activeChannelName = ch; activeStreamUrl = url },
+                        onMovieClick = { selectedMovie = it },
+                        onSeriesClick = { selectedSeries = it },
+                        onSeeAllLive = { selectedTab = 1 },
+                        onSeeAllMovies = { selectedTab = 2 },
+                        onSeeAllSeries = { selectedTab = 3 }
+                    )
+                    1 -> MobileLiveTab(
+                        channels = if (searchQuery.isBlank()) liveChannels
+                                   else liveChannels.filter { it.name.contains(searchQuery, ignoreCase = true) },
+                        activeSource = activeSource,
+                        onChannelClick = { ch, url -> activeChannelName = ch; activeStreamUrl = url }
+                    )
+                    2 -> MobileMoviesTab(
+                        movies = if (searchQuery.isBlank()) movies
+                                 else movies.filter { it.name.contains(searchQuery, ignoreCase = true) },
+                        onMovieClick = { selectedMovie = it }
+                    )
+                    3 -> MobileSeriesTab(
+                        seriesList = if (searchQuery.isBlank()) seriesList
+                                     else seriesList.filter { it.name.contains(searchQuery, ignoreCase = true) },
+                        onSeriesClick = { selectedSeries = it }
+                    )
+                    4 -> MobileSettingsTab(
+                        activeSource = activeSource, allSources = allSources,
+                        newServerUrl = newServerUrl, newUsername = newUsername,
+                        newPassword = newPassword, newName = newName,
+                        onNewServerUrl = { newServerUrl = it }, onNewUsername = { newUsername = it },
+                        onNewPassword = { newPassword = it }, onNewName = { newName = it },
+                        onActivateSource = onActivateSource, onDeleteSource = onDeleteSource,
+                        onAddSource = { s, u, p, n ->
+                            onAddSource(s, u, p, n)
+                            newServerUrl = ""; newUsername = ""; newPassword = ""; newName = ""
+                        },
+                        onSyncCloud = onSyncCloudSources, onForceSync = onForceSync, onLogout = onLogout
+                    )
                 }
             }
+        }
+    }
+}
 
-            if (selectedTab == 4) {
-                // PANEL DE ADMINISTRACIÓN Y GESTOR DE LISTAS PARA MÓVIL
-                item {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp)
-                    ) {
-                        Text(
-                            text = "⚙️ Gestor de Listas IPTV",
-                            style = LelouchTypography.titleLarge,
-                            color = LelouchTextPrimary,
-                            fontWeight = FontWeight.Black
-                        )
-                        Text(
-                            text = "Cambia entre tus cuentas registradas o conecta un nuevo proveedor.",
-                            style = LelouchTypography.bodySmall,
-                            color = LelouchTextSecondary
-                        )
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        // Botones de Mantenimiento
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Button(
-                                onClick = onSyncCloudSources,
-                                colors = ButtonDefaults.buttonColors(containerColor = LelouchSurfaceVariant),
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Icon(Icons.Default.CloudSync, contentDescription = null, tint = LelouchCyanAccent, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Nube", fontSize = 12.sp, color = Color.White)
-                            }
-                            Button(
-                                onClick = onForceSync,
-                                colors = ButtonDefaults.buttonColors(containerColor = LelouchSurfaceVariant),
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Icon(Icons.Default.Refresh, contentDescription = null, tint = LelouchCyanAccent, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Re-sync", fontSize = 12.sp, color = Color.White)
-                            }
-                            Button(
-                                onClick = onLogout,
-                                colors = ButtonDefaults.buttonColors(containerColor = LelouchLiveRed.copy(alpha = 0.2f)),
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Icon(Icons.Default.Logout, contentDescription = null, tint = LelouchLiveRed, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Salir", fontSize = 12.sp, color = LelouchLiveRed)
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(20.dp))
-
-                        Text(
-                            text = "Tus Listas Registradas (${allSources.size}):",
-                            style = LelouchTypography.titleSmall,
-                            color = LelouchCyanAccent,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                    }
+// TOP BAR
+@Composable
+private fun MobileTopBar(
+    activeSource: SourceConfig?, showSearch: Boolean,
+    searchQuery: String, onSearchChange: (String) -> Unit, onSettingsTap: () -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier.fillMaxWidth().background(LelouchBackground)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (expanded) {
+            BasicTextField(
+                value = searchQuery, onValueChange = onSearchChange,
+                modifier = Modifier.weight(1f).clip(RoundedCornerShape(20.dp))
+                    .background(LelouchSurface).padding(horizontal = 14.dp, vertical = 10.dp),
+                singleLine = true,
+                textStyle = TextStyle(color = LelouchTextPrimary, fontSize = 14.sp),
+                cursorBrush = SolidColor(LelouchCyanAccent),
+                decorationBox = { inner ->
+                    if (searchQuery.isEmpty()) Text("Buscar...", color = LelouchTextMuted, fontSize = 14.sp)
+                    inner()
                 }
-
-                itemsIndexed(allSources) { _, source ->
-                    val isActive = source.id == activeSource?.id || source.isActive
+            )
+            IconButton(onClick = { expanded = false; onSearchChange("") }) {
+                Icon(Icons.Default.Close, null, tint = LelouchTextSecondary)
+            }
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                Text("LELOUCH", color = LelouchTextPrimary, fontWeight = FontWeight.Black, fontSize = 20.sp, letterSpacing = 1.sp)
+                if (activeSource != null) {
+                    Spacer(Modifier.width(10.dp))
                     Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 6.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (isActive) LelouchSurfaceVariant else LelouchSurface)
-                            .border(
-                                width = if (isActive) 1.5.dp else 1.dp,
-                                color = if (isActive) Color(0xFF10B981) else LelouchBorder,
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            .clickable {
-                                if (!isActive) {
-                                    onActivateSource(source.id)
-                                    selectedTab = 0
-                                }
-                            }
-                            .padding(14.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = source.name,
-                                        style = LelouchTypography.titleSmall,
-                                        color = LelouchTextPrimary,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    if (isActive) {
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Box(
-                                            modifier = Modifier
-                                                .clip(RoundedCornerShape(4.dp))
-                                                .background(Color(0xFF10B981))
-                                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                                        ) {
-                                            Text("ACTIVA", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                                        }
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(3.dp))
-                                Text(
-                                    text = "${source.serverUrl}  •  ${source.username}",
-                                    style = LelouchTypography.bodySmall,
-                                    color = LelouchTextSecondary
-                                )
-                            }
-
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                if (!isActive) {
-                                    Button(
-                                        onClick = {
-                                            onActivateSource(source.id)
-                                            selectedTab = 0
-                                        },
-                                        colors = ButtonDefaults.buttonColors(containerColor = LelouchCyanAccent),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                                        shape = RoundedCornerShape(6.dp)
-                                    ) {
-                                        Text("Activar", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                                if (allSources.size > 1) {
-                                    IconButton(onClick = { onDeleteSource(source.id) }) {
-                                        Text("🗑️", fontSize = 14.sp)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Formulario para conectar nueva cuenta
-                item {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp)
-                    ) {
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = "➕ Conectar Otra Cuenta Xtream",
-                            style = LelouchTypography.titleSmall,
-                            color = LelouchTextPrimary,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        OutlinedTextField(
-                            value = newServerUrl,
-                            onValueChange = { newServerUrl = it },
-                            label = { Text("URL Servidor") },
-                            placeholder = { Text("http://servidor:puerto") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = newUsername,
-                            onValueChange = { newUsername = it },
-                            label = { Text("Usuario") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = newPassword,
-                            onValueChange = { newPassword = it },
-                            label = { Text("Contraseña") },
-                            visualTransformation = PasswordVisualTransformation(),
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = newName,
-                            onValueChange = { newName = it },
-                            label = { Text("Nombre Personalizado (Opcional)") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Button(
-                            onClick = {
-                                if (newServerUrl.isNotBlank() && newUsername.isNotBlank() && newPassword.isNotBlank()) {
-                                    onAddSource(newServerUrl.trim(), newUsername.trim(), newPassword.trim(), newName.trim().ifEmpty { newUsername.trim() })
-                                    newServerUrl = ""
-                                    newUsername = ""
-                                    newPassword = ""
-                                    newName = ""
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = LelouchCyanAccent),
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text("Guardar y Conectar Lista", color = Color.Black, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-            } else {
-
-            // Hero Banner Compacto Táctil
-            item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(210.dp)
-                        .padding(horizontal = 16.dp)
-                        .clip(RoundedCornerShape(LelouchCardCornerRadius))
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(LelouchSurfaceVariant, LelouchSurface)
-                            )
-                        )
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(16.dp)
+                        modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(LelouchSurfaceVariant)
+                            .clickable(onClick = onSettingsTap).padding(horizontal = 8.dp, vertical = 3.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(LelouchLiveRed)
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text("DESTACADO", style = LelouchTypography.labelMedium.copy(color = Color.White))
-                            }
+                            Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color(0xFF10B981)))
+                            Spacer(Modifier.width(4.dp))
+                            Text(activeSource.name, color = LelouchCyanAccent, fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.widthIn(max = 110.dp))
                         }
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "Bienvenido a LELOUCH",
-                            style = LelouchTypography.titleLarge
-                        )
-                        Text(
-                            text = "Tu centro multimedia personal nativo",
-                            style = LelouchTypography.bodySmall
-                        )
                     }
                 }
-                Spacer(modifier = Modifier.height(20.dp))
             }
+            if (showSearch) {
+                IconButton(onClick = { expanded = true }) { Icon(Icons.Default.Search, null, tint = LelouchCyanAccent) }
+            }
+            IconButton(onClick = onSettingsTap) { Icon(Icons.Default.Settings, null, tint = LelouchTextSecondary) }
+        }
+    }
+}
 
-            // Riel: Continuar Viendo
-            item {
-                Text(
-                    text = "Continuar Viendo",
-                    style = LelouchTypography.titleMedium,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+// BOTTOM NAV
+@Composable
+private fun MobileBottomNavBar(selectedTab: Int, onTabChange: (Int) -> Unit) {
+    NavigationBar(containerColor = LelouchSurface, tonalElevation = 8.dp) {
+        listOf(
+            Icons.Default.Home to "Inicio",
+            Icons.Default.LiveTv to "En Vivo",
+            Icons.Default.Movie to "Peliculas",
+            Icons.Default.Tv to "Series",
+            Icons.Default.Settings to "Listas"
+        ).forEachIndexed { index, (icon, label) ->
+            NavigationBarItem(
+                selected = selectedTab == index,
+                onClick = { onTabChange(index) },
+                icon = { Icon(icon, contentDescription = label) },
+                label = { Text(label, maxLines = 1, fontSize = 10.sp) },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = LelouchCyanAccent, selectedTextColor = LelouchCyanAccent,
+                    indicatorColor = LelouchSurfaceVariant,
+                    unselectedIconColor = LelouchTextSecondary, unselectedTextColor = LelouchTextSecondary
                 )
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(5) { index ->
-                        Box(
-                            modifier = Modifier
-                                .width(160.dp)
-                                .height(95.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(LelouchSurface)
-                                .padding(8.dp)
-                        ) {
-                            Text(
-                                "Canal / Película #${index + 1}",
-                                style = LelouchTypography.bodySmall,
-                                modifier = Modifier.align(Alignment.BottomStart)
-                            )
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-            }
+            )
+        }
+    }
+}
 
-            // Reproductor de Video Flotante / Encabezado Activo si se selecciona un canal
-            if (activeStreamUrl != null) {
-                item {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 16.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(220.dp)
-                                .background(Color.Black)
-                        ) {
-                            LelouchVideoPlayer(
-                                playerEngine = playerEngine,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                            // Botón Cerrar Reproductor
-                            IconButton(
-                                onClick = {
-                                    playerEngine.stop()
-                                    activeStreamUrl = null
-                                },
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .padding(8.dp)
-                                    .background(Color.Black.copy(alpha = 0.6f), CircleShape)
-                            ) {
-                                Icon(
-                                    imageVector = androidx.compose.material.icons.Icons.Default.Close,
-                                    contentDescription = "Cerrar",
-                                    tint = Color.White
-                                )
-                            }
-                        }
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = activeChannelName,
-                                color = LelouchTextPrimary,
-                                style = LelouchTypography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(LelouchLiveRed)
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text("LIVE", color = Color.White, style = LelouchTypography.labelSmall)
-                            }
-                        }
+// TAB 0: INICIO
+@Composable
+private fun MobileHomeTab(
+    liveChannels: List<LiveStream>, movies: List<VodMovie>, seriesList: List<Series>,
+    activeSource: SourceConfig?,
+    onChannelClick: (String, String) -> Unit, onMovieClick: (VodMovie) -> Unit,
+    onSeriesClick: (Series) -> Unit, onSeeAllLive: () -> Unit,
+    onSeeAllMovies: () -> Unit, onSeeAllSeries: () -> Unit
+) {
+    LazyColumn(modifier = Modifier.fillMaxSize()) {
+        item {
+            val featuredMovie = movies.firstOrNull()
+            Box(
+                modifier = Modifier.fillMaxWidth().height(200.dp)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .clip(RoundedCornerShape(16.dp)).background(LelouchSurfaceVariant)
+            ) {
+                if (featuredMovie != null && !featuredMovie.streamIcon.isNullOrBlank()) {
+                    AsyncImage(model = featuredMovie.streamIcon, contentDescription = null,
+                        modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    Box(modifier = Modifier.fillMaxSize().background(
+                        Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(0.88f)))))
+                }
+                Column(modifier = Modifier.align(Alignment.BottomStart).padding(16.dp)) {
+                    Box(modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(LelouchLiveRed)
+                        .padding(horizontal = 6.dp, vertical = 2.dp)) {
+                        Text("DESTACADO", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     }
+                    Spacer(Modifier.height(4.dp))
+                    Text(featuredMovie?.name ?: "Bienvenido a LELOUCH", color = Color.White,
+                        fontWeight = FontWeight.Black, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("Tu centro multimedia personal", color = Color.White.copy(0.7f), fontSize = 12.sp)
+                }
+                if (featuredMovie != null) {
+                    IconButton(
+                        onClick = { onMovieClick(featuredMovie) },
+                        modifier = Modifier.align(Alignment.TopEnd).padding(12.dp).background(LelouchCyanAccent, CircleShape)
+                    ) { Icon(Icons.Default.PlayArrow, null, tint = Color.Black) }
                 }
             }
-
-            // Riel: Canales en Vivo
+        }
+        if (liveChannels.isNotEmpty()) {
             item {
-                Text(
-                    text = "Canales en Vivo Populares",
-                    style = LelouchTypography.titleMedium,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    if (liveChannels.isNotEmpty()) {
-                        items(liveChannels.size) { index ->
-                            val channel = liveChannels[index]
-                            val streamUrl = activeSource?.let {
-                                XtreamUrlBuilder.buildLiveStreamUrl(
-                                    it.serverUrl,
-                                    it.username,
-                                    it.password,
-                                    channel.streamId,
-                                    "m3u8"
-                                )
-                            } ?: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
-
-                            Box(
-                                modifier = Modifier
-                                    .width(160.dp)
-                                    .height(95.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(LelouchSurfaceVariant)
-                                    .clickable {
-                                        activeChannelName = channel.name
-                                        activeStreamUrl = streamUrl
-                                    }
-                                    .padding(8.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(width = 48.dp, height = 30.dp)
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .background(Color.Black.copy(alpha = 0.5f))
-                                            .padding(2.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        if (!channel.streamIcon.isNullOrBlank()) {
-                                            AsyncImage(
-                                                model = channel.streamIcon,
-                                                contentDescription = channel.name,
-                                                modifier = Modifier.fillMaxSize(),
-                                                contentScale = ContentScale.Fit
-                                            )
-                                        } else {
-                                            Text(
-                                                text = channel.name.take(3).uppercase(),
-                                                color = LelouchCyanAccent,
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                    }
-
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(3.dp))
-                                            .background(LelouchLiveRed)
-                                            .padding(horizontal = 4.dp, vertical = 1.dp)
-                                    ) {
-                                        Text("LIVE", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                }
-
-                                Column(modifier = Modifier.align(Alignment.BottomStart)) {
-                                    Text(
-                                        text = channel.name,
-                                        style = LelouchTypography.labelLarge,
-                                        color = LelouchTextPrimary,
-                                        maxLines = 1
-                                    )
-                                    Text(
-                                        text = "Tocar para ver",
-                                        style = LelouchTypography.bodySmall,
-                                        color = LelouchCyanAccent
-                                    )
-                                }
-                            }
-                        }
-                    } else {
-                        val sampleChannels = listOf(
-                            Triple("ESPN HD", "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/ESPN_wordmark.svg/512px-ESPN_wordmark.svg.png", "101"),
-                            Triple("Fox Sports", "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Fox_Sports_logo.svg/512px-Fox_Sports_logo.svg.png", "102"),
-                            Triple("TyC Sports", "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4c/TyC_Sports_Logo_2019.svg/512px-TyC_Sports_Logo_2019.svg.png", "103"),
-                            Triple("HBO Max", "https://upload.wikimedia.org/wikipedia/commons/thumb/d/de/HBO_logo.svg/512px-HBO_logo.svg.png", "104"),
-                            Triple("Star Channel", "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fa/Star_Channel_2021.svg/512px-Star_Channel_2021.svg.png", "105")
-                        )
-                        items(sampleChannels.size) { index ->
-                            val (chName, chLogo, _) = sampleChannels[index]
-                            Box(
-                                modifier = Modifier
-                                    .width(160.dp)
-                                    .height(95.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(LelouchSurfaceVariant)
-                                    .clickable {
-                                        activeChannelName = chName
-                                        activeStreamUrl = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
-                                    }
-                                    .padding(8.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(width = 48.dp, height = 30.dp)
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .background(Color.Black.copy(alpha = 0.5f))
-                                            .padding(2.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        AsyncImage(
-                                            model = chLogo,
-                                            contentDescription = chName,
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentScale = ContentScale.Fit
-                                        )
-                                    }
-
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(3.dp))
-                                            .background(LelouchLiveRed)
-                                            .padding(horizontal = 4.dp, vertical = 1.dp)
-                                    ) {
-                                        Text("LIVE", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                }
-
-                                Column(modifier = Modifier.align(Alignment.BottomStart)) {
-                                    Text(
-                                        text = chName,
-                                        style = LelouchTypography.labelLarge,
-                                        color = LelouchTextPrimary,
-                                        maxLines = 1
-                                    )
-                                    Text(
-                                        text = "Tocar para ver",
-                                        style = LelouchTypography.bodySmall,
-                                        color = LelouchCyanAccent
-                                    )
-                                }
-                            }
-                        }
+                SectionHeader("Canales en Vivo", liveChannels.size, onSeeAllLive)
+                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items(liveChannels.take(15)) { ch ->
+                        val url = activeSource?.let {
+                            XtreamUrlBuilder.buildLiveStreamUrl(it.serverUrl, it.username, it.password, ch.streamId, "m3u8")
+                        } ?: ""
+                        LiveChannelCard(channel = ch, onClick = { onChannelClick(ch.name, url) })
+                    }
+                    item { SeeMoreCard(onClick = onSeeAllLive) }
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+        }
+        if (movies.isNotEmpty()) {
+            item {
+                SectionHeader("Peliculas", movies.size, onSeeAllMovies)
+                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items(movies.take(15)) { movie ->
+                        MovieCard(movie = movie, onClick = { onMovieClick(movie) })
+                    }
+                    item { SeeMoreCard(onClick = onSeeAllMovies) }
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+        }
+        if (seriesList.isNotEmpty()) {
+            item {
+                SectionHeader("Series", seriesList.size, onSeeAllSeries)
+                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items(seriesList.take(15)) { series ->
+                        SeriesCard(series = series, onClick = { onSeriesClick(series) })
+                    }
+                    item { SeeMoreCard(onClick = onSeeAllSeries) }
+                }
+                Spacer(Modifier.height(24.dp))
+            }
+        }
+        if (liveChannels.isEmpty() && movies.isEmpty() && seriesList.isEmpty()) {
+            item {
+                Box(modifier = Modifier.fillMaxWidth().padding(48.dp), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Sincronizando catalogo...", color = LelouchTextSecondary, fontSize = 14.sp)
+                        Spacer(Modifier.height(6.dp))
+                        Text("Ve a Listas > Sync si tarda demasiado", color = LelouchTextMuted, fontSize = 12.sp)
                     }
                 }
             }
         }
     }
 }
+
+// TAB 1: EN VIVO
+@Composable
+private fun MobileLiveTab(
+    channels: List<LiveStream>, activeSource: SourceConfig?,
+    onChannelClick: (String, String) -> Unit
+) {
+    if (channels.isEmpty()) {
+        EmptyState("No hay canales disponibles", "Sincroniza tu lista desde la pestana Listas")
+        return
+    }
+    var selectedCategory by remember { mutableStateOf<String?>(null) }
+    val categories = remember(channels) {
+        listOf("Todos") + channels.mapNotNull { it.categoryName.ifBlank { null } }.distinct().sorted()
+    }
+    val filtered = if (selectedCategory == null || selectedCategory == "Todos") channels
+                   else channels.filter { it.categoryName == selectedCategory }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(categories) { cat ->
+                val isSel = (cat == "Todos" && selectedCategory == null) || cat == selectedCategory
+                Box(
+                    modifier = Modifier.clip(RoundedCornerShape(20.dp))
+                        .background(if (isSel) LelouchCyanAccent else LelouchSurface)
+                        .clickable { selectedCategory = if (cat == "Todos") null else cat }
+                        .padding(horizontal = 14.dp, vertical = 7.dp)
+                ) {
+                    Text(cat, color = if (isSel) Color.Black else LelouchTextSecondary, fontSize = 12.sp,
+                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal)
+                }
+            }
+        }
+        LazyColumn(modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(filtered, key = { it.streamId }) { ch ->
+                val url = activeSource?.let {
+                    XtreamUrlBuilder.buildLiveStreamUrl(it.serverUrl, it.username, it.password, ch.streamId, "m3u8")
+                } ?: ""
+                ChannelListItem(channel = ch, onClick = { onChannelClick(ch.name, url) })
+            }
+        }
+    }
 }
 
+// TAB 2: PELICULAS
+@Composable
+private fun MobileMoviesTab(movies: List<VodMovie>, onMovieClick: (VodMovie) -> Unit) {
+    if (movies.isEmpty()) {
+        EmptyState("No hay peliculas", "Sincroniza tu lista desde la pestana Listas")
+        return
+    }
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(2),
+        contentPadding = PaddingValues(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        items(movies, key = { it.streamId }) { movie ->
+            MovieGridCard(movie = movie, onClick = { onMovieClick(movie) })
+        }
+    }
+}
+
+// TAB 3: SERIES
+@Composable
+private fun MobileSeriesTab(seriesList: List<Series>, onSeriesClick: (Series) -> Unit) {
+    if (seriesList.isEmpty()) {
+        EmptyState("No hay series", "Sincroniza tu lista desde la pestana Listas")
+        return
+    }
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(2),
+        contentPadding = PaddingValues(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        items(seriesList, key = { it.seriesId }) { s ->
+            SeriesGridCard(series = s, onClick = { onSeriesClick(s) })
+        }
+    }
+}
+
+// TAB 4: AJUSTES/LISTAS
+@Composable
+private fun MobileSettingsTab(
+    activeSource: SourceConfig?, allSources: List<SourceConfig>,
+    newServerUrl: String, newUsername: String, newPassword: String, newName: String,
+    onNewServerUrl: (String) -> Unit, onNewUsername: (String) -> Unit,
+    onNewPassword: (String) -> Unit, onNewName: (String) -> Unit,
+    onActivateSource: (String) -> Unit, onDeleteSource: (String) -> Unit,
+    onAddSource: (String, String, String, String) -> Unit,
+    onSyncCloud: () -> Unit, onForceSync: () -> Unit, onLogout: () -> Unit
+) {
+    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item {
+            Text("Gestor de Listas IPTV", color = LelouchTextPrimary, fontWeight = FontWeight.Black, fontSize = 20.sp)
+            Text("Cambia entre tus cuentas o anade un nuevo proveedor.", color = LelouchTextSecondary, fontSize = 13.sp)
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MobileActionButton("Nube", Modifier.weight(1f), onClick = onSyncCloud)
+                MobileActionButton("Sync", Modifier.weight(1f), onClick = onForceSync)
+                MobileDangerButton("Salir", Modifier.weight(1f), onClick = onLogout)
+            }
+        }
+        item {
+            Text("Listas Registradas (${allSources.size}):", color = LelouchCyanAccent,
+                fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        }
+        items(allSources) { source ->
+            val isActive = source.id == activeSource?.id || source.isActive
+            Box(
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                    .background(if (isActive) LelouchSurfaceVariant else LelouchSurface)
+                    .border(
+                        if (isActive) 1.5.dp else 1.dp,
+                        if (isActive) Color(0xFF10B981) else LelouchBorder,
+                        RoundedCornerShape(12.dp)
+                    )
+                    .clickable(enabled = !isActive) { onActivateSource(source.id) }
+                    .padding(14.dp)
+            ) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(source.name, color = LelouchTextPrimary, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            if (isActive) {
+                                Spacer(Modifier.width(8.dp))
+                                Box(modifier = Modifier.clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0xFF10B981)).padding(horizontal = 6.dp, vertical = 2.dp)) {
+                                    Text("ACTIVA", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                        Text("${source.serverUrl}  -  ${source.username}", color = LelouchTextSecondary,
+                            fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (!isActive) {
+                            TextButton(onClick = { onActivateSource(source.id) },
+                                colors = ButtonDefaults.textButtonColors(contentColor = LelouchCyanAccent)) {
+                                Text("Activar", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                        }
+                        if (allSources.size > 1) {
+                            IconButton(onClick = { onDeleteSource(source.id) }, modifier = Modifier.size(36.dp)) {
+                                Icon(Icons.Default.Delete, null, tint = LelouchLiveRed)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        item {
+            Spacer(Modifier.height(4.dp))
+            Text("Conectar Otra Cuenta Xtream", color = LelouchTextPrimary, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            Spacer(Modifier.height(10.dp))
+            val fc = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = LelouchCyanAccent, unfocusedBorderColor = LelouchBorder,
+                focusedLabelColor = LelouchCyanAccent, unfocusedLabelColor = LelouchTextSecondary,
+                cursorColor = LelouchCyanAccent, focusedTextColor = LelouchTextPrimary,
+                unfocusedTextColor = LelouchTextPrimary
+            )
+            OutlinedTextField(value = newServerUrl, onValueChange = onNewServerUrl,
+                label = { Text("URL Servidor") }, placeholder = { Text("http://servidor:puerto") },
+                singleLine = true, modifier = Modifier.fillMaxWidth(), colors = fc)
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(value = newUsername, onValueChange = onNewUsername,
+                label = { Text("Usuario") }, singleLine = true, modifier = Modifier.fillMaxWidth(), colors = fc)
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(value = newPassword, onValueChange = onNewPassword,
+                label = { Text("Contrasena") }, visualTransformation = PasswordVisualTransformation(),
+                singleLine = true, modifier = Modifier.fillMaxWidth(), colors = fc)
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(value = newName, onValueChange = onNewName,
+                label = { Text("Nombre (Opcional)") }, singleLine = true,
+                modifier = Modifier.fillMaxWidth(), colors = fc)
+            Spacer(Modifier.height(12.dp))
+            Button(
+                onClick = {
+                    if (newServerUrl.isNotBlank() && newUsername.isNotBlank() && newPassword.isNotBlank()) {
+                        onAddSource(newServerUrl.trim(), newUsername.trim(), newPassword.trim(),
+                            newName.trim().ifEmpty { newUsername.trim() })
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = LelouchCyanAccent),
+                modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp)
+            ) { Text("Guardar y Conectar", color = Color.Black, fontWeight = FontWeight.Bold) }
+        }
+    }
+}
+
+// MINI PLAYER
+@Composable
+private fun MiniPlayerOverlay(
+    channelName: String,
+    playerEngine: com.lelouch.core.player.LelouchPlayerEngine,
+    onClose: () -> Unit
+) {
+    Box(modifier = Modifier.fillMaxWidth().height(210.dp).background(Color.Black)) {
+        LelouchVideoPlayer(playerEngine = playerEngine, modifier = Modifier.fillMaxSize())
+        IconButton(
+            onClick = onClose,
+            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).background(Color.Black.copy(0.6f), CircleShape)
+        ) { Icon(Icons.Default.Close, null, tint = Color.White) }
+        Row(
+            modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth()
+                .background(Color.Black.copy(0.7f)).padding(horizontal = 12.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(channelName, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Box(modifier = Modifier.clip(RoundedCornerShape(3.dp)).background(LelouchLiveRed)
+                .padding(horizontal = 6.dp, vertical = 2.dp)) {
+                Text("LIVE", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+// DIALOGOS DE DETALLE
+@Composable
+private fun MobileMovieDetailDialog(
+    movie: VodMovie, activeSource: SourceConfig?,
+    onPlay: (String) -> Unit, onDismiss: () -> Unit
+) {
+    val streamUrl = activeSource?.let {
+        XtreamUrlBuilder.buildVodStreamUrl(it.serverUrl, it.username, it.password, movie.streamId, movie.containerExtension)
+    } ?: ""
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(modifier = Modifier.fillMaxWidth(0.95f).clip(RoundedCornerShape(16.dp)).background(LelouchBackground)) {
+            Column {
+                Box(modifier = Modifier.fillMaxWidth().height(200.dp).background(LelouchSurfaceVariant)) {
+                    if (!movie.streamIcon.isNullOrBlank()) {
+                        AsyncImage(model = movie.streamIcon, contentDescription = null,
+                            modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                        Box(modifier = Modifier.fillMaxSize().background(
+                            Brush.verticalGradient(listOf(Color.Transparent, LelouchBackground))))
+                    }
+                    IconButton(onClick = onDismiss,
+                        modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)
+                            .background(Color.Black.copy(0.5f), CircleShape)) {
+                        Icon(Icons.Default.Close, null, tint = Color.White)
+                    }
+                }
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(movie.name, color = LelouchTextPrimary, fontWeight = FontWeight.Black, fontSize = 20.sp)
+                    Spacer(Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        val rating = movie.rating ?: 0.0
+                        if (rating > 0) {
+                            Box(modifier = Modifier.clip(RoundedCornerShape(4.dp))
+                                .background(Color(0xFFE5A00D)).padding(horizontal = 6.dp, vertical = 2.dp)) {
+                                Text("%.1f".format(rating), color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        if (!movie.year.isNullOrBlank()) Text(movie.year!!, color = LelouchTextSecondary, fontSize = 12.sp)
+                        if (!movie.genre.isNullOrBlank()) Text(movie.genre!!, color = LelouchCyanAccent, fontSize = 12.sp)
+                    }
+                    if (!movie.plot.isNullOrBlank()) {
+                        Spacer(Modifier.height(10.dp))
+                        Text(movie.plot!!, color = LelouchTextSecondary, fontSize = 13.sp,
+                            maxLines = 4, overflow = TextOverflow.Ellipsis)
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    Button(
+                        onClick = { onPlay(streamUrl) },
+                        colors = ButtonDefaults.buttonColors(containerColor = LelouchCyanAccent),
+                        modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.PlayArrow, null, tint = Color.Black, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("REPRODUCIR", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MobileSeriesDetailDialog(series: Series, onDismiss: () -> Unit) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(modifier = Modifier.fillMaxWidth(0.95f).clip(RoundedCornerShape(16.dp)).background(LelouchBackground)) {
+            Column {
+                Box(modifier = Modifier.fillMaxWidth().height(180.dp).background(LelouchSurfaceVariant)) {
+                    if (!series.cover.isNullOrBlank()) {
+                        AsyncImage(model = series.cover, contentDescription = null,
+                            modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                        Box(modifier = Modifier.fillMaxSize().background(
+                            Brush.verticalGradient(listOf(Color.Transparent, LelouchBackground))))
+                    }
+                    IconButton(onClick = onDismiss,
+                        modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)
+                            .background(Color.Black.copy(0.5f), CircleShape)) {
+                        Icon(Icons.Default.Close, null, tint = Color.White)
+                    }
+                }
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(series.name, color = LelouchTextPrimary, fontWeight = FontWeight.Black, fontSize = 20.sp)
+                    Spacer(Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        val r = series.rating5based ?: 0.0
+                        if (r > 0) {
+                            Box(modifier = Modifier.clip(RoundedCornerShape(4.dp))
+                                .background(Color(0xFFE5A00D)).padding(horizontal = 6.dp, vertical = 2.dp)) {
+                                Text("%.1f".format(r), color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        if (!series.genre.isNullOrBlank()) Text(series.genre!!, color = LelouchCyanAccent, fontSize = 12.sp)
+                        if (series.seasonsCount > 0) Text("${series.seasonsCount} Temporadas", color = LelouchTextSecondary, fontSize = 12.sp)
+                    }
+                    if (!series.plot.isNullOrBlank()) {
+                        Spacer(Modifier.height(10.dp))
+                        Text(series.plot!!, color = LelouchTextSecondary, fontSize = 13.sp,
+                            maxLines = 5, overflow = TextOverflow.Ellipsis)
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                        .background(LelouchSurface).border(1.dp, LelouchBorder, RoundedCornerShape(10.dp))
+                        .padding(16.dp), contentAlignment = Alignment.Center) {
+                        Text("Abre la app en Android TV para ver los episodios", color = LelouchTextSecondary, fontSize = 13.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// TARJETAS
+@Composable
+private fun LiveChannelCard(channel: LiveStream, onClick: () -> Unit) {
+    Box(modifier = Modifier.width(140.dp).height(85.dp).clip(RoundedCornerShape(10.dp))
+        .background(LelouchSurfaceVariant).clickable(onClick = onClick).padding(8.dp)) {
+        Row(modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter),
+            horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.size(width = 44.dp, height = 28.dp).clip(RoundedCornerShape(4.dp))
+                .background(Color.Black.copy(0.5f)), contentAlignment = Alignment.Center) {
+                if (!channel.streamIcon.isNullOrBlank()) {
+                    AsyncImage(model = channel.streamIcon, contentDescription = null,
+                        modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                } else {
+                    Text(channel.name.take(3).uppercase(), color = LelouchCyanAccent, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            Box(modifier = Modifier.clip(RoundedCornerShape(3.dp)).background(LelouchLiveRed)
+                .padding(horizontal = 4.dp, vertical = 1.dp)) {
+                Text("LIVE", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        Column(modifier = Modifier.align(Alignment.BottomStart)) {
+            Text(channel.name, color = LelouchTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("Toca para ver", color = LelouchCyanAccent, fontSize = 9.sp)
+        }
+    }
+}
+
+@Composable
+private fun MovieCard(movie: VodMovie, onClick: () -> Unit) {
+    Box(modifier = Modifier.width(110.dp).height(160.dp).clip(RoundedCornerShape(10.dp))
+        .background(LelouchSurface).clickable(onClick = onClick)) {
+        if (!movie.streamIcon.isNullOrBlank()) {
+            AsyncImage(model = movie.streamIcon, contentDescription = movie.name,
+                modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            Box(modifier = Modifier.fillMaxSize().background(
+                Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(0.85f)))))
+        } else {
+            Box(modifier = Modifier.fillMaxSize().background(LelouchSurfaceVariant),
+                contentAlignment = Alignment.Center) {
+                Text(movie.name.take(2).uppercase(), color = LelouchCyanAccent, fontSize = 22.sp, fontWeight = FontWeight.Black)
+            }
+        }
+        Text(movie.name, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold,
+            maxLines = 2, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.align(Alignment.BottomStart).padding(6.dp))
+    }
+}
+
+@Composable
+private fun SeriesCard(series: Series, onClick: () -> Unit) {
+    Box(modifier = Modifier.width(110.dp).height(160.dp).clip(RoundedCornerShape(10.dp))
+        .background(LelouchSurface).clickable(onClick = onClick)) {
+        if (!series.cover.isNullOrBlank()) {
+            AsyncImage(model = series.cover, contentDescription = series.name,
+                modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            Box(modifier = Modifier.fillMaxSize().background(
+                Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(0.85f)))))
+        } else {
+            Box(modifier = Modifier.fillMaxSize().background(LelouchSurfaceVariant),
+                contentAlignment = Alignment.Center) {
+                Text(series.name.take(2).uppercase(), color = LelouchCyanAccent, fontSize = 22.sp, fontWeight = FontWeight.Black)
+            }
+        }
+        Text(series.name, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold,
+            maxLines = 2, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.align(Alignment.BottomStart).padding(6.dp))
+    }
+}
+
+@Composable
+private fun MovieGridCard(movie: VodMovie, onClick: () -> Unit) {
+    Box(modifier = Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(12.dp))
+        .background(LelouchSurface).clickable(onClick = onClick)) {
+        if (!movie.streamIcon.isNullOrBlank()) {
+            AsyncImage(model = movie.streamIcon, contentDescription = movie.name,
+                modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            Box(modifier = Modifier.fillMaxSize().background(
+                Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(0.9f)))))
+        } else {
+            Box(modifier = Modifier.fillMaxSize().background(LelouchSurfaceVariant),
+                contentAlignment = Alignment.Center) {
+                Text(movie.name.take(2).uppercase(), color = LelouchCyanAccent, fontSize = 28.sp, fontWeight = FontWeight.Black)
+            }
+        }
+        val rating = movie.rating ?: 0.0
+        if (rating > 0) {
+            Box(modifier = Modifier.align(Alignment.TopEnd).padding(6.dp)
+                .clip(RoundedCornerShape(4.dp)).background(Color.Black.copy(0.75f))
+                .padding(horizontal = 5.dp, vertical = 2.dp)) {
+                Text("%.1f".format(rating), color = Color(0xFFFFD700), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        Column(modifier = Modifier.align(Alignment.BottomStart).padding(8.dp)) {
+            Text(movie.name, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (!movie.year.isNullOrBlank()) {
+                Text(movie.year!!, color = Color.White.copy(0.6f), fontSize = 10.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SeriesGridCard(series: Series, onClick: () -> Unit) {
+    Box(modifier = Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(12.dp))
+        .background(LelouchSurface).clickable(onClick = onClick)) {
+        if (!series.cover.isNullOrBlank()) {
+            AsyncImage(model = series.cover, contentDescription = series.name,
+                modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            Box(modifier = Modifier.fillMaxSize().background(
+                Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(0.9f)))))
+        } else {
+            Box(modifier = Modifier.fillMaxSize().background(LelouchSurfaceVariant),
+                contentAlignment = Alignment.Center) {
+                Text(series.name.take(2).uppercase(), color = LelouchCyanAccent, fontSize = 28.sp, fontWeight = FontWeight.Black)
+            }
+        }
+        val r = series.rating5based ?: 0.0
+        if (r > 0) {
+            Box(modifier = Modifier.align(Alignment.TopEnd).padding(6.dp)
+                .clip(RoundedCornerShape(4.dp)).background(Color.Black.copy(0.75f))
+                .padding(horizontal = 5.dp, vertical = 2.dp)) {
+                Text("%.1f".format(r), color = Color(0xFFFFD700), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        Column(modifier = Modifier.align(Alignment.BottomStart).padding(8.dp)) {
+            Text(series.name, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (!series.genre.isNullOrBlank()) {
+                Text(series.genre!!, color = LelouchCyanAccent, fontSize = 10.sp,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChannelListItem(channel: LiveStream, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+            .background(LelouchSurface).clickable(onClick = onClick).padding(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(modifier = Modifier.size(width = 50.dp, height = 32.dp).clip(RoundedCornerShape(6.dp))
+            .background(Color.Black.copy(0.5f)), contentAlignment = Alignment.Center) {
+            if (!channel.streamIcon.isNullOrBlank()) {
+                AsyncImage(model = channel.streamIcon, contentDescription = null,
+                    modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+            } else {
+                Text(channel.name.take(3).uppercase(), color = LelouchCyanAccent, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(channel.name, color = LelouchTextPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (channel.categoryName.isNotBlank()) {
+                Text(channel.categoryName, color = LelouchTextSecondary, fontSize = 11.sp)
+            }
+        }
+        Box(modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(LelouchLiveRed)
+            .padding(horizontal = 6.dp, vertical = 3.dp)) {
+            Text("LIVE", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun SeeMoreCard(onClick: () -> Unit) {
+    Box(modifier = Modifier.width(80.dp).height(85.dp).clip(RoundedCornerShape(10.dp))
+        .background(LelouchSurface).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(Icons.Default.ArrowForward, null, tint = LelouchCyanAccent, modifier = Modifier.size(24.dp))
+            Spacer(Modifier.height(4.dp))
+            Text("Ver mas", color = LelouchCyanAccent, fontSize = 10.sp)
+        }
+    }
+}
+
+@Composable
+private fun SectionHeader(title: String, count: Int, onSeeAll: () -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Text(title, color = LelouchTextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        TextButton(onClick = onSeeAll, colors = ButtonDefaults.textButtonColors(contentColor = LelouchCyanAccent)) {
+            Text("Ver todos ($count)", fontSize = 12.sp)
+        }
+    }
+}
+
+@Composable
+private fun EmptyState(title: String, subtitle: String) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
+            Text(title, color = LelouchTextSecondary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(6.dp))
+            Text(subtitle, color = LelouchTextMuted, fontSize = 13.sp)
+        }
+    }
+}
+
+@Composable
+private fun MobileActionButton(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Button(onClick = onClick, modifier = modifier,
+        colors = ButtonDefaults.buttonColors(containerColor = LelouchSurfaceVariant),
+        shape = RoundedCornerShape(8.dp)) {
+        Text(label, fontSize = 11.sp, color = Color.White, maxLines = 1)
+    }
+}
+
+@Composable
+private fun MobileDangerButton(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Button(onClick = onClick, modifier = modifier,
+        colors = ButtonDefaults.buttonColors(containerColor = LelouchLiveRed.copy(alpha = 0.2f)),
+        shape = RoundedCornerShape(8.dp)) {
+        Text(label, fontSize = 11.sp, color = LelouchLiveRed, maxLines = 1)
+    }
+}

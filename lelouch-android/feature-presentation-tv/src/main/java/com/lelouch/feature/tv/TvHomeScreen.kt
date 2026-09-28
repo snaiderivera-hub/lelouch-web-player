@@ -28,17 +28,13 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
-import com.lelouch.feature.tv.focus.MoviesFocusGraph
-import com.lelouch.feature.tv.focus.NavResult
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.isActive
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.*
-import androidx.tv.foundation.lazy.list.rememberTvLazyListState
-import com.lelouch.feature.tv.focus.*
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -47,26 +43,40 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.foundation.lazy.list.TvLazyColumn
 import androidx.tv.foundation.lazy.list.TvLazyRow
 import androidx.tv.foundation.lazy.list.itemsIndexed
+import androidx.tv.foundation.lazy.list.rememberTvLazyListState
 import androidx.tv.material3.*
+import androidx.tv.material3.Surface
+import androidx.tv.material3.ClickableSurfaceDefaults
+import androidx.tv.material3.Border
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.text.BasicTextField
 import coil.compose.AsyncImage
 import com.lelouch.core.designsystem.*
 import com.lelouch.core.model.LiveStream
 import com.lelouch.core.model.Series
 import com.lelouch.core.model.SourceConfig
+import com.lelouch.core.model.Episode
 import com.lelouch.core.model.VodMovie
 import com.lelouch.core.network.XtreamUrlBuilder
 import com.lelouch.core.player.LelouchVideoPlayer
 import com.lelouch.core.player.PlaybackState
 import com.lelouch.core.player.rememberLelouchPlayer
-import com.lelouch.feature.tv.components.EpgTimelineModal
-import com.lelouch.feature.tv.components.MediaDetailUiModel
-import com.lelouch.core.model.Episode
-import com.lelouch.feature.tv.components.TvAdminPanelModal
-import com.lelouch.feature.tv.components.TvMediaDetailModal
-import com.lelouch.feature.tv.components.TvPosterCard
-import com.lelouch.feature.tv.components.TvSearchModal
+import com.lelouch.feature.tv.components.*
+import com.lelouch.feature.tv.focus.*
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.paging.PagingData
+import androidx.paging.compose.LazyPagingItems
+import androidx.paging.compose.collectAsLazyPagingItems
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.common.util.UnstableApi
+import com.lelouch.core.database.entity.ChannelEntity
 
 data class ChannelUiModel(
     val streamId: Int,
@@ -79,12 +89,13 @@ data class ChannelUiModel(
     val streamUrl: String = ""
 )
 
-@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class)
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class, UnstableApi::class)
 @Composable
 fun TvHomeScreen(
     activeSource: SourceConfig? = null,
     allSources: List<SourceConfig> = emptyList(),
     liveChannels: List<LiveStream> = emptyList(),
+    liveChannelsPaging: Flow<PagingData<ChannelEntity>> = emptyFlow(),
     movies: List<VodMovie> = emptyList(),
     seriesList: List<Series> = emptyList(),
     favoriteChannels: List<LiveStream> = emptyList(),
@@ -103,6 +114,9 @@ fun TvHomeScreen(
     val playerEngine = rememberLelouchPlayer()
     val playbackState by playerEngine.playbackState.collectAsStateWithLifecycle()
     val videoInfo by playerEngine.videoTrackInfo.collectAsStateWithLifecycle()
+
+    // Flujo Paging 3 para canales en vivo (Miles de canales sin OOM)
+    val pagedChannels = liveChannelsPaging.collectAsLazyPagingItems()
 
     // Canales mapeados o canales de demostración con logos reales de alta resolución
     val displayChannels = remember(liveChannels, activeSource) {
@@ -343,65 +357,91 @@ fun TvHomeScreen(
     var isFullscreen by remember { mutableStateOf(false) }
     var isHudVisible by remember { mutableStateOf(false) }
     var isQuickZappingOpen by remember { mutableStateOf(false) }
+    var isPlayingLive by remember { mutableStateOf(true) }
+    var currentPlayingTitle by remember { mutableStateOf<String?>(null) }
     var seekFeedbackText by remember { mutableStateOf<String?>(null) }
     val focusTracker = remember { FocusTracker() }
-    var focusedTopTab by remember { mutableIntStateOf(2) } // Desacoplado de selectedTopTab (Paso 10)
-    var selectedTopTab by remember { mutableIntStateOf(2) } // Iniciamos en Películas para validar MOVIES (Paso 12)
-    val topTabs = listOf("Inicio", "En Vivo", "Películas", "Series", "Favoritos", "⚙️ Admin", "🧪 Lab")
+    var focusedTopTab by remember { mutableIntStateOf(1) }
+    var selectedTopTab by remember { mutableIntStateOf(1) } // 0:Buscar, 1:Inicio, 2:En Vivo, 3:Películas, 4:Series, 5:Favoritos, 6:Ajustes
+    val sidebarRequesters = remember { List(8) { FocusRequester() } }
+    val contentFocusRequester = remember { FocusRequester() }
+    val searchFocusRequester = remember { FocusRequester() }
     val coroutineScope = rememberCoroutineScope()
-    // Estado de scroll de los rieles de Movies — nivel superior para coordinación en Single Owner
-    val recentRowState = rememberTvLazyListState()
-    val topRatedRowState = rememberTvLazyListState()
-    // Job de scroll pendiente — cancelable si llega una nueva pulsación antes de que el item se compose
-    var pendingScrollJob by remember { mutableStateOf<Job?>(null) }
+
+    LaunchedEffect(Unit) {
+        delay(350)
+        try {
+            sidebarRequesters[selectedTopTab].requestFocus()
+        } catch (_: Exception) {}
+    }
 
     LaunchedEffect(selectedTopTab) {
         focusTracker.currentScreen = when (selectedTopTab) {
-            0 -> "HOME"
-            1 -> "LIVE"
-            2 -> "MOVIES"
-            3 -> "SERIES"
-            4 -> "FAVORITES"
-            5 -> "ADMIN"
-            else -> "LAB"
-        }
-        // FIX F2/F7: Después de que CENTER cambia selectedTopTab, el contenido de la
-        // pantalla se recompone. Sin un requestFocus() explícito, Compose TV asigna
-        // foco al primer focusable geométrico (que puede ser nav_live u otro).
-        // Garantizamos que el foco permanezca en el tab que el usuario acaba de activar
-        // (focusedTopTab), que es el tab que tenía el foco físico cuando se presionó CENTER.
-        // Solo aplicamos en tabs 0-5 (no en LAB que tiene su propio handler).
-        if (selectedTopTab < 6) {
-            val tabToFocus = focusedTopTab.coerceIn(0, 5)
-            try { focusTracker.getNavRequester(tabToFocus).requestFocus() } catch (_: Exception) {}
+            0 -> "SEARCH"
+            1 -> "HOME"
+            2 -> "LIVE"
+            3 -> "MOVIES"
+            4 -> "SERIES"
+            5 -> "FAVORITES"
+            else -> "ADMIN"
         }
     }
 
-    if (selectedTopTab == 6) {
-        DpadFocusLabScreen(
-            onBack = { selectedTopTab = 2 }
-        )
-        return
+    var lastFullscreenEntryTime by remember { mutableLongStateOf(0L) }
+
+    // Categorías y filtrado por categoría para Canales, Películas y Series
+    val channelCategories = remember(displayChannels) {
+        listOf("Todos") + displayChannels.mapNotNull { it.categoryName.takeIf { c -> c.isNotBlank() } }.distinct().sorted()
+    }
+    var selectedChannelCategory by remember { mutableStateOf("Todos") }
+    val filteredChannels = remember(displayChannels, selectedChannelCategory) {
+        if (selectedChannelCategory == "Todos") displayChannels
+        else displayChannels.filter { it.categoryName == selectedChannelCategory }
+    }
+
+    val movieCategories = remember(displayMovies) {
+        listOf("Todas") + displayMovies.mapNotNull { it.categoryName.takeIf { c -> c.isNotBlank() } }.distinct().sorted()
+    }
+    var selectedMovieCategory by remember { mutableStateOf("Todas") }
+    val filteredMovies = remember(displayMovies, selectedMovieCategory) {
+        if (selectedMovieCategory == "Todas") displayMovies
+        else displayMovies.filter { it.categoryName == selectedMovieCategory }
+    }
+
+    val seriesCategories = remember(displaySeries) {
+        listOf("Todas") + displaySeries.mapNotNull { it.categoryName.takeIf { c -> c.isNotBlank() } }.distinct().sorted()
+    }
+    var selectedSeriesCategory by remember { mutableStateOf("Todas") }
+    val filteredSeries = remember(displaySeries, selectedSeriesCategory) {
+        if (selectedSeriesCategory == "Todas") displaySeries
+        else displaySeries.filter { it.categoryName == selectedSeriesCategory }
     }
 
     val playerFocusRequester = remember { FocusRequester() }
 
-    // ── PUNTO DE INICIALIZACIÓN ÚNICO (FIX F1) ────────────────────────────────
-    // Un único LaunchedEffect controla el foco inicial en MOVIES.
-    // Target inicial: navMoviesAnchor (nav_movies, TOP_NAV).
-    // Se ejecuta una sola vez al montar el composable.
-    // NO hay segundo LaunchedEffect compitiendo por getRecentRequester(0).
-    // Si el usuario quiere navegar al carrusel, usa DPAD_DOWN desde TOP_NAV.
-    LaunchedEffect(Unit) {
-        if (selectedTopTab == 2) {
-            try { focusTracker.navMoviesAnchor.requestFocus() } catch (_: Exception) {}
+    LaunchedEffect(isFullscreen) {
+        if (isFullscreen) {
+            lastFullscreenEntryTime = System.currentTimeMillis()
+            playerFocusRequester.requestFocus()
         }
     }
 
-    LaunchedEffect(isFullscreen) {
-        if (isFullscreen) {
-            playerFocusRequester.requestFocus()
+    fun playMovie(movie: VodMovie) {
+        isPlayingLive = false
+        currentPlayingTitle = movie.name
+        activeSource?.let { src ->
+            val ext = movie.containerExtension.trimStart('.').ifEmpty { "mp4" }
+            val movieUrl = XtreamUrlBuilder.buildVodStreamUrl(
+                src.serverUrl,
+                src.username,
+                src.password,
+                movie.streamId,
+                ext
+            )
+            playerEngine.playStream(movieUrl, isLive = false)
         }
+        isFullscreen = true
+        activeDetailMedia = null
     }
 
     LaunchedEffect(seekFeedbackText) {
@@ -419,7 +459,7 @@ fun TvHomeScreen(
             backdropUrl = series.backdropPath,
             rating = series.rating ?: 0.0,
             year = series.releaseDate?.take(4),
-            synopsis = series.plot ?: "Serie completa en catálogo de streaming.",
+            synopsis = series.plot ?: "Serie completa en catÃ¡logo de streaming.",
             genre = series.genre,
             isSeries = true,
             isFavorite = series.isFavorite,
@@ -444,15 +484,15 @@ fun TvHomeScreen(
         }
     }
 
-    // Backdrop cinemático dinámico para la portada (EveryCine Style)
+    // Backdrop cinemÃ¡tico dinÃ¡mico para la portada (EveryCine Style)
     val currentBackdropUrl = remember(selectedTopTab, focusedHeroMovie, focusedHeroSeries, focusedChannel) {
         when (selectedTopTab) {
-            2 -> focusedHeroMovie?.backdropPath ?: focusedHeroMovie?.streamIcon
-            3 -> focusedHeroSeries?.backdropPath ?: focusedHeroSeries?.cover
+            3 -> focusedHeroMovie?.backdropPath ?: focusedHeroMovie?.streamIcon
+            4 -> focusedHeroSeries?.backdropPath ?: focusedHeroSeries?.cover
             else -> {
-                if (focusedHeroMovie != null && selectedTopTab == 0) {
+                if (focusedHeroMovie != null && selectedTopTab == 1) {
                     focusedHeroMovie?.backdropPath ?: focusedHeroMovie?.streamIcon
-                } else if (focusedHeroSeries != null && selectedTopTab == 0) {
+                } else if (focusedHeroSeries != null && selectedTopTab == 1) {
                     focusedHeroSeries?.backdropPath ?: focusedHeroSeries?.cover
                 } else {
                     focusedChannel.streamIcon
@@ -461,14 +501,15 @@ fun TvHomeScreen(
         }
     }
 
-    // Live Background Zapping instantáneo (activo solo en Inicio y En Vivo)
+    // Live Background Zapping instantáneo (activo en Inicio y En Vivo)
     LaunchedEffect(focusedChannel.streamUrl, selectedTopTab) {
-        if (selectedTopTab == 0 || selectedTopTab == 1) {
-            if (focusedChannel.streamUrl.isNotEmpty()) {
+        if (selectedTopTab == 1 || selectedTopTab == 2) {
+            if (focusedChannel.streamUrl.isNotEmpty() && !isFullscreen) {
+                isPlayingLive = true
                 playerEngine.playStream(focusedChannel.streamUrl, isLive = true)
             }
-        } else {
-            // Pausar video en vivo al explorar Películas o Series
+        } else if (!isFullscreen) {
+            // Pausar video en vivo al explorar Películas, Series o Buscar si no está en pantalla completa
             playerEngine.pause()
         }
     }
@@ -481,14 +522,18 @@ fun TvHomeScreen(
         }
     }
 
-    // Manejo de tecla BACK en Pantalla Completa: regresa al carrusel sin cortar la señal
-    BackHandler(enabled = isFullscreen || isQuickZappingOpen) {
-        if (isQuickZappingOpen) {
-            isQuickZappingOpen = false
-        } else if (isHudVisible) {
-            isHudVisible = false
-        } else {
-            isFullscreen = false
+    // Manejo de tecla BACK: regresa a Inicio de forma segura en vez de salir de la app
+    BackHandler(enabled = isFullscreen || isQuickZappingOpen || isHudVisible || selectedTopTab != 1) {
+        when {
+            isQuickZappingOpen -> isQuickZappingOpen = false
+            isHudVisible -> isHudVisible = false
+            isFullscreen -> isFullscreen = false
+            selectedTopTab != 1 -> {
+                try {
+                    sidebarRequesters[1].requestFocus()
+                } catch (_: Exception) {}
+                selectedTopTab = 1
+            }
         }
     }
 
@@ -496,104 +541,8 @@ fun TvHomeScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(LelouchBackground)
-            .onPreviewKeyEvent { event ->
-                // ══════════════════════════════════════════════════════════════
-                // SINGLE OWNER D-PAD — MOVIES (FIX F3)
-                //
-                // Este handler es el ÚNICO propietario del movimiento direccional
-                // en la pantalla MOVIES. Para ACTION_DOWN + dirección:
-                //   A. Capturar BEFORE
-                //   B. Calcular TARGET via MoviesFocusGraph
-                //   C. recordKeyRequest() (metadata HUD)
-                //   D. requestFocus() en el FocusRequester real
-                //   E. Retornar TRUE → Compose NO realiza búsqueda geométrica
-                //
-                // CENTER, BACK, CHANNEL_UP/DOWN: NO manejados aquí.
-                // ACTION_UP de cualquier tecla: ignorado (sin movimiento doble).
-                // ══════════════════════════════════════════════════════════════
-                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                if (selectedTopTab != 2) return@onPreviewKeyEvent false
-
-                val keyName = when (event.nativeKeyEvent.keyCode) {
-                    KeyEvent.KEYCODE_DPAD_UP    -> "DPAD_UP"
-                    KeyEvent.KEYCODE_DPAD_DOWN  -> "DPAD_DOWN"
-                    KeyEvent.KEYCODE_DPAD_LEFT  -> "DPAD_LEFT"
-                    KeyEvent.KEYCODE_DPAD_RIGHT -> "DPAD_RIGHT"
-                    else -> return@onPreviewKeyEvent false  // CENTER, BACK, etc.: no manejado aquí
-                }
-
-                // Cancelar cualquier scroll pendiente de la pulsación anterior
-                pendingScrollJob?.cancel()
-                pendingScrollJob = null
-
-                // Construir el grafo con tamaños actuales de los rieles
-                // topRatedMovies está disponible desde el nivel del Composable (remember(displayMovies))
-                val graph = MoviesFocusGraph(
-                    tracker       = focusTracker,
-                    navTabCount   = topTabs.size,
-                    recentCount   = displayMovies.size,
-                    topRatedCount = topRatedMovies.size
-                )
-
-                when (val navResult = graph.resolve(keyName)) {
-                    is NavResult.Ready -> {
-                        val target = navResult.target
-                        focusTracker.recordKeyRequest(
-                            key         = keyName,
-                            targetTag   = target.tag,
-                            targetZone  = target.zone,
-                            targetIndex = target.index,
-                            consumed    = true
-                        )
-                        try { target.requester?.requestFocus() } catch (_: Exception) {}
-                        true  // Consumido: Compose NO aplica búsqueda geométrica
-                    }
-                    is NavResult.ScrollNeeded -> {
-                        val target = navResult.target
-                        val scrollIdx = navResult.scrollToIndex
-                        focusTracker.recordKeyRequest(
-                            key         = keyName,
-                            targetTag   = target.tag,
-                            targetZone  = target.zone,
-                            targetIndex = target.index,
-                            consumed    = true
-                        )
-                        // Coordinar scroll + esperar composición + requestFocus
-                        // El Job es cancelable si llega una nueva pulsación antes de completarse
-                        pendingScrollJob = coroutineScope.launch {
-                            val listState = when (target.zone) {
-                                TvFocusZone.RAIL_RECENT    -> recentRowState
-                                TvFocusZone.RAIL_TOP_RATED -> topRatedRowState
-                                else -> return@launch
-                            }
-                            // 1. Solicitar scroll hacia el índice destino
-                            listState.animateScrollToItem(scrollIdx)
-                            // 2. Esperar hasta que el item esté compuesto (máx ~10 frames @ 60fps)
-                            var waitCount = 0
-                            while (!focusTracker.isComposed(target.zone, scrollIdx) && isActive && waitCount < 10) {
-                                kotlinx.coroutines.delay(16)
-                                waitCount++
-                            }
-                            if (!isActive) return@launch  // cancelado por nueva pulsación
-                            // 3. Ejecutar requestFocus si el item está compuesto
-                            if (focusTracker.isComposed(target.zone, scrollIdx)) {
-                                try {
-                                    focusTracker.resolveFocusRequester(target.zone, scrollIdx)?.requestFocus()
-                                } catch (_: Exception) {}
-                            }
-                        }
-                        true  // Consumido aunque el scroll sea asíncrono
-                    }
-                    is NavResult.Cancel -> {
-                        // Borde del grafo: no mover foco, pero consumir la tecla para
-                        // evitar que el motor TV intente escapar del área actual
-                        true
-                    }
-                    is NavResult.NotHandled -> false
-                }
-            }
     ) {
-        // Capa de control D-pad para Pantalla Completa (Garantiza foco 100% permanente en Xiaomi Remote)
+        // Capa de control D-pad para Pantalla Completa
         if (isFullscreen) {
             Box(
                 modifier = Modifier
@@ -602,15 +551,15 @@ fun TvHomeScreen(
                     .focusable()
                     .onKeyEvent { keyEvent ->
                         if (keyEvent.type != KeyEventType.KeyDown) return@onKeyEvent false
-                        val isLiveStream = (selectedTopTab == 0 || selectedTopTab == 1)
+                        val isLiveStream = isPlayingLive
                         when (keyEvent.nativeKeyEvent.keyCode) {
-                            // CAMBIO DE CANALES CON CONTROL REMOTO XIAOMI (D-Pad Arriba / Channel Up)
                             KeyEvent.KEYCODE_DPAD_UP,
                             KeyEvent.KEYCODE_CHANNEL_UP,
                             KeyEvent.KEYCODE_PAGE_UP -> {
                                 if (isLiveStream && displayChannels.isNotEmpty()) {
                                     val nextIndex = if (focusedChannelIndex < displayChannels.lastIndex) focusedChannelIndex + 1 else 0
                                     focusedChannelIndex = nextIndex
+                                    isPlayingLive = true
                                     playerEngine.playStream(displayChannels[nextIndex].streamUrl, isLive = true)
                                     isHudVisible = true
                                     true
@@ -619,14 +568,13 @@ fun TvHomeScreen(
                                     true
                                 }
                             }
-
-                            // CAMBIO DE CANALES CON CONTROL REMOTO XIAOMI (D-Pad Abajo / Channel Down)
                             KeyEvent.KEYCODE_DPAD_DOWN,
                             KeyEvent.KEYCODE_CHANNEL_DOWN,
                             KeyEvent.KEYCODE_PAGE_DOWN -> {
                                 if (isLiveStream && displayChannels.isNotEmpty()) {
                                     val prevIndex = if (focusedChannelIndex > 0) focusedChannelIndex - 1 else displayChannels.lastIndex
                                     focusedChannelIndex = prevIndex
+                                    isPlayingLive = true
                                     playerEngine.playStream(displayChannels[prevIndex].streamUrl, isLive = true)
                                     isHudVisible = true
                                     true
@@ -635,64 +583,39 @@ fun TvHomeScreen(
                                     true
                                 }
                             }
-
-                            // D-Pad Izquierda: Abre Guía Rápida de Canales en Vivo, o Rebobina 10s en Película/Serie
                             KeyEvent.KEYCODE_DPAD_LEFT,
                             KeyEvent.KEYCODE_MEDIA_REWIND -> {
                                 if (isLiveStream) {
                                     isQuickZappingOpen = !isQuickZappingOpen
                                     isHudVisible = true
                                 } else {
-                                    playerEngine.seekBy(-10_000)
-                                    seekFeedbackText = "⏪ -10s"
-                                    isHudVisible = true
+                                    playerEngine.seekBy(-10)
+                                    seekFeedbackText = "-10s"
                                 }
                                 true
                             }
-
-                            // D-Pad Derecha: Info en Vivo, o Avanza 10s en Película/Serie
                             KeyEvent.KEYCODE_DPAD_RIGHT,
                             KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
                                 if (isLiveStream) {
                                     isHudVisible = !isHudVisible
                                 } else {
-                                    playerEngine.seekBy(10_000)
-                                    seekFeedbackText = "⏩ +10s"
-                                    isHudVisible = true
+                                    playerEngine.seekBy(10)
+                                    seekFeedbackText = "+10s"
                                 }
                                 true
                             }
-
-                            // Botón Centro / OK: Toggle OSD o Play/Pause
                             KeyEvent.KEYCODE_DPAD_CENTER,
                             KeyEvent.KEYCODE_ENTER,
-                            KeyEvent.KEYCODE_NUMPAD_ENTER -> {
-                                if (isLiveStream) {
-                                    isHudVisible = !isHudVisible
-                                } else {
-                                    playerEngine.togglePlayPause()
-                                    isHudVisible = true
-                                }
-                                true
-                            }
-
-                            // Teclas multimedia dedicadas
+                            KeyEvent.KEYCODE_NUMPAD_ENTER,
                             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
-                                playerEngine.togglePlayPause()
-                                isHudVisible = true
-                                true
+                                if (System.currentTimeMillis() - lastFullscreenEntryTime < 600L) {
+                                    true
+                                } else {
+                                    if (playbackState is PlaybackState.Playing) playerEngine.pause()
+                                    else playerEngine.resume()
+                                    true
+                                }
                             }
-                            KeyEvent.KEYCODE_MEDIA_PLAY -> {
-                                playerEngine.resume()
-                                isHudVisible = true
-                                true
-                            }
-                            KeyEvent.KEYCODE_MEDIA_PAUSE -> {
-                                playerEngine.pause()
-                                isHudVisible = true
-                                true
-                            }
-
                             KeyEvent.KEYCODE_BACK -> {
                                 if (isQuickZappingOpen) {
                                     isQuickZappingOpen = false
@@ -712,17 +635,18 @@ fun TvHomeScreen(
         }
         // CAPA 1: Video de Fondo o Portada Cinemática de Alta Calidad (EveryCine Style)
         Box(modifier = Modifier.fillMaxSize()) {
-            // Reproductor de video nativo para canales en vivo (Inicio y En Vivo)
-            if (selectedTopTab == 0 || selectedTopTab == 1) {
+            // Reproductor de video nativo para canales en vivo (Inicio y En Vivo) o cuando está en pantalla completa
+            if (selectedTopTab == 1 || selectedTopTab == 2 || isFullscreen) {
                 LelouchVideoPlayer(
                     playerEngine = playerEngine,
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize(),
+                    resizeMode = if (isPlayingLive) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
                 )
             }
 
             // Portada Cinemática / Backdrop Artístico HD
-            // Se muestra de fondo si estamos en VOD (Películas/Series) o si el video en vivo está cargando/pausado
-            val showBackdrop = (selectedTopTab == 2 || selectedTopTab == 3 || selectedTopTab == 4 || playbackState !is PlaybackState.Playing)
+            // Se muestra de fondo si estamos en VOD (Películas/Series) y NO en pantalla completa, o si el video en vivo está cargando/pausado
+            val showBackdrop = !isFullscreen && (selectedTopTab != 1 && selectedTopTab != 2 || playbackState !is PlaybackState.Playing)
             if (showBackdrop && !currentBackdropUrl.isNullOrBlank()) {
                 AsyncImage(
                     model = currentBackdropUrl,
@@ -778,184 +702,179 @@ fun TvHomeScreen(
             }
         }
 
-        // CAPA 3: Interfaz Principal con Spotlight Hero y Carruseles D-Pad
+        // CAPA 3: Interfaz Principal con Sidebar Izquierdo y Contenido Central (EveryCine Style)
         AnimatedVisibility(
             visible = !isFullscreen,
             enter = fadeIn(tween(200)),
             exit = fadeOut(tween(200))
         ) {
-            TvLazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(top = 16.dp, bottom = 48.dp)
-            ) {
-                // Barra de Navegación Superior Fina con TabRow oficial de Android TV
-                item {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 48.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "LELOUCH",
-                            color = LelouchCyanAccent,
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Black,
-                            letterSpacing = 2.sp
-                        )
+            Row(modifier = Modifier.fillMaxSize()) {
+                // ══════════════════════════════════════════════════════════════
+                // 1. SIDEBAR VERTICAL IZQUIERDO DE NAVEGACIÓN
+                // ══════════════════════════════════════════════════════════════
+                TvNavigationSidebar(
+                    selectedTab = selectedTopTab,
+                    onSelectTab = { newTab ->
+                        selectedTopTab = newTab
+                    },
+                    sidebarRequesters = sidebarRequesters,
+                    onNavigateContent = {
+                        coroutineScope.launch {
+                            delay(50)
+                            try {
+                                if (selectedTopTab == 0) {
+                                    searchFocusRequester.requestFocus()
+                                } else {
+                                    contentFocusRequester.requestFocus()
+                                }
+                            } catch (_: Exception) {}
+                        }
+                    }
+                )
 
-                        Spacer(modifier = Modifier.width(16.dp))
-
-                        // Chip de Lista Activa (Clic abre el gestor de listas / admin)
-                        var isSourcePillFocused by remember { mutableStateOf(false) }
-                        Box(
-                            modifier = Modifier
-                                .focusable()
-                                .onFocusChanged { isSourcePillFocused = it.isFocused }
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(if (isSourcePillFocused) LelouchCyanAccent.copy(alpha = 0.35f) else LelouchSurfaceVariant)
-                                .border(
-                                    width = if (isSourcePillFocused) 1.5.dp else 1.dp,
-                                    color = if (isSourcePillFocused) LelouchCyanAccent else LelouchBorder,
-                                    shape = RoundedCornerShape(20.dp)
-                                )
-                                .clickable { selectedTopTab = 5 }
-                                .padding(horizontal = 12.dp, vertical = 5.dp)
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(7.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0xFF10B981))
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = activeSource?.name ?: "IPTV Activa",
-                                    color = if (isSourcePillFocused) Color.White else LelouchTextPrimary,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "Cambiar ▼",
-                                    color = LelouchCyanAccent,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
+                // ══════════════════════════════════════════════════════════════
+                // 2. CONTENIDO PRINCIPAL POR PESTAÑA
+                // ══════════════════════════════════════════════════════════════
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                ) {
+                    when (selectedTopTab) {
+                        0 -> {
+                            // 🔍 BUSCADOR NATIVO FLUIDO (Sin teclado virtual bloqueante, compatible con voz y control remoto)
+                            TvSearchContent(
+                                channels = displayChannels,
+                                movies = displayMovies,
+                                seriesList = displaySeries,
+                                onSelectChannel = { ch ->
+                                    val idx = displayChannels.indexOfFirst { it.streamId == ch.streamId }
+                                    if (idx >= 0) focusedChannelIndex = idx
+                                    selectedTopTab = 2
+                                    isFullscreen = true
+                                },
+                                onSelectMovie = { mov ->
+                                    activeDetailMedia = MediaDetailUiModel(
+                                        id = mov.streamId,
+                                        title = mov.name,
+                                        posterUrl = mov.streamIcon,
+                                        backdropUrl = mov.backdropPath,
+                                        rating = mov.rating ?: 0.0,
+                                        year = mov.year,
+                                        synopsis = mov.plot ?: "Película en catálogo.",
+                                        genre = mov.categoryName,
+                                        containerExtension = mov.containerExtension.ifEmpty { "mp4" },
+                                        isSeries = false,
+                                        isFavorite = mov.isFavorite
+                                    )
+                                },
+                                onSelectSeries = { ser ->
+                                    openSeriesDetails(ser)
+                                },
+                                searchFocusRequester = searchFocusRequester,
+                                sidebarRequester = sidebarRequesters[0]
+                            )
                         }
 
-                        Spacer(modifier = Modifier.width(20.dp))
+                        1 -> {
+                            // 🏠 INICIO (EveryCine Style: Hero Spotlight + Canales + Películas + Series)
+                            TvLazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(top = 16.dp, bottom = 48.dp)
+                            ) {
+                                item {
+                                    HomeHeaderBar(
+                                        activeSource = activeSource,
+                                        videoInfo = videoInfo,
+                                        playbackState = playbackState,
+                                        onOpenAdmin = { selectedTopTab = 6 }
+                                    )
+                                }
 
-                        // Barra de Navegación Determinista con 4 estados visuales claros (FOCUSED != SELECTED)
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            topTabs.forEachIndexed { index, title ->
-                                key(index) {
-                                    val tabRequester = focusTracker.getNavRequester(index)
-                                    var isThisTabFocused by remember { mutableStateOf(false) }
-                                    val isSelected = (selectedTopTab == index)
-                                    val tabInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                                item {
+                                    TvHeroSpotlight(
+                                        title = focusedHeroMovie?.name ?: focusedChannel.name,
+                                        subtitle = focusedHeroMovie?.plot ?: focusedChannel.currentProgram,
+                                        badge = if (focusedHeroMovie != null) "4K UHD" else "EN VIVO",
+                                        meta = if (focusedHeroMovie != null) "★ ${focusedHeroMovie?.rating ?: 8.5}  •  ${focusedHeroMovie?.year ?: "2024"}  •  Cine" else "CH ${focusedChannel.num}  •  ${focusedChannel.categoryName}  •  ${videoInfo.resolutionLabel}",
+                                        playButtonText = if (focusedHeroMovie != null) "Ver Película (OK)" else "Ver Pantalla Completa (OK)",
+                                        onPlayClick = {
+                                            if (focusedHeroMovie != null) {
+                                                playMovie(focusedHeroMovie!!)
+                                            } else {
+                                                isPlayingLive = true
+                                                isFullscreen = true
+                                            }
+                                        },
+                                        playButtonRequester = contentFocusRequester,
+                                        sidebarRequester = sidebarRequesters[1]
+                                    )
+                                }
 
-                                    // 4 ESTADOS VISUALES INEQUÍVOCOS
-                                    val bgColor = when {
-                                        isThisTabFocused && isSelected -> LelouchCyanAccent
-                                        isThisTabFocused && !isSelected -> LelouchSurfaceVariant
-                                        !isThisTabFocused && isSelected -> LelouchCyanAccent.copy(alpha = 0.18f)
-                                        else -> Color.Transparent
-                                    }
-                                    val borderColor = when {
-                                        isThisTabFocused && isSelected -> Color.White
-                                        isThisTabFocused && !isSelected -> LelouchCyanAccent
-                                        !isThisTabFocused && isSelected -> LelouchCyanAccent.copy(alpha = 0.6f)
-                                        else -> Color.Transparent
-                                    }
-                                    val borderWidth = when {
-                                        isThisTabFocused -> 2.5.dp
-                                        isSelected -> 1.5.dp
-                                        else -> 1.dp
-                                    }
-                                    val textColor = when {
-                                        isThisTabFocused && isSelected -> Color.Black
-                                        isThisTabFocused && !isSelected -> Color.White
-                                        !isThisTabFocused && isSelected -> LelouchCyanAccent
-                                        else -> LelouchTextSecondary
-                                    }
-                                    val textWeight = when {
-                                        isThisTabFocused && isSelected -> FontWeight.Black
-                                        isThisTabFocused || isSelected -> FontWeight.Bold
-                                        else -> FontWeight.Medium
-                                    }
-
-                                    Box(
-                                        modifier = Modifier
-                                            .focusRequester(tabRequester)
-                                            .focusProperties {
-                                                // Single Owner controla UP/DOWN/LEFT/RIGHT desde onPreviewKeyEvent.
-                                                // focusProperties solo declara los límites de borde para
-                                                // evitar que el motor TV escape por búsqueda geométrica
-                                                // en caso de que un evento no sea consumido.
-                                                up    = FocusRequester.Cancel
-                                                down  = FocusRequester.Cancel
-                                                left  = FocusRequester.Cancel
-                                                right = FocusRequester.Cancel
-                                            }
-                                            .onFocusChanged {
-                                                isThisTabFocused = it.isFocused
-                                                if (it.isFocused) {
-                                                    focusedTopTab = index
-                                                    val tag = focusTracker.getNavTabTag(index)
-                                                    focusTracker.onFocusChanged(
-                                                        tag = tag,
-                                                        zone = TvFocusZone.TOP_NAV,
-                                                        rowIndex = 0,
-                                                        cardIndex = index,
-                                                        isFocused = true
-                                                    )
-                                                }
-                                            }
-                                            .onKeyEvent { keyEvent ->
-                                                if (keyEvent.type == KeyEventType.KeyDown &&
-                                                    (keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
-                                                     keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ENTER ||
-                                                     keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER)
-                                                ) {
-                                                    selectedTopTab = index
-                                                    true
-                                                } else {
-                                                    false
-                                                }
-                                            }
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(bgColor)
-                                            .border(borderWidth, borderColor, RoundedCornerShape(8.dp))
-                                            .clickable(
-                                                interactionSource = tabInteraction,
-                                                indication = null
-                                            ) {
-                                                selectedTopTab = index
-                                            }
-                                            .padding(horizontal = 14.dp, vertical = 7.dp),
-                                        contentAlignment = Alignment.Center
+                                item {
+                                    ContentSectionTitle("🔴 Canales en Directo")
+                                    TvLazyRow(
+                                        contentPadding = PaddingValues(horizontal = 32.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(16.dp)
                                     ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            if (isSelected && !isThisTabFocused) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(6.dp)
-                                                        .clip(CircleShape)
-                                                        .background(LelouchCyanAccent)
-                                                )
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                            }
-                                            Text(
-                                                text = title,
-                                                fontSize = 13.sp,
-                                                fontWeight = textWeight,
-                                                color = textColor
+                                        itemsIndexed(displayChannels, key = { _, ch -> "home_ch_${ch.streamId}" }) { idx, ch ->
+                                            TvChannelCard(
+                                                channel = ch,
+                                                isSelected = (idx == focusedChannelIndex),
+                                                onFocused = {
+                                                    focusedChannelIndex = idx
+                                                    focusedHeroMovie = null
+                                                },
+                                                onClick = { 
+                                                    isPlayingLive = true
+                                                    isFullscreen = true 
+                                                },
+                                                cardWidth = 215.dp,
+                                                modifier = if (idx == 0) Modifier.focusProperties { left = sidebarRequesters[1] } else Modifier
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(28.dp))
+                                }
+
+                                item {
+                                    ContentSectionTitle("🎬 Películas Recientemente Añadidas")
+                                    TvLazyRow(
+                                        contentPadding = PaddingValues(horizontal = 32.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                                    ) {
+                                        itemsIndexed(displayMovies, key = { _, mov -> "home_mov_${mov.streamId}" }) { idx, mov ->
+                                            TvPosterCard(
+                                                title = mov.name,
+                                                posterUrl = mov.streamIcon,
+                                                rating = mov.rating ?: 0.0,
+                                                year = mov.year,
+                                                onFocused = { focusedHeroMovie = mov },
+                                                onClick = {
+                                                    playMovie(mov)
+                                                },
+                                                modifier = if (idx == 0) Modifier.focusProperties { left = sidebarRequesters[1] } else Modifier
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(28.dp))
+                                }
+
+                                item {
+                                    ContentSectionTitle("📺 Series Populares")
+                                    TvLazyRow(
+                                        contentPadding = PaddingValues(horizontal = 32.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                                    ) {
+                                        itemsIndexed(displaySeries, key = { _, ser -> "home_ser_${ser.seriesId}" }) { idx, ser ->
+                                            TvPosterCard(
+                                                title = ser.name,
+                                                posterUrl = ser.cover,
+                                                rating = ser.rating ?: 0.0,
+                                                year = ser.releaseDate?.take(4),
+                                                onFocused = { focusedHeroSeries = ser },
+                                                onClick = { openSeriesDetails(ser) },
+                                                modifier = if (idx == 0) Modifier.focusProperties { left = sidebarRequesters[1] } else Modifier
                                             )
                                         }
                                     }
@@ -963,653 +882,341 @@ fun TvHomeScreen(
                             }
                         }
 
-                        Spacer(modifier = Modifier.weight(1f))
-
-                        // Botón de Búsqueda FTS5 (Focusable TV)
-                        var isSearchFocused by remember { mutableStateOf(false) }
-                        Box(
-                            modifier = Modifier
-                                .focusable()
-                                .onFocusChanged { isSearchFocused = it.isFocused }
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (isSearchFocused) LelouchCyanAccent.copy(alpha = 0.25f) else Color.Transparent)
-                                .border(
-                                    width = if (isSearchFocused) 1.5.dp else 1.dp,
-                                    color = if (isSearchFocused) LelouchCyanAccent else LelouchBorder,
-                                    shape = RoundedCornerShape(8.dp)
-                                )
-                                .clickable { isSearchModalVisible = true }
-                                .padding(horizontal = 14.dp, vertical = 6.dp)
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.Search,
-                                    contentDescription = "Buscar",
-                                    tint = if (isSearchFocused) LelouchCyanAccent else LelouchTextSecondary,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "Buscar",
-                                    color = if (isSearchFocused) LelouchTextPrimary else LelouchTextSecondary,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.width(12.dp))
-
-                        // Botón Panel Administrador & Gestor de Listas (Focusable TV)
-                        var isAdminFocused by remember { mutableStateOf(false) }
-                        Box(
-                            modifier = Modifier
-                                .focusable()
-                                .onFocusChanged { isAdminFocused = it.isFocused }
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (isAdminFocused || selectedTopTab == 5) LelouchCyanAccent.copy(alpha = 0.25f) else Color.Transparent)
-                                .border(
-                                    width = if (isAdminFocused || selectedTopTab == 5) 1.5.dp else 1.dp,
-                                    color = if (isAdminFocused || selectedTopTab == 5) LelouchCyanAccent else LelouchBorder,
-                                    shape = RoundedCornerShape(8.dp)
-                                )
-                                .clickable {
-                                    selectedTopTab = 5
-                                    isAdminModalVisible = true
-                                }
-                                .padding(horizontal = 14.dp, vertical = 6.dp)
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.Settings,
-                                    contentDescription = "Admin",
-                                    tint = if (isAdminFocused || selectedTopTab == 5) LelouchCyanAccent else LelouchTextSecondary,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "⚙️ Admin",
-                                    color = if (isAdminFocused || selectedTopTab == 5) LelouchTextPrimary else LelouchTextSecondary,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.width(16.dp))
-
-                        // Indicador de Conexión & Resolución
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(end = 8.dp)
-                        ) {
-                            Box(
+                        2 -> {
+                            // 🔴 EN VIVO (GRID VERTICAL continuo sin carruseles molestos, bajando como Películas)
+                            Column(
                                 modifier = Modifier
-                                    .size(8.dp)
-                                    .clip(CircleShape)
-                                    .background(
-                                        when (playbackState) {
-                                            is PlaybackState.Playing -> LelouchCyanAccent
-                                            is PlaybackState.Buffering -> Color(0xFFFFB300)
-                                            is PlaybackState.Error -> LelouchLiveRed
-                                            else -> LelouchTextMuted
-                                        }
-                                    )
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = videoInfo.resolutionLabel,
-                                color = LelouchCyanAccent,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-
-                // Spotlight Hero Dinámico (EveryCine Style)
-                if (selectedTopTab != 5) {
-                    item {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 48.dp, top = 20.dp, bottom = 24.dp, end = 120.dp)
-                    ) {
-                        val heroTitle = when (selectedTopTab) {
-                            2 -> focusedHeroMovie?.name ?: "PELÍCULAS EN TENDENCIA"
-                            3 -> focusedHeroSeries?.name ?: "SERIES DESTACADAS"
-                            else -> {
-                                if (focusedHeroMovie != null && selectedTopTab == 0) focusedHeroMovie!!.name
-                                else if (focusedHeroSeries != null && selectedTopTab == 0) focusedHeroSeries!!.name
-                                else focusedChannel.name
-                            }
-                        }
-                        val heroSubtitle = when (selectedTopTab) {
-                            2 -> focusedHeroMovie?.plot ?: "Estrenos y Clásicos en Máxima Calidad 4K UHD"
-                            3 -> focusedHeroSeries?.plot ?: "Temporadas Completas en Streaming de Alta Definición"
-                            else -> {
-                                if (focusedHeroMovie != null && selectedTopTab == 0) focusedHeroMovie?.plot ?: "Película en Catálogo"
-                                else if (focusedHeroSeries != null && selectedTopTab == 0) focusedHeroSeries?.plot ?: "Serie Completa"
-                                else focusedChannel.currentProgram
-                            }
-                        }
-                        val heroBadge = when (selectedTopTab) {
-                            2 -> "4K UHD"
-                            3 -> "SERIE"
-                            else -> {
-                                if (focusedHeroMovie != null && selectedTopTab == 0) "4K UHD"
-                                else if (focusedHeroSeries != null && selectedTopTab == 0) "SERIE"
-                                else "EN VIVO"
-                            }
-                        }
-
-                        val heroMeta = when (selectedTopTab) {
-                            2 -> "★ ${focusedHeroMovie?.rating ?: 8.5}  •  ${focusedHeroMovie?.year ?: "2024"}  •  ${focusedHeroMovie?.categoryName.takeIf { !it.isNullOrBlank() } ?: "Cine"}"
-                            3 -> "★ ${focusedHeroSeries?.rating ?: 8.8}  •  ${focusedHeroSeries?.releaseDate?.take(4) ?: "2024"}  •  ${focusedHeroSeries?.seasonsCount ?: 1} Temporadas"
-                            else -> {
-                                if (focusedHeroMovie != null && selectedTopTab == 0) {
-                                    "★ ${focusedHeroMovie?.rating ?: 8.5}  •  ${focusedHeroMovie?.year ?: "2024"}  •  ${focusedHeroMovie?.categoryName.takeIf { !it.isNullOrBlank() } ?: "Cine"}"
-                                } else if (focusedHeroSeries != null && selectedTopTab == 0) {
-                                    "★ ${focusedHeroSeries?.rating ?: 8.8}  •  ${focusedHeroSeries?.releaseDate?.take(4) ?: "2024"}  •  ${focusedHeroSeries?.seasonsCount ?: 1} Temporadas"
-                                } else {
-                                    "CH ${focusedChannel.num}  •  ${focusedChannel.categoryName}  •  ${videoInfo.resolutionLabel}"
-                                }
-                            }
-                        }
-
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(if (heroBadge == "EN VIVO") LelouchLiveRed else LelouchCyanAccent)
-                                    .padding(horizontal = 8.dp, vertical = 3.dp)
+                                    .fillMaxSize()
+                                    .padding(start = 32.dp, end = 32.dp, top = 16.dp)
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    if (heroBadge == "EN VIVO") {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(6.dp)
-                                                .clip(CircleShape)
-                                                .background(Color.White)
-                                        )
-                                        Spacer(modifier = Modifier.width(5.dp))
-                                    }
-                                    Text(
-                                        text = heroBadge,
-                                        color = if (heroBadge == "EN VIVO") Color.White else Color.Black,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(
-                                text = heroMeta,
-                                color = LelouchCyanAccent,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        Text(
-                            text = heroTitle,
-                            color = LelouchTextPrimary,
-                            fontSize = 34.sp,
-                            fontWeight = FontWeight.Black,
-                            letterSpacing = 1.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-
-                        Text(
-                            text = heroSubtitle,
-                            color = LelouchTextSecondary,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Medium,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        // Botones de Acción Hero Spotlight
-                        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                            var isPlayFocused by remember { mutableStateOf(false) }
-                            val playInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                            val isMoviesTab = (selectedTopTab == 2)
-                            Box(
-                                modifier = Modifier
-                                    .then(if (isMoviesTab) Modifier.focusRequester(focusTracker.heroPlayAnchor) else Modifier)
-                                    // Single Owner (onPreviewKeyEvent) controla UP/DOWN/LEFT/RIGHT.
-                                    // focusProperties se retira de hero_play para no competir con el grafo.
-                                    // El FocusRequester es suficiente para que el grafo pueda llamar requestFocus().
-                                    .onFocusChanged {
-                                        isPlayFocused = it.isFocused
-                                        if (it.isFocused) {
-                                            focusTracker.onFocusChanged("hero_play", TvFocusZone.HERO, rowIndex = 0, cardIndex = 0)
-                                        }
-                                    }
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isPlayFocused) LelouchCyanAccent else LelouchSurfaceVariant)
-                                    .border(
-                                        width = if (isPlayFocused) 2.5.dp else 1.dp,
-                                        color = if (isPlayFocused) Color.White else LelouchBorder,
-                                        shape = RoundedCornerShape(8.dp)
-                                    )
-                                    .clickable(
-                                        interactionSource = playInteraction,
-                                        indication = null
-                                    ) {
-                                        if (selectedTopTab == 2 && focusedHeroMovie != null) {
-                                            activeSource?.let { src ->
-                                                val url = XtreamUrlBuilder.buildVodStreamUrl(
-                                                    src.serverUrl,
-                                                    src.username,
-                                                    src.password,
-                                                    focusedHeroMovie!!.streamId,
-                                                    focusedHeroMovie!!.containerExtension ?: "mp4"
-                                                )
-                                                playerEngine.playStream(url, isLive = false)
-                                            } ?: run {
-                                                playerEngine.playStream("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4", isLive = false)
-                                            }
-                                            isFullscreen = true
-                                        } else if (selectedTopTab == 3 && focusedHeroSeries != null) {
-                                            openSeriesDetails(focusedHeroSeries!!)
-                                        } else {
-                                            isFullscreen = true
-                                        }
-                                    }
-                                    .padding(horizontal = 18.dp, vertical = 10.dp)
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = Icons.Default.PlayArrow,
-                                        contentDescription = null,
-                                        tint = if (isPlayFocused) Color.Black else Color.White,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = if (selectedTopTab == 2) "Ver Película (OK)" else if (selectedTopTab == 3) "Ver Serie (OK)" else "Ver Pantalla Completa (OK)",
-                                        color = if (isPlayFocused) Color.Black else Color.White,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-
-                            if (selectedTopTab == 0 || selectedTopTab == 1) {
-                                var isReloadFocused by remember { mutableStateOf(false) }
-                                Box(
-                                    modifier = Modifier
-                                        .focusable()
-                                        .onFocusChanged { isReloadFocused = it.isFocused }
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (isReloadFocused) LelouchSurfaceVariant.copy(alpha = 0.8f) else Color.Transparent)
-                                        .border(
-                                            width = if (isReloadFocused) 2.dp else 1.dp,
-                                            color = if (isReloadFocused) LelouchCyanAccent else LelouchBorder,
-                                            shape = RoundedCornerShape(8.dp)
-                                        )
-                                        .clickable {
-                                            playerEngine.playStream(focusedChannel.streamUrl, isLive = true)
-                                        }
-                                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            imageVector = Icons.Default.Refresh,
-                                            contentDescription = null,
-                                            tint = LelouchTextSecondary,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
+                                    Column {
                                         Text(
-                                            text = "Reconectar",
+                                            text = "🔴 CANALES EN VIVO",
+                                            color = LelouchCyanAccent,
+                                            fontSize = 22.sp,
+                                            fontWeight = FontWeight.Black,
+                                            letterSpacing = 1.sp
+                                        )
+                                        Text(
+                                            text = "${filteredChannels.size} señales en directo • Categoría: $selectedChannelCategory",
                                             color = LelouchTextSecondary,
                                             fontSize = 13.sp
                                         )
                                     }
-                                }
 
-                                var isEpgFocused by remember { mutableStateOf(false) }
-                                Box(
-                                    modifier = Modifier
-                                        .focusable()
-                                        .onFocusChanged { isEpgFocused = it.isFocused }
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (isEpgFocused) LelouchCyanAccent.copy(alpha = 0.25f) else Color.Transparent)
-                                        .border(
-                                            width = if (isEpgFocused) 2.dp else 1.dp,
-                                            color = if (isEpgFocused) LelouchCyanAccent else LelouchBorder,
-                                            shape = RoundedCornerShape(8.dp)
-                                        )
-                                        .clickable { isEpgModalVisible = true }
-                                        .padding(horizontal = 14.dp, vertical = 10.dp)
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            imageVector = Icons.Default.CalendarToday,
-                                            contentDescription = null,
-                                            tint = if (isEpgFocused) LelouchCyanAccent else LelouchTextSecondary,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = "Guía EPG",
-                                            color = if (isEpgFocused) LelouchTextPrimary else LelouchTextSecondary,
-                                            fontSize = 13.sp
-                                        )
-                                    }
-                                }
-                            } else {
-                                // Botón de Más Detalles para Películas y Series
-                                var isDetailFocused by remember { mutableStateOf(false) }
-                                val detailInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                                Box(
-                                    modifier = Modifier
-                                        .then(if (isMoviesTab) Modifier.focusRequester(focusTracker.heroDetailAnchor) else Modifier)
-                                        // Single Owner (onPreviewKeyEvent) controla UP/DOWN/LEFT/RIGHT.
-                                        // focusProperties se retira de hero_detail para no competir con el grafo.
-                                        // El FocusRequester es suficiente para que el grafo pueda llamar requestFocus().
-                                        .onFocusChanged {
-                                            isDetailFocused = it.isFocused
-                                            if (it.isFocused) {
-                                                focusTracker.onFocusChanged("hero_detail", TvFocusZone.HERO, rowIndex = 0, cardIndex = 1)
-                                            }
-                                        }
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (isDetailFocused) LelouchSurfaceVariant else Color.Transparent)
-                                        .border(
-                                            width = if (isDetailFocused) 2.5.dp else 1.dp,
-                                            color = if (isDetailFocused) LelouchCyanAccent else LelouchBorder,
-                                            shape = RoundedCornerShape(8.dp)
-                                        )
-                                        .clickable(
-                                            interactionSource = detailInteraction,
-                                            indication = null
-                                        ) {
-                                            if (selectedTopTab == 2 && focusedHeroMovie != null) {
-                                                activeDetailMedia = MediaDetailUiModel(
-                                                    id = focusedHeroMovie!!.streamId,
-                                                    title = focusedHeroMovie!!.name,
-                                                    posterUrl = focusedHeroMovie!!.streamIcon,
-                                                    backdropUrl = focusedHeroMovie!!.backdropPath,
-                                                    rating = focusedHeroMovie!!.rating ?: 0.0,
-                                                    year = focusedHeroMovie!!.year,
-                                                    synopsis = focusedHeroMovie!!.plot ?: "",
-                                                    genre = focusedHeroMovie!!.categoryName,
-                                                    isSeries = false,
-                                                    isFavorite = focusedHeroMovie!!.isFavorite
-                                                )
-                                            } else if (selectedTopTab == 3 && focusedHeroSeries != null) {
-                                                openSeriesDetails(focusedHeroSeries!!)
-                                            }
-                                        }
-                                        .padding(horizontal = 14.dp, vertical = 10.dp)
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            imageVector = Icons.Default.Info,
-                                            contentDescription = null,
-                                            tint = if (isDetailFocused) Color.White else LelouchTextSecondary,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = "Más Detalles",
-                                            color = if (isDetailFocused) Color.White else LelouchTextSecondary,
-                                            fontSize = 13.sp,
-                                            fontWeight = if (isDetailFocused) FontWeight.Bold else FontWeight.Medium
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-                // SECCIÓN ADMIN Y GESTOR DE LISTAS (Pestaña 5: ⚙️ Admin)
-                if (selectedTopTab == 5) {
-                    item {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 48.dp, vertical = 20.dp)
-                        ) {
-                            Text(
-                                text = "⚙️ PANEL ADMINISTRADOR & GESTOR DE LISTAS",
-                                color = LelouchCyanAccent,
-                                fontSize = 24.sp,
-                                fontWeight = FontWeight.Black,
-                                letterSpacing = 1.sp
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = "Cambia al instante entre tus proveedores IPTV registrados, sincroniza cuentas de la nube o administra conexiones.",
-                                color = LelouchTextSecondary,
-                                fontSize = 14.sp
-                            )
-
-                            Spacer(modifier = Modifier.height(24.dp))
-
-                            // Acciones de Mantenimiento
-                            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                                var isCloudBtnFocused by remember { mutableStateOf(false) }
-                                Box(
-                                    modifier = Modifier
-                                        .focusable()
-                                        .onFocusChanged { isCloudBtnFocused = it.isFocused }
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (isCloudBtnFocused) LelouchCyanAccent else LelouchSurfaceVariant)
-                                        .border(1.dp, if (isCloudBtnFocused) LelouchCyanAccent else LelouchBorder, RoundedCornerShape(8.dp))
-                                        .clickable { onSyncCloudSources() }
-                                        .padding(horizontal = 16.dp, vertical = 10.dp)
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            imageVector = Icons.Default.CloudSync,
-                                            contentDescription = null,
-                                            tint = if (isCloudBtnFocused) Color.Black else LelouchCyanAccent,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = "☁️ Sincronizar Supabase",
-                                            color = if (isCloudBtnFocused) Color.Black else Color.White,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                }
-
-                                var isResyncFocused by remember { mutableStateOf(false) }
-                                Box(
-                                    modifier = Modifier
-                                        .focusable()
-                                        .onFocusChanged { isResyncFocused = it.isFocused }
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (isResyncFocused) LelouchCyanAccent else LelouchSurfaceVariant)
-                                        .border(1.dp, if (isResyncFocused) LelouchCyanAccent else LelouchBorder, RoundedCornerShape(8.dp))
-                                        .clickable { onForceSync() }
-                                        .padding(horizontal = 16.dp, vertical = 10.dp)
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            imageVector = Icons.Default.Refresh,
-                                            contentDescription = null,
-                                            tint = if (isResyncFocused) Color.Black else LelouchCyanAccent,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = "🔄 Re-sincronizar Catálogo",
-                                            color = if (isResyncFocused) Color.Black else Color.White,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                }
-
-                                var isLogoutFocused by remember { mutableStateOf(false) }
-                                Box(
-                                    modifier = Modifier
-                                        .focusable()
-                                        .onFocusChanged { isLogoutFocused = it.isFocused }
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (isLogoutFocused) LelouchLiveRed else LelouchSurfaceVariant)
-                                        .border(1.dp, if (isLogoutFocused) LelouchLiveRed else LelouchBorder, RoundedCornerShape(8.dp))
-                                        .clickable { onLogout() }
-                                        .padding(horizontal = 16.dp, vertical = 10.dp)
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            imageVector = Icons.Default.Logout,
-                                            contentDescription = null,
-                                            tint = if (isLogoutFocused) Color.White else LelouchLiveRed,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = "🚪 Cerrar Sesión",
-                                            color = if (isLogoutFocused) Color.White else LelouchLiveRed,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(28.dp))
-
-                            Text(
-                                text = "📋 TUS LISTAS IPTV DISPONIBLES (${allSources.size}):",
-                                color = LelouchTextPrimary,
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                        }
-                    }
-
-                    itemsIndexed(allSources) { _, source ->
-                        val isActive = (source.id == activeSource?.id || source.isActive)
-                        var isCardFocused by remember { mutableStateOf(false) }
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 48.dp, vertical = 6.dp)
-                                .focusable()
-                                .onFocusChanged { isCardFocused = it.isFocused }
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(if (isCardFocused) LelouchCardFocused else if (isActive) LelouchSurfaceVariant else LelouchSurface)
-                                .border(
-                                    width = if (isCardFocused) 2.dp else if (isActive) 1.5.dp else 1.dp,
-                                    color = if (isCardFocused) LelouchCyanAccent else if (isActive) Color(0xFF10B981) else LelouchBorder,
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-                                .clickable {
-                                    if (!isActive) {
-                                        onActivateSource(source.id)
-                                        selectedTopTab = 0
-                                    }
-                                }
-                                .padding(18.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            text = source.name,
-                                            color = LelouchTextPrimary,
-                                            fontSize = 17.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        Spacer(modifier = Modifier.width(10.dp))
-                                        if (isActive) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .clip(RoundedCornerShape(4.dp))
-                                                    .background(Color(0xFF10B981))
-                                                    .padding(horizontal = 8.dp, vertical = 3.dp)
-                                            ) {
-                                                Text(
-                                                    text = "🟢 LISTA ACTIVA",
-                                                    color = Color.White,
-                                                    fontSize = 10.sp,
-                                                    fontWeight = FontWeight.Black
-                                                )
-                                            }
-                                        } else {
-                                            Box(
-                                                modifier = Modifier
-                                                    .clip(RoundedCornerShape(4.dp))
-                                                    .background(LelouchTextMuted.copy(alpha = 0.3f))
-                                                    .padding(horizontal = 8.dp, vertical = 3.dp)
-                                            ) {
-                                                Text(
-                                                    text = "⚪ DISPONIBLE",
-                                                    color = LelouchTextSecondary,
-                                                    fontSize = 10.sp,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            }
-                                        }
-                                    }
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = "Servidor: ${source.serverUrl}  •  Usuario: ${source.username}",
-                                        color = LelouchTextSecondary,
-                                        fontSize = 12.sp
+                                    HomeHeaderBar(
+                                        activeSource = activeSource,
+                                        videoInfo = videoInfo,
+                                        playbackState = playbackState,
+                                        onOpenAdmin = { selectedTopTab = 6 }
                                     )
                                 }
 
-                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    if (!isActive) {
-                                        var isActBtnFocused by remember { mutableStateOf(false) }
-                                        Box(
-                                            modifier = Modifier
-                                                .focusable()
-                                                .onFocusChanged { isActBtnFocused = it.isFocused }
-                                                .clip(RoundedCornerShape(6.dp))
-                                                .background(if (isActBtnFocused) Color.White else LelouchCyanAccent)
-                                                .clickable {
-                                                    onActivateSource(source.id)
-                                                    selectedTopTab = 0
-                                                }
-                                                .padding(horizontal = 14.dp, vertical = 8.dp)
-                                        ) {
-                                            Text(
-                                                text = "⚡ ACTIVAR (OK)",
-                                                color = Color.Black,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Black
-                                            )
+                                TvCategorySelectorBar(
+                                    categories = channelCategories,
+                                    selectedCategory = selectedChannelCategory,
+                                    onSelectCategory = { selectedChannelCategory = it },
+                                    firstItemRequester = contentFocusRequester,
+                                    sidebarRequester = sidebarRequesters[2],
+                                    modifier = Modifier.padding(bottom = 12.dp)
+                                )
+
+                                LazyVerticalGrid(
+                                    columns = GridCells.Adaptive(minSize = 205.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                                    contentPadding = PaddingValues(bottom = 64.dp),
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    itemsIndexed(filteredChannels, key = { _, ch -> "grid_live_ch_${ch.streamId}" }) { index, ch ->
+                                        val cardModifier = if (index == 0) {
+                                            Modifier
+                                                .fillMaxWidth()
+                                                .focusProperties { left = sidebarRequesters[2] }
+                                        } else {
+                                            Modifier.fillMaxWidth()
                                         }
+
+                                        TvChannelCard(
+                                            channel = ch,
+                                            isSelected = (index == focusedChannelIndex),
+                                            onFocused = {
+                                                focusedChannelIndex = index
+                                            },
+                                            onClick = { 
+                                                isPlayingLive = true
+                                                playerEngine.playStream(ch.streamUrl, isLive = true)
+                                                isFullscreen = true 
+                                            },
+                                            modifier = cardModifier
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        3 -> {
+                            // 🎬 PELÍCULAS EN GRID VERTICAL CON SELECTOR DE CATEGORÍAS
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(start = 32.dp, end = 32.dp, top = 16.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text(
+                                            text = "🎬 CATÁLOGO DE PELÍCULAS",
+                                            color = LelouchCyanAccent,
+                                            fontSize = 22.sp,
+                                            fontWeight = FontWeight.Black,
+                                            letterSpacing = 1.sp
+                                        )
+                                        Text(
+                                            text = "${filteredMovies.size} películas disponibles • Categoría: $selectedMovieCategory",
+                                            color = LelouchTextSecondary,
+                                            fontSize = 13.sp
+                                        )
                                     }
 
-                                    if (allSources.size > 1) {
-                                        var isDelBtnFocused by remember { mutableStateOf(false) }
-                                        Box(
-                                            modifier = Modifier
-                                                .focusable()
-                                                .onFocusChanged { isDelBtnFocused = it.isFocused }
-                                                .clip(RoundedCornerShape(6.dp))
-                                                .background(if (isDelBtnFocused) LelouchLiveRed else Color.Transparent)
-                                                .border(1.dp, LelouchBorder, RoundedCornerShape(6.dp))
-                                                .clickable { onDeleteSource(source.id) }
-                                                .padding(horizontal = 10.dp, vertical = 8.dp)
+                                    HomeHeaderBar(
+                                        activeSource = activeSource,
+                                        videoInfo = videoInfo,
+                                        playbackState = playbackState,
+                                        onOpenAdmin = { selectedTopTab = 6 }
+                                    )
+                                }
+
+                                TvCategorySelectorBar(
+                                    categories = movieCategories,
+                                    selectedCategory = selectedMovieCategory,
+                                    onSelectCategory = { selectedMovieCategory = it },
+                                    firstItemRequester = contentFocusRequester,
+                                    sidebarRequester = sidebarRequesters[3],
+                                    modifier = Modifier.padding(bottom = 12.dp)
+                                )
+
+                                LazyVerticalGrid(
+                                    columns = GridCells.Adaptive(minSize = 145.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(20.dp),
+                                    contentPadding = PaddingValues(bottom = 48.dp),
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    itemsIndexed(filteredMovies, key = { _, movie -> "grid_movie_${movie.streamId}" }) { idx, movie ->
+                                        val cardModifier = if (idx == 0) {
+                                            Modifier.focusProperties { left = sidebarRequesters[3] }
+                                        } else {
+                                            Modifier
+                                        }
+
+                                        TvPosterCard(
+                                            title = movie.name,
+                                            posterUrl = movie.streamIcon,
+                                            rating = movie.rating ?: 0.0,
+                                            year = movie.year,
+                                            onFocused = { focusedHeroMovie = movie },
+                                            onClick = {
+                                                playMovie(movie)
+                                            },
+                                            modifier = cardModifier
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        4 -> {
+                            // 📺 SERIES EN GRID VERTICAL CON SELECTOR DE CATEGORÍAS
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(start = 32.dp, end = 32.dp, top = 16.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text(
+                                            text = "📺 SERIES & TEMPORADAS",
+                                            color = LelouchCyanAccent,
+                                            fontSize = 22.sp,
+                                            fontWeight = FontWeight.Black,
+                                            letterSpacing = 1.sp
+                                        )
+                                        Text(
+                                            text = "${filteredSeries.size} series completas • Categoría: $selectedSeriesCategory",
+                                            color = LelouchTextSecondary,
+                                            fontSize = 13.sp
+                                        )
+                                    }
+
+                                    HomeHeaderBar(
+                                        activeSource = activeSource,
+                                        videoInfo = videoInfo,
+                                        playbackState = playbackState,
+                                        onOpenAdmin = { selectedTopTab = 6 }
+                                    )
+                                }
+
+                                TvCategorySelectorBar(
+                                    categories = seriesCategories,
+                                    selectedCategory = selectedSeriesCategory,
+                                    onSelectCategory = { selectedSeriesCategory = it },
+                                    firstItemRequester = contentFocusRequester,
+                                    sidebarRequester = sidebarRequesters[4],
+                                    modifier = Modifier.padding(bottom = 12.dp)
+                                )
+
+                                LazyVerticalGrid(
+                                    columns = GridCells.Adaptive(minSize = 145.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(20.dp),
+                                    contentPadding = PaddingValues(bottom = 48.dp),
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    itemsIndexed(filteredSeries, key = { _, series -> "grid_series_${series.seriesId}" }) { idx, series ->
+                                        val cardModifier = if (idx == 0) {
+                                            Modifier.focusProperties { left = sidebarRequesters[4] }
+                                        } else {
+                                            Modifier
+                                        }
+
+                                        TvPosterCard(
+                                            title = series.name,
+                                            posterUrl = series.cover,
+                                            rating = series.rating ?: 0.0,
+                                            year = series.releaseDate?.take(4),
+                                            onFocused = { focusedHeroSeries = series },
+                                            onClick = { openSeriesDetails(series) },
+                                            modifier = cardModifier
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        5 -> {
+                            // ⭐ FAVORITOS
+                            TvLazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(start = 32.dp, end = 32.dp, top = 16.dp, bottom = 48.dp)
+                            ) {
+                                item {
+                                    Text(
+                                        text = "⭐ TUS FAVORITOS",
+                                        color = LelouchCyanAccent,
+                                        fontSize = 22.sp,
+                                        fontWeight = FontWeight.Black,
+                                        letterSpacing = 1.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                }
+
+                                if (favoriteChannels.isNotEmpty()) {
+                                    item {
+                                        ContentSectionTitle("⭐ Canales Favoritos")
+                                        TvLazyRow(
+                                            contentPadding = PaddingValues(horizontal = 0.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(16.dp)
                                         ) {
+                                            itemsIndexed(favoriteChannels) { idx, stream ->
+                                                val ch = ChannelUiModel(
+                                                    streamId = stream.streamId,
+                                                    name = stream.name,
+                                                    num = stream.num,
+                                                    categoryName = stream.categoryName ?: "Favoritos",
+                                                    streamIcon = stream.streamIcon,
+                                                    currentProgram = "Canal Favorito",
+                                                    streamUrl = activeSource?.let {
+                                                        XtreamUrlBuilder.buildLiveStreamUrl(it.serverUrl, it.username, it.password, stream.streamId, "m3u8")
+                                                    } ?: ""
+                                                )
+                                                TvChannelCard(
+                                                    channel = ch,
+                                                    isSelected = false,
+                                                    onFocused = {},
+                                                    onClick = {
+                                                        playerEngine.playStream(ch.streamUrl, isLive = true)
+                                                        isFullscreen = true
+                                                    },
+                                                    cardWidth = 215.dp,
+                                                    modifier = if (idx == 0) Modifier.focusRequester(contentFocusRequester).focusProperties { left = sidebarRequesters[5] } else Modifier
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(28.dp))
+                                    }
+                                }
+
+                                if (favoriteMovies.isNotEmpty()) {
+                                    item {
+                                        ContentSectionTitle("🎬 Películas Favoritas")
+                                        TvLazyRow(
+                                            contentPadding = PaddingValues(horizontal = 0.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                                        ) {
+                                            itemsIndexed(favoriteMovies) { idx, mov ->
+                                                TvPosterCard(
+                                                    title = mov.name,
+                                                    posterUrl = mov.streamIcon,
+                                                    rating = mov.rating ?: 0.0,
+                                                    year = mov.year,
+                                                    onClick = {
+                                                        activeDetailMedia = MediaDetailUiModel(
+                                                            id = mov.streamId,
+                                                            title = mov.name,
+                                                            posterUrl = mov.streamIcon,
+                                                            backdropUrl = mov.backdropPath,
+                                                            rating = mov.rating ?: 0.0,
+                                                            year = mov.year,
+                                                            synopsis = mov.plot ?: "",
+                                                            genre = mov.categoryName,
+                                                            containerExtension = mov.containerExtension.ifEmpty { "mp4" },
+                                                            isSeries = false,
+                                                            isFavorite = mov.isFavorite
+                                                        )
+                                                    },
+                                                    modifier = if (idx == 0 && favoriteChannels.isEmpty()) Modifier.focusRequester(contentFocusRequester).focusProperties { left = sidebarRequesters[5] } else if (idx == 0) Modifier.focusProperties { left = sidebarRequesters[5] } else Modifier
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if (favoriteChannels.isEmpty() && favoriteMovies.isEmpty()) {
+                                    item {
+                                        Column(
+                                            modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Star,
+                                                contentDescription = null,
+                                                tint = LelouchCyanAccent,
+                                                modifier = Modifier.size(56.dp)
+                                            )
+                                            Spacer(modifier = Modifier.height(14.dp))
                                             Text(
-                                                text = "🗑️",
+                                                text = "Aún no tienes elementos en Favoritos",
+                                                color = LelouchTextPrimary,
+                                                fontSize = 18.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text(
+                                                text = "Marca canales o películas como favoritos para tenerlos siempre a mano.",
+                                                color = LelouchTextSecondary,
                                                 fontSize = 13.sp
                                             )
                                         }
@@ -1617,375 +1224,130 @@ fun TvHomeScreen(
                                 }
                             }
                         }
-                    }
-                }
 
-                // SECCIÓN 1: Canales en Vivo (Visible en Inicio, En Vivo y Favoritos)
-                if (selectedTopTab == 0 || selectedTopTab == 1 || selectedTopTab == 4) {
-                    item {
-                        Text(
-                            text = if (selectedTopTab == 4) "⭐ Canales Favoritos" else "🔴 Canales en Directo",
-                            color = LelouchTextPrimary,
-                            fontSize = 19.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(start = 48.dp, bottom = 12.dp)
-                        )
+                        6 -> {
+                            // ⚙️ PANEL ADMINISTRADOR & AJUSTES
+                            TvLazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(start = 32.dp, end = 48.dp, top = 16.dp, bottom = 48.dp)
+                            ) {
+                                item {
+                                    Text(
+                                        text = "⚙️ PANEL ADMINISTRADOR & AJUSTES",
+                                        color = LelouchCyanAccent,
+                                        fontSize = 22.sp,
+                                        fontWeight = FontWeight.Black,
+                                        letterSpacing = 1.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = "Gestiona tus listas IPTV, sincroniza con la nube o cambia de cuenta.",
+                                        color = LelouchTextSecondary,
+                                        fontSize = 14.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(20.dp))
 
-                        val channelsToRender = if (selectedTopTab == 4 && favoriteChannels.isNotEmpty()) {
-                            favoriteChannels.map { stream ->
-                                ChannelUiModel(
-                                    streamId = stream.streamId,
-                                    name = stream.name,
-                                    num = stream.num,
-                                    categoryName = stream.categoryName ?: "Favoritos",
-                                    streamIcon = stream.streamIcon,
-                                    currentProgram = "Canal Favorito",
-                                    streamUrl = activeSource?.let {
-                                        XtreamUrlBuilder.buildLiveStreamUrl(it.serverUrl, it.username, it.password, stream.streamId, "m3u8")
-                                    } ?: ""
-                                )
-                            }
-                        } else displayChannels
-
-                        TvLazyRow(
-                            modifier = Modifier.focusRestorer(),
-                            contentPadding = PaddingValues(horizontal = 48.dp),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            itemsIndexed(
-                                items = channelsToRender,
-                                key = { _, channel -> "live_ch_${channel.streamId}" }
-                            ) { index, channel ->
-                                val isSelected = (index == focusedChannelIndex)
-                                TvChannelCard(
-                                    channel = channel,
-                                    isSelected = isSelected,
-                                    onFocused = {
-                                        focusedChannelIndex = index
-                                        if (selectedTopTab == 0) {
-                                            focusedHeroMovie = null
-                                            focusedHeroSeries = null
-                                        }
-                                    },
-                                    onClick = { isFullscreen = true }
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(24.dp))
-                    }
-                }
-
-                // SECCIÓN 2: Películas Recientes y Populares (Inicio, Películas y Favoritos)
-                if (selectedTopTab == 0 || selectedTopTab == 2 || selectedTopTab == 4) {
-                    item {
-                        Text(
-                            text = if (selectedTopTab == 4) "⭐ Películas Favoritas" else "🎬 Películas Recientemente Añadidas",
-                            color = LelouchTextPrimary,
-                            fontSize = 19.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(start = 48.dp, bottom = 12.dp)
-                        )
-
-                        val moviesToRender = if (selectedTopTab == 4 && favoriteMovies.isNotEmpty()) {
-                            favoriteMovies
-                        } else {
-                            displayMovies
-                        }
-
-                        // recentRowState se declara a nivel superior del composable
-                        // para permitir que el Single Owner (onPreviewKeyEvent) coordine
-                        // el scroll antes de requestFocus() cuando el item no está compuesto.
-                        TvLazyRow(
-                            state = recentRowState,
-                            // focusRestorer() eliminado: Single Owner + grafo determinista
-                            // controla 100% de la navegación en Movies. (FIX F6)
-                            modifier = Modifier,
-                            contentPadding = PaddingValues(horizontal = 48.dp),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            itemsIndexed(
-                                items = moviesToRender,
-                                key = { _, movie -> "movie_${movie.streamId}" }
-                            ) { index, movie ->
-                                DisposableEffect(index) {
-                                    focusTracker.composedRecentIndices.add(index)
-                                    onDispose {
-                                        focusTracker.composedRecentIndices.remove(index)
-                                    }
-                                }
-
-                                val cardRequester = focusTracker.getRecentRequester(index)
-                                val cardTag = "movies_recent_${movie.streamId}"
-                                val isMoviesTab = (selectedTopTab == 2)
-                                val cardModifier = if (isMoviesTab) {
-                                    Modifier
-                                        .focusRequester(cardRequester)
-                                        // focusProperties en RAIL_RECENT: solo límites de borde.
-                                        // UP/DOWN son responsabilidad del Single Owner (onPreviewKeyEvent).
-                                        // Eliminado el bridge competidor a heroPlayAnchor y getTopRatedRequester.
-                                        // (FIX F5 + FIX F6)
-                                        .focusProperties {
-                                            if (index == 0) left = FocusRequester.Cancel
-                                            if (index == moviesToRender.lastIndex) right = FocusRequester.Cancel
-                                            up   = FocusRequester.Cancel
-                                            down = FocusRequester.Cancel
-                                        }
-                                } else Modifier
-
-                                TvPosterCard(
-                                    title = movie.name,
-                                    posterUrl = movie.streamIcon,
-                                    rating = movie.rating ?: 0.0,
-                                    year = movie.year,
-                                    modifier = cardModifier,
-                                    onFocused = {
-                                        focusedHeroMovie = movie
-                                        focusedHeroSeries = null
-                                        focusTracker.onFocusChanged(cardTag, TvFocusZone.RAIL_RECENT, rowIndex = 1, cardIndex = index)
-                                    },
-                                    onClick = {
-                                        activeDetailMedia = MediaDetailUiModel(
-                                            id = movie.streamId,
-                                            title = movie.name,
-                                            posterUrl = movie.streamIcon,
-                                            backdropUrl = movie.backdropPath,
-                                            rating = movie.rating ?: 0.0,
-                                            year = movie.year,
-                                            synopsis = movie.plot ?: "Película en catálogo.",
-                                            genre = movie.categoryName,
-                                            isSeries = false,
-                                            isFavorite = movie.isFavorite
+                                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                                        ActionButton(
+                                            icon = Icons.Default.CloudSync,
+                                            label = "☁️ Sincronizar Supabase",
+                                            modifier = Modifier
+                                                .focusRequester(contentFocusRequester)
+                                                .focusProperties { left = sidebarRequesters[6] },
+                                            onClick = onSyncCloudSources
+                                        )
+                                        ActionButton(
+                                            icon = Icons.Default.Refresh,
+                                            label = "🔄 Re-sincronizar Catálogo",
+                                            onClick = onForceSync
+                                        )
+                                        ActionButton(
+                                            icon = Icons.Default.Logout,
+                                            label = "🚪 Cerrar Sesión",
+                                            isDanger = true,
+                                            onClick = onLogout
                                         )
                                     }
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(24.dp))
-                    }
-                }
 
-                // SECCIÓN 2B: Películas Más Valoradas (Solo en pestaña Películas)
-                if (selectedTopTab == 2) {
-                    item {
-                        Text(
-                            text = "⭐ Más Valoradas (Top Rated)",
-                            color = LelouchTextPrimary,
-                            fontSize = 19.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(start = 48.dp, bottom = 12.dp)
-                        )
-
-                        val topRatedMovies = remember(displayMovies) {
-                            displayMovies.sortedByDescending { it.rating ?: 0.0 }
-                        }
-
-                        // topRatedRowState se declara a nivel superior del composable.
-                        TvLazyRow(
-                            state = topRatedRowState,
-                            // focusRestorer() eliminado: Single Owner controla navegación en Movies. (FIX F6)
-                            modifier = Modifier,
-                            contentPadding = PaddingValues(horizontal = 48.dp),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            itemsIndexed(
-                                items = topRatedMovies,
-                                key = { _, movie -> "top_movie_${movie.streamId}" }
-                            ) { index, movie ->
-                                DisposableEffect(index) {
-                                    focusTracker.composedTopRatedIndices.add(index)
-                                    onDispose {
-                                        focusTracker.composedTopRatedIndices.remove(index)
-                                    }
+                                    Spacer(modifier = Modifier.height(28.dp))
+                                    Text(
+                                        text = "📋 LISTAS IPTV DISPONIBLES (${allSources.size}):",
+                                        color = LelouchTextPrimary,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.height(12.dp))
                                 }
 
-                                val cardRequester = focusTracker.getTopRatedRequester(index)
-                                val cardTag = "movies_top_${movie.streamId}"
-                                val cardModifier = Modifier
-                                    .focusRequester(cardRequester)
-                                    // focusProperties en RAIL_TOP_RATED: solo límites de borde.
-                                    // UP/DOWN son responsabilidad del Single Owner (onPreviewKeyEvent).
-                                    // Eliminado el bridge competidor a getRecentRequester. (FIX F5 + FIX F6)
-                                    .focusProperties {
-                                        if (index == 0) left = FocusRequester.Cancel
-                                        if (index == topRatedMovies.lastIndex) right = FocusRequester.Cancel
-                                        up   = FocusRequester.Cancel
-                                        down = FocusRequester.Cancel
-                                    }
-
-                                TvPosterCard(
-                                    title = movie.name,
-                                    posterUrl = movie.streamIcon,
-                                    rating = movie.rating ?: 0.0,
-                                    year = movie.year,
-                                    modifier = cardModifier,
-                                    onFocused = {
-                                        focusedHeroMovie = movie
-                                        focusTracker.onFocusChanged(cardTag, TvFocusZone.RAIL_TOP_RATED, rowIndex = 2, cardIndex = index)
-                                    },
-                                    onClick = {
-                                        activeDetailMedia = MediaDetailUiModel(
-                                            id = movie.streamId,
-                                            title = movie.name,
-                                            posterUrl = movie.streamIcon,
-                                            backdropUrl = movie.backdropPath,
-                                            rating = movie.rating ?: 0.0,
-                                            year = movie.year,
-                                            synopsis = movie.plot ?: "Película en catálogo.",
-                                            genre = movie.categoryName,
-                                            isSeries = false,
-                                            isFavorite = movie.isFavorite
+                                itemsIndexed(allSources) { _, source ->
+                                    val isActive = (source.id == activeSource?.id || source.isActive)
+                                    var isCardFocused by remember { mutableStateOf(false) }
+                                    Surface(
+                                        onClick = {
+                                            if (!isActive) {
+                                                onActivateSource(source.id)
+                                                selectedTopTab = 1
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 6.dp)
+                                            .focusProperties { left = sidebarRequesters[6] }
+                                            .onFocusChanged { isCardFocused = it.isFocused },
+                                        shape = ClickableSurfaceDefaults.shape(
+                                            shape = RoundedCornerShape(12.dp),
+                                            focusedShape = RoundedCornerShape(12.dp)
+                                        ),
+                                        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+                                        colors = ClickableSurfaceDefaults.colors(
+                                            containerColor = if (isActive) LelouchSurfaceVariant else LelouchSurface,
+                                            focusedContainerColor = LelouchCardFocused,
+                                            pressedContainerColor = LelouchCardFocused
+                                        ),
+                                        border = ClickableSurfaceDefaults.border(
+                                            border = Border(androidx.compose.foundation.BorderStroke(if (isActive) 1.5.dp else 1.dp, if (isActive) Color(0xFF10B981) else LelouchBorder)),
+                                            focusedBorder = Border(androidx.compose.foundation.BorderStroke(2.dp, LelouchCyanAccent))
                                         )
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth().padding(18.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Text(source.name, color = if (isCardFocused) LelouchCyanAccent else LelouchTextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                                    Spacer(modifier = Modifier.width(10.dp))
+                                                    if (isActive) {
+                                                        Box(modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Color(0xFF10B981)).padding(horizontal = 8.dp, vertical = 3.dp)) {
+                                                            Text("🟢 ACTIVA", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                                                        }
+                                                    }
+                                                }
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                Text("Servidor: ${source.serverUrl}  •  Usuario: ${source.username}", color = LelouchTextSecondary, fontSize = 12.sp)
+                                            }
+
+                                            if (!isActive) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .background(if (isCardFocused) Color.White else LelouchCyanAccent)
+                                                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                                                ) {
+                                                    Text("⚡ ACTIVAR", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                                                }
+                                            }
+                                        }
                                     }
-                                )
+                                }
                             }
-                        }
-                        Spacer(modifier = Modifier.height(24.dp))
-                    }
-                }
-
-                // SECCIÓN 3: Series Populares (Inicio y Series)
-                if (selectedTopTab == 0 || selectedTopTab == 3) {
-                    item {
-                        Text(
-                            text = "📺 Series Populares",
-                            color = LelouchTextPrimary,
-                            fontSize = 19.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(start = 48.dp, bottom = 12.dp)
-                        )
-
-                        TvLazyRow(
-                            modifier = Modifier.focusRestorer(),
-                            contentPadding = PaddingValues(horizontal = 48.dp),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            itemsIndexed(
-                                items = displaySeries,
-                                key = { _, series -> "series_${series.seriesId}" }
-                            ) { _, series ->
-                                TvPosterCard(
-                                    title = series.name,
-                                    posterUrl = series.cover,
-                                    rating = series.rating ?: 0.0,
-                                    year = series.releaseDate?.take(4),
-                                    onFocused = {
-                                        focusedHeroSeries = series
-                                        focusedHeroMovie = null
-                                    },
-                                    onClick = {
-                                        openSeriesDetails(series)
-                                    }
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(24.dp))
-                    }
-                }
-
-                // SECCIÓN 3B: Series en Tendencia (Pestaña Series)
-                if (selectedTopTab == 3) {
-                    item {
-                        Text(
-                            text = "🔥 En Emisión / Tendencias",
-                            color = LelouchTextPrimary,
-                            fontSize = 19.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(start = 48.dp, bottom = 12.dp)
-                        )
-
-                        val trendingSeries = remember(displaySeries) {
-                            displaySeries.reversed()
-                        }
-
-                        TvLazyRow(
-                            modifier = Modifier.focusRestorer(),
-                            contentPadding = PaddingValues(horizontal = 48.dp),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            itemsIndexed(
-                                items = trendingSeries,
-                                key = { _, series -> "trend_series_${series.seriesId}" }
-                            ) { _, series ->
-                                TvPosterCard(
-                                    title = series.name,
-                                    posterUrl = series.cover,
-                                    rating = series.rating ?: 0.0,
-                                    year = series.releaseDate?.take(4),
-                                    onFocused = {
-                                        focusedHeroSeries = series
-                                    },
-                                    onClick = {
-                                        openSeriesDetails(series)
-                                    }
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(24.dp))
-                    }
-                }
-
-                // Estado vacío amigable para Favoritos
-                if (selectedTopTab == 4 && favoriteChannels.isEmpty() && favoriteMovies.isEmpty()) {
-                    item {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 48.dp, horizontal = 48.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.StarBorder,
-                                contentDescription = null,
-                                tint = LelouchCyanAccent,
-                                modifier = Modifier.size(56.dp)
-                            )
-                            Spacer(modifier = Modifier.height(14.dp))
-                            Text(
-                                text = "Aún no tienes elementos en Favoritos",
-                                color = LelouchTextPrimary,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = "Explora En Vivo, Películas o Series y presiona el botón ⭐ para acceder a tus contenidos preferidos rápidamente aquí.",
-                                color = LelouchTextSecondary,
-                                fontSize = 13.sp,
-                                modifier = Modifier.padding(horizontal = 32.dp)
-                            )
                         }
                     }
                 }
             }
         }
 
-        // CAPA 4: Modal de Detalle de Película / Serie
-        activeDetailMedia?.let { media ->
-            TvMediaDetailModal(
-                media = media,
-                onPlayClick = { epId ->
-                    activeSource?.let { src ->
-                        val streamUrl = if (media.isSeries && epId != null) {
-                            XtreamUrlBuilder.buildSeriesStreamUrl(src.serverUrl, src.username, src.password, epId, "mp4")
-                        } else {
-                            XtreamUrlBuilder.buildVodStreamUrl(src.serverUrl, src.username, src.password, media.id, "mp4")
-                        }
-                        playerEngine.playStream(streamUrl, isLive = false)
-                        isFullscreen = true
-                    }
-                    activeDetailMedia = null
-                },
-                onToggleFavorite = {
-                    if (media.isSeries) {
-                        // toggle favorite series
-                    } else {
-                        onToggleFavoriteMovie(media.id, !media.isFavorite)
-                    }
-                    activeDetailMedia = media.copy(isFavorite = !media.isFavorite)
-                },
-                onDismiss = { activeDetailMedia = null }
-            )
-        }
 
         // CAPA 5: Mini-Guía Carrusel HUD en Pantalla Completa (con iconos de canales)
         AnimatedVisibility(
@@ -2008,156 +1370,297 @@ fun TvHomeScreen(
                     )
                     .padding(horizontal = 48.dp, vertical = 20.dp)
             ) {
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(LelouchLiveRed)
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                ) {
-                                    Text("EN DIRECTO", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                }
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "CH ${focusedChannel.num}  •  ${focusedChannel.categoryName}",
-                                    color = LelouchCyanAccent,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = focusedChannel.name,
-                                color = LelouchTextPrimary,
-                                fontSize = 22.sp,
-                                fontWeight = FontWeight.Black
-                            )
-                            Text(
-                                text = focusedChannel.currentProgram,
-                                color = LelouchTextSecondary,
-                                fontSize = 14.sp
-                            )
-                        }
-
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(
-                                text = videoInfo.resolutionLabel,
-                                color = LelouchCyanAccent,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Siguiente: ${focusedChannel.nextProgram}",
-                                color = LelouchTextMuted,
-                                fontSize = 12.sp
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    TvLazyRow(
-                        modifier = Modifier.focusRestorer(),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        itemsIndexed(
-                            items = displayChannels,
-                            key = { _, channel -> "hud_ch_${channel.streamId}" }
-                        ) { index, channel ->
-                            val isSelected = (index == focusedChannelIndex)
-                            var isCardFocused by remember { mutableStateOf(false) }
-
-                            Box(
-                                modifier = Modifier
-                                    .width(185.dp)
-                                    .height(72.dp)
-                                    .focusable()
-                                    .onFocusChanged {
-                                        isCardFocused = it.isFocused
-                                        if (it.isFocused) {
-                                            focusedChannelIndex = index
-                                        }
-                                    }
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isCardFocused) LelouchCardFocused else if (isSelected) LelouchSurfaceVariant else LelouchSurface)
-                                    .border(
-                                        width = if (isCardFocused) 2.dp else 1.dp,
-                                        color = if (isCardFocused) LelouchCyanAccent else LelouchBorder,
-                                        shape = RoundedCornerShape(8.dp)
-                                    )
-                                    .clickable {
-                                        focusedChannelIndex = index
-                                    }
-                                    .padding(8.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxSize(),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    // Logo miniatura
+                if (isPlayingLive) {
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
                                     Box(
                                         modifier = Modifier
-                                            .size(46.dp, 34.dp)
                                             .clip(RoundedCornerShape(4.dp))
-                                            .background(Color.Black.copy(alpha = 0.5f))
-                                            .padding(2.dp),
-                                        contentAlignment = Alignment.Center
+                                            .background(LelouchLiveRed)
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
                                     ) {
-                                        if (!channel.streamIcon.isNullOrBlank()) {
-                                            AsyncImage(
-                                                model = channel.streamIcon,
-                                                contentDescription = channel.name,
-                                                modifier = Modifier.fillMaxSize(),
-                                                contentScale = ContentScale.Fit
-                                            )
-                                        } else {
-                                            Text(
-                                                text = channel.name.take(3).uppercase(),
-                                                color = LelouchCyanAccent,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
+                                        Text("EN DIRECTO", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                     }
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = "CH ${channel.num} - ${channel.name}",
-                                            color = if (isCardFocused || isSelected) LelouchCyanAccent else LelouchTextPrimary,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
+                                    Text(
+                                        text = "CH ${focusedChannel.num}  •  ${focusedChannel.categoryName}",
+                                        color = LelouchCyanAccent,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = focusedChannel.name,
+                                    color = LelouchTextPrimary,
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                                Text(
+                                    text = focusedChannel.currentProgram,
+                                    color = LelouchTextSecondary,
+                                    fontSize = 14.sp
+                                )
+                            }
+
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    text = videoInfo.resolutionLabel,
+                                    color = LelouchCyanAccent,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Siguiente: ${focusedChannel.nextProgram}",
+                                    color = LelouchTextMuted,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        TvLazyRow(
+                            modifier = Modifier.focusRestorer(),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            itemsIndexed(
+                                items = displayChannels,
+                                key = { _, channel -> "hud_ch_${channel.streamId}" }
+                            ) { index, channel ->
+                                val isSelected = (index == focusedChannelIndex)
+                                var isCardFocused by remember { mutableStateOf(false) }
+
+                                val hudCardInteractionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                                Box(
+                                    modifier = Modifier
+                                        .width(185.dp)
+                                        .height(72.dp)
+                                        .onFocusChanged {
+                                            isCardFocused = it.isFocused
+                                            if (it.isFocused) {
+                                                focusedChannelIndex = index
+                                            }
+                                        }
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (isCardFocused) LelouchCardFocused else if (isSelected) LelouchSurfaceVariant else LelouchSurface)
+                                        .border(
+                                            width = if (isCardFocused) 2.dp else 1.dp,
+                                            color = if (isCardFocused) LelouchCyanAccent else LelouchBorder,
+                                            shape = RoundedCornerShape(8.dp)
                                         )
-                                        Text(
-                                            text = channel.currentProgram,
-                                            color = LelouchTextSecondary,
-                                            fontSize = 10.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
+                                        .onKeyEvent { keyEvent ->
+                                            val keyCode = keyEvent.nativeKeyEvent.keyCode
+                                            val isCenterKey = keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                                                              keyCode == KeyEvent.KEYCODE_ENTER ||
+                                                              keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER ||
+                                                              keyCode == KeyEvent.KEYCODE_BUTTON_A
+
+                                            if (isCenterKey) {
+                                                if (keyEvent.type == KeyEventType.KeyDown && keyEvent.nativeKeyEvent.repeatCount == 0) {
+                                                    focusedChannelIndex = index
+                                                    isPlayingLive = true
+                                                    playerEngine.playStream(channel.streamUrl, isLive = true)
+                                                    true
+                                                } else if (keyEvent.type == KeyEventType.KeyUp) {
+                                                    true
+                                                } else {
+                                                    false
+                                                }
+                                            } else {
+                                                false
+                                            }
+                                        }
+                                        .clickable(
+                                            interactionSource = hudCardInteractionSource,
+                                            indication = null
+                                        ) {
+                                            focusedChannelIndex = index
+                                            isPlayingLive = true
+                                            playerEngine.playStream(channel.streamUrl, isLive = true)
+                                        }
+                                        .padding(8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxSize(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        // Logo miniatura
+                                        Box(
+                                            modifier = Modifier
+                                                .size(46.dp, 34.dp)
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(Color.Black.copy(alpha = 0.5f))
+                                                .padding(2.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            if (!channel.streamIcon.isNullOrBlank()) {
+                                                AsyncImage(
+                                                    model = channel.streamIcon,
+                                                    contentDescription = channel.name,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    contentScale = ContentScale.Fit
+                                                )
+                                            } else {
+                                                Text(
+                                                    text = channel.name.take(3).uppercase(),
+                                                    color = LelouchCyanAccent,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "CH ${channel.num} - ${channel.name}",
+                                                color = if (isCardFocused || isSelected) LelouchCyanAccent else LelouchTextPrimary,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                text = channel.currentProgram,
+                                                color = LelouchTextSecondary,
+                                                fontSize = 10.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Text(
+                            text = "Presiona BACK para salir al menú  •  D-Pad ARRIBA / ABAJO para ocultar guía",
+                            color = LelouchTextMuted,
+                            fontSize = 11.sp,
+                            modifier = Modifier.align(Alignment.CenterHorizontally)
+                        )
                     }
+                } else {
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    val statusBadgeText = when (playbackState) {
+                                        is PlaybackState.Playing -> "REPRODUCIENDO"
+                                        is PlaybackState.Buffering -> "CARGANDO..."
+                                        is PlaybackState.Error -> "ERROR"
+                                        is PlaybackState.Paused -> "EN PAUSA"
+                                        else -> "DETENIDO"
+                                    }
+                                    val statusBadgeBg = when (playbackState) {
+                                        is PlaybackState.Playing -> LelouchCyanAccent
+                                        is PlaybackState.Buffering -> Color(0xFFFFB300)
+                                        is PlaybackState.Error -> Color(0xFFFF5252)
+                                        else -> Color(0xFF888888)
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(statusBadgeBg)
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = statusBadgeText,
+                                            color = Color.Black,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "VOD 4K UHD",
+                                        color = LelouchTextSecondary,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = currentPlayingTitle ?: "Reproducción VOD",
+                                    color = LelouchTextPrimary,
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.Black,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    text = videoInfo.resolutionLabel.ifEmpty { "1080p FHD" },
+                                    color = LelouchCyanAccent,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                val posMs = (playbackState as? PlaybackState.Playing)?.positionMs
+                                    ?: (playbackState as? PlaybackState.Paused)?.positionMs ?: 0L
+                                val durMs = (playbackState as? PlaybackState.Playing)?.durationMs
+                                    ?: (playbackState as? PlaybackState.Paused)?.durationMs ?: 0L
+                                val posMin = (posMs / 1000) / 60
+                                val posSec = (posMs / 1000) % 60
+                                val durMin = (durMs / 1000) / 60
+                                val durSec = (durMs / 1000) % 60
+                                Text(
+                                    text = String.format("%02d:%02d / %02d:%02d", posMin, posSec, durMin, durSec),
+                                    color = LelouchTextSecondary,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
 
-                    Text(
-                        text = "Presiona BACK para salir al menú  •  D-Pad ARRIBA / ABAJO para ocultar guía",
-                        color = LelouchTextMuted,
-                        fontSize = 11.sp,
-                        modifier = Modifier.align(Alignment.CenterHorizontally)
-                    )
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        val posMs = (playbackState as? PlaybackState.Playing)?.positionMs
+                            ?: (playbackState as? PlaybackState.Paused)?.positionMs ?: 0L
+                        val durMs = (playbackState as? PlaybackState.Playing)?.durationMs
+                            ?: (playbackState as? PlaybackState.Paused)?.durationMs ?: 0L
+                        val progress = if (durMs > 0L) (posMs.toFloat() / durMs.toFloat()).coerceIn(0f, 1f) else 0f
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(LelouchSurfaceVariant)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(progress)
+                                    .fillMaxHeight()
+                                    .clip(RoundedCornerShape(3.dp))
+                                    .background(LelouchCyanAccent)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Text(
+                            text = "D-Pad ◄ / ► : -10s / +10s  •  OK : Pausa / Reanudar  •  BACK : Salir al menú",
+                            color = LelouchTextMuted,
+                            fontSize = 11.sp,
+                            modifier = Modifier.align(Alignment.CenterHorizontally)
+                        )
+                    }
                 }
             }
         }
@@ -2184,6 +1687,7 @@ fun TvHomeScreen(
                         year = movie.year,
                         synopsis = movie.plot ?: "",
                         genre = movie.categoryName,
+                        containerExtension = movie.containerExtension.ifEmpty { "mp4" },
                         isSeries = false,
                         isFavorite = movie.isFavorite
                     )
@@ -2241,31 +1745,40 @@ fun TvHomeScreen(
             TvMediaDetailModal(
                 media = activeDetailMedia!!,
                 onPlayClick = { episodeId ->
-                    if (activeDetailMedia!!.isSeries) {
-                        val ep = activeDetailMedia!!.episodes.find { it.episodeId == episodeId }
-                            ?: activeDetailMedia!!.episodes.firstOrNull()
+                    val media = activeDetailMedia ?: return@TvMediaDetailModal
+                    isPlayingLive = false
+                    if (media.isSeries) {
+                        val ep = (if (episodeId != null) media.episodes.find { it.episodeId == episodeId } else null)
+                            ?: media.episodes.firstOrNull()
+                        val sTitle = media.title
+                        val epTitle = ep?.title ?: "Episodio 1"
+                        currentPlayingTitle = "$sTitle: $epTitle"
                         if (ep != null && ep.streamUrl.isNotEmpty()) {
                             playerEngine.playStream(ep.streamUrl, isLive = false)
                         } else {
                             activeSource?.let { src ->
+                                val targetId = ep?.episodeId ?: episodeId ?: media.id
+                                val ext = ep?.containerExtension?.ifEmpty { "mp4" } ?: "mp4"
                                 val fallbackUrl = XtreamUrlBuilder.buildSeriesStreamUrl(
                                     src.serverUrl,
                                     src.username,
                                     src.password,
-                                    episodeId ?: activeDetailMedia!!.id,
-                                    "mp4"
+                                    targetId,
+                                    ext
                                 )
                                 playerEngine.playStream(fallbackUrl, isLive = false)
                             }
                         }
                     } else {
+                        currentPlayingTitle = media.title
                         activeSource?.let { src ->
+                            val ext = media.containerExtension.ifEmpty { "mp4" }
                             val movieUrl = XtreamUrlBuilder.buildVodStreamUrl(
                                 src.serverUrl,
                                 src.username,
                                 src.password,
-                                activeDetailMedia!!.id,
-                                "mp4"
+                                media.id,
+                                ext
                             )
                             playerEngine.playStream(movieUrl, isLive = false)
                         }
@@ -2426,8 +1939,9 @@ fun TvHomeScreen(
             }
         }
 
-        // HUD solo DEBUG (condicionado por BuildConfig.DEBUG)
-        if (com.lelouch.feature.tv.BuildConfig.DEBUG && !isFullscreen) {
+        // HUD de depuración deshabilitado para mantener la pantalla de la TV limpia y despejada
+        val showDebugHud = false
+        if (showDebugHud && !isFullscreen) {
             FocusDebugHud(
                 tracker = focusTracker,
                 modifier = Modifier.align(Alignment.TopEnd)
@@ -2439,6 +1953,7 @@ fun TvHomeScreen(
 /**
  * Tarjeta de Canal para Android TV con contenedor oficial de logo de canal,
  * escala D-Pad 1.08x, borde Cyan con brillo e indicador LIVE.
+ * Soporta selección instantánea con botón OK / Centro del control Xiaomi.
  */
 @Composable
 fun TvChannelCard(
@@ -2446,7 +1961,8 @@ fun TvChannelCard(
     isSelected: Boolean,
     onFocused: () -> Unit,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    cardWidth: androidx.compose.ui.unit.Dp = androidx.compose.ui.unit.Dp.Unspecified
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
@@ -2457,38 +1973,40 @@ fun TvChannelCard(
 
     val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
 
-    Box(
+    val widthModifier = if (cardWidth != androidx.compose.ui.unit.Dp.Unspecified) {
+        Modifier.width(cardWidth)
+    } else {
+        Modifier.fillMaxWidth()
+    }
+
+    Surface(
+        onClick = onClick,
         modifier = modifier
-            .width(215.dp)
+            .then(widthModifier)
             .height(125.dp)
-            .scale(scale)
             .onFocusChanged {
                 isFocused = it.isFocused
                 if (it.isFocused) {
                     onFocused()
                 }
-            }
-            .clip(RoundedCornerShape(12.dp))
-            .background(
-                when {
-                    isFocused -> LelouchCardFocused
-                    isSelected -> LelouchSurfaceVariant
-                    else -> LelouchSurface
-                }
-            )
-            .border(
-                width = if (isFocused) 2.5.dp else 1.dp,
-                color = if (isFocused) LelouchCyanAccent else if (isSelected) LelouchCyanAccent.copy(alpha = 0.5f) else LelouchBorder,
-                shape = RoundedCornerShape(12.dp)
-            )
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null
-            ) { onClick() }
-            .padding(12.dp)
+            },
+        shape = ClickableSurfaceDefaults.shape(
+            shape = RoundedCornerShape(12.dp),
+            focusedShape = RoundedCornerShape(12.dp)
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = if (isSelected) LelouchSurfaceVariant else LelouchSurface,
+            focusedContainerColor = LelouchCardFocused,
+            pressedContainerColor = LelouchCardFocused
+        ),
+        border = ClickableSurfaceDefaults.border(
+            border = Border(androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) LelouchCyanAccent.copy(alpha = 0.5f) else LelouchBorder)),
+            focusedBorder = Border(androidx.compose.foundation.BorderStroke(2.5.dp, LelouchCyanAccent))
+        )
     ) {
         Column(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().padding(12.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             // Fila Superior: Logo del Canal + Badge LIVE

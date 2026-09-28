@@ -124,8 +124,10 @@ class MainActivity : ComponentActivity() {
             }
 
             val liveChannels by (if (activeSource != null) app.channelRepository.getAllChannels(activeSource!!.id) else app.channelRepository.getAllChannels()).collectAsStateWithLifecycle(initialValue = emptyList())
-            val movies by app.vodRepository.getRecentlyAddedMovies(150).collectAsStateWithLifecycle(initialValue = emptyList())
-            val seriesList by app.seriesRepository.getFeaturedSeries(100).collectAsStateWithLifecycle(initialValue = emptyList())
+            val liveChannelsPaging = if (activeSource != null) app.channelRepository.getAllChannelsPaging(activeSource!!.id) else app.channelRepository.getAllChannelsPaging()
+            
+            val movies by (if (activeSource != null) app.vodRepository.getAllMovies(activeSource!!.id) else app.vodRepository.getAllMovies()).collectAsStateWithLifecycle(initialValue = emptyList())
+            val seriesList by (if (activeSource != null) app.seriesRepository.getAllSeries(activeSource!!.id) else app.seriesRepository.getAllSeries()).collectAsStateWithLifecycle(initialValue = emptyList())
             val favoriteChannels by app.channelRepository.getFavoriteChannels().collectAsStateWithLifecycle(initialValue = emptyList())
             val favoriteMovies by app.vodRepository.getFavoriteMovies().collectAsStateWithLifecycle(initialValue = emptyList())
 
@@ -140,6 +142,7 @@ class MainActivity : ComponentActivity() {
                                 activeSource = activeSource,
                                 allSources = allSources,
                                 liveChannels = liveChannels,
+                                liveChannelsPaging = liveChannelsPaging,
                                 movies = movies,
                                 seriesList = seriesList,
                                 favoriteChannels = favoriteChannels,
@@ -193,6 +196,8 @@ class MainActivity : ComponentActivity() {
                                 activeSource = activeSource,
                                 allSources = allSources,
                                 liveChannels = liveChannels,
+                                movies = movies,
+                                seriesList = seriesList,
                                 onActivateSource = ::onActivateSource,
                                 onDeleteSource = ::onDeleteSource,
                                 onAddSource = ::onAddSource,

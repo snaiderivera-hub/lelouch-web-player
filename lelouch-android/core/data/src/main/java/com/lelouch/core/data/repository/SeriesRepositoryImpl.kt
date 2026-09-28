@@ -54,6 +54,13 @@ class SeriesRepositoryImpl(
         }
     }
 
+    override fun getAllSeries(sourceId: String?): Flow<List<Series>> {
+        val flow = if (sourceId != null) seriesDao.getAllSeriesBySource(sourceId) else seriesDao.getAllSeries()
+        return flow.map { entities ->
+            entities.map { it.toDomain() }
+        }
+    }
+
     override suspend fun getSeriesDetail(seriesId: Int): Series? {
         return seriesDao.getSeriesById(seriesId)?.toDomain()
     }

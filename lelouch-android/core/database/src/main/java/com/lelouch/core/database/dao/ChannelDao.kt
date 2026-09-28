@@ -29,8 +29,14 @@ interface ChannelDao {
     @Query("SELECT * FROM channels WHERE sourceId = :sourceId ORDER BY num ASC, name ASC")
     fun getAllChannelsBySource(sourceId: String): Flow<List<ChannelEntity>>
 
+    @Query("SELECT * FROM channels WHERE sourceId = :sourceId ORDER BY num ASC, name ASC")
+    fun getAllChannelsBySourcePaging(sourceId: String): PagingSource<Int, ChannelEntity>
+
     @Query("SELECT * FROM channels ORDER BY num ASC, name ASC")
     fun getAllChannels(): Flow<List<ChannelEntity>>
+
+    @Query("SELECT * FROM channels ORDER BY num ASC, name ASC")
+    fun getAllChannelsPaging(): PagingSource<Int, ChannelEntity>
 
 
     @Query("SELECT * FROM channels WHERE streamId = :streamId LIMIT 1")

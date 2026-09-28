@@ -1,5 +1,6 @@
 package com.lelouch.feature.tv.components
 
+import android.view.KeyEvent
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -10,6 +11,9 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
+import androidx.tv.material3.Surface
+import androidx.tv.material3.ClickableSurfaceDefaults
+import androidx.tv.material3.Border
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -18,6 +22,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -54,28 +59,38 @@ fun TvPosterCard(
 
     val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
 
-    Box(
+    val sizeModifier = if (width != androidx.compose.ui.unit.Dp.Unspecified && height != androidx.compose.ui.unit.Dp.Unspecified) {
+        Modifier.width(width).height(height)
+    } else if (width != androidx.compose.ui.unit.Dp.Unspecified) {
+        Modifier.width(width)
+    } else {
+        Modifier
+    }
+
+    Surface(
+        onClick = onClick,
         modifier = modifier
-            .width(width)
-            .height(height)
-            .scale(scale)
+            .then(sizeModifier)
             .onFocusChanged {
                 isFocused = it.isFocused
                 if (it.isFocused) {
                     onFocused()
                 }
-            }
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (isFocused) LelouchCardFocused else LelouchSurface)
-            .border(
-                width = if (isFocused) 2.5.dp else 1.dp,
-                color = if (isFocused) LelouchCyanAccent else LelouchBorder,
-                shape = RoundedCornerShape(12.dp)
-            )
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null
-            ) { onClick() }
+            },
+        shape = ClickableSurfaceDefaults.shape(
+            shape = RoundedCornerShape(12.dp),
+            focusedShape = RoundedCornerShape(12.dp)
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = LelouchSurface,
+            focusedContainerColor = LelouchCardFocused,
+            pressedContainerColor = LelouchCardFocused
+        ),
+        border = ClickableSurfaceDefaults.border(
+            border = Border(androidx.compose.foundation.BorderStroke(1.dp, LelouchBorder)),
+            focusedBorder = Border(androidx.compose.foundation.BorderStroke(2.5.dp, LelouchCyanAccent))
+        )
     ) {
         // Poster Image
         if (!posterUrl.isNullOrBlank()) {

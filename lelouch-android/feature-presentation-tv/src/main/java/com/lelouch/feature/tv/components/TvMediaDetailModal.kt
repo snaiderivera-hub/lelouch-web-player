@@ -38,6 +38,10 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.tv.foundation.lazy.list.TvLazyRow
 import androidx.tv.foundation.lazy.list.itemsIndexed
+import androidx.tv.material3.Surface
+import androidx.tv.material3.ClickableSurfaceDefaults
+import androidx.tv.material3.Border
+import kotlinx.coroutines.delay
 import coil.compose.AsyncImage
 import com.lelouch.core.designsystem.*
 import com.lelouch.core.model.Episode
@@ -53,6 +57,7 @@ data class MediaDetailUiModel(
     val duration: String? = null,
     val genre: String? = null,
     val director: String? = null,
+    val containerExtension: String = "mp4",
     val isSeries: Boolean = false,
     val isFavorite: Boolean = false,
     val seasons: List<Int> = emptyList(),
@@ -73,7 +78,10 @@ fun TvMediaDetailModal(
 
     val playFocusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) {
-        playFocusRequester.requestFocus()
+        delay(80)
+        try {
+            playFocusRequester.requestFocus()
+        } catch (_: Exception) {}
     }
 
     Dialog(
@@ -119,22 +127,33 @@ fun TvMediaDetailModal(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
                 ) {
-                    var isCloseFocused by remember { mutableStateOf(false) }
-                    Box(
-                        modifier = Modifier
-                            .focusable()
-                            .onFocusChanged { isCloseFocused = it.isFocused }
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (isCloseFocused) Color.White else LelouchSurface)
-                            .border(if (isCloseFocused) 2.dp else 1.dp, if (isCloseFocused) LelouchCyanAccent else LelouchBorder, RoundedCornerShape(8.dp))
-                            .clickable { onDismiss() }
-                            .padding(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Cerrar",
-                            tint = if (isCloseFocused) Color.Black else Color.White
+                    Surface(
+                        onClick = onDismiss,
+                        shape = ClickableSurfaceDefaults.shape(
+                            shape = RoundedCornerShape(8.dp),
+                            focusedShape = RoundedCornerShape(8.dp)
+                        ),
+                        colors = ClickableSurfaceDefaults.colors(
+                            containerColor = LelouchSurface,
+                            focusedContainerColor = Color.White
+                        ),
+                        border = ClickableSurfaceDefaults.border(
+                            border = Border(androidx.compose.foundation.BorderStroke(1.dp, LelouchBorder)),
+                            focusedBorder = Border(androidx.compose.foundation.BorderStroke(2.dp, LelouchCyanAccent))
                         )
+                    ) {
+                        var isCloseFocused by remember { mutableStateOf(false) }
+                        Box(
+                            modifier = Modifier
+                                .onFocusChanged { isCloseFocused = it.isFocused }
+                                .padding(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Cerrar",
+                                tint = if (isCloseFocused) Color.Black else Color.White
+                            )
+                        }
                     }
                 }
 
@@ -268,21 +287,29 @@ fun TvMediaDetailModal(
 
                         Spacer(modifier = Modifier.height(18.dp))
 
-                        // Botones de Acción (Ambos con .focusable() para mando Xiaomi)
+                        // Botones de Acción nativos TV Surface para mando Xiaomi / Android TV
                         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                            var isPlayFocused by remember { mutableStateOf(false) }
-                            Box(
-                                modifier = Modifier
-                                    .focusRequester(playFocusRequester)
-                                    .focusable()
-                                    .onFocusChanged { isPlayFocused = it.isFocused }
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(if (isPlayFocused) Color.White else LelouchCyanAccent)
-                                    .border(2.dp, if (isPlayFocused) Color.White else Color.Transparent, RoundedCornerShape(10.dp))
-                                    .clickable { onPlayClick(null) }
-                                    .padding(horizontal = 22.dp, vertical = 10.dp)
+                            Surface(
+                                onClick = { onPlayClick(null) },
+                                modifier = Modifier.focusRequester(playFocusRequester),
+                                shape = ClickableSurfaceDefaults.shape(
+                                    shape = RoundedCornerShape(10.dp),
+                                    focusedShape = RoundedCornerShape(10.dp)
+                                ),
+                                colors = ClickableSurfaceDefaults.colors(
+                                    containerColor = LelouchCyanAccent,
+                                    focusedContainerColor = Color.White
+                                ),
+                                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+                                border = ClickableSurfaceDefaults.border(
+                                    border = Border(androidx.compose.foundation.BorderStroke(1.dp, Color.Transparent)),
+                                    focusedBorder = Border(androidx.compose.foundation.BorderStroke(2.dp, Color.White))
+                                )
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 22.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
                                     Icon(
                                         imageVector = Icons.Default.PlayArrow,
                                         contentDescription = null,
@@ -299,22 +326,26 @@ fun TvMediaDetailModal(
                                 }
                             }
 
-                            var isFavFocused by remember { mutableStateOf(false) }
-                            Box(
-                                modifier = Modifier
-                                    .focusable()
-                                    .onFocusChanged { isFavFocused = it.isFocused }
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(if (isFavFocused) LelouchCardFocused else LelouchSurface)
-                                    .border(
-                                        width = if (isFavFocused) 2.dp else 1.dp,
-                                        color = if (isFavFocused) LelouchCyanAccent else LelouchBorder,
-                                        shape = RoundedCornerShape(10.dp)
-                                    )
-                                    .clickable { onToggleFavorite() }
-                                    .padding(horizontal = 18.dp, vertical = 10.dp)
+                            Surface(
+                                onClick = onToggleFavorite,
+                                shape = ClickableSurfaceDefaults.shape(
+                                    shape = RoundedCornerShape(10.dp),
+                                    focusedShape = RoundedCornerShape(10.dp)
+                                ),
+                                colors = ClickableSurfaceDefaults.colors(
+                                    containerColor = LelouchSurface,
+                                    focusedContainerColor = LelouchCardFocused
+                                ),
+                                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+                                border = ClickableSurfaceDefaults.border(
+                                    border = Border(androidx.compose.foundation.BorderStroke(1.dp, LelouchBorder)),
+                                    focusedBorder = Border(androidx.compose.foundation.BorderStroke(2.dp, LelouchCyanAccent))
+                                )
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
                                     Icon(
                                         imageVector = if (media.isFavorite) Icons.Default.Star else Icons.Default.StarBorder,
                                         contentDescription = null,
@@ -352,34 +383,38 @@ fun TvMediaDetailModal(
                         modifier = Modifier.padding(bottom = 10.dp)
                     ) {
                         seasonsToShow.forEach { seasonNum ->
-                            var isSeasonFocused by remember { mutableStateOf(false) }
                             val isCurrent = (seasonNum == selectedSeason)
-                            Box(
-                                modifier = Modifier
-                                    .focusable()
-                                    .onFocusChanged { isSeasonFocused = it.isFocused }
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(
-                                        when {
-                                            isSeasonFocused -> Color.White
-                                            isCurrent -> LelouchCyanAccent.copy(alpha = 0.35f)
-                                            else -> LelouchSurface
-                                        }
-                                    )
-                                    .border(
-                                        width = if (isSeasonFocused) 2.dp else if (isCurrent) 1.5.dp else 1.dp,
-                                        color = if (isSeasonFocused) Color.White else if (isCurrent) LelouchCyanAccent else LelouchBorder,
-                                        shape = RoundedCornerShape(8.dp)
-                                    )
-                                    .clickable { selectedSeason = seasonNum }
-                                    .padding(horizontal = 14.dp, vertical = 6.dp)
-                            ) {
-                                Text(
-                                    text = "Temporada $seasonNum",
-                                    color = if (isSeasonFocused) Color.Black else if (isCurrent) LelouchCyanAccent else LelouchTextSecondary,
-                                    fontSize = 12.sp,
-                                    fontWeight = if (isCurrent || isSeasonFocused) FontWeight.Bold else FontWeight.Normal
+                            Surface(
+                                onClick = { selectedSeason = seasonNum },
+                                shape = ClickableSurfaceDefaults.shape(
+                                    shape = RoundedCornerShape(8.dp),
+                                    focusedShape = RoundedCornerShape(8.dp)
+                                ),
+                                colors = ClickableSurfaceDefaults.colors(
+                                    containerColor = if (isCurrent) LelouchCyanAccent.copy(alpha = 0.35f) else LelouchSurface,
+                                    focusedContainerColor = Color.White
+                                ),
+                                border = ClickableSurfaceDefaults.border(
+                                    border = Border(androidx.compose.foundation.BorderStroke(
+                                        width = if (isCurrent) 1.5.dp else 1.dp,
+                                        color = if (isCurrent) LelouchCyanAccent else LelouchBorder
+                                    )),
+                                    focusedBorder = Border(androidx.compose.foundation.BorderStroke(2.dp, Color.White))
                                 )
+                            ) {
+                                var isSeasonFocused by remember { mutableStateOf(false) }
+                                Box(
+                                    modifier = Modifier
+                                        .onFocusChanged { isSeasonFocused = it.isFocused }
+                                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = "Temporada $seasonNum",
+                                        color = if (isSeasonFocused) Color.Black else if (isCurrent) LelouchCyanAccent else LelouchTextSecondary,
+                                        fontSize = 12.sp,
+                                        fontWeight = if (isCurrent || isSeasonFocused) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                }
                             }
                         }
                     }
@@ -417,30 +452,32 @@ fun TvMediaDetailModal(
                             key = { _, ep -> "ep_${ep.id}" }
                         ) { _, ep ->
                             var isEpFocused by remember { mutableStateOf(false) }
-                            val scale by animateFloatAsState(
-                                targetValue = if (isEpFocused) 1.06f else 1.0f,
-                                animationSpec = tween(durationMillis = 120, easing = FastOutSlowInEasing),
-                                label = "epScale"
-                            )
-
-                            Box(
+                            Surface(
+                                onClick = { onPlayClick(ep.episodeId) },
                                 modifier = Modifier
                                     .width(235.dp)
                                     .height(125.dp)
-                                    .scale(scale)
-                                    .focusable()
-                                    .onFocusChanged { isEpFocused = it.isFocused }
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(if (isEpFocused) LelouchCardFocused else LelouchSurface)
-                                    .border(
-                                        width = if (isEpFocused) 2.5.dp else 1.dp,
-                                        color = if (isEpFocused) LelouchCyanAccent else LelouchBorder,
-                                        shape = RoundedCornerShape(10.dp)
-                                    )
-                                    .clickable { onPlayClick(ep.episodeId) }
-                                    .padding(10.dp)
+                                    .onFocusChanged { isEpFocused = it.isFocused },
+                                shape = ClickableSurfaceDefaults.shape(
+                                    shape = RoundedCornerShape(10.dp),
+                                    focusedShape = RoundedCornerShape(10.dp)
+                                ),
+                                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
+                                colors = ClickableSurfaceDefaults.colors(
+                                    containerColor = LelouchSurface,
+                                    focusedContainerColor = LelouchCardFocused
+                                ),
+                                border = ClickableSurfaceDefaults.border(
+                                    border = Border(androidx.compose.foundation.BorderStroke(1.dp, LelouchBorder)),
+                                    focusedBorder = Border(androidx.compose.foundation.BorderStroke(2.5.dp, LelouchCyanAccent))
+                                )
                             ) {
-                                Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(10.dp),
+                                    verticalArrangement = Arrangement.SpaceBetween
+                                ) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween,

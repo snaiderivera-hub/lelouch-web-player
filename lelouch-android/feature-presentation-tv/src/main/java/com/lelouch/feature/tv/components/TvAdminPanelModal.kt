@@ -1,5 +1,6 @@
 package com.lelouch.feature.tv.components
 
+import android.view.KeyEvent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -23,6 +24,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -122,13 +124,36 @@ fun TvAdminPanelModal(
 
                         // Botón Cerrar
                         var isCloseFocused by remember { mutableStateOf(false) }
+                        val closeInteractionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                         Box(
                             modifier = Modifier
-                                .focusable()
                                 .onFocusChanged { isCloseFocused = it.isFocused }
                                 .clip(CircleShape)
                                 .background(if (isCloseFocused) LelouchLiveRed else LelouchSurfaceVariant)
-                                .clickable { onDismiss() }
+                                .onKeyEvent { keyEvent ->
+                                    val keyCode = keyEvent.nativeKeyEvent.keyCode
+                                    val isCenterKey = keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                                                      keyCode == KeyEvent.KEYCODE_ENTER ||
+                                                      keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER ||
+                                                      keyCode == KeyEvent.KEYCODE_BUTTON_A
+
+                                    if (isCenterKey) {
+                                        if (keyEvent.type == KeyEventType.KeyDown && keyEvent.nativeKeyEvent.repeatCount == 0) {
+                                            onDismiss()
+                                            true
+                                        } else if (keyEvent.type == KeyEventType.KeyUp) {
+                                            true
+                                        } else {
+                                            false
+                                        }
+                                    } else {
+                                        false
+                                    }
+                                }
+                                .clickable(
+                                    interactionSource = closeInteractionSource,
+                                    indication = null
+                                ) { onDismiss() }
                                 .padding(8.dp)
                         ) {
                             Icon(
@@ -154,10 +179,10 @@ fun TvAdminPanelModal(
                         )
                         tabs.forEachIndexed { index, title ->
                             var isTabFocused by remember { mutableStateOf(false) }
+                            val tabInteractionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                             Box(
                                 modifier = Modifier
                                     .then(if (index == 0) Modifier.focusRequester(firstTabFocusRequester) else Modifier)
-                                    .focusable()
                                     .onFocusChanged { isTabFocused = it.isFocused }
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(
@@ -172,7 +197,30 @@ fun TvAdminPanelModal(
                                         color = if (isTabFocused) LelouchCyanAccent else if (selectedTab == index) LelouchCyanAccent.copy(alpha = 0.5f) else LelouchBorder,
                                         shape = RoundedCornerShape(8.dp)
                                     )
-                                    .clickable { selectedTab = index }
+                                    .onKeyEvent { keyEvent ->
+                                        val keyCode = keyEvent.nativeKeyEvent.keyCode
+                                        val isCenterKey = keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                                                          keyCode == KeyEvent.KEYCODE_ENTER ||
+                                                          keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER ||
+                                                          keyCode == KeyEvent.KEYCODE_BUTTON_A
+
+                                        if (isCenterKey) {
+                                            if (keyEvent.type == KeyEventType.KeyDown && keyEvent.nativeKeyEvent.repeatCount == 0) {
+                                                selectedTab = index
+                                                true
+                                            } else if (keyEvent.type == KeyEventType.KeyUp) {
+                                                true
+                                            } else {
+                                                false
+                                            }
+                                        } else {
+                                            false
+                                        }
+                                    }
+                                    .clickable(
+                                        interactionSource = tabInteractionSource,
+                                        indication = null
+                                    ) { selectedTab = index }
                                     .padding(horizontal = 16.dp, vertical = 8.dp)
                             ) {
                                 Text(

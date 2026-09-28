@@ -35,6 +35,12 @@ interface MovieDao {
     @Query("UPDATE movies SET isFavorite = :isFavorite WHERE streamId = :streamId")
     suspend fun updateFavoriteStatus(streamId: Int, isFavorite: Boolean)
 
+    @Query("SELECT * FROM movies WHERE sourceId = :sourceId ORDER BY name ASC")
+    fun getAllMoviesBySource(sourceId: String): Flow<List<MovieEntity>>
+
+    @Query("SELECT * FROM movies ORDER BY name ASC")
+    fun getAllMovies(): Flow<List<MovieEntity>>
+
     @Query("DELETE FROM movies WHERE sourceId = :sourceId")
     suspend fun deleteMoviesBySource(sourceId: String)
 

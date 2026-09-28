@@ -33,6 +33,12 @@ interface SeriesDao {
     @Query("UPDATE series SET isFavorite = :isFavorite WHERE seriesId = :seriesId")
     suspend fun updateFavoriteStatus(seriesId: Int, isFavorite: Boolean)
 
+    @Query("SELECT * FROM series WHERE sourceId = :sourceId ORDER BY name ASC")
+    fun getAllSeriesBySource(sourceId: String): Flow<List<SeriesEntity>>
+
+    @Query("SELECT * FROM series ORDER BY name ASC")
+    fun getAllSeries(): Flow<List<SeriesEntity>>
+
     @Query("DELETE FROM series WHERE sourceId = :sourceId")
     suspend fun deleteSeriesBySource(sourceId: String)
 

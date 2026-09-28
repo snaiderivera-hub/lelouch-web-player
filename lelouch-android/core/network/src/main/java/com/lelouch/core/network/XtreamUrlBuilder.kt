@@ -29,7 +29,8 @@ object XtreamUrlBuilder {
         extension: String = "mp4"
     ): String {
         val base = serverUrl.trimEnd('/')
-        return "$base/movie/$username/$password/$streamId.$extension"
+        val cleanExt = extension.trimStart('.').ifEmpty { "mp4" }
+        return "$base/movie/$username/$password/$streamId.$cleanExt"
     }
 
     /**
@@ -43,6 +44,7 @@ object XtreamUrlBuilder {
         extension: String = "mp4"
     ): String {
         val base = serverUrl.trimEnd('/')
-        return "$base/series/$username/$password/$episodeId.$extension"
+        val cleanExt = extension.trimStart('.').ifEmpty { "mp4" }
+        return "$base/series/$username/$password/$episodeId.$cleanExt"
     }
 }

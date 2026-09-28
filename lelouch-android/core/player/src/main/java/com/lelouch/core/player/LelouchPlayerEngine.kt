@@ -184,15 +184,18 @@ class LelouchPlayerEngine(
 
     private fun buildMediaSource(url: String): MediaSource {
         val uri = Uri.parse(url)
-        val isHls = url.contains(".m3u8", ignoreCase = true) ||
-                url.contains("/hls/", ignoreCase = true)
+        val cleanUrl = url.lowercase()
+        val isHls = cleanUrl.contains(".m3u8") || cleanUrl.contains("/hls/") || cleanUrl.contains("m3u8")
 
         return if (isHls) {
             HlsMediaSource.Factory(httpDataSourceFactory)
                 .setAllowChunklessPreparation(config.allowChunklessPreparation)
                 .createMediaSource(MediaItem.Builder().setUri(uri).setMimeType(MimeTypes.APPLICATION_M3U8).build())
         } else {
-            ProgressiveMediaSource.Factory(httpDataSourceFactory)
+            val extractorsFactory = androidx.media3.extractor.DefaultExtractorsFactory().apply {
+                setConstantBitrateSeekingEnabled(true)
+            }
+            ProgressiveMediaSource.Factory(httpDataSourceFactory, extractorsFactory)
                 .createMediaSource(MediaItem.fromUri(uri))
         }
     }
@@ -231,7 +234,13 @@ class LelouchPlayerEngine(
     }
 
     fun resume() {
-        exoPlayer.playWhenReady = true
+        if (exoPlayer.playbackState == Player.STATE_IDLE || exoPlayer.playerError != null) {
+            _currentUrl.value?.let { playStream(it, isCurrentStreamLive) }
+        } else {
+            exoPlayer.playWhenReady = true
+            updateState(true)
+            startProgressTracking()
+        }
     }
 
     fun seekTo(positionMs: Long) {

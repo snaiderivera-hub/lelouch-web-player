@@ -10,6 +10,9 @@ import com.lelouch.core.model.ContentType
 import com.lelouch.core.model.LiveStream
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
 
 class ChannelRepositoryImpl(
     private val channelDao: ChannelDao,
@@ -61,6 +64,17 @@ class ChannelRepositoryImpl(
         }
     }
 
+    override fun getAllChannelsPaging(sourceId: String?): Flow<PagingData<ChannelEntity>> {
+        return Pager(
+            config = PagingConfig(pageSize = 50, enablePlaceholders = false)
+        ) {
+            if (sourceId != null) {
+                channelDao.getAllChannelsBySourcePaging(sourceId)
+            } else {
+                channelDao.getAllChannelsPaging()
+            }
+        }.flow
+    }
 
     override suspend fun toggleFavorite(streamId: Int, isFavorite: Boolean) {
         channelDao.updateFavoriteStatus(streamId, isFavorite)

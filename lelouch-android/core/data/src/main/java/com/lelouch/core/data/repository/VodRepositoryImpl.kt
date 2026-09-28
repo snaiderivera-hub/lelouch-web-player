@@ -50,6 +50,13 @@ class VodRepositoryImpl(
         }
     }
 
+    override fun getAllMovies(sourceId: String?): Flow<List<VodMovie>> {
+        val flow = if (sourceId != null) movieDao.getAllMoviesBySource(sourceId) else movieDao.getAllMovies()
+        return flow.map { entities ->
+            entities.map { it.toDomain() }
+        }
+    }
+
     override suspend fun getMovieDetail(streamId: Int): VodMovie? {
         return movieDao.getMovieByStreamId(streamId)?.toDomain()
     }

@@ -7,6 +7,9 @@ import com.lelouch.core.database.entity.MovieEntity
 import com.lelouch.core.database.entity.SeriesEntity
 import com.lelouch.core.network.NetworkClient
 import com.lelouch.core.network.XtreamUrlBuilder
+import com.lelouch.core.network.XtreamStreamingParser
+import okhttp3.Request
+import okhttp3.Response
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -100,82 +103,71 @@ class XtreamCatalogSyncManager(
 
             // 3. Sincronizar Canales en Vivo
             _syncState.value = SyncState.SyncingLive(0)
-            val liveStreams = api.getLiveStreams(user, pass)
-            val channelEntities = liveStreams.map { dto ->
-                ChannelEntity(
-                    id = "$sourceId-live-${dto.streamId}",
-                    streamId = dto.streamId,
-                    num = dto.num,
-                    name = dto.name,
-                    streamType = dto.streamType,
-                    streamIcon = dto.streamIcon,
-                    categoryId = dto.categoryId,
-                    epgChannelId = dto.epgChannelId,
-                    isAdult = dto.name.contains("adult", ignoreCase = true) || dto.name.contains("+18"),
-                    isFavorite = false,
-                    streamUrl = XtreamUrlBuilder.buildLiveStreamUrl(serverUrl, user, pass, dto.streamId, "ts"),
-                    sourceId = sourceId
-                )
+            val okHttpClient = NetworkClient.createOkHttpClient()
+            
+            val liveUrl = "${if (serverUrl.endsWith("/")) serverUrl else "$serverUrl/"}player_api.php?username=$user&password=$pass&action=get_live_streams"
+            val liveRequest = Request.Builder().url(liveUrl).build()
+            var liveCount = 0
+            okHttpClient.newCall(liveRequest).execute().use { response ->
+                response.body?.byteStream()?.let { stream ->
+                    XtreamStreamingParser.parseLiveStreams(
+                        inputStream = stream,
+                        sourceId = sourceId,
+                        batchSize = 500,
+                        onBatchParsed = { batch ->
+                            database.channelDao().insertChannels(batch)
+                            liveCount += batch.size
+                            _syncState.value = SyncState.SyncingLive(liveCount)
+                        }
+                    )
+                }
             }
-            database.channelDao().insertChannels(channelEntities)
-            _syncState.value = SyncState.SyncingLive(channelEntities.size)
 
             // 4. Sincronizar Películas VOD
             _syncState.value = SyncState.SyncingMovies(0)
-            val vodStreams = api.getVodStreams(user, pass)
-            val movieEntities = vodStreams.map { dto ->
-                MovieEntity(
-                    id = "$sourceId-vod-${dto.streamId}",
-                    streamId = dto.streamId,
-                    num = dto.num,
-                    name = dto.name,
-                    title = dto.title ?: dto.name,
-                    year = dto.year,
-                    streamIcon = dto.streamIcon,
-                    rating = dto.rating?.toDoubleOrNull(),
-                    rating5based = dto.rating5based,
-                    added = dto.added,
-                    categoryId = dto.categoryId,
-                    containerExtension = dto.containerExtension,
-                    streamUrl = XtreamUrlBuilder.buildVodStreamUrl(serverUrl, user, pass, dto.streamId, dto.containerExtension),
-                    isFavorite = false,
-                    sourceId = sourceId
-                )
+            val vodUrl = "${if (serverUrl.endsWith("/")) serverUrl else "$serverUrl/"}player_api.php?username=$user&password=$pass&action=get_vod_streams"
+            val vodRequest = Request.Builder().url(vodUrl).build()
+            var movieCount = 0
+            okHttpClient.newCall(vodRequest).execute().use { response ->
+                response.body?.byteStream()?.let { stream ->
+                    XtreamStreamingParser.parseVodStreams(
+                        inputStream = stream,
+                        sourceId = sourceId,
+                        batchSize = 500,
+                        onBatchParsed = { batch ->
+                            database.movieDao().insertMovies(batch)
+                            movieCount += batch.size
+                            _syncState.value = SyncState.SyncingMovies(movieCount)
+                        }
+                    )
+                }
             }
-            database.movieDao().insertMovies(movieEntities)
-            _syncState.value = SyncState.SyncingMovies(movieEntities.size)
 
             // 5. Sincronizar Series
             _syncState.value = SyncState.SyncingSeries(0)
-            val seriesList = api.getSeries(user, pass)
-            val seriesEntities = seriesList.map { dto ->
-                SeriesEntity(
-                    id = "$sourceId-series-${dto.seriesId}",
-                    seriesId = dto.seriesId,
-                    num = dto.num,
-                    name = dto.name,
-                    title = dto.title ?: dto.name,
-                    cover = dto.cover,
-                    plot = dto.plot,
-                    cast = dto.cast,
-                    director = dto.director,
-                    genre = dto.genre,
-                    releaseDate = dto.releaseDate,
-                    rating = dto.rating?.toDoubleOrNull(),
-                    rating5based = dto.rating5based,
-                    categoryId = dto.categoryId,
-                    isFavorite = false,
-                    sourceId = sourceId
-                )
+            val seriesUrl = "${if (serverUrl.endsWith("/")) serverUrl else "$serverUrl/"}player_api.php?username=$user&password=$pass&action=get_series"
+            val seriesRequest = Request.Builder().url(seriesUrl).build()
+            var seriesCount = 0
+            okHttpClient.newCall(seriesRequest).execute().use { response ->
+                response.body?.byteStream()?.let { stream ->
+                    XtreamStreamingParser.parseSeriesStreams(
+                        inputStream = stream,
+                        sourceId = sourceId,
+                        batchSize = 500,
+                        onBatchParsed = { batch ->
+                            database.seriesDao().insertSeries(batch)
+                            seriesCount += batch.size
+                            _syncState.value = SyncState.SyncingSeries(seriesCount)
+                        }
+                    )
+                }
             }
-            database.seriesDao().insertSeries(seriesEntities)
-            _syncState.value = SyncState.SyncingSeries(seriesEntities.size)
 
             // Completado con éxito
             _syncState.value = SyncState.Completed(
-                channelsCount = channelEntities.size,
-                moviesCount = movieEntities.size,
-                seriesCount = seriesEntities.size
+                channelsCount = liveCount,
+                moviesCount = movieCount,
+                seriesCount = seriesCount
             )
             Result.success(Unit)
 
