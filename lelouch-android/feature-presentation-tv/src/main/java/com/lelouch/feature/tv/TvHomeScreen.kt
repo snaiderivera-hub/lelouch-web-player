@@ -654,6 +654,18 @@ fun TvHomeScreen(
         }
     }
 
+    // Lista de canales activa para la reproducción: cuando el usuario entra a ver canales
+    // de una categoría específica (ej. Guatemala), el zapping y el D-Pad quedan aislados
+    // exclusivamente a esa categoría. Se actualiza al hacer click en un canal de la cuadrícula.
+    var activePlaybackChannels by remember { mutableStateOf<List<ChannelUiModel>>(emptyList()) }
+    var activePlaybackChannelIndex by remember { mutableIntStateOf(0) }
+    // Inicializar con visibleChannels por defecto
+    LaunchedEffect(visibleChannels) {
+        if (activePlaybackChannels.isEmpty() && visibleChannels.isNotEmpty()) {
+            activePlaybackChannels = visibleChannels
+        }
+    }
+
     val playerFocusRequester = remember { FocusRequester() }
 
     LaunchedEffect(isFullscreen) {
@@ -738,7 +750,9 @@ fun TvHomeScreen(
         }
     }
 
-    // Live Background Zapping instantáneo (activo en Inicio y En Vivo)
+    // Live Background Zapping con Debounce de 500ms para no saturar el decodificador de hardware
+    // al navegar rápido por la lista de canales (fix de rendimiento en TV Box).
+    // Si el usuario se mueve rápido por 5 canales, solo sintoniza el último donde se detiene.
     LaunchedEffect(focusedChannel?.streamUrl, selectedTopTab, visibleChannels.isEmpty()) {
         if (visibleChannels.isEmpty()) {
             isPlayingLive = false
@@ -746,11 +760,11 @@ fun TvHomeScreen(
         } else if (selectedTopTab == 1 || selectedTopTab == 2) {
             val streamUrl = focusedChannel?.streamUrl
             if (!streamUrl.isNullOrEmpty() && !isFullscreen) {
+                delay(500L) // Debounce: esperar 500ms para no iniciar stream en cada canal de paso
                 isPlayingLive = true
                 playerEngine.playStream(streamUrl, isLive = true)
             }
         } else if (!isFullscreen) {
-            // Pausar video en vivo al explorar Películas, Series o Buscar si no está en pantalla completa
             playerEngine.pause()
         }
     }
@@ -797,11 +811,14 @@ fun TvHomeScreen(
                             KeyEvent.KEYCODE_DPAD_UP,
                             KeyEvent.KEYCODE_CHANNEL_UP,
                             KeyEvent.KEYCODE_PAGE_UP -> {
-                                if (isLiveStream && visibleChannels.isNotEmpty()) {
-                                    val nextIndex = if (focusedChannelIndex < visibleChannels.lastIndex) focusedChannelIndex + 1 else 0
-                                    focusedChannelIndex = nextIndex
+                                if (isLiveStream && activePlaybackChannels.isNotEmpty()) {
+                                    val nextIndex = if (activePlaybackChannelIndex < activePlaybackChannels.lastIndex) activePlaybackChannelIndex + 1 else 0
+                                    activePlaybackChannelIndex = nextIndex
+                                    val ch = activePlaybackChannels[nextIndex]
+                                    // Actualizar focusedChannelIndex en la lista global para coherencia visual
+                                    focusedChannelIndex = visibleChannels.indexOfFirst { it.streamId == ch.streamId }.coerceAtLeast(0)
                                     isPlayingLive = true
-                                    playerEngine.playStream(visibleChannels[nextIndex].streamUrl, isLive = true)
+                                    playerEngine.playStream(ch.streamUrl, isLive = true)
                                     isHudVisible = true
                                     true
                                 } else {
@@ -812,11 +829,13 @@ fun TvHomeScreen(
                             KeyEvent.KEYCODE_DPAD_DOWN,
                             KeyEvent.KEYCODE_CHANNEL_DOWN,
                             KeyEvent.KEYCODE_PAGE_DOWN -> {
-                                if (isLiveStream && visibleChannels.isNotEmpty()) {
-                                    val prevIndex = if (focusedChannelIndex > 0) focusedChannelIndex - 1 else visibleChannels.lastIndex
-                                    focusedChannelIndex = prevIndex
+                                if (isLiveStream && activePlaybackChannels.isNotEmpty()) {
+                                    val prevIndex = if (activePlaybackChannelIndex > 0) activePlaybackChannelIndex - 1 else activePlaybackChannels.lastIndex
+                                    activePlaybackChannelIndex = prevIndex
+                                    val ch = activePlaybackChannels[prevIndex]
+                                    focusedChannelIndex = visibleChannels.indexOfFirst { it.streamId == ch.streamId }.coerceAtLeast(0)
                                     isPlayingLive = true
-                                    playerEngine.playStream(visibleChannels[prevIndex].streamUrl, isLive = true)
+                                    playerEngine.playStream(ch.streamUrl, isLive = true)
                                     isHudVisible = true
                                     true
                                 } else {
@@ -862,6 +881,15 @@ fun TvHomeScreen(
                                     else playerEngine.resume()
                                     true
                                 }
+                            }
+                            KeyEvent.KEYCODE_PROG_YELLOW -> {
+                                // Tecla Amarilla: toggle Favorito del canal en reproducción actual
+                                if (isLiveStream && focusedChannel != null) {
+                                    val isFav = favoriteChannels.any { it.streamId == focusedChannel!!.streamId }
+                                    onToggleFavoriteChannel(focusedChannel!!.streamId, !isFav)
+                                    seekFeedbackText = if (!isFav) "⭐ Agregado a Favoritos" else "✖ Quitado de Favoritos"
+                                }
+                                true
                             }
                             KeyEvent.KEYCODE_BACK -> {
                                 if (isQuickZappingOpen) {
@@ -1269,11 +1297,19 @@ fun TvHomeScreen(
                                                 onFocused = {
                                                     focusedChannelIndex = index
                                                 },
-                                                onClick = { 
+                                                onClick = {
+                                                    // Fijar la lista activa de reproduccion a la categoria actual (fix mezcla de categorias)
+                                                    activePlaybackChannels = filteredChannels
+                                                    activePlaybackChannelIndex = index
                                                     isPlayingLive = true
                                                     playerEngine.playStream(ch.streamUrl, isLive = true)
-                                                    isFullscreen = true 
+                                                    isFullscreen = true
                                                 },
+                                                onToggleFavorite = {
+                                                    val isFav = favoriteChannels.any { it.streamId == ch.streamId }
+                                                    onToggleFavoriteChannel(ch.streamId, !isFav)
+                                                },
+                                                isFavorite = favoriteChannels.any { it.streamId == ch.streamId },
                                                 modifier = cardModifier
                                             )
                                         }
@@ -2307,7 +2343,9 @@ fun TvHomeScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        itemsIndexed(visibleChannels) { idx, ch ->
+                        itemsIndexed(activePlaybackChannels.ifEmpty { visibleChannels }) { idx, ch ->
+                            // El Zapping Drawer usa activePlaybackChannels (la categoria activa),
+                            // no visibleChannels global. Asi si estas en Guatemala, solo ves Guatemala.
                             var isChFocused by remember { mutableStateOf(false) }
                             val isCurrentPlaying = (idx == focusedChannelIndex)
 
@@ -2330,7 +2368,8 @@ fun TvHomeScreen(
                                         shape = RoundedCornerShape(8.dp)
                                     )
                                     .clickable {
-                                        focusedChannelIndex = idx
+                                        activePlaybackChannelIndex = idx
+                                        focusedChannelIndex = visibleChannels.indexOfFirst { it.streamId == ch.streamId }.coerceAtLeast(0)
                                         playerEngine.playStream(ch.streamUrl, isLive = true)
                                         isQuickZappingOpen = false
                                         isHudVisible = true
@@ -2431,6 +2470,7 @@ fun TvHomeScreen(
  * Tarjeta de Canal para Android TV con contenedor oficial de logo de canal,
  * escala D-Pad 1.08x, borde Cyan con brillo e indicador LIVE.
  * Soporta selección instantánea con botón OK / Centro del control Xiaomi.
+ * Favorito: cuando está enfocada, muestra estrella ⭐ para agregar/quitar.
  */
 @Composable
 fun TvChannelCard(
@@ -2439,16 +2479,12 @@ fun TvChannelCard(
     onFocused: () -> Unit,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    cardWidth: androidx.compose.ui.unit.Dp = androidx.compose.ui.unit.Dp.Unspecified
+    cardWidth: androidx.compose.ui.unit.Dp = androidx.compose.ui.unit.Dp.Unspecified,
+    onToggleFavorite: (() -> Unit)? = null,
+    isFavorite: Boolean = false
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.08f else 1.0f,
-        animationSpec = tween(durationMillis = 120, easing = FastOutSlowInEasing),
-        label = "channelCardScale"
-    )
-
-    val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    // Una sola animación via TvMaterial3 (eliminada la doble animación redundante que sobrecargaba GPU del TV Box)
 
     val widthModifier = if (cardWidth != androidx.compose.ui.unit.Dp.Unspecified) {
         Modifier.width(cardWidth)
@@ -2479,7 +2515,7 @@ fun TvChannelCard(
         ),
         border = ClickableSurfaceDefaults.border(
             border = Border(androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) LelouchCyanAccent.copy(alpha = 0.5f) else LelouchBorder)),
-            focusedBorder = Border(androidx.compose.foundation.BorderStroke(2.5.dp, LelouchCyanAccent))
+            focusedBorder = Border(androidx.compose.foundation.BorderStroke(2.5.dp, if (isFavorite) Color(0xFFFFD700) else LelouchCyanAccent))
         )
     ) {
         Column(
@@ -2503,8 +2539,15 @@ fun TvChannelCard(
                     contentAlignment = Alignment.Center
                 ) {
                     if (!channel.streamIcon.isNullOrBlank()) {
+                        // Tamaño fijo 124x76px: evita cargar imágenes gigantes en RAM del TV Box
                         AsyncImage(
-                            model = channel.streamIcon,
+                            model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                                .data(channel.streamIcon)
+                                .size(124, 76)
+                                .crossfade(true)
+                                .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                                .diskCachePolicy(coil.request.CachePolicy.ENABLED)
+                                .build(),
                             contentDescription = channel.name,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Fit
@@ -2519,34 +2562,51 @@ fun TvChannelCard(
                     }
                 }
 
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        text = "CH ${channel.num}",
-                        color = LelouchCyanAccent,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(3.dp))
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(3.dp))
-                            .background(LelouchLiveRed)
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(4.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.White)
-                            )
-                            Spacer(modifier = Modifier.width(3.dp))
-                            Text(
-                                text = "LIVE",
-                                color = Color.White,
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // Estrella de Favorito: aparece cuando la tarjeta está enfocada para agregar/quitar
+                    if (onToggleFavorite != null && isFocused) {
+                        Box(
+                            modifier = Modifier
+                                .size(22.dp)
+                                .clip(CircleShape)
+                                .background(if (isFavorite) Color(0xFFFFD700).copy(alpha = 0.2f) else Color.Transparent)
+                                .clickable { onToggleFavorite() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(text = if (isFavorite) "⭐" else "☆", fontSize = 14.sp)
+                        }
+                    } else if (isFavorite) {
+                        Text(text = "⭐", fontSize = 12.sp)
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(
+                            text = "CH ${channel.num}",
+                            color = LelouchCyanAccent,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(LelouchLiveRed)
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(4.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.White)
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(
+                                    text = "LIVE",
+                                    color = Color.White,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                     }
                 }

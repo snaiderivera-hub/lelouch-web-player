@@ -16,6 +16,7 @@ import { playerModal } from './components/PlayerModal.js';
 import { mediaDetailModal } from './components/MediaDetailModal.js';
 import { channelHealthService, HealthStatus } from './modules/iptv/services/ChannelHealthService.js';
 import { parentalControlService } from './modules/iptv/services/ParentalControlService.js';
+import { supabaseService } from './modules/iptv/services/SupabaseService.js';
 
 // ── Constantes de paginación ──
 const PAGE_SIZE_MOVIES = 48;
@@ -2072,12 +2073,96 @@ export function renderCustomM3UManager() {
   `;
 }
 
+export async function generateAndShowPublicM3ULink() {
+  const list = getCustomM3UList();
+  if (list.length === 0) {
+    toast('Tu lista personalizada está vacía. Añade canales primero.', 'warning');
+    return;
+  }
+
+  const btn = $('btn-custom-m3u-generate-link');
+  const originalHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Generando Enlace...';
+  }
+
+  try {
+    // 1. Obtener o inicializar la playlist principal en Supabase
+    const playlist = await supabaseService.getOrCreateDefaultCustomPlaylist('Mi Lista LELOUCH');
+    if (!playlist || !playlist.id) {
+      toast('No se pudo sincronizar con la nube (Supabase no disponible).', 'error');
+      return;
+    }
+
+    // 2. Sincronizar todos los items de la lista con Supabase
+    await supabaseService.syncPlaylistItems(playlist.id, list);
+
+    // 3. Crear token criptográficamente seguro
+    const tokenObj = await supabaseService.createAccessToken(playlist.id, 'Enlace Público Permanente');
+    if (!tokenObj || !tokenObj.token) {
+      toast('No se pudo generar el token seguro de acceso.', 'error');
+      return;
+    }
+
+    // 4. Formar la URL definitiva
+    const baseUrl = window.location.origin;
+    const fullUrl = `${baseUrl}/api/playlist/${tokenObj.token}`;
+
+    // 5. Presentar el modal al usuario
+    const modal = $('custom-m3u-token-modal');
+    const input = $('custom-m3u-permalink-input');
+    const counterBadge = $('token-item-count-badge');
+
+    if (input) input.value = fullUrl;
+    if (counterBadge) counterBadge.textContent = `${list.length} ${list.length === 1 ? 'item' : 'items'}`;
+    if (modal) modal.classList.remove('hidden');
+
+    toast('🌐 ¡Enlace M3U permanente generado con éxito!', 'success', 3500);
+  } catch (err) {
+    console.error('Error generando enlace M3U público:', err);
+    toast('Ocurrió un error al generar el enlace M3U.', 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+    }
+  }
+}
+window.generateAndShowPublicM3ULink = generateAndShowPublicM3ULink;
+
 export function setupCustomM3UManager() {
   updateCustomM3UBadges();
 
   $('btn-custom-m3u-copy-all')?.addEventListener('click', () => copyCustomM3UAll());
   $('btn-custom-m3u-download')?.addEventListener('click', () => downloadCustomM3U());
+  $('btn-custom-m3u-generate-link')?.addEventListener('click', () => generateAndShowPublicM3ULink());
   $('btn-custom-m3u-clear')?.addEventListener('click', () => clearCustomM3UList());
+
+  // Listeners del modal de enlace permanente
+  $('btn-close-token-modal')?.addEventListener('click', () => {
+    $('custom-m3u-token-modal')?.classList.add('hidden');
+  });
+  $('btn-done-token-modal')?.addEventListener('click', () => {
+    $('custom-m3u-token-modal')?.classList.add('hidden');
+  });
+  $('btn-copy-permalink')?.addEventListener('click', () => {
+    const input = $('custom-m3u-permalink-input');
+    if (!input || !input.value) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(input.value).then(() => {
+        toast('📋 ¡Enlace M3U copiado al portapapeles!', 'success');
+      }).catch(() => {
+        input.select();
+        document.execCommand('copy');
+        toast('📋 ¡Enlace M3U copiado al portapapeles!', 'success');
+      });
+    } else {
+      input.select();
+      document.execCommand('copy');
+      toast('📋 ¡Enlace M3U copiado al portapapeles!', 'success');
+    }
+  });
 
   $('btn-custom-m3u-play-live')?.addEventListener('click', () => {
     const list = getCustomM3UList();

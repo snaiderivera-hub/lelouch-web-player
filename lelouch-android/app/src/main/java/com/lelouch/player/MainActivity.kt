@@ -208,6 +208,14 @@ class MainActivity : ComponentActivity() {
                                 vodCategories = vodCategories,
                                 seriesList = seriesList,
                                 seriesCategories = seriesCategories,
+                                favoriteChannels = favoriteChannels,
+                                favoriteMovies = favoriteMovies,
+                                onToggleFavoriteChannel = { streamId, isFav ->
+                                    lifecycleScope.launch { app.channelRepository.toggleFavorite(streamId, isFav) }
+                                },
+                                onToggleFavoriteMovie = { streamId, isFav ->
+                                    lifecycleScope.launch { app.vodRepository.toggleFavorite(streamId, isFav) }
+                                },
                                 onActivateSource = ::onActivateSource,
                                 onDeleteSource = ::onDeleteSource,
                                 onAddSource = ::onAddSource,

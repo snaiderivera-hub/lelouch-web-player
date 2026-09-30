@@ -66,6 +66,10 @@ fun MobileHomeScreen(
     vodCategories: List<Category> = emptyList(),
     seriesList: List<Series> = emptyList(),
     seriesCategories: List<Category> = emptyList(),
+    favoriteChannels: List<LiveStream> = emptyList(),
+    favoriteMovies: List<VodMovie> = emptyList(),
+    onToggleFavoriteChannel: (streamId: Int, isFav: Boolean) -> Unit = { _, _ -> },
+    onToggleFavoriteMovie: (streamId: Int, isFav: Boolean) -> Unit = { _, _ -> },
     onActivateSource: (String) -> Unit = {},
     onDeleteSource: (String) -> Unit = {},
     onAddSource: (String, String, String, String) -> Unit = { _, _, _, _ -> },
@@ -227,6 +231,8 @@ fun MobileHomeScreen(
                                        else liveChannels.filter { it.name.contains(searchQuery, ignoreCase = true) },
                             activeSource = activeSource,
                             categories = liveCategoryList,
+                            favoriteChannels = favoriteChannels,
+                            onToggleFavorite = onToggleFavoriteChannel,
                             onChannelClick = { ch, url -> activeChannelName = ch; activeStreamUrl = url }
                         )
                         2 -> MobileMoviesTab(
@@ -508,22 +514,68 @@ private fun MobileLiveTab(
     channels: List<LiveStream>,
     activeSource: SourceConfig?,
     categories: List<MobileCategoryItem> = emptyList(),
+    favoriteChannels: List<LiveStream> = emptyList(),
+    onToggleFavorite: (Int, Boolean) -> Unit = { _, _ -> },
     onChannelClick: (String, String) -> Unit
 ) {
-    if (channels.isEmpty()) {
+    if (channels.isEmpty() && favoriteChannels.isEmpty()) {
         EmptyState("No hay canales disponibles", "Sincroniza tu lista desde la pestaña Listas")
         return
     }
     var selectedCategoryId by remember { mutableStateOf("all") }
-    val filtered = if (selectedCategoryId == "all") channels
-                   else channels.filter { it.categoryId == selectedCategoryId }
+    val favIds = remember(favoriteChannels) { favoriteChannels.map { it.streamId }.toSet() }
+    val filtered = when (selectedCategoryId) {
+        "all" -> channels
+        "favs" -> channels.filter { it.streamId in favIds }
+        else -> channels.filter { it.categoryId == selectedCategoryId }
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        if (categories.isNotEmpty()) {
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
+        // Barra de categorías: chip "Todos", chip "⭐ Favoritos" (si hay), y las categorías normales
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Chip "Todos"
+            item {
+                val isSel = selectedCategoryId == "all"
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(if (isSel) LelouchCyanAccent else LelouchSurface)
+                        .clickable { selectedCategoryId = "all" }
+                        .padding(horizontal = 14.dp, vertical = 7.dp)
+                ) {
+                    Text(
+                        "Todos",
+                        color = if (isSel) Color.Black else LelouchTextSecondary,
+                        fontSize = 12.sp,
+                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
+                    )
+                }
+            }
+            // Chip "⭐ Favoritos" — solo aparece si hay canales favoritos marcados
+            if (favoriteChannels.isNotEmpty()) {
+                item {
+                    val isSel = selectedCategoryId == "favs"
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(if (isSel) Color(0xFFFFD700) else LelouchSurface)
+                            .clickable { selectedCategoryId = "favs" }
+                            .padding(horizontal = 14.dp, vertical = 7.dp)
+                    ) {
+                        Text(
+                            "⭐ Favoritos",
+                            color = if (isSel) Color.Black else LelouchTextSecondary,
+                            fontSize = 12.sp,
+                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
+                        )
+                    }
+                }
+            }
+            // Chips de categorías normales
+            if (categories.isNotEmpty()) {
                 items(categories) { cat ->
                     val isSel = cat.id == selectedCategoryId
                     Box(
@@ -552,7 +604,13 @@ private fun MobileLiveTab(
                 val url = activeSource?.let {
                     XtreamUrlBuilder.buildLiveStreamUrl(it.serverUrl, it.username, it.password, ch.streamId, "m3u8")
                 } ?: ""
-                ChannelListItem(channel = ch, onClick = { onChannelClick(ch.name, url) })
+                val isFav = ch.streamId in favIds
+                ChannelListItem(
+                    channel = ch,
+                    isFavorite = isFav,
+                    onToggleFavorite = { onToggleFavorite(ch.streamId, !isFav) },
+                    onClick = { onChannelClick(ch.name, url) }
+                )
             }
         }
     }
@@ -1163,31 +1221,82 @@ private fun SeriesGridCard(series: Series, onClick: () -> Unit) {
 }
 
 @Composable
-private fun ChannelListItem(channel: LiveStream, onClick: () -> Unit) {
+private fun ChannelListItem(
+    channel: LiveStream,
+    onClick: () -> Unit,
+    isFavorite: Boolean = false,
+    onToggleFavorite: (() -> Unit)? = null
+) {
     Row(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-            .background(LelouchSurface).clickable(onClick = onClick).padding(10.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (isFavorite) LelouchSurface.copy(alpha = 0.95f) else LelouchSurface)
+            .clickable(onClick = onClick)
+            .padding(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(modifier = Modifier.size(width = 50.dp, height = 32.dp).clip(RoundedCornerShape(6.dp))
-            .background(Color.Black.copy(0.5f)), contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier
+                .size(width = 50.dp, height = 32.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(Color.Black.copy(0.5f)),
+            contentAlignment = Alignment.Center
+        ) {
             if (!channel.streamIcon.isNullOrBlank()) {
-                AsyncImage(model = channel.streamIcon, contentDescription = null,
-                    modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                AsyncImage(
+                    model = channel.streamIcon,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit
+                )
             } else {
-                Text(channel.name.take(3).uppercase(), color = LelouchCyanAccent, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    channel.name.take(3).uppercase(),
+                    color = LelouchCyanAccent,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(channel.name, color = LelouchTextPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                channel.name,
+                color = LelouchTextPrimary,
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
             if (channel.categoryName.isNotBlank()) {
                 Text(channel.categoryName, color = LelouchTextSecondary, fontSize = 11.sp)
             }
         }
-        Box(modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(LelouchLiveRed)
-            .padding(horizontal = 6.dp, vertical = 3.dp)) {
+        Spacer(Modifier.width(8.dp))
+        // Botón favorito: toca la estrella para agregar/quitar de favoritos
+        if (onToggleFavorite != null) {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(if (isFavorite) Color(0xFFFFD700).copy(alpha = 0.15f) else Color.Transparent)
+                    .clickable { onToggleFavorite() },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = if (isFavorite) "⭐" else "☆",
+                    fontSize = 16.sp
+                )
+            }
+            Spacer(Modifier.width(6.dp))
+        }
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(4.dp))
+                .background(LelouchLiveRed)
+                .padding(horizontal = 6.dp, vertical = 3.dp)
+        ) {
             Text("LIVE", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
         }
     }

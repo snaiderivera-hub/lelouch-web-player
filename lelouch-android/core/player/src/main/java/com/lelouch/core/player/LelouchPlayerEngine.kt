@@ -16,7 +16,9 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -82,7 +84,17 @@ class LelouchPlayerEngine(
     }
 
     private val trackSelector by lazy {
-        DefaultTrackSelector(context)
+        // ABR adaptativo: ExoPlayer bajará automáticamente la calidad (ej. 1080p -> 720p -> 480p)
+        // cuando el ancho de banda decaiga, en lugar de congelarse esperando el siguiente fragmento.
+        val adaptiveTrackSelectionFactory = AdaptiveTrackSelection.Factory()
+        DefaultTrackSelector(context, adaptiveTrackSelectionFactory).also { selector ->
+            selector.setParameters(
+                selector.buildUponParameters()
+                    .setMaxVideoBitrate(Int.MAX_VALUE)
+                    .setAllowVideoMixedMimeTypeAdaptiveness(true)
+                    .setAllowAudioMixedMimeTypeAdaptiveness(true)
+            )
+        }
     }
 
     val exoPlayer: ExoPlayer by lazy {
@@ -97,6 +109,8 @@ class LelouchPlayerEngine(
     }
 
     private var isCurrentStreamLive: Boolean = false
+    // Contador de reintentos automáticos ante fallos de red (se reinicia al cambiar de canal)
+    private var autoRetryAttemptsLeft: Int = config.autoRetryCount
 
     private val playerListener = object : Player.Listener {
         override fun onPlaybackStateChanged(state: Int) {
@@ -140,15 +154,38 @@ class LelouchPlayerEngine(
 
         override fun onPlayerError(error: PlaybackException) {
             stopProgressTracking()
+            // Auto-recuperación silenciosa para errores de red y timeout:
+            // Si hay una URL activa y es un stream en vivo, reintentamos automáticamente
+            // después de 2 segundos sin molestar al usuario, igual al modelo Killua.
+            val isNetworkError = error.errorCode in setOf(
+                PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+                PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
+                PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE
+            )
+            val currentStreamUrl = _currentUrl.value
+            if (isNetworkError && isCurrentStreamLive && currentStreamUrl != null && autoRetryAttemptsLeft > 0) {
+                autoRetryAttemptsLeft--
+                _playbackState.value = PlaybackState.Buffering
+                scope.launch {
+                    delay(2_000L)
+                    if (_currentUrl.value == currentStreamUrl) {
+                        exoPlayer.prepare()
+                        exoPlayer.playWhenReady = true
+                    }
+                }
+                return
+            }
+            // Reset retry counter si llegamos a un error fatal
+            autoRetryAttemptsLeft = config.autoRetryCount
             val errorDescription = when (error.errorCode) {
                 PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
                 PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ->
-                    "Fallo de conexión de red al stream remoto."
+                    "Sin conexión al servidor IPTV. Verifica tu internet."
                 PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ->
-                    "Error de servidor HTTP (código inválido o 403 Forbidden)."
+                    "Error del servidor (403 / URL expirada). Intenta de nuevo."
                 PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
                 PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED ->
-                    "Formato de transmisión no compatible o manifiesto corrupto."
+                    "Formato de stream no compatible. Cambia de canal."
                 else -> error.localizedMessage ?: "Error desconocido durante la reproducción."
             }
             _playbackState.value = PlaybackState.Error(
@@ -170,10 +207,11 @@ class LelouchPlayerEngine(
             return
         }
 
-        // Cancelar buffer previo de inmediato para cambio instantáneo de canal
+        // Cancelar buffer previo y reiniciar el contador de reintentos para el nuevo canal
         exoPlayer.stop()
         _currentUrl.value = url
         isCurrentStreamLive = isLive
+        autoRetryAttemptsLeft = config.autoRetryCount
         _playbackState.value = PlaybackState.Buffering
 
         val mediaSource = buildMediaSource(url)
@@ -186,16 +224,21 @@ class LelouchPlayerEngine(
         val uri = Uri.parse(url)
         val cleanUrl = url.lowercase()
         val isHls = cleanUrl.contains(".m3u8") || cleanUrl.contains("/hls/") || cleanUrl.contains("m3u8")
+        // Política de reintentos: hasta autoRetryCount intentos automáticos ante fragmentos perdidos
+        // o caídas momentáneas de red (inspirado en PlaybackService.kt del repositorio Killua)
+        val retryPolicy = DefaultLoadErrorHandlingPolicy(config.autoRetryCount)
 
         return if (isHls) {
             HlsMediaSource.Factory(httpDataSourceFactory)
                 .setAllowChunklessPreparation(config.allowChunklessPreparation)
+                .setLoadErrorHandlingPolicy(retryPolicy)
                 .createMediaSource(MediaItem.Builder().setUri(uri).setMimeType(MimeTypes.APPLICATION_M3U8).build())
         } else {
             val extractorsFactory = androidx.media3.extractor.DefaultExtractorsFactory().apply {
                 setConstantBitrateSeekingEnabled(true)
             }
             ProgressiveMediaSource.Factory(httpDataSourceFactory, extractorsFactory)
+                .setLoadErrorHandlingPolicy(retryPolicy)
                 .createMediaSource(MediaItem.fromUri(uri))
         }
     }

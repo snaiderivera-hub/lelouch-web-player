@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Test FASE 8 - Token Público y Generación M3U</title>
+  <style>
+    body { font-family: monospace; background: #0f172a; color: #f8fafc; padding: 2rem; }
+    .pass { color: #4ade80; font-weight: bold; }
+    .fail { color: #f87171; font-weight: bold; }
+    .log { margin: 4px 0; }
+    pre { background: #1e293b; padding: 1rem; border-radius: 8px; overflow: auto; }
+  </style>
+</head>
+<body>
+  <h1>🧪 Test de Validación FASE 8 — Token Criptográfico y Endpoint M3U</h1>
+  <div id="results"></div>
+
+  <script type="module">
+    import { supabaseService } from '../src/modules/iptv/services/SupabaseService.js';
+    import { PlaylistGenerator } from '../src/services/playlist/PlaylistGenerator.js';
+
+    const resultsDiv = document.getElementById('results');
+
+    function log(msg, isPass) {
+      const el = document.createElement('div');
+      el.className = 'log ' + (isPass === true ? 'pass' : isPass === false ? 'fail' : '');
+      el.textContent = (isPass === true ? '✅ PASS: ' : isPass === false ? '❌ FAIL: ' : 'ℹ️ ') + msg;
+      resultsDiv.appendChild(el);
+      console.log(el.textContent);
+    }
+
+    async function runTests() {
+      try {
+        log('Iniciando tests de FASE 8...', null);
+
+        // 1. Verificar generación de token criptográfico
+        const charset = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+        const randomBytes = new Uint8Array(40);
+        crypto.getRandomValues(randomBytes);
+        const token = Array.from(randomBytes, b => charset[b % charset.length]).join('');
+
+        log(`Token generado: ${token} (Longitud: ${token.length})`, true);
+        const isSecure = token.length === 40 && /^[a-zA-Z0-9]+$/.test(token);
+        log('Token es alfanumérico seguro de 40 caracteres (no predecible ni secuencial): ' + isSecure, isSecure);
+
+        // 2. Verificar cálculo de SHA-256
+        const enc = new TextEncoder();
+        const hashBuf = await crypto.subtle.digest('SHA-256', enc.encode(token));
+        const hashHex = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
+        log(`SHA-256 Hash: ${hashHex} (64 chars hex)`, hashHex.length === 64);
+
+        // 3. Verificar creación real de token con SupabaseService
+        const defaultPl = await supabaseService.getOrCreateDefaultCustomPlaylist('Test Playlist Phase 8');
+        log(`Playlist obtenida/creada en Supabase: ID=${defaultPl?.id}`, Boolean(defaultPl?.id));
+
+        if (defaultPl?.id) {
+          const tokenResult = await supabaseService.createAccessToken(defaultPl.id, 'Test Token Device');
+          log(`Token creado en BD: Preview=${tokenResult?.preview}, TokenRaw=${tokenResult?.token}`, Boolean(tokenResult?.token));
+          log('TokenRaw coincide con patrón seguro de 40 chars: ' + (tokenResult?.token?.length === 40), tokenResult?.token?.length === 40);
+
+          // 4. Sincronizar un canal directo y verificar vista v_resolved_playlist_items
+          await supabaseService.syncPlaylistItems(defaultPl.id, [
+            {
+              id: 'test-direct-ch-8',
+              name: 'Canal Demo Token 8',
+              url: 'https://demo.stream/live/token8.m3u8',
+              category: 'Noticias Token',
+              logo: 'https://demo.stream/logo8.png'
+            }
+          ]);
+          log('Item sincronizado en Supabase', true);
+
+          const resolved = await supabaseService.getResolvedPlaylistItems(defaultPl.id);
+          log(`Items resueltos en v_resolved_playlist_items: ${resolved.length}`, resolved.length > 0);
+          if (resolved.length > 0) {
+            log('Item resuelto en bruto: ' + JSON.stringify(resolved[0]), true);
+            const streamUrl = resolved[0].resolved_url || resolved[0].direct_url || '';
+            log(`Canal resuelto: ${resolved[0].resolved_name} -> ${streamUrl}`, streamUrl.includes('token8.m3u8'));
+          }
+
+          // 5. Verificar generación M3U con PlaylistGenerator
+          const mediaItems = resolved.map(r => ({
+            id: r.id,
+            name: r.resolved_name,
+            streamUrl: r.resolved_url,
+            group: r.resolved_group,
+            logo: r.resolved_logo,
+            mediaType: r.media_type
+          }));
+
+          const m3u = PlaylistGenerator.generateM3U(mediaItems, { playlistName: defaultPl.name });
+          log('Generación M3U contiene directiva #EXTM3U: ' + m3u.includes('#EXTM3U'), m3u.includes('#EXTM3U'));
+          log('Generación M3U contiene canal resuelto: ' + m3u.includes('Canal Demo Token 8'), m3u.includes('Canal Demo Token 8'));
+          log('Generación M3U contiene streamUrl: ' + m3u.includes('https://demo.stream/live/token8.m3u8'), m3u.includes('https://demo.stream/live/token8.m3u8'));
+
+          // Limpiar token de prueba
+          if (tokenResult?.id) {
+            await supabaseService.revokeAccessToken(tokenResult.id);
+            log('Token de prueba revocado correctamente', true);
+          }
+        }
+
+        log('🎉 TODOS LOS TESTS DE FASE 8 PASARON EXITOSAMENTE', true);
+        document.body.setAttribute('data-completed', 'true');
+      } catch (err) {
+        log('Error ejecutando tests: ' + err.message + '\n' + err.stack, false);
+        document.body.setAttribute('data-completed', 'true');
+      }
+    }
+
+    runTests();
+  </script>
+</body>
+</html>

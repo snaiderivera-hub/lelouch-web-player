@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Lelouch - Verificación FASE 4: M3U Parser Preservación Total</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0b0f19;
+      color: #f1f5f9;
+      padding: 30px;
+      line-height: 1.5;
+    }
+    h1 { color: #38bdf8; font-size: 24px; margin-bottom: 4px; }
+    h2 { color: #94a3b8; font-size: 16px; font-weight: normal; margin-top: 0; margin-bottom: 24px; }
+    .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .badge-pass { background: #065f46; color: #34d399; }
+    .badge-fail { background: #881337; color: #fb7185; }
+    .card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    th, td {
+      text-align: left;
+      padding: 10px 14px;
+      border-bottom: 1px solid #334155;
+      font-size: 14px;
+    }
+    th {
+      background: #0f172a;
+      color: #94a3b8;
+    }
+    pre {
+      background: #0f172a;
+      padding: 14px;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-family: Consolas, monospace;
+      font-size: 13px;
+      color: #7dd3fc;
+      border: 1px solid #334155;
+    }
+  </style>
+</head>
+<body>
+  <h1>FASE 4 — Verificación de Preservación Completa M3U</h1>
+  <h2>#EXTM3U, #EXTINF, duration, tvg-*, #EXTGRP, #EXTVLCOPT, #KODIPROP, catchup-*, atributos desconocidos y URL original</h2>
+
+  <div class="card">
+    <h3>Resultados de las Verificaciones</h3>
+    <table id="results-table">
+      <thead>
+        <tr>
+          <th>Atributo / Directiva</th>
+          <th>Esperado</th>
+          <th>Obtenido en LelouchMediaItem</th>
+          <th>Preservado en Regeneración M3U</th>
+          <th>Estado</th>
+        </tr>
+      </thead>
+      <tbody id="results-body">
+        <tr><td colspan="5">Ejecutando pruebas...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>M3U Generado (Round-trip)</h3>
+    <pre id="output-m3u">Cargando...</pre>
+  </div>
+
+  <script type="module">
+    import { M3uParserAdapter } from '../src/services/playlist/M3uParserAdapter.js';
+    import { PlaylistNormalizer } from '../src/services/playlist/PlaylistNormalizer.js';
+    import { PlaylistGenerator } from '../src/services/playlist/PlaylistGenerator.js';
+
+    const sampleM3u = `#EXTM3U url-tvg="http://epg.provider.com/guide.xml"
+#EXTINF:120 tvg-id="espn.hd" tvg-name="ESPN HD" tvg-logo="http://logos.com/espn.png" tvg-country="US" tvg-language="English" group-title="Sports" catchup="flussonic" catchup-source="http://timeshift.server.com/archive/{utc}.m3u8" catchup-days="7" catchup-hours="168" tvg-chno="105" custom-vendor="alpha-corp",ESPN HD Live
+#EXTGRP:Sports Premium
+#EXTVLCOPT:http-user-agent=LelouchPlayer/3.0
+#EXTVLCOPT:http-referrer=https://watch.provider.com/auth
+#EXTVLCOPT:http-cookie=session_key=sec_cookie_99
+#KODIPROP:inputstream.adaptive.manifest_type=hls
+#KODIPROP:inputstream.adaptive.license_type=widevine
+http://stream.server.com:8080/live/user123/pass456/99999.m3u8
+`;
+
+    // 1. Parsear
+    const parsed = M3uParserAdapter.parse(sampleM3u);
+    const item = parsed.items[0];
+
+    // 2. Normalizar a modelo canónico LelouchMediaItem
+    const canonical = PlaylistNormalizer.fromExternalItem(item, 0, 'source-test');
+
+    // 3. Generar M3U (Round-trip)
+    const regeneratedM3u = PlaylistGenerator.generateM3U([canonical], {
+      playlistName: 'Mi Lista LELOUCH',
+      epgUrl: 'http://epg.provider.com/guide.xml',
+      includeCatchup: true,
+      includeVlcOpts: true,
+      includeKodiProps: true,
+      includeExtGrp: true
+    });
+
+    document.getElementById('output-m3u').textContent = regeneratedM3u;
+
+    const tests = [
+      {
+        field: 'duration',
+        expected: '120',
+        actual: String(canonical.duration),
+        roundtrip: regeneratedM3u.includes('#EXTINF:120')
+      },
+      {
+        field: 'tvg-id',
+        expected: 'espn.hd',
+        actual: canonical.tvgId,
+        roundtrip: regeneratedM3u.includes('tvg-id="espn.hd"')
+      },
+      {
+        field: 'tvg-name',
+        expected: 'ESPN HD',
+        actual: canonical.tvgName,
+        roundtrip: regeneratedM3u.includes('tvg-name="ESPN HD"')
+      },
+      {
+        field: 'tvg-logo',
+        expected: 'http://logos.com/espn.png',
+        actual: canonical.logo,
+        roundtrip: regeneratedM3u.includes('tvg-logo="http://logos.com/espn.png"')
+      },
+      {
+        field: 'tvg-country',
+        expected: 'US',
+        actual: canonical.country,
+        roundtrip: regeneratedM3u.includes('tvg-country="US"')
+      },
+      {
+        field: 'tvg-language',
+        expected: 'English',
+        actual: canonical.language,
+        roundtrip: regeneratedM3u.includes('tvg-language="English"')
+      },
+      {
+        field: '#EXTGRP / group-title',
+        expected: 'Sports Premium',
+        actual: canonical.group,
+        roundtrip: regeneratedM3u.includes('group-title="Sports Premium"') && regeneratedM3u.includes('#EXTGRP:Sports Premium')
+      },
+      {
+        field: '#EXTVLCOPT (User-Agent)',
+        expected: 'LelouchPlayer/3.0',
+        actual: canonical.headers?.userAgent,
+        roundtrip: regeneratedM3u.includes('#EXTVLCOPT:http-user-agent=LelouchPlayer/3.0')
+      },
+      {
+        field: '#EXTVLCOPT (Referer)',
+        expected: 'https://watch.provider.com/auth',
+        actual: canonical.headers?.referrer,
+        roundtrip: regeneratedM3u.includes('#EXTVLCOPT:http-referrer=https://watch.provider.com/auth')
+      },
+      {
+        field: '#EXTVLCOPT (Cookie)',
+        expected: 'session_key=sec_cookie_99',
+        actual: canonical.headers?.cookie,
+        roundtrip: regeneratedM3u.includes('#EXTVLCOPT:http-cookie=session_key=sec_cookie_99')
+      },
+      {
+        field: '#KODIPROP',
+        expected: 'hls & widevine',
+        actual: `${canonical.kodiProps?.['inputstream.adaptive.manifest_type']} & ${canonical.kodiProps?.['inputstream.adaptive.license_type']}`,
+        roundtrip: regeneratedM3u.includes('#KODIPROP:inputstream.adaptive.manifest_type=hls') && regeneratedM3u.includes('#KODIPROP:inputstream.adaptive.license_type=widevine'),
+        isPass: canonical.kodiProps?.['inputstream.adaptive.manifest_type'] === 'hls' && canonical.kodiProps?.['inputstream.adaptive.license_type'] === 'widevine'
+      },
+      {
+        field: 'catchup (type, days, hours, source)',
+        expected: 'flussonic | 7d | 168h',
+        actual: `${canonical.catchup?.type} | ${canonical.catchup?.days}d | ${canonical.catchup?.hours}h`,
+        roundtrip: regeneratedM3u.includes('catchup="flussonic"') && regeneratedM3u.includes('tv-archive-duration="7"') && regeneratedM3u.includes('catchup-hours="168"'),
+        isPass: canonical.catchup?.type === 'flussonic' && canonical.catchup?.days === 7 && canonical.catchup?.hours === 168
+      },
+      {
+        field: 'Atributos desconocidos (tvg-chno, custom-vendor)',
+        expected: '105 & alpha-corp',
+        actual: `${canonical.extraAttributes?.['tvg-chno']} & ${canonical.extraAttributes?.['custom-vendor']}`,
+        roundtrip: regeneratedM3u.includes('tvg-chno="105"') && regeneratedM3u.includes('custom-vendor="alpha-corp"'),
+        isPass: canonical.extraAttributes?.['tvg-chno'] === '105' && canonical.extraAttributes?.['custom-vendor'] === 'alpha-corp'
+      },
+      {
+        field: 'URL original íntegra',
+        expected: 'http://stream.server.com:8080/live/user123/pass456/99999.m3u8',
+        actual: canonical.streamUrl,
+        roundtrip: regeneratedM3u.includes('http://stream.server.com:8080/live/user123/pass456/99999.m3u8'),
+        isPass: canonical.streamUrl === 'http://stream.server.com:8080/live/user123/pass456/99999.m3u8'
+      }
+    ];
+
+    const tbody = document.getElementById('results-body');
+    tbody.innerHTML = '';
+    let allPassed = true;
+
+    tests.forEach(t => {
+      const passed = t.roundtrip && (t.isPass !== undefined ? t.isPass : (t.actual === t.expected));
+      if (!passed) allPassed = false;
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><strong>${t.field}</strong></td>
+        <td><code>${t.expected}</code></td>
+        <td><code>${t.actual}</code></td>
+        <td>${t.roundtrip ? '✅ Sí' : '❌ No'}</td>
+        <td><span class="badge ${passed ? 'badge-pass' : 'badge-fail'}">${passed ? 'PASS' : 'FAIL'}</span></td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    window.__PHASE4_PASSED__ = allPassed;
+  </script>
+</body>
+</html>

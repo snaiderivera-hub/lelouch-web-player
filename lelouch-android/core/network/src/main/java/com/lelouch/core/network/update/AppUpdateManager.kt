@@ -40,10 +40,20 @@ object AppUpdateManager {
                 .header("Accept", "application/json")
                 .build()
 
+            // Obtener el versionCode actual instalado en el dispositivo
+            val installedVersionCode = try {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                    context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode.toInt()
+                } else {
+                    @Suppress("DEPRECATION")
+                    context.packageManager.getPackageInfo(context.packageName, 0).versionCode
+                }
+            } catch (e: Exception) { 1 }
+
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     if (targetUrl == GITHUB_LATEST_RELEASE_URL) {
-                        return@withContext checkFromRawVersion(client, RAW_VERSION_URL)
+                        return@withContext checkFromRawVersion(client, RAW_VERSION_URL, installedVersionCode)
                     }
                     return@withContext Result.failure(Exception("Error HTTP ${response.code}"))
                 }
@@ -73,10 +83,16 @@ object AppUpdateManager {
                         return@withContext Result.success(null)
                     }
 
+                    val remoteVersionCode = parseVersionNumber(tagName)
+                    // Solo hay actualización si el remoto es MAYOR que el instalado
+                    if (remoteVersionCode <= installedVersionCode) {
+                        return@withContext Result.success(null) // Ya está al día
+                    }
+
                     return@withContext Result.success(
                         UpdateInfo(
                             versionName = tagName,
-                            versionCode = parseVersionNumber(tagName),
+                            versionCode = remoteVersionCode,
                             downloadUrl = apkUrl,
                             changelog = body
                         )
@@ -85,10 +101,16 @@ object AppUpdateManager {
 
                 // Si es formato version.json directo
                 if (json.has("apkUrl")) {
+                    val rawVc = json.optInt("versionCode", 0)
+                    val vName = json.optString("versionName", "1.0.0")
+                    val remoteVersionCode = if (rawVc >= 100_000) rawVc else parseVersionNumber(vName)
+                    if (remoteVersionCode <= installedVersionCode) {
+                        return@withContext Result.success(null)
+                    }
                     return@withContext Result.success(
                         UpdateInfo(
-                            versionName = json.optString("versionName", "1.0.0"),
-                            versionCode = json.optInt("versionCode", 1),
+                            versionName = vName,
+                            versionCode = remoteVersionCode,
                             downloadUrl = json.getString("apkUrl"),
                             changelog = json.optString("changelog", "Mejoras de rendimiento y estabilidad.")
                         )
@@ -103,17 +125,27 @@ object AppUpdateManager {
         }
     }
 
-    private fun checkFromRawVersion(client: okhttp3.OkHttpClient, url: String): Result<UpdateInfo?> {
+    private fun checkFromRawVersion(
+        client: okhttp3.OkHttpClient,
+        url: String,
+        installedVersionCode: Int = 1
+    ): Result<UpdateInfo?> {
         return try {
             val req = Request.Builder().url(url).build()
             client.newCall(req).execute().use { res ->
                 if (!res.isSuccessful) return Result.success(null)
                 val str = res.body?.string() ?: return Result.success(null)
                 val json = JSONObject(str)
+                val rawVc = json.optInt("versionCode", 0)
+                val vName = json.optString("versionName", "1.0.0")
+                val remoteVersionCode = if (rawVc >= 100_000) rawVc else parseVersionNumber(vName)
+                if (remoteVersionCode <= installedVersionCode) {
+                    return Result.success(null) // Ya está al día
+                }
                 Result.success(
                     UpdateInfo(
                         versionName = json.optString("versionName", "1.0.0"),
-                        versionCode = json.optInt("versionCode", 1),
+                        versionCode = remoteVersionCode,
                         downloadUrl = json.getString("apkUrl"),
                         changelog = json.optString("changelog", "Mejoras de rendimiento y estabilidad.")
                     )
@@ -204,8 +236,23 @@ object AppUpdateManager {
         }
     }
 
+    /**
+     * Convierte un tag de GitHub a un entero comparable.
+     * Ejemplos:
+     *   "ver.1.0.1" → 1_000_001
+     *   "v1.0.2"    → 1_000_002
+     *   "2.0.0"     → 2_000_000
+     *   "1.1.0"     → 1_001_000
+     * Fórmula: major * 1_000_000 + minor * 1_000 + patch
+     * Debe coincidir con versionCode en app/build.gradle.kts.
+     */
     private fun parseVersionNumber(versionStr: String): Int {
-        val clean = versionStr.filter { it.isDigit() }
-        return clean.toIntOrNull() ?: 1
+        // Extraer solo la parte semver: quitar prefijos tipo "ver.", "v", "version-"
+        val clean = versionStr.replace(Regex("^[^0-9]*"), "") // remueve todo antes del primer dígito
+        val parts = clean.split(".").take(3).map { it.filter { c -> c.isDigit() }.toIntOrNull() ?: 0 }
+        val major = parts.getOrElse(0) { 0 }
+        val minor = parts.getOrElse(1) { 0 }
+        val patch = parts.getOrElse(2) { 0 }
+        return major * 1_000_000 + minor * 1_000 + patch
     }
 }

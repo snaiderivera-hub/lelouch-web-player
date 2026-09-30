@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Lelouch - Verificación FASE 5: Xtream Nativo sin Conversión Forzada a M3U</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0b0f19;
+      color: #f1f5f9;
+      padding: 30px;
+      line-height: 1.5;
+    }
+    h1 { color: #38bdf8; font-size: 24px; margin-bottom: 4px; }
+    h2 { color: #94a3b8; font-size: 15px; font-weight: normal; margin-top: 0; margin-bottom: 24px; }
+    .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .badge-pass { background: #065f46; color: #34d399; }
+    .badge-fail { background: #881337; color: #fb7185; }
+    .card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    th, td {
+      text-align: left;
+      padding: 10px 14px;
+      border-bottom: 1px solid #334155;
+      font-size: 14px;
+    }
+    th {
+      background: #0f172a;
+      color: #94a3b8;
+    }
+    pre {
+      background: #0f172a;
+      padding: 14px;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-family: Consolas, monospace;
+      font-size: 13px;
+      color: #7dd3fc;
+      border: 1px solid #334155;
+    }
+    .flow-diagram {
+      background: #0f172a;
+      padding: 16px;
+      border-radius: 6px;
+      font-family: monospace;
+      white-space: pre;
+      color: #38bdf8;
+      border: 1px solid #334155;
+    }
+  </style>
+</head>
+<body>
+  <h1>FASE 5 — Xtream Directo (Sin Paso Forzado a M3U)</h1>
+  <h2>Arquitectura de Doble Fuente: XtreamAdapter y M3uParserAdapter convergen en PlaylistNormalizer</h2>
+
+  <div class="flow-diagram">
+      SOURCE
+        │
+   ┌────┴────────────────────────┐
+   ▼                             ▼
+  M3U                         XTREAM
+   │                             │
+ M3uParserAdapter           XtreamAdapter (Existente)
+   │                             │
+   └──────────────┬──────────────┘
+                  ▼
+          PlaylistNormalizer
+                  ▼
+          LelouchMediaItem[]
+  </div>
+
+  <div class="card" style="margin-top: 20px;">
+    <h3>Verificación de Pipelines y Principios de Fase 5</h3>
+    <table id="results-table">
+      <thead>
+        <tr>
+          <th>Criterio / Pipeline</th>
+          <th>Detalle de la Prueba</th>
+          <th>Resultado Obtenido</th>
+          <th>Estado</th>
+        </tr>
+      </thead>
+      <tbody id="results-body">
+        <tr><td colspan="4">Ejecutando verificaciones...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <script type="module">
+    import { M3uParserAdapter } from '../src/services/playlist/M3uParserAdapter.js';
+    import { PlaylistNormalizer } from '../src/services/playlist/PlaylistNormalizer.js';
+    import { PlaylistGenerator } from '../src/services/playlist/PlaylistGenerator.js';
+
+    // 1. Simular stream nativo directo de XtreamAdapter (get_live_streams / get_vod_streams)
+    const mockXtreamLive = {
+      id: "78901",
+      stream_id: 78901,
+      name: "ESPN 2 Full HD",
+      category_id: "5",
+      categoryName: "Deportes",
+      streamUrl: "http://provider.tv:8080/live/user/pass/78901.m3u8",
+      stream_icon: "http://logos.tv/espn2.png",
+      epg_channel_id: "espn2.us",
+      container_extension: "m3u8",
+      tv_archive: 1,
+      tv_archive_duration: 7,
+      added: 1690000000
+    };
+
+    // 2. Normalización DIRECTA Xtream -> LelouchMediaItem (SIN PASO POR M3U)
+    const xtreamItem = PlaylistNormalizer.fromXtream(mockXtreamLive, 'live', 'acc_xtream_01', 0);
+
+    // 3. Simular entrada M3U
+    const sampleM3u = `#EXTM3U
+#EXTINF:-1 tvg-id="cnn.us" tvg-logo="http://logos.tv/cnn.png" group-title="Noticias",CNN Live
+http://provider.tv/live/cnn.m3u8`;
+    const m3uParsed = M3uParserAdapter.parse(sampleM3u);
+    const m3uItem = PlaylistNormalizer.fromExternalItem(m3uParsed.items[0], 0, 'acc_m3u_01');
+
+    // 4. Probar helpers opcionales de Xtream
+    const testUrl = "http://example.com:8080/live/userX/passY/123.m3u8";
+    const isXtream = M3uParserAdapter.isXtreamUrl(testUrl);
+    const xtreamInfo = M3uParserAdapter.extractXtreamInfo(testUrl);
+    const catchupUrl = M3uParserAdapter.buildXtreamCatchupUrl("http://example.com:8080", "userX", "passY", "123", 120);
+    const m3uUrl = M3uParserAdapter.buildXtreamM3uUrl("http://example.com:8080", "userX", "passY");
+
+    const tests = [
+      {
+        criterion: "Xtream Directo (Sin M3U Intermedio)",
+        detail: "Normaliza JSON nativo de Xtream directamente a LelouchMediaItem",
+        result: `ID: ${xtreamItem.id} | Nombre: ${xtreamItem.name} | Cat: ${xtreamItem.group} | Type: ${xtreamItem.mediaType}`,
+        passed: xtreamItem.id === 'item_acc_xtream_01_78901' && xtreamItem.name === 'ESPN 2 Full HD' && xtreamItem.mediaType === 'live' && xtreamItem.streamUrl.includes('78901.m3u8')
+      },
+      {
+        criterion: "Tolerancia de Campos Xtream",
+        detail: "Preserva tv_archive, stream_id, container_extension y added",
+        result: `Catchup: ${xtreamItem.catchup?.type} (${xtreamItem.catchup?.days}d) | Ext: ${xtreamItem.containerExtension} | ProviderId: ${xtreamItem.providerId}`,
+        passed: xtreamItem.catchup?.days === 7 && xtreamItem.containerExtension === 'm3u8' && xtreamItem.providerId === '78901'
+      },
+      {
+        criterion: "Convergencia Canónica (M3U + Xtream)",
+        detail: "Ambas fuentes producen la misma estructura LelouchMediaItem homogénea",
+        result: `Xtream keys: ${Object.keys(xtreamItem).length} | M3U keys: ${Object.keys(m3uItem).length}`,
+        passed: typeof xtreamItem.id === 'string' && typeof m3uItem.id === 'string' && xtreamItem.group === 'Deportes' && m3uItem.group === 'Noticias'
+      },
+      {
+        criterion: "Xtream Helpers: Detección y Extracción",
+        detail: "M3uParserAdapter.isXtreamUrl y extractXtreamInfo",
+        result: `isXtream: ${isXtream} | user: ${xtreamInfo.username} | streamId: ${xtreamInfo.streamId}`,
+        passed: isXtream === true && xtreamInfo.username === 'userX' && xtreamInfo.streamId === '123'
+      },
+      {
+        criterion: "Xtream Helpers: URL Builders Opcionales",
+        detail: "buildXtreamCatchupUrl y buildXtreamM3uUrl sin alterar XtreamAdapter",
+        result: `Catchup: ${catchupUrl.slice(0, 50)}... | M3U: ${m3uUrl.slice(0, 45)}...`,
+        passed: catchupUrl.includes('timeshift.php') && catchupUrl.includes('stream=123') && m3uUrl.includes('get.php')
+      },
+      {
+        criterion: "Exportación M3U Bajo Demanda Solamente",
+        detail: "PlaylistGenerator solo genera M3U cuando el usuario lo solicita explícitamente",
+        result: "Ambos canales serializados limpiamente a M3U Plus para copia o descarga",
+        passed: PlaylistGenerator.generateM3U([xtreamItem, m3uItem]).includes('ESPN 2 Full HD') && PlaylistGenerator.generateM3U([xtreamItem, m3uItem]).includes('CNN Live')
+      }
+    ];
+
+    const tbody = document.getElementById('results-body');
+    tbody.innerHTML = '';
+    let allPassed = true;
+
+    tests.forEach(t => {
+      if (!t.passed) allPassed = false;
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><strong>${t.criterion}</strong></td>
+        <td>${t.detail}</td>
+        <td><code>${t.result}</code></td>
+        <td><span class="badge ${t.passed ? 'badge-pass' : 'badge-fail'}">${t.passed ? 'PASS' : 'FAIL'}</span></td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    window.__PHASE5_PASSED__ = allPassed;
+  </script>
+</body>
+</html>
