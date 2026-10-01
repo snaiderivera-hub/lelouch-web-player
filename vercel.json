@@ -1,15 +1,5 @@
 {
   "cleanUrls": true,
-  "functions": {
-    "api/proxy.js": {
-      "maxDuration": 60,
-      "memory": 1024
-    },
-    "api/playlist.js": {
-      "maxDuration": 60,
-      "memory": 1024
-    }
-  },
   "headers": [
     {
       "source": "/api/(.*)",
