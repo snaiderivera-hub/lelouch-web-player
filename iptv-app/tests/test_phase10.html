@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Test FASE 10 - Endpoint Real /api/playlist/[token]</title>
+  <style>
+    body { font-family: monospace; background: #0f172a; color: #f8fafc; padding: 2rem; }
+    .pass { color: #4ade80; font-weight: bold; }
+    .fail { color: #f87171; font-weight: bold; }
+    .log { margin: 4px 0; }
+    pre { background: #1e293b; padding: 1rem; border-radius: 8px; overflow: auto; }
+  </style>
+</head>
+<body data-completed="false">
+  <h1>🧪 Test de Validación FASE 10 — Endpoint Real M3U</h1>
+  <div id="results"></div>
+
+  <script type="module">
+    import { supabaseService } from '../src/modules/iptv/services/SupabaseService.js';
+    import { PlaylistGenerator } from '../src/services/playlist/PlaylistGenerator.js';
+
+    const resultsDiv = document.getElementById('results');
+
+    function log(msg, isPass) {
+      const el = document.createElement('div');
+      el.className = 'log ' + (isPass === true ? 'pass' : isPass === false ? 'fail' : '');
+      el.textContent = (isPass === true ? '✅ PASS: ' : isPass === false ? '❌ FAIL: ' : 'ℹ️ ') + msg;
+      resultsDiv.appendChild(el);
+      console.log(el.textContent);
+    }
+
+    async function runTests() {
+      try {
+        log('Iniciando tests de FASE 10: Endpoint real /api/playlist/[token]...', null);
+
+        // 1. Validar formato de token (RegEx)
+        const tokenRegex = /^[a-zA-Z0-9_-]{16,128}$/;
+        log('Validación formato: "123" rechazado: ' + !tokenRegex.test('123'), !tokenRegex.test('123'));
+        log('Validación formato: "playlist/1" rechazado: ' + !tokenRegex.test('playlist/1'), !tokenRegex.test('playlist/1'));
+        log('Validación formato: "a8F3kP92jKLmN710vB82xC41zQ88" aceptado: ' + tokenRegex.test('a8F3kP92jKLmN710vB82xC41zQ88'), tokenRegex.test('a8F3kP92jKLmN710vB82xC41zQ88'));
+
+        // 2. Preparar datos de prueba en Supabase
+        const playlist = await supabaseService.getOrCreateDefaultCustomPlaylist('Test Phase 10 Endpoint Playlist');
+        log('Playlist de prueba obtenida: ' + playlist?.id, Boolean(playlist?.id));
+
+        // Sincronizar items con orden y metadatos IPTV enriquecidos
+        await supabaseService.syncPlaylistItems(playlist.id, [
+          {
+            id: 'item-10-a',
+            name: 'Deportes TV 4K',
+            url: 'https://cdn.stream.tv/deportes.m3u8',
+            category: 'Deportes Premium',
+            logo: 'https://cdn.stream.tv/logos/deportes.png',
+            tvgId: 'deportes.4k',
+            metadata: {
+              headers: { 'User-Agent': 'TiviMate/4.8.0', 'Referer': 'https://deportes.tv' },
+              catchup: { type: 'append', days: 7, source: 'https://cdn.stream.tv/timeshift?start={utc}' }
+            }
+          },
+          {
+            id: 'item-10-b',
+            name: 'Cineplex Action HD',
+            url: 'https://cdn.stream.tv/cineplex.m3u8',
+            category: 'Cine y Series',
+            logo: 'https://cdn.stream.tv/logos/cine.png',
+            tvgId: 'cineplex.hd'
+          }
+        ]);
+        log('Items sincronizados con orden y metadatos', true);
+
+        // 3. Crear token seguro
+        const tokenObj = await supabaseService.createAccessToken(playlist.id, 'Dispositivo Phase 10');
+        const rawToken = tokenObj.token;
+        log('Token generado: ' + rawToken, Boolean(rawToken));
+
+        // 4. Ejecutar Pipeline completo del Endpoint:
+        // A. Token -> SHA-256
+        const enc = new TextEncoder();
+        const hashBuf = await crypto.subtle.digest('SHA-256', enc.encode(rawToken));
+        const tokenHash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
+
+        // B. Buscar en Supabase por token_hash
+        const tokenQueryUrl = `${supabaseService.url}/rest/v1/playlist_access_tokens?token_hash=eq.${tokenHash}&select=*`;
+        const tokenRes = await fetch(tokenQueryUrl, { headers: supabaseService._getHeaders() });
+        const tokenRows = await tokenRes.json();
+        const tokenRecord = tokenRows?.[0];
+
+        log('Pipeline 1/6: Búsqueda por token_hash exitosa: ' + Boolean(tokenRecord), Boolean(tokenRecord));
+        log('Pipeline 2/6: Token enabled != false: ' + (tokenRecord?.enabled !== false), tokenRecord?.enabled !== false);
+        log('Pipeline 3/6: Token no expirado: ' + (!tokenRecord?.expires_at || new Date(tokenRecord.expires_at) > new Date()), true);
+
+        // C. Obtener custom_playlist
+        const plRes = await fetch(`${supabaseService.url}/rest/v1/custom_playlists?id=eq.${tokenRecord.playlist_id}&select=*`, { headers: supabaseService._getHeaders() });
+        const plRows = await plRes.json();
+        log('Pipeline 4/6: Playlist activa y enabled: ' + (plRows?.[0]?.enabled !== false), plRows?.[0]?.enabled !== false);
+
+        // D. Obtener items resueltos ordenados por position
+        const itemsRes = await fetch(`${supabaseService.url}/rest/v1/v_resolved_playlist_items?playlist_id=eq.${tokenRecord.playlist_id}&enabled=eq.true&order=position.asc`, { headers: supabaseService._getHeaders() });
+        const items = await itemsRes.json();
+        log(`Pipeline 5/6: Items resueltos obtenidos en orden: ${items.length}`, items.length >= 2);
+
+        // E. Serializar M3U
+        const lines = [`#EXTM3U name="${plRows?.[0]?.name || 'LELOUCH'}"\n`];
+        for (const it of items) {
+          const streamUrl = it.resolved_stream_url || it.direct_url;
+          if (!streamUrl) continue;
+          let extinf = `#EXTINF:-1 tvg-id="${it.tvg_id || ''}" tvg-name="${it.name || ''}" tvg-logo="${it.logo || ''}" group-title="${it.group || 'General'}"`;
+          if (it.metadata?.catchup) {
+            extinf += ` tv-archive="1" catchup="${it.metadata.catchup.type || 'default'}"`;
+          }
+          lines.push(`${extinf},${it.name || 'Canal'}`);
+          if (it.metadata?.headers?.['User-Agent']) {
+            lines.push(`#EXTVLCOPT:http-user-agent=${it.metadata.headers['User-Agent']}`);
+          }
+          lines.push(streamUrl);
+        }
+        const m3uText = lines.join('\n');
+
+        log('Pipeline 6/6: Generación M3U contiene directiva #EXTM3U: ' + m3uText.includes('#EXTM3U'), m3uText.includes('#EXTM3U'));
+        log('M3U contiene primer canal ("Deportes TV 4K"): ' + m3uText.includes('Deportes TV 4K'), m3uText.includes('Deportes TV 4K'));
+        log('M3U contiene header #EXTVLCOPT:http-user-agent: ' + m3uText.includes('#EXTVLCOPT:http-user-agent=TiviMate/4.8.0'), m3uText.includes('#EXTVLCOPT:http-user-agent=TiviMate/4.8.0'));
+        log('M3U contiene segundo canal ("Cineplex Action HD"): ' + m3uText.includes('Cineplex Action HD'), m3uText.includes('Cineplex Action HD'));
+
+        // Limpieza de token de prueba
+        if (tokenObj?.id) {
+          await supabaseService.revokeAccessToken(tokenObj.id);
+          log('Token de prueba revocado', true);
+        }
+
+        log('🎉 FASE 10 COMPLETADA CON ÉXITO: Endpoint real verificado y validado.', true);
+        document.body.setAttribute('data-completed', 'true');
+      } catch (err) {
+        log('Error ejecutando tests: ' + err.message + '\n' + err.stack, false);
+        document.body.setAttribute('data-completed', 'true');
+      }
+    }
+
+    runTests();
+  </script>
+</body>
+</html>

@@ -128,6 +128,32 @@
  * @property {ExternalPlaylistItem[]} items
  */
 
+/**
+ * FASE 25: Métricas de rendimiento y consumo para listas M3U
+ * @typedef {Object} M3uPerformanceMetrics
+ * @property {number} sizeBytes - Tamaño en bytes del archivo M3U
+ * @property {string} sizeMB - Tamaño formateado en Megabytes (ej. '12.45')
+ * @property {number} entryCount - Cantidad de entradas (#EXTINF / items)
+ * @property {number} parseTimeMs - Tiempo de parseo en milisegundos
+ * @property {string} throughputMBps - Velocidad de procesamiento en MB/s
+ * @property {number} entriesPerSecond - Canales procesados por segundo
+ * @property {Object} memoryEstimate - Estimación de consumo de memoria
+ * @property {number|null} memoryEstimate.jsHeapUsedMB - Heap usado en MB si está disponible
+ * @property {number} memoryEstimate.estimatedObjectMemoryMB - Estimación de footprint en V8
+ * @property {'OPTIMAL'|'MODERATE'|'LARGE_WARNING'|'CRITICAL_OVERSIZED'} status - Nivel de carga
+ * @property {string} recommendation - Recomendación técnica accionable
+ * @property {ExternalM3uPlaylist} [playlist] - Playlist parseada opcional
+ */
+
+/**
+ * @typedef {Object} M3uLimitsConfig
+ * @property {number} MAX_RECOMMENDED_SIZE_BYTES
+ * @property {number} CRITICAL_SIZE_LIMIT_BYTES
+ * @property {number} MAX_RECOMMENDED_ENTRIES
+ * @property {number} CRITICAL_ENTRIES_LIMIT
+ * @property {number} DEFAULT_FETCH_MAX_BYTES
+ */
+
 // Exportación para módulos ES
 export const MediaTypeEnum = {
   LIVE: 'live',
@@ -136,4 +162,5 @@ export const MediaTypeEnum = {
   DIRECT: 'direct',
   RADIO: 'radio',
 };
+
 

@@ -1,0 +1,7 @@
+{
+  "name": "lelouch-web-player",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "description": "Lelouch IPTV Web Player & M3U Serverless Delivery Engine"
+}

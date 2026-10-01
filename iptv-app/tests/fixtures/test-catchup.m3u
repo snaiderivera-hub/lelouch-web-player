@@ -1,0 +1,7 @@
+#EXTM3U
+#EXTINF:-1 tvg-id="catchup.default" tvg-name="Catchup Default 7d" catchup="default" catchup-days="7" catchup-source="http://fictitious-iptv.test:8080/streaming/timeshift.php?username=fake_user&password=fake_pass&stream=9001&duration={duration}&start={utc:Y-m-d:H-M}" group-title="Catchup Channels", Canal con Catchup Xtream 7 Días
+http://fictitious-iptv.test:8080/live/fake_user/fake_pass/9001.m3u8
+#EXTINF:-1 tvg-id="catchup.hours" tvg-name="Catchup 48h" catchup="shift" catchup-hours="48" catchup-source="http://fictitious-iptv.test:8080/timeshift?offset={offset}&stream=9002" group-title="Catchup Channels", Canal con Catchup en Horas
+http://fictitious-iptv.test:8080/live/fake_user/fake_pass/9002.m3u8
+#EXTINF:-1 tvg-id="catchup.legacy" tvg-name="Legacy TV Archive" tv-archive="1" tv-archive-duration="5" group-title="Catchup Channels", Canal con Archivo TV Legacy
+http://fictitious-iptv.test:8080/live/fake_user/fake_pass/9003.m3u8

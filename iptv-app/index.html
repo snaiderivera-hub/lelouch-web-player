@@ -372,6 +372,9 @@
               <h3 id="current-category-title">Todos los Canales</h3>
               <span class="badge-mini" id="live-channels-count">0</span>
             </div>
+            <button id="btn-sync-refresh-live" class="btn-manage-cats-pill" style="color:#10b981; border-color:rgba(16,185,129,0.35); background:rgba(16,185,129,0.08); font-size:0.75rem; padding:4px 10px; border-radius:6px;" title="Comprobar cambios y sincronizar lista con la nube">
+              <i class="ph ph-arrows-clockwise"></i> Actualizar
+            </button>
           </div>
 
           <!-- SUB-BARRA DE BÚSQUEDA Y HERRAMIENTAS (ESPACIOSA, SIN APRETAR) -->
@@ -670,8 +673,8 @@
             <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem; margin-bottom:1.5rem;">
               <div>
                 <h3 style="margin:0; display:flex; align-items:center; gap:0.6rem;">
-                  <span>🛠️ Creador y Gestor de Lista M3U</span>
-                  <span id="custom-m3u-badge" class="badge-mini" style="background:rgba(6,182,212,0.15); color:var(--accent-cyan); border:1px solid rgba(6,182,212,0.3); padding:4px 10px; border-radius:6px; font-size:12px; font-weight:700;">0 items</span>
+                  <span>🔧 Creador y Gestor de Lista M3U</span>
+                  <span id="custom-m3u-badge" class="badge-mini" style="background:rgba(6,182,212,0.15); color:var(--accent-cyan); border:1px solid rgba(6,182,212,0.3); padding:4px 10px; border-radius:6px; font-size:12px; font-weight:700;">0 ítems</span>
                 </h3>
                 <p class="card-desc" style="margin:0.35rem 0 0">
                   Extrae enlaces directos de canales o películas con el botón <b>🔗</b> o <b>➕</b>, organízalos y descarga tu archivo <b>.M3U</b> para usarlo en VLC, TV Box o cualquier reproductor.
@@ -679,19 +682,19 @@
               </div>
               <div style="display:flex; gap:0.6rem; flex-wrap:wrap;">
                 <button id="btn-custom-m3u-play-live" class="btn btn-primary btn-sm" style="font-weight:700; background:linear-gradient(135deg, #00e5ff, #0088ff); color:#02070d;" title="Ver y reproducir tus canales en TV en Vivo ahora">
-                  <i class="ph-bold ph-television"></i> 📺 Ver Mi Lista en TV en Vivo
+                  <i class="ph-bold ph-television"></i> 📺 Ver Mi Lista
+                </button>
+                <button id="btn-custom-m3u-generate-link" class="btn btn-primary btn-sm" style="font-weight:700; background:linear-gradient(135deg, #10b981, #059669); color:#ffffff; border:none; box-shadow:0 2px 10px rgba(16,185,129,0.25);" title="Generar enlace público M3U permanente con token seguro para reproductores externos">
+                  <i class="ph ph-globe"></i> 🌐 Generar Enlace M3U
                 </button>
                 <button id="btn-custom-m3u-copy-all" class="btn btn-secondary btn-sm" title="Copiar todo el contenido M3U al portapapeles">
                   <i class="ph ph-copy"></i> 📋 Copiar M3U
                 </button>
                 <button id="btn-custom-m3u-download" class="btn btn-primary btn-sm" title="Descargar como archivo .m3u">
-                  <i class="ph ph-download-simple"></i> ⬇ Descargar Lista (.m3u)
-                </button>
-                <button id="btn-custom-m3u-generate-link" class="btn btn-primary btn-sm" style="font-weight:700; background:linear-gradient(135deg, #10b981, #059669); color:#ffffff; border:none; box-shadow:0 2px 10px rgba(16,185,129,0.25);" title="Generar enlace público M3U permanente con token seguro para reproductores externos">
-                  <i class="ph ph-globe"></i> 🌐 Generar Enlace M3U
+                  <i class="ph ph-download-simple"></i> ⬇ Descargar .m3u
                 </button>
                 <button id="btn-custom-m3u-clear" class="btn btn-secondary btn-sm" style="color:#ef4444; border-color:rgba(239,68,68,0.3);" title="Vaciar toda la lista personalizada">
-                  <i class="ph ph-trash"></i> Vaciar
+                  <i class="ph ph-trash"></i> 🗑 Vaciar
                 </button>
               </div>
             </div>
@@ -703,7 +706,7 @@
               </strong>
               <p style="margin:0; color:var(--text-secondary); line-height:1.5;">
                 • <b>En TV Box o Teléfono (Cualquier app IPTV):</b> Pulsa <b>⬇ Descargar Lista (.m3u)</b> arriba. Pasa ese archivo a tu TV Box o teléfono y ábrelo con TiviMate, IPTV Smarters o VLC. ¡Solo aparecerá tu categoría con tus canales escogidos sin ninguna de las categorías desactivadas!<br>
-                • <b>En este reproductor web:</b> Pulsa <b>📺 Ver Mi Lista en TV en Vivo</b> y el reproductor filtrará todo automáticamente para mostrar solo tus canales.
+                • <b>En este reproductor web:</b> Pulsa <b>📺 Ver Mi Lista</b> y el reproductor filtrará todo automáticamente para mostrar solo tus canales.
               </p>
             </div>
 
@@ -972,45 +975,67 @@
   </div>
 </div>
 
-<!-- MODAL: ENLACE PÚBLICO M3U CON TOKEN CRIPTOGRÁFICO -->
+<!-- MODAL: ENLACE PÚBLICO M3U CON TOKEN CRIPTOGRÁFICO (FASE 14) -->
 <div id="custom-m3u-token-modal" class="modal-overlay hidden" style="z-index:10008;">
-  <div class="glass-card" style="max-width:580px; width:94%; background:var(--bg-card); border:1px solid var(--border-highlight); border-radius:18px; padding:1.75rem; box-shadow:0 24px 60px rgba(0,0,0,0.95);">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-      <h3 style="margin:0; font-size:1.15rem; color:#10b981; display:flex; align-items:center; gap:8px;">
-        <i class="ph-bold ph-globe"></i> <span>Enlace M3U Público Permanente</span>
+  <div class="glass-card" style="max-width:540px; width:94%; background:var(--bg-card, #0b1320); border:1px solid rgba(16,185,129,0.3); border-radius:20px; padding:1.75rem; box-shadow:0 24px 70px rgba(0,0,0,0.95); position:relative;">
+    
+    <!-- HEADER -->
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.25rem;">
+      <h3 style="margin:0; font-size:1.15rem; color:#10b981; display:flex; align-items:center; gap:8px; font-weight:800; letter-spacing:0.3px;">
+        <span>🌐 ENLACE M3U LELOUCH</span>
       </h3>
-      <button id="btn-close-token-modal" class="modal-close-btn" style="position:static;">&times;</button>
+      <button id="btn-close-token-modal" class="modal-close-btn" style="position:static; font-size:1.4rem; color:var(--text-muted);">&times;</button>
     </div>
 
-    <p style="font-size:0.86rem; color:var(--text-secondary); line-height:1.5; margin-bottom:1.25rem;">
-      Usa esta URL en cualquier reproductor externo (<b>TiviMate, IPTV Smarters, OTT Navigator, VLC, Smart TVs</b>). Cada vez que agregues o quites canales en Lelouch, se actualizará automáticamente sin que tengas que volver a cargar el enlace.
-    </p>
+    <!-- ENLACE URL DISPLAY -->
+    <div style="background:rgba(0,0,0,0.45); border:1px solid rgba(16,185,129,0.3); border-radius:12px; padding:0.85rem 1rem; margin-bottom:1.25rem; display:flex; align-items:center; gap:10px;">
+      <input type="text" id="custom-m3u-permalink-input" readonly class="form-input" style="font-family:'JetBrains Mono',monospace; font-size:0.85rem; color:#10b981; background:transparent; width:100%; border:none; padding:0; outline:none; text-overflow:ellipsis;" placeholder="https://lelouch-web-player.vercel.app/api/playlist/..." />
+    </div>
 
-    <!-- INPUT DE LA URL CON BOTÓN DE COPIADO -->
-    <div style="background:rgba(0,0,0,0.35); border:1px solid rgba(16,185,129,0.3); border-radius:12px; padding:1rem; margin-bottom:1.25rem;">
-      <label style="display:block; font-size:0.75rem; color:var(--text-muted); margin-bottom:6px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">Tu Enlace Permanente M3U</label>
-      <div style="display:flex; gap:8px; align-items:center;">
-        <input type="text" id="custom-m3u-permalink-input" readonly class="form-input" style="font-family:'JetBrains Mono',monospace; font-size:0.82rem; color:#10b981; background:rgba(16,185,129,0.06); width:100%; border:1px solid rgba(16,185,129,0.2); text-overflow:ellipsis;" />
-        <button id="btn-copy-permalink" class="btn btn-primary" style="background:#10b981; color:#02110c; font-weight:700; white-space:nowrap; padding:0.5rem 1rem;">
-          <i class="ph ph-copy"></i> Copiar
+    <!-- METRICAS: ESTADO | ELEMENTOS | ÚLTIMA ACTUALIZACIÓN -->
+    <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:0.75rem; margin-bottom:1.25rem;">
+      <!-- Estado -->
+      <div style="background:rgba(255,255,255,0.025); border:1px solid var(--border-subtle, rgba(255,255,255,0.08)); border-radius:12px; padding:0.75rem 0.5rem; text-align:center;">
+        <span style="display:block; font-size:0.72rem; color:var(--text-muted); margin-bottom:4px; font-weight:600;">Estado:</span>
+        <span id="token-status-indicator" style="display:inline-flex; align-items:center; gap:5px; font-weight:700; font-size:0.92rem; color:#10b981;">
+          <span id="token-status-dot" style="font-size:0.95rem; line-height:1;">●</span>
+          <span id="token-status-text">Activo</span>
+        </span>
+      </div>
+
+      <!-- Elementos -->
+      <div style="background:rgba(255,255,255,0.025); border:1px solid var(--border-subtle, rgba(255,255,255,0.08)); border-radius:12px; padding:0.75rem 0.5rem; text-align:center;">
+        <span style="display:block; font-size:0.72rem; color:var(--text-muted); margin-bottom:4px; font-weight:600;">Elementos:</span>
+        <span id="token-items-count" style="display:block; font-weight:800; font-size:1.1rem; color:var(--text-primary);">0</span>
+      </div>
+
+      <!-- Última actualización -->
+      <div style="background:rgba(255,255,255,0.025); border:1px solid var(--border-subtle, rgba(255,255,255,0.08)); border-radius:12px; padding:0.75rem 0.5rem; text-align:center;">
+        <span style="display:block; font-size:0.72rem; color:var(--text-muted); margin-bottom:4px; font-weight:600;">Última actualización:</span>
+        <span id="token-last-updated" style="display:block; font-weight:700; font-size:0.86rem; color:var(--text-secondary); margin-top:2px;">--/--/----</span>
+      </div>
+    </div>
+
+    <!-- BOTONES DE ACCIÓN (FASE 14) -->
+    <div style="display:flex; flex-direction:column; gap:0.65rem; margin-bottom:1rem;">
+      <button id="btn-token-modal-copy" class="btn btn-primary" style="width:100%; justify-content:center; font-weight:700; background:linear-gradient(135deg, #10b981, #059669); color:#ffffff; padding:0.75rem 1.25rem; font-size:0.92rem; border:none; box-shadow:0 4px 14px rgba(16,185,129,0.25);" title="Copiar enlace M3U al portapapeles">
+        <i class="ph ph-copy"></i> 📋 Copiar enlace
+      </button>
+
+      <div style="display:flex; gap:0.65rem;">
+        <button id="btn-token-modal-regenerate" class="btn btn-secondary" style="flex:1; justify-content:center; font-weight:600; font-size:0.84rem; border-color:rgba(6,182,212,0.4); color:var(--accent-cyan); background:rgba(6,182,212,0.06);" title="Invalida el token anterior y crea uno nuevo">
+          <i class="ph ph-arrows-clockwise"></i> 🔄 Regenerar enlace
+        </button>
+
+        <button id="btn-token-modal-toggle-status" class="btn btn-secondary" style="flex:1; justify-content:center; font-weight:600; font-size:0.84rem; border-color:rgba(239,68,68,0.35); color:#ef4444; background:rgba(239,68,68,0.06);" title="Activa o desactiva este enlace">
+          <span id="btn-toggle-status-text">⛔ Desactivar enlace</span>
         </button>
       </div>
-      <div style="margin-top:8px; font-size:0.75rem; color:var(--text-muted); display:flex; justify-content:space-between; align-items:center;">
-        <span id="token-security-badge"><i class="ph-bold ph-shield-check" style="color:#10b981;"></i> Token criptográfico SHA-256 de alta entropía</span>
-        <span id="token-item-count-badge" class="badge-mini" style="background:rgba(16,185,129,0.15); color:#10b981;">0 items</span>
-      </div>
     </div>
 
-    <!-- TARJETAS DE AYUDA RÁPIDA -->
-    <div style="background:rgba(255,255,255,0.02); border:1px solid var(--border-subtle); border-radius:10px; padding:0.9rem; font-size:0.8rem; color:var(--text-secondary); line-height:1.45; margin-bottom:1.25rem;">
-      <strong style="color:var(--text-main); display:block; margin-bottom:4px;">💡 ¿Cómo usarlo en tu reproductor?</strong>
-      1. Abre <b>TiviMate</b> o tu app favorita y selecciona <i>"Añadir Lista M3U"</i>.<br>
-      2. Pega la URL generada arriba.<br>
-      3. Tus credenciales reales nunca son expuestas, y si editas tu lista en Lelouch, se reflejará al instante.
-    </div>
-
-    <div style="display:flex; justify-content:flex-end; gap:0.75rem;">
-      <button id="btn-done-token-modal" class="btn btn-secondary" style="padding:0.5rem 1.25rem;">Cerrar</button>
+    <!-- NOTA INFORMATIVA FASE 20: SECRETO COMPARTIDO Y ANTI-INDEXACIÓN -->
+    <div style="background:rgba(239,68,68,0.06); border:1px solid rgba(239,68,68,0.2); border-radius:10px; padding:0.75rem 0.9rem; font-size:0.78rem; color:#fca5a5; line-height:1.45;">
+      🔒 <b>Secreto Compartido:</b> Esta URL M3U actúa como credencial privada de acceso a tus streams en vivo. No la publiques en sitios públicos ni foros. Si necesitas revocar el acceso a reproductores antiguos, pulsa <b>🔄 Regenerar enlace</b> o <b>⛔ Desactivar</b>.
     </div>
   </div>
 </div>

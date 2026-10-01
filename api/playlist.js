@@ -13,9 +13,20 @@
  */
 
 import crypto from 'node:crypto';
+import { PlaylistGenerator, unwrapProxyUrl } from './lib/PlaylistGenerator.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://rotupbdeljgfddywryhk.supabase.co';
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvdHVwYmRlbGpnZmRkeXdyeWhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzNjA2MzksImV4cCI6MjEwNTkzNjYzOX0.zDVgrQo_IU5FhfSMpl0-MbS9Eod43czS21TBi5Z3Lvo';
+
+/**
+ * FASE 22 — RLS y Resolución Server-Side:
+ * El TV Box no tiene sesión de usuario en Supabase (el token es su credencial).
+ * En el backend Serverless de Vercel, usamos SUPABASE_SERVICE_ROLE_KEY si está disponible
+ * para resolver la consulta saltando RLS de forma segura en el servidor,
+ * o SUPABASE_ANON_KEY como fallback.
+ */
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SERVER_AUTH_KEY = SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY;
 
 export const config = {
   api: {
@@ -24,11 +35,45 @@ export const config = {
 };
 
 /**
- * Escapa comillas en atributos M3U
+ * FASE 19 — Redacción de credenciales en Vercel logs y mensajes de error
  */
-function escapeAttr(val) {
-  if (!val) return '';
-  return String(val).replace(/"/g, "'").trim();
+function redactSensitiveUrl(input) {
+  if (!input) return '';
+  let str = typeof input === 'string' ? input : String(input);
+  str = str.replace(/([?&](?:username|user|usr)=)[^& \n\r\t"']+/gi, '$1***');
+  str = str.replace(/([?&](?:password|pass|pwd)=)[^& \n\r\t"']+/gi, '$1***');
+  str = str.replace(/([?&](?:token|auth|secret)=)[^& \n\r\t"']+/gi, '$1***');
+  str = str.replace(/(\/(?:live|movie|series)\/)[^/ \n\r\t"']+\/[^/ \n\r\t"']+(\/[^ \n\r\t"']*)/gi, '$1***/***$2');
+  str = str.replace(/(get\.php\?[^ \n\r\t"']+)/gi, (match) => {
+    return match
+      .replace(/([?&](?:username|user|usr)=)[^&]+/gi, '$1***')
+      .replace(/([?&](?:password|pass|pwd)=)[^&]+/gi, '$1***');
+  });
+  return str;
+}
+
+/**
+ * FASE 21 — NO hacer proxy de los videos por Vercel.
+ * TV solicita stream directamente al PROVEEDOR.
+ * Garantiza que la URL entregada en la playlist (#EXTM3U o JSON manifest) sea SIEMPRE la
+ * URL directa del proveedor. Si la URL contenía un envoltorio de proxy (/api/proxy?target=...),
+ * se desenvuelve para que el reproductor (TV/móvil) conecte directamente al servidor IPTV.
+ * Lelouch publica la playlist, no retransmite el vídeo.
+ */
+function ensureDirectProviderUrl(url) {
+  if (!url || typeof url !== 'string') return '';
+  const trimmed = url.trim();
+  if (trimmed.includes('/api/proxy') || trimmed.includes('/proxy?target=')) {
+    try {
+      const match = trimmed.match(/[?&]target=([^&]+)/);
+      if (match && match[1]) {
+        return decodeURIComponent(match[1]);
+      }
+    } catch {
+      // Ignorar fallo de decodificación y usar original
+    }
+  }
+  return trimmed;
 }
 
 export default async function handler(req, res) {
@@ -37,138 +82,263 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', '*');
 
+  // FASE 20 — Anti-indexación obligatoria: La URL M3U es un secreto compartido
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive, nosnippet');
+
   if (req.method === 'OPTIONS') {
     return res.status(204).end();
   }
 
-  // 1. Extraer token de query o de la URL
-  let token = req.query.token;
-  if (!token && req.url) {
-    const match = req.url.match(/\/api\/playlist\/([a-zA-Z0-9_-]+)/);
-    if (match) token = match[1];
+  // FASE 27 — Rechazar métodos no permitidos (solo GET y HEAD)
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    res.setHeader('Allow', 'GET, HEAD, OPTIONS');
+    return res.status(405).json({ error: 'Método no permitido', status: 405 });
   }
 
-  if (!token || typeof token !== 'string' || token.trim().length < 8) {
+  // 1. Extraer token y formato de la petición (FASE 17)
+  let token = req.query.token;
+  let isVersionCheck = req.query.format === 'version' || req.query.check === 'version';
+  let isJsonManifest = req.query.format === 'json' || req.query.format === 'manifest' || (req.headers['accept'] && req.headers['accept'].includes('application/json'));
+
+  if (req.url) {
+    if (req.url.includes('/api/playlist/version/')) {
+      const match = req.url.match(/\/api\/playlist\/version\/([a-zA-Z0-9_-]+)/);
+      if (match) {
+        token = match[1];
+        isVersionCheck = true;
+      }
+    } else if (req.url.includes('/api/playlist/manifest/')) {
+      const match = req.url.match(/\/api\/playlist\/manifest\/([a-zA-Z0-9_-]+)/);
+      if (match) {
+        token = match[1];
+        isJsonManifest = true;
+      }
+    } else if (!token) {
+      const match = req.url.match(/\/api\/playlist\/([a-zA-Z0-9_-]+)/);
+      if (match && !['version', 'manifest', 'json'].includes(match[1])) {
+        token = match[1];
+      }
+    }
+  }
+
+  // Helper unificado para enviar respuestas de error compatibles con GET y HEAD
+  const sendError = (status, message) => {
+    if (isJsonManifest || isVersionCheck) {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      const body = JSON.stringify({ error: message, status });
+      res.setHeader('Content-Length', String(Buffer.byteLength(body, 'utf8')));
+      if (req.method === 'HEAD') {
+        return res.status(status).end();
+      }
+      return res.status(status).send(body);
+    }
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.status(400).send('#EXTM3U\n#EXTINF:-1,Token de acceso no proporcionado o invalido\nhttp://localhost/error');
+    const body = `#EXTM3U\n#EXTINF:-1,${message}\nhttp://localhost/error`;
+    res.setHeader('Content-Length', String(Buffer.byteLength(body, 'utf8')));
+    if (req.method === 'HEAD') {
+      return res.status(status).end();
+    }
+    return res.status(status).send(body);
+  };
+
+  // Validar formato del token (debe ser una cadena alfanumérica segura)
+  const tokenRegex = /^[a-zA-Z0-9_-]{16,128}$/;
+  if (!token || typeof token !== 'string' || !tokenRegex.test(token.trim())) {
+    return sendError(400, 'Formato de token invalido');
   }
 
   token = token.trim();
 
-  // 2. Calcular SHA-256 del token para comparar con la base de datos
+  // 2. Calcular SHA-256 del token para comparar con la base de datos (FASE 9 & 10)
   const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
 
   const headers = {
-    'apikey': SUPABASE_ANON_KEY,
-    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+    'apikey': SERVER_AUTH_KEY,
+    'Authorization': `Bearer ${SERVER_AUTH_KEY}`,
     'Content-Type': 'application/json'
   };
 
   try {
-    // 3. Buscar el token en la tabla 'playlist_access_tokens'
-    const tokenQueryUrl = `${SUPABASE_URL}/rest/v1/playlist_access_tokens?token_hash=eq.${tokenHash}&is_active=eq.true&select=id,playlist_id,is_active,expires_at,access_count`;
+    // 3. Buscar el token por HASH SHA-256 en la tabla 'playlist_access_tokens' (FASE 9)
+    const tokenQueryUrl = `${SUPABASE_URL}/rest/v1/playlist_access_tokens?token_hash=eq.${tokenHash}&select=*`;
     const tokenRes = await fetch(tokenQueryUrl, { headers });
 
     if (!tokenRes.ok) {
-      console.error('[API Playlist] Error consultando token en Supabase:', await tokenRes.text());
-      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      return res.status(500).send('#EXTM3U\n#EXTINF:-1,Error interno validando token\nhttp://localhost/error');
+      console.error('[API Playlist] Error consultando token en Supabase:', redactSensitiveUrl(await tokenRes.text()));
+      return sendError(500, 'Error validando token en la base de datos');
     }
 
     const tokenRows = await tokenRes.json();
     if (!tokenRows || tokenRows.length === 0) {
-      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      return res.status(404).send('#EXTM3U\n#EXTINF:-1,Enlace M3U no encontrado o revocado\nhttp://localhost/error');
+      // FASE 27: Token inexistente -> 404
+      return sendError(404, 'Enlace M3U no encontrado o revocado');
     }
 
     const tokenRecord = tokenRows[0];
 
-    // Verificar si expiró
+    // FASE 27: Verificar si el token está deshabilitado -> 410 Gone (o 404)
+    if (tokenRecord.enabled === false || tokenRecord.is_active === false) {
+      return sendError(410, 'Este enlace M3U ha sido desactivado');
+    }
+
+    // FASE 27: Verificar si expiró -> 410 Gone
     if (tokenRecord.expires_at) {
       const expires = new Date(tokenRecord.expires_at);
       if (expires < new Date()) {
-        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-        return res.status(403).send('#EXTM3U\n#EXTINF:-1,Este enlace M3U ha expirado\nhttp://localhost/error');
+        return sendError(410, 'Este enlace M3U ha expirado');
       }
     }
 
-    // 4. Actualizar métricas de acceso de forma asíncrona (sin bloquear la respuesta)
+    // 4. Actualizar métricas de acceso de forma asíncrona (FASE 9: last_accessed_at, request_count)
+    const currentCount = Number(tokenRecord.request_count ?? tokenRecord.access_count ?? 0);
     fetch(`${SUPABASE_URL}/rest/v1/playlist_access_tokens?id=eq.${tokenRecord.id}`, {
       method: 'PATCH',
       headers,
       body: JSON.stringify({
-        last_used_at: new Date().toISOString(),
-        access_count: (tokenRecord.access_count || 0) + 1
+        last_accessed_at: new Date().toISOString(),
+        request_count: currentCount + 1,
+        access_count: currentCount + 1
       })
-    }).catch(err => console.warn('[API Playlist] Error actualizando métricas de token:', err));
+    }).catch(err => console.warn('[API Playlist] Error actualizando métricas de token:', redactSensitiveUrl(err?.message || String(err))));
 
-    // 5. Consultar los items resueltos de la vista 'v_resolved_playlist_items'
+    // 5. Consultar los items resueltos de la vista 'v_resolved_playlist_items' y la playlist
     const itemsUrl = `${SUPABASE_URL}/rest/v1/v_resolved_playlist_items?playlist_id=eq.${tokenRecord.playlist_id}&enabled=eq.true&order=position.asc`;
     const [itemsRes, playlistRes] = await Promise.all([
       fetch(itemsUrl, { headers }),
-      fetch(`${SUPABASE_URL}/rest/v1/custom_playlists?id=eq.${tokenRecord.playlist_id}&select=name`, { headers })
+      fetch(`${SUPABASE_URL}/rest/v1/custom_playlists?id=eq.${tokenRecord.playlist_id}&select=name,enabled,description,version,updated_at`, { headers })
     ]);
 
     if (!itemsRes.ok) {
-      console.error('[API Playlist] Error obteniendo items:', await itemsRes.text());
-      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      return res.status(500).send('#EXTM3U\n#EXTINF:-1,Error cargando items de la lista\nhttp://localhost/error');
+      console.error('[API Playlist] Error obteniendo items:', redactSensitiveUrl(await itemsRes.text()));
+      return sendError(500, 'Error cargando items de la lista');
+    }
+
+    let playlistName = 'Mi Lista LELOUCH';
+    let playlistVersion = 1;
+    let playlistUpdatedAt = new Date().toISOString();
+    if (playlistRes.ok) {
+      const plData = await playlistRes.json();
+      if (plData?.[0]) {
+        if (plData[0].enabled === false) {
+          // Playlist deshabilitada por el usuario -> 410 Gone
+          return sendError(410, 'Esta playlist esta desactivada por el usuario');
+        }
+        if (plData[0].name) playlistName = plData[0].name;
+        if (plData[0].version !== undefined && plData[0].version !== null) {
+          playlistVersion = Number(plData[0].version);
+        }
+        if (plData[0].updated_at) playlistUpdatedAt = plData[0].updated_at;
+      }
+    }
+
+    const clientEtag = req.headers['if-none-match'];
+    const currentEtag = `"v${playlistVersion}"`;
+
+    // FASE 17 - CASO A: Consulta ultraligera de versión para Lelouch TV / Phone
+    // Lelouch TV -> playlist/version -> ¿cambió?
+    if (isVersionCheck) {
+      const localVer = req.query.local_version || req.headers['x-local-version'];
+      const inSync = (localVer !== undefined && localVer !== null && Number(localVer) === playlistVersion);
+
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-store, max-age=0');
+      res.setHeader('X-Playlist-Version', String(playlistVersion));
+      res.setHeader('ETag', currentEtag);
+
+      if (clientEtag === currentEtag || inSync) {
+        return res.status(304).end(); // Si sí: no hago nada
+      }
+
+      if (req.method === 'HEAD') {
+        return res.status(200).end();
+      }
+
+      return res.status(200).json({
+        playlistId: tokenRecord.playlist_id,
+        name: playlistName,
+        version: playlistVersion,
+        updatedAt: playlistUpdatedAt,
+        inSync: false // Si no: sincronizo
+      });
     }
 
     const items = await itemsRes.json();
-    let playlistName = 'Mi Lista LELOUCH';
-    if (playlistRes.ok) {
-      const plData = await playlistRes.json();
-      if (plData?.[0]?.name) playlistName = plData[0].name;
+
+    // Mapear a LelouchMediaItem[] canónico con URLs directas al proveedor (FASE 21 & 27)
+    // FASE 27: custom_name y custom_group tienen precedencia sobre los valores por defecto del proveedor
+    const mediaItems = items.map((it, idx) => ({
+      id: it.id,
+      name: it.custom_name || it.name || it.direct_name || 'Canal',
+      streamUrl: unwrapProxyUrl(it.resolved_stream_url || it.direct_url),
+      group: it.custom_group || it.group || it.direct_group || 'General',
+      logo: it.custom_logo || it.logo || it.direct_logo || '',
+      tvgId: it.tvg_id || '',
+      tvgName: it.tvg_name || it.custom_name || it.name || '',
+      mediaType: it.media_type || 'live',
+      sortOrder: it.position ?? idx,
+      isEnabled: it.enabled !== false,
+      itemType: it.item_type || 'catalog',
+      headers: it.metadata?.headers || null,
+      kodiProps: it.metadata?.kodiProps || null,
+      catchup: it.metadata?.catchup || null,
+      extraAttributes: it.metadata?.extraAttributes || null
+    }));
+
+    // FASE 17 - CASO B: Entrega nativa de Playlist Manifest JSON (Lelouch TV / Phone / Web)
+    // Lelouch TV -> playlist manifest JSON -> Room -> TV UI (sin re-parsear M3U)
+    if (isJsonManifest) {
+      const jsonBody = JSON.stringify({
+        playlist: {
+          id: tokenRecord.playlist_id,
+          name: playlistName,
+          version: playlistVersion,
+          updatedAt: playlistUpdatedAt,
+          itemCount: mediaItems.length
+        },
+        items: mediaItems
+      });
+
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Content-Length', String(Buffer.byteLength(jsonBody, 'utf8')));
+      res.setHeader('Cache-Control', 'no-store, max-age=0');
+      res.setHeader('X-Playlist-Version', String(playlistVersion));
+      res.setHeader('ETag', currentEtag);
+
+      if (clientEtag === currentEtag) {
+        return res.status(304).end(); // Si sí: no hago nada
+      }
+
+      if (req.method === 'HEAD') {
+        return res.status(200).end();
+      }
+
+      return res.status(200).send(jsonBody);
     }
 
-    // 6. Ensamblar manifiesto #EXTM3U estándar de alto rendimiento
-    const lines = [`#EXTM3U name="${escapeAttr(playlistName)}"\n`];
+    // FASE 17 & 27 - CASO C: Entrega clásica de #EXTM3U para reproductores externos (TiviMate, VLC, OTT Navigator)
+    // y soporte para peticiones HEAD
+    const parserPlaylist = PlaylistGenerator.convertToParserPlaylist(mediaItems, { playlistName });
+    const m3uContent = PlaylistGenerator.generateM3U(parserPlaylist);
 
-    for (let i = 0; i < items.length; i++) {
-      const it = items[i];
-      const streamUrl = it.resolved_stream_url || it.direct_url;
-      if (!streamUrl) continue;
-
-      const duration = -1;
-      let extinf = `#EXTINF:${duration}`;
-
-      const name = it.name || it.direct_name || it.custom_name || 'Canal';
-      const logo = it.logo || it.direct_logo || it.custom_logo || '';
-      const group = it.group || it.direct_group || it.custom_group || 'General';
-
-      if (it.tvg_id) extinf += ` tvg-id="${escapeAttr(it.tvg_id)}"`;
-      if (name) extinf += ` tvg-name="${escapeAttr(name)}"`;
-      if (logo) extinf += ` tvg-logo="${escapeAttr(logo)}"`;
-      extinf += ` group-title="${escapeAttr(group)}"`;
-
-      if (it.media_type === 'radio') extinf += ' radio="true"';
-
-      lines.push(`${extinf},${name}`);
-
-      // Headers IPTV estándar (#EXTVLCOPT) si se definieron en metadatos
-      if (it.metadata?.headers?.['User-Agent']) {
-        lines.push(`#EXTVLCOPT:http-user-agent=${it.metadata.headers['User-Agent']}`);
-      }
-      if (it.metadata?.headers?.['Referer']) {
-        lines.push(`#EXTVLCOPT:http-referrer=${it.metadata.headers['Referer']}`);
-      }
-
-      lines.push(streamUrl);
-    }
-
-    const m3uContent = lines.join('\n');
     const safeFilename = playlistName.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const contentLength = Buffer.byteLength(m3uContent, 'utf8');
 
-    // 7. Enviar respuesta con headers IPTV y CDN
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
+    res.setHeader('Content-Length', String(contentLength));
+    res.setHeader('Cache-Control', 'no-store, max-age=0');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Playlist-Version', String(playlistVersion));
+    res.setHeader('ETag', currentEtag);
     res.setHeader('Content-Disposition', `inline; filename="${safeFilename}.m3u"`);
-    res.setHeader('Cache-Control', 'public, max-age=60, s-maxage=300');
+
+    if (req.method === 'HEAD') {
+      return res.status(200).end();
+    }
+
     return res.status(200).send(m3uContent);
 
   } catch (error) {
-    console.error('[API Playlist] Excepción en handler:', error);
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.status(500).send('#EXTM3U\n#EXTINF:-1,Error interno del servidor\nhttp://localhost/error');
+    console.error('[API Playlist] Excepción en handler:', redactSensitiveUrl(error?.message || String(error)));
+    return sendError(500, 'Error interno del servidor');
   }
 }

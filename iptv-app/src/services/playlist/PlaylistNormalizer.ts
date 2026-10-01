@@ -161,6 +161,36 @@ export class PlaylistNormalizer {
     };
   }
 
+  static normalizePlaylist(
+    playlist: { items?: ExternalPlaylistItem[] } | ExternalPlaylistItem[],
+    sourceId: string | null = null
+  ): LelouchMediaItem[] {
+    if (!playlist) return [];
+    const items = Array.isArray(playlist) ? playlist : (Array.isArray(playlist.items) ? playlist.items : []);
+    return items.map((item, index) => this.fromExternalItem(item, index, sourceId));
+  }
+
+  static normalizeFromM3u(
+    playlist: { items?: ExternalPlaylistItem[] } | ExternalPlaylistItem[],
+    sourceId: string | null = null
+  ): LelouchMediaItem[] {
+    return this.normalizePlaylist(playlist, sourceId);
+  }
+
+  normalizeFromM3u(
+    playlist: { items?: ExternalPlaylistItem[] } | ExternalPlaylistItem[],
+    sourceId: string | null = null
+  ): LelouchMediaItem[] {
+    return PlaylistNormalizer.normalizePlaylist(playlist, sourceId);
+  }
+
+  normalizePlaylist(
+    playlist: { items?: ExternalPlaylistItem[] } | ExternalPlaylistItem[],
+    sourceId: string | null = null
+  ): LelouchMediaItem[] {
+    return PlaylistNormalizer.normalizePlaylist(playlist, sourceId);
+  }
+
   /**
    * Alias de compatibilidad con ParsedM3uEntry.
    */

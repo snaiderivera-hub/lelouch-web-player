@@ -164,6 +164,36 @@ export class PlaylistNormalizer {
   }
 
   /**
+   * Normaliza una playlist M3U completa (ExternalM3uPlaylist o arreglo de items) a LelouchMediaItem[].
+   * @param {import('./PlaylistTypes.js').ExternalM3uPlaylist|import('./PlaylistTypes.js').ExternalPlaylistItem[]} playlist
+   * @param {string|null} [sourceId]
+   * @returns {import('./PlaylistTypes.js').LelouchMediaItem[]}
+   */
+  static normalizePlaylist(playlist, sourceId = null) {
+    if (!playlist) return [];
+    const items = Array.isArray(playlist) ? playlist : (Array.isArray(playlist.items) ? playlist.items : []);
+    return items.map((item, index) => this.fromExternalItem(item, index, sourceId));
+  }
+
+  /**
+   * Alias de conveniencia tanto estático como de instancia.
+   * @param {import('./PlaylistTypes.js').ExternalM3uPlaylist|import('./PlaylistTypes.js').ExternalPlaylistItem[]} playlist
+   * @param {string|null} [sourceId]
+   * @returns {import('./PlaylistTypes.js').LelouchMediaItem[]}
+   */
+  static normalizeFromM3u(playlist, sourceId = null) {
+    return this.normalizePlaylist(playlist, sourceId);
+  }
+
+  normalizeFromM3u(playlist, sourceId = null) {
+    return PlaylistNormalizer.normalizePlaylist(playlist, sourceId);
+  }
+
+  normalizePlaylist(playlist, sourceId = null) {
+    return PlaylistNormalizer.normalizePlaylist(playlist, sourceId);
+  }
+
+  /**
    * Alias de compatibilidad con ParsedM3uEntry.
    * @param {import('./PlaylistTypes.js').ParsedM3uEntry|import('./PlaylistTypes.js').ExternalPlaylistItem} entry
    * @param {number} [index]

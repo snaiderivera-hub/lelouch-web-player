@@ -11,12 +11,50 @@ import { cacheService } from './modules/iptv/services/CacheService.js';
 import { searchService } from './modules/iptv/services/SearchService.js';
 import { playerService, PlayerState } from './modules/iptv/services/PlayerService.js';
 import { downloadJson, groupByCategory, downloadM3UPlus } from './modules/iptv/services/ExportService.js';
-import { buildSeriesStreamUrl } from './modules/iptv/utils/security.js';
+import { buildSeriesStreamUrl, redactSensitiveUrl, redactSensitiveText } from './modules/iptv/utils/security.js';
 import { playerModal } from './components/PlayerModal.js';
 import { mediaDetailModal } from './components/MediaDetailModal.js';
 import { channelHealthService, HealthStatus } from './modules/iptv/services/ChannelHealthService.js';
 import { parentalControlService } from './modules/iptv/services/ParentalControlService.js';
 import { supabaseService } from './modules/iptv/services/SupabaseService.js';
+import { PlaylistDeduplicator } from './services/playlist/PlaylistDeduplicator.js';
+
+// FASE 19: Protección global activa de logs contra fugas de credenciales
+(function initSafeLogging() {
+  if (typeof console === 'undefined') return;
+  const originalLog = console.log;
+  const originalWarn = console.warn;
+  const originalError = console.error;
+
+  const sanitizeArgs = (args) => {
+    return args.map(arg => {
+      if (typeof arg === 'string') return redactSensitiveUrl(arg);
+      if (arg instanceof Error) {
+        arg.message = redactSensitiveUrl(arg.message);
+        if (arg.stack) arg.stack = redactSensitiveUrl(arg.stack);
+        return arg;
+      }
+      if (typeof arg === 'object' && arg !== null) {
+        try {
+          return JSON.parse(redactSensitiveUrl(JSON.stringify(arg)));
+        } catch {
+          return arg;
+        }
+      }
+      return arg;
+    });
+  };
+
+  console.log = function(...args) {
+    originalLog.apply(console, sanitizeArgs(args));
+  };
+  console.warn = function(...args) {
+    originalWarn.apply(console, sanitizeArgs(args));
+  };
+  console.error = function(...args) {
+    originalError.apply(console, sanitizeArgs(args));
+  };
+})();
 
 // ── Constantes de paginación ──
 const PAGE_SIZE_MOVIES = 48;
@@ -136,6 +174,8 @@ function navigateTo(page, options = {}) {
       uiState.selectedLiveCategory = options.category;
     }
     renderLiveTVView();
+    // FASE 18: Disparador 3 - Al entrar a Live
+    checkAndSyncCustomM3UVersion('enter_live');
   } else if (page === 'movies') {
     renderMoviesPage();
   } else if (page === 'series') {
@@ -317,7 +357,13 @@ async function initApp() {
   setupParentalControl();
   setupCategoryManager();
   setupCustomM3UManager();
+  setupLifecycleSyncListeners(); // FASE 18: Disparadores 2 (background) y 4 (botón Actualizar)
   updateActivePlaylistUI();
+
+  // FASE 18: Disparador 1 - Al abrir aplicación (app_open)
+  setTimeout(() => {
+    checkAndSyncCustomM3UVersion('app_open');
+  }, 350);
 
   const handleHashRoute = () => {
     const hash = window.location.hash.replace('#', '');
@@ -1876,10 +1922,159 @@ export function getCustomM3UList() {
   }
 }
 
+const CUSTOM_M3U_VERSION_KEY = 'custom_m3u_version_v1';
+
+export function getLocalM3UVersion() {
+  try {
+    return Number(localStorage.getItem(CUSTOM_M3U_VERSION_KEY) || 1);
+  } catch {
+    return 1;
+  }
+}
+
+export function setLocalM3UVersion(ver) {
+  try {
+    localStorage.setItem(CUSTOM_M3U_VERSION_KEY, String(ver));
+  } catch {}
+}
+
+let _cloudSyncTimeout = null;
+export function scheduleCustomM3UCloudSync() {
+  if (!supabaseService.isAvailable) return;
+  if (_cloudSyncTimeout) clearTimeout(_cloudSyncTimeout);
+  _cloudSyncTimeout = setTimeout(async () => {
+    try {
+      const pl = await supabaseService.getOrCreateDefaultCustomPlaylist('Mi Lista LELOUCH');
+      if (pl?.id) {
+        const currentList = getCustomM3UList();
+        await supabaseService.syncPlaylistItems(pl.id, currentList);
+        const serverInfo = await supabaseService.getPlaylistVersion(pl.id);
+        if (serverInfo?.version) {
+          setLocalM3UVersion(serverInfo.version);
+        }
+        console.log(`☁️ [CloudSync FASE 16] Lista sincronizada con Supabase (${currentList.length} ítems, v${serverInfo?.version || 'N/A'}).`);
+      }
+    } catch (e) {
+      console.warn('[CloudSync] Error sincronizando en segundo plano con Supabase:', e);
+    }
+  }, 1200);
+}
+
+/**
+ * FASE 18 — Sincronización Determinista (Lelouch TV / Teléfono / Web)
+ * No hace consultas cada segundo.
+ * Disparadores exactos:
+ * 1. al abrir aplicación (app_open)
+ * 2. al volver del background (resume_from_background / window_focus)
+ * 3. al entrar a Live (enter_live)
+ * 4. botón Actualizar (user_click)
+ */
+let _isLifecycleSyncing = false;
+export async function checkAndSyncCustomM3UVersion(triggerSource = 'manual') {
+  if (_isLifecycleSyncing) return { inSync: true, busy: true };
+  if (!supabaseService.isAvailable) return { inSync: true };
+
+  _isLifecycleSyncing = true;
+  try {
+    const pl = await supabaseService.getOrCreateDefaultCustomPlaylist('Mi Lista LELOUCH');
+    if (!pl?.id) return { inSync: true };
+
+    const localVer = getLocalM3UVersion();
+    const syncCheck = await supabaseService.checkPlaylistSync(pl.id, localVer);
+
+    if (syncCheck.inSync) {
+      console.log(`📱 [Lifecycle Sync FASE 18 (${triggerSource})] ¿mi versión local (${localVer}) = servidor (${syncCheck.serverVersion})? SÍ -> No hago nada.`);
+      if (triggerSource === 'user_click') {
+        toast(`✅ Tu lista está al día (versión ${syncCheck.serverVersion}).`, 'info', 2500);
+      }
+      return syncCheck;
+    } else {
+      console.log(`📱 [Lifecycle Sync FASE 18 (${triggerSource})] ¿mi versión local (${localVer}) = servidor (${syncCheck.serverVersion})? NO -> Sincronizo manifest JSON.`);
+      
+      // Descarga nativa de Playlist Manifest JSON (FASE 17) sin re-parsear M3U
+      const manifest = await supabaseService.getPlaylistManifest(pl.id);
+      if (manifest?.items) {
+        const mapped = manifest.items.map(it => ({
+          id: it.id,
+          name: it.name || it.direct_name || 'Canal',
+          category: it.group || it.direct_group || 'General',
+          logo: it.logo || it.direct_logo || '',
+          url: it.streamUrl || it.resolved_stream_url || it.direct_url,
+          epgId: it.tvgId || it.tvg_id || '',
+          addedAt: Date.now()
+        }));
+
+        saveCustomM3UList(mapped);
+        setLocalM3UVersion(syncCheck.serverVersion);
+        renderCustomM3UManager();
+
+        if (uiState.activePage === 'live') {
+          renderLiveTVView();
+        }
+
+        toast(`🔄 Lista sincronizada con la nube (v${syncCheck.serverVersion}, ${mapped.length} canales).`, 'success', 3000);
+      }
+      return syncCheck;
+    }
+  } catch (e) {
+    console.warn('[Lifecycle Sync] Error durante comprobación determinista:', e);
+    return { inSync: true };
+  } finally {
+    _isLifecycleSyncing = false;
+  }
+}
+window.checkAndSyncCustomM3UVersion = checkAndSyncCustomM3UVersion;
+
+let _lastVisibilitySync = 0;
+const MIN_VISIBILITY_SYNC_INTERVAL_MS = 6000;
+
+export function setupLifecycleSyncListeners() {
+  // FASE 18: Disparador 2 - Al volver del background
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      const now = Date.now();
+      if (now - _lastVisibilitySync >= MIN_VISIBILITY_SYNC_INTERVAL_MS) {
+        _lastVisibilitySync = now;
+        console.log('📱 [Lifecycle Sync FASE 18] Volviendo de background (document visible)...');
+        checkAndSyncCustomM3UVersion('resume_from_background');
+      }
+    }
+  });
+
+  window.addEventListener('focus', () => {
+    const now = Date.now();
+    if (now - _lastVisibilitySync >= MIN_VISIBILITY_SYNC_INTERVAL_MS) {
+      _lastVisibilitySync = now;
+      console.log('📱 [Lifecycle Sync FASE 18] Ventana enfocada (window focus)...');
+      checkAndSyncCustomM3UVersion('window_focus');
+    }
+  });
+
+  // FASE 18: Disparador 4 - Botón Actualizar
+  $('btn-sync-refresh-live')?.addEventListener('click', async () => {
+    const btn = $('btn-sync-refresh-live');
+    const origHtml = btn ? btn.innerHTML : '';
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Actualizando...';
+    }
+    try {
+      await checkAndSyncCustomM3UVersion('user_click');
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = origHtml;
+      }
+    }
+  });
+}
+window.setupLifecycleSyncListeners = setupLifecycleSyncListeners;
+
 export function saveCustomM3UList(list) {
   try {
     localStorage.setItem(CUSTOM_M3U_STORAGE_KEY, JSON.stringify(list));
     updateCustomM3UBadges();
+    scheduleCustomM3UCloudSync();
   } catch (err) {
     console.error('Error guardando lista M3U personalizada:', err);
   }
@@ -1891,13 +2086,41 @@ export function addCustomM3UItem(item) {
     return;
   }
   const list = getCustomM3UList();
-  const exists = list.some(x => x.url === item.url);
-  if (exists) {
+
+  // FASE 23: Deduplicación multi-factor (provider, tvg-id, stream URL normalizada, nombre, grupo)
+  // No decide automáticamente que canales con el mismo nombre de distintas fuentes son idénticos.
+  const normCandidateUrl = PlaylistDeduplicator.normalizeStreamUrl(item.url);
+  const candidateSource = item.sourceId || item.providerId || null;
+
+  // Comprobar si ya existe el MISMO stream exacto o mismo ID en la misma fuente
+  const duplicateIndex = list.findIndex(existing => {
+    const normExistingUrl = PlaylistDeduplicator.normalizeStreamUrl(existing.url);
+    const existingSource = existing.sourceId || existing.providerId || null;
+
+    // 1. Mismo stream técnico normalizado (mismo servidor y canal)
+    if (normCandidateUrl && normExistingUrl && normCandidateUrl === normExistingUrl) {
+      return true;
+    }
+    // 2. Misma fuente y mismo ID
+    if (candidateSource && existingSource && candidateSource === existingSource) {
+      if (item.id && existing.id && String(item.id) === String(existing.id)) return true;
+    }
+    return false;
+  });
+
+  if (duplicateIndex >= 0) {
     toast(`ℹ️ "${item.name}" ya está en tu lista personalizada`, 'info');
     return;
   }
+
+  // Si tiene el mismo nombre pero proviene de OTRA fuente o URL distinta, se preserva y notifica
+  const sameNameDiffSource = list.some(x => {
+    return PlaylistDeduplicator.normalizeString(x.name) === PlaylistDeduplicator.normalizeString(item.name);
+  });
+
   list.push({
     id: item.id || String(Date.now()),
+    sourceId: candidateSource,
     name: item.name || 'Canal sin nombre',
     category: item.category || 'Personalizada',
     logo: item.logo || '',
@@ -1906,7 +2129,12 @@ export function addCustomM3UItem(item) {
     addedAt: Date.now()
   });
   saveCustomM3UList(list);
-  toast(`➕ "${item.name}" agregado a tu Lista M3U (${list.length} en total)`, 'success');
+
+  if (sameNameDiffSource) {
+    toast(`➕ "${item.name}" añadido (fuente alternativa conservada)`, 'success', 3000);
+  } else {
+    toast(`➕ "${item.name}" agregado a tu Lista M3U (${list.length} en total)`, 'success');
+  }
   renderCustomM3UManager();
 }
 window.addCustomM3UItem = addCustomM3UItem;
@@ -2006,7 +2234,7 @@ window.playCustomStream = playCustomStream;
 export function updateCustomM3UBadges() {
   const count = getCustomM3UList().length;
   const badge = $('custom-m3u-badge');
-  if (badge) badge.textContent = `${count} ${count === 1 ? 'item' : 'items'}`;
+  if (badge) badge.textContent = `${count} ${count === 1 ? 'ítem' : 'ítems'}`;
 }
 
 export function renderCustomM3UManager() {
@@ -2073,7 +2301,79 @@ export function renderCustomM3UManager() {
   `;
 }
 
-export async function generateAndShowPublicM3ULink() {
+const M3U_TOKEN_STORAGE_KEY = 'lelouch_m3u_token_info_v1';
+
+function getStoredTokenInfo() {
+  try {
+    const raw = localStorage.getItem(M3U_TOKEN_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveStoredTokenInfo(info) {
+  try {
+    if (!info) {
+      localStorage.removeItem(M3U_TOKEN_STORAGE_KEY);
+    } else {
+      localStorage.setItem(M3U_TOKEN_STORAGE_KEY, JSON.stringify(info));
+    }
+  } catch {}
+}
+
+function formatM3UDate(dateVal) {
+  const d = dateVal ? new Date(dateVal) : new Date();
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const year = d.getFullYear();
+  return `${day}/${month}/${year}`;
+}
+
+function updateTokenModalUI(tokenInfo, itemCount) {
+  const input = $('custom-m3u-permalink-input');
+  const statusIndicator = $('token-status-indicator');
+  const statusDot = $('token-status-dot');
+  const statusText = $('token-status-text');
+  const itemsCountElem = $('token-items-count');
+  const lastUpdatedElem = $('token-last-updated');
+  const toggleBtn = $('btn-token-modal-toggle-status');
+  const toggleBtnText = $('btn-toggle-status-text');
+
+  const fullUrl = `${window.location.origin}/api/playlist/${tokenInfo.token}`;
+  if (input) input.value = fullUrl;
+
+  const totalItems = itemCount ?? getCustomM3UList().length;
+  if (itemsCountElem) itemsCountElem.textContent = totalItems;
+  if (lastUpdatedElem) lastUpdatedElem.textContent = formatM3UDate(tokenInfo.updatedAt || tokenInfo.createdAt);
+
+  const isActive = tokenInfo.enabled !== false;
+  if (statusIndicator) {
+    statusIndicator.style.color = isActive ? '#10b981' : '#ef4444';
+  }
+  if (statusDot) {
+    statusDot.style.color = isActive ? '#10b981' : '#ef4444';
+  }
+  if (statusText) {
+    statusText.textContent = isActive ? 'Activo' : 'Desactivado';
+  }
+
+  if (toggleBtn) {
+    if (isActive) {
+      toggleBtn.style.color = '#ef4444';
+      toggleBtn.style.borderColor = 'rgba(239,68,68,0.35)';
+      toggleBtn.style.background = 'rgba(239,68,68,0.06)';
+      if (toggleBtnText) toggleBtnText.textContent = '⛔ Desactivar enlace';
+    } else {
+      toggleBtn.style.color = '#10b981';
+      toggleBtn.style.borderColor = 'rgba(16,185,129,0.35)';
+      toggleBtn.style.background = 'rgba(16,185,129,0.06)';
+      if (toggleBtnText) toggleBtnText.textContent = '✅ Activar enlace';
+    }
+  }
+}
+
+export async function generateAndShowPublicM3ULink(forceRegenerate = false) {
   const list = getCustomM3UList();
   if (list.length === 0) {
     toast('Tu lista personalizada está vacía. Añade canales primero.', 'warning');
@@ -2084,7 +2384,7 @@ export async function generateAndShowPublicM3ULink() {
   const originalHtml = btn ? btn.innerHTML : '';
   if (btn) {
     btn.disabled = true;
-    btn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Generando Enlace...';
+    btn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Conectando...';
   }
 
   try {
@@ -2098,30 +2398,50 @@ export async function generateAndShowPublicM3ULink() {
     // 2. Sincronizar todos los items de la lista con Supabase
     await supabaseService.syncPlaylistItems(playlist.id, list);
 
-    // 3. Crear token criptográficamente seguro
-    const tokenObj = await supabaseService.createAccessToken(playlist.id, 'Enlace Público Permanente');
-    if (!tokenObj || !tokenObj.token) {
-      toast('No se pudo generar el token seguro de acceso.', 'error');
-      return;
+    let tokenInfo = getStoredTokenInfo();
+
+    // Si forzamos regeneración o no existe token previo válido:
+    if (forceRegenerate || !tokenInfo || !tokenInfo.token || tokenInfo.playlistId !== playlist.id) {
+      if (forceRegenerate && (tokenInfo?.playlistId || playlist.id)) {
+        // INVALIDAR TODOS LOS TOKENS PREVIOS EN SUPABASE (FASE 14)
+        await supabaseService.invalidateAllAccessTokens(tokenInfo?.playlistId || playlist.id);
+      }
+
+      const tokenObj = await supabaseService.createAccessToken(playlist.id, 'Enlace M3U LELOUCH');
+      if (!tokenObj || !tokenObj.token) {
+        toast('No se pudo generar el token seguro de acceso.', 'error');
+        return;
+      }
+
+      tokenInfo = {
+        token: tokenObj.token,
+        tokenId: tokenObj.id,
+        playlistId: playlist.id,
+        enabled: true,
+        createdAt: tokenObj.created_at || new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      saveStoredTokenInfo(tokenInfo);
+    } else {
+      // Si ya existía, sincronizamos fecha de última actualización
+      tokenInfo.updatedAt = new Date().toISOString();
+      saveStoredTokenInfo(tokenInfo);
     }
 
-    // 4. Formar la URL definitiva
-    const baseUrl = window.location.origin;
-    const fullUrl = `${baseUrl}/api/playlist/${tokenObj.token}`;
+    // 3. Actualizar la vista del modal con las métricas y estado
+    updateTokenModalUI(tokenInfo, list.length);
 
-    // 5. Presentar el modal al usuario
     const modal = $('custom-m3u-token-modal');
-    const input = $('custom-m3u-permalink-input');
-    const counterBadge = $('token-item-count-badge');
-
-    if (input) input.value = fullUrl;
-    if (counterBadge) counterBadge.textContent = `${list.length} ${list.length === 1 ? 'item' : 'items'}`;
     if (modal) modal.classList.remove('hidden');
 
-    toast('🌐 ¡Enlace M3U permanente generado con éxito!', 'success', 3500);
+    if (forceRegenerate) {
+      toast('🔄 ¡Enlace M3U regenerado! El token anterior quedó invalidado.', 'success', 3500);
+    } else {
+      toast('🌐 Enlace M3U listo y sincronizado.', 'success', 2500);
+    }
   } catch (err) {
     console.error('Error generando enlace M3U público:', err);
-    toast('Ocurrió un error al generar el enlace M3U.', 'error');
+    toast('Ocurrió un error al preparar el enlace M3U.', 'error');
   } finally {
     if (btn) {
       btn.disabled = false;
@@ -2139,14 +2459,20 @@ export function setupCustomM3UManager() {
   $('btn-custom-m3u-generate-link')?.addEventListener('click', () => generateAndShowPublicM3ULink());
   $('btn-custom-m3u-clear')?.addEventListener('click', () => clearCustomM3UList());
 
-  // Listeners del modal de enlace permanente
+  // Listeners del modal de enlace permanente (FASE 14)
   $('btn-close-token-modal')?.addEventListener('click', () => {
     $('custom-m3u-token-modal')?.classList.add('hidden');
   });
-  $('btn-done-token-modal')?.addEventListener('click', () => {
-    $('custom-m3u-token-modal')?.classList.add('hidden');
+
+  // Cerrar al hacer clic en el backdrop
+  $('custom-m3u-token-modal')?.addEventListener('click', (e) => {
+    if (e.target.id === 'custom-m3u-token-modal') {
+      $('custom-m3u-token-modal')?.classList.add('hidden');
+    }
   });
-  $('btn-copy-permalink')?.addEventListener('click', () => {
+
+  // [📋 Copiar enlace]
+  $('btn-token-modal-copy')?.addEventListener('click', () => {
     const input = $('custom-m3u-permalink-input');
     if (!input || !input.value) return;
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -2161,6 +2487,79 @@ export function setupCustomM3UManager() {
       input.select();
       document.execCommand('copy');
       toast('📋 ¡Enlace M3U copiado al portapapeles!', 'success');
+    }
+  });
+
+  // Seleccionar automáticamente al hacer clic en el input de la URL
+  $('custom-m3u-permalink-input')?.addEventListener('click', (e) => {
+    e.target.select();
+  });
+
+  // [🔄 Regenerar enlace]: invalida el token previo y genera uno nuevo
+  $('btn-token-modal-regenerate')?.addEventListener('click', async () => {
+    const confirmed = confirm(
+      '¿Regenerar enlace M3U?\n\n' +
+      '⚠️ El enlace anterior quedará INVALIDADO de inmediato y dejará de funcionar en cualquier reproductor externo.\n\n' +
+      '¿Deseas continuar?'
+    );
+    if (!confirmed) return;
+
+    const regenBtn = $('btn-token-modal-regenerate');
+    const originalText = regenBtn ? regenBtn.innerHTML : '';
+    if (regenBtn) {
+      regenBtn.disabled = true;
+      regenBtn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Regenerando...';
+    }
+
+    try {
+      await generateAndShowPublicM3ULink(true);
+    } finally {
+      if (regenBtn) {
+        regenBtn.disabled = false;
+        regenBtn.innerHTML = originalText;
+      }
+    }
+  });
+
+  // [⛔ Desactivar enlace] / [✅ Activar enlace]: alterna el estado del token
+  $('btn-token-modal-toggle-status')?.addEventListener('click', async () => {
+    let tokenInfo = getStoredTokenInfo();
+    if (!tokenInfo || !tokenInfo.tokenId) {
+      toast('No hay un token activo para modificar.', 'warning');
+      return;
+    }
+
+    const nextState = tokenInfo.enabled === false ? true : false;
+    const toggleBtn = $('btn-token-modal-toggle-status');
+    const originalContent = toggleBtn ? toggleBtn.innerHTML : '';
+    if (toggleBtn) {
+      toggleBtn.disabled = true;
+      toggleBtn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Guardando...';
+    }
+
+    try {
+      const ok = await supabaseService.setAccessTokenEnabled(tokenInfo.tokenId, nextState);
+      if (ok) {
+        tokenInfo.enabled = nextState;
+        tokenInfo.updatedAt = new Date().toISOString();
+        saveStoredTokenInfo(tokenInfo);
+        updateTokenModalUI(tokenInfo, getCustomM3UList().length);
+        if (nextState) {
+          toast('✅ Enlace M3U reactivado.', 'success');
+        } else {
+          toast('⛔ Enlace M3U desactivado.', 'warning');
+        }
+      } else {
+        toast('No se pudo cambiar el estado del enlace.', 'error');
+      }
+    } catch (e) {
+      console.error('Error alternando estado del token:', e);
+      toast('Error al actualizar el estado del token.', 'error');
+    } finally {
+      if (toggleBtn) {
+        toggleBtn.disabled = false;
+        toggleBtn.innerHTML = originalContent;
+      }
     }
   });
 

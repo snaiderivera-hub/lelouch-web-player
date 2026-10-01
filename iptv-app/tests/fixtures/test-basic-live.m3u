@@ -1,0 +1,9 @@
+#EXTM3U url-tvg="http://epg.fictitious-iptv.test/epg.xml.gz" x-tvg-url="http://epg.fictitious-iptv.test/epg.xml.gz"
+#EXTINF:-1 tvg-id="fictitious.es.la1" tvg-name="La 1 HD" tvg-logo="https://fictitious-cdn.test/logos/la1.png" group-title="Nacionales", La 1 HD Ficticio
+http://fictitious-iptv.test:8080/live/user_demo/pass_demo/1001.m3u8
+#EXTINF:0 tvg-id="fictitious.es.la2" tvg-name="La 2 HD" tvg-logo="https://fictitious-cdn.test/logos/la2.png" group-title="Nacionales", La 2 HD Ficticio
+http://fictitious-iptv.test:8080/live/user_demo/pass_demo/1002.m3u8
+#EXTINF:-1 tvg-id="fictitious.es.antena3" tvg-name="Antena 3" tvg-logo="https://fictitious-cdn.test/logos/antena3.png" group-title="Generales", Antena 3 HD Ficticio
+http://fictitious-iptv.test:8080/live/user_demo/pass_demo/1003.m3u8
+#EXTINF:-1 tvg-id="fictitious.radio.rne" tvg-name="Radio Nacional" tvg-logo="https://fictitious-cdn.test/logos/rne.png" radio="true" group-title="Radio", Radio Nacional Ficticia
+http://fictitious-iptv.test:8080/live/user_demo/pass_demo/2001.mp3

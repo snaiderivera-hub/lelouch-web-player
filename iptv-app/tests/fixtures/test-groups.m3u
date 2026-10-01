@@ -1,0 +1,13 @@
+#EXTM3U
+#EXTINF:-1 tvg-id="grp.attr.only" tvg-name="Grupo Atributo" group-title="Noticias Internacionales", Canal con group-title Único
+http://fictitious-iptv.test:8080/live/fake_user/fake_pass/6001.m3u8
+#EXTINF:-1 tvg-id="grp.override" tvg-name="Grupo Override" group-title="Grupo Inicial", Canal con Override #EXTGRP
+#EXTGRP:Grupo Primario Sobrescrito
+http://fictitious-iptv.test:8080/live/fake_user/fake_pass/6002.m3u8
+#EXTINF:-1 tvg-id="grp.extgrp.only" tvg-name="Solo EXTGRP", Canal Sin group-title pero Con #EXTGRP
+#EXTGRP:Deportes Exclusivos
+http://fictitious-iptv.test:8080/live/fake_user/fake_pass/6003.m3u8
+#EXTINF:-1 tvg-id="grp.none" tvg-name="Sin Grupo", Canal Sin Ningún Grupo Definido
+http://fictitious-iptv.test:8080/live/fake_user/fake_pass/6004.m3u8
+#EXTINF:-1 tvg-id="grp.complex" tvg-name="Grupo Complejo" group-title="Cine & Series, Temporada '2026' (4K UHD)", Canal con Grupo Caracteres Especiales
+http://fictitious-iptv.test:8080/live/fake_user/fake_pass/6005.m3u8

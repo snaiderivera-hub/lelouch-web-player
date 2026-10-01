@@ -97,7 +97,31 @@ export interface GenerateM3uOptions {
   onlyEnabled?: boolean;
 }
 
-export type DeduplicationStrategy = 'url' | 'catalog_id' | 'name_and_category' | 'epg_id';
+/**
+ * Estrategias de deduplicación de Lelouch (FASE 23).
+ * 'lelouch_multi_factor' (por defecto): considera provider, tvg-id, stream URL normalizada, nombre y grupo.
+ * Evita decidir automáticamente que dos canales son idénticos solo por llamarse igual si provienen de distintas fuentes.
+ */
+export type DeduplicationStrategy = 
+  | 'lelouch_multi_factor' 
+  | 'strict_provider' 
+  | 'normalized_stream_url' 
+  | 'url' 
+  | 'catalog_id' 
+  | 'name_and_category' 
+  | 'epg_id' 
+  | 'cross_source_epg';
+
+export interface ItemComparisonResult {
+  isDuplicate: boolean;
+  sameSource: boolean;
+  sameNormalizedUrl: boolean;
+  sameTvgId: boolean;
+  sameName: boolean;
+  sameGroup: boolean;
+  confidence: 'exact_stream' | 'same_provider_item' | 'identical_fingerprint' | 'cross_source_distinct_kept' | 'distinct';
+  reason: string;
+}
 
 /**
  * Modelo externo que devuelve librerías de terceros como iptv-m3u-playlist-parser.
@@ -142,5 +166,32 @@ export interface ExternalM3uPlaylist {
     raw?: string;
   };
   items: ExternalPlaylistItem[];
+}
+
+/**
+ * FASE 25: Métricas de rendimiento y consumo para listas M3U
+ */
+export interface M3uPerformanceMetrics {
+  sizeBytes: number;
+  sizeMB: string;
+  entryCount: number;
+  parseTimeMs: number;
+  throughputMBps: string;
+  entriesPerSecond: number;
+  memoryEstimate: {
+    jsHeapUsedMB: number | null;
+    estimatedObjectMemoryMB: number;
+  };
+  status: 'OPTIMAL' | 'MODERATE' | 'LARGE_WARNING' | 'CRITICAL_OVERSIZED';
+  recommendation: string;
+  playlist?: ExternalM3uPlaylist;
+}
+
+export interface M3uLimitsConfig {
+  MAX_RECOMMENDED_SIZE_BYTES: number;
+  CRITICAL_SIZE_LIMIT_BYTES: number;
+  MAX_RECOMMENDED_ENTRIES: number;
+  CRITICAL_ENTRIES_LIMIT: number;
+  DEFAULT_FETCH_MAX_BYTES: number;
 }
 

@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Test FASE 18 - Cuándo Sincronizar TV y Teléfono</title>
+  <style>
+    body { font-family: monospace; background: #0a0e17; color: #e2e8f0; padding: 20px; }
+    .pass { color: #10b981; }
+    .fail { color: #ef4444; }
+    .test-box { border: 1px solid #1e293b; background: #0f172a; padding: 12px; margin-bottom: 12px; border-radius: 8px; }
+    pre { background: #020617; padding: 8px; border-radius: 4px; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <h1>Test Suite FASE 18: Sincronización Determinista (4 Disparadores de Ciclo de Vida)</h1>
+  <div id="results">Ejecutando pruebas...</div>
+
+  <script type="module">
+    import { supabaseService } from '../src/modules/iptv/services/SupabaseService.js';
+    import { checkAndSyncCustomM3UVersion, getLocalM3UVersion, setLocalM3UVersion } from '../src/app.js';
+
+    async function runTests() {
+      const results = [];
+      const container = document.getElementById('results');
+
+      try {
+        // 1. Obtener playlist de prueba
+        const pl = await supabaseService.getOrCreateDefaultCustomPlaylist('Test FASE 18 Determinista');
+        if (!pl?.id) throw new Error('Supabase no disponible');
+
+        // Test 1: Verificación de función determinista exportada
+        const fnAvailable = typeof checkAndSyncCustomM3UVersion === 'function';
+        results.push({
+          name: '1. Motor de Sincronización Determinista Disponible',
+          passed: fnAvailable,
+          detail: `checkAndSyncCustomM3UVersion disponible: ${fnAvailable}`
+        });
+
+        // Test 2: Disparador "al abrir aplicación" (app_open) & Si sí: no hago nada
+        const initialVerInfo = await supabaseService.getPlaylistVersion(pl.id);
+        const currentVer = initialVerInfo.version;
+        setLocalM3UVersion(currentVer); // Forzamos versión en paridad
+
+        const syncResultInSync = await checkAndSyncCustomM3UVersion('app_open');
+        const inSyncPassed = (syncResultInSync && syncResultInSync.inSync === true);
+
+        results.push({
+          name: '2. Disparador 1 [Al abrir app]: Versión igual -> No hace nada',
+          passed: inSyncPassed,
+          detail: `Local (${currentVer}) == Servidor (${syncResultInSync.serverVersion}) -> inSync: ${syncResultInSync.inSync} (0 descargas superfluas)`
+        });
+
+        // Test 3: Disparador "al entrar a Live" o "volver de background" ante cambio de versión
+        // Simulamos que el servidor avanzó de versión (ej. modificado en otro dispositivo)
+        await supabaseService.incrementPlaylistVersion(pl.id);
+        const advancedVerInfo = await supabaseService.getPlaylistVersion(pl.id);
+        const serverAdvancedVer = advancedVerInfo.version;
+
+        // Simulamos 'enter_live' con versión local anterior
+        setLocalM3UVersion(currentVer);
+        const syncResultUpdated = await checkAndSyncCustomM3UVersion('enter_live');
+        const updatePassed = (syncResultUpdated && syncResultUpdated.inSync === false && syncResultUpdated.serverVersion === serverAdvancedVer);
+
+        results.push({
+          name: '3. Disparador 3 [Al entrar a Live] y Disparador 2 [Background]: Detecta cambio y sincroniza',
+          passed: updatePassed,
+          detail: `Local (${currentVer}) != Servidor (${serverAdvancedVer}) -> inSync: ${syncResultUpdated.inSync} -> Sincronización ejecutada`
+        });
+
+        // Test 4: Disparador 4 [Botón Actualizar]
+        // Cuando el usuario pulsa manualmente el botón de actualizar
+        const syncManual = await checkAndSyncCustomM3UVersion('user_click');
+        results.push({
+          name: '4. Disparador 4 [Botón Actualizar]: Ejecución bajo demanda',
+          passed: !!syncManual,
+          detail: `Sincronización manual ejecutada con éxito (serverVersion: ${syncManual.serverVersion})`
+        });
+
+      } catch (err) {
+        results.push({ name: 'Error en Test FASE 18', passed: false, detail: err.message });
+      }
+
+      // Renderizar resultados
+      let allPassed = true;
+      let html = '';
+      for (const t of results) {
+        if (!t.passed) allPassed = false;
+        html += `
+          <div class="test-box">
+            <h3 class="${t.passed ? 'pass' : 'fail'}">${t.passed ? '✅ PASS' : '❌ FAIL'}: ${t.name}</h3>
+            <pre>${t.detail}</pre>
+          </div>
+        `;
+      }
+      html += `<h2 class="${allPassed ? 'pass' : 'fail'}">${allPassed ? '🎉 TODOS LOS TESTS DE FASE 18 PASARON' : '⚠️ ALGUNOS TESTS FALLARON'}</h2>`;
+      container.innerHTML = html;
+      document.title = allPassed ? 'TESTS_PASSED_PHASE_18' : 'TESTS_FAILED_PHASE_18';
+    }
+
+    runTests();
+  </script>
+</body>
+</html>

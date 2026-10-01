@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Test FASE 16 - Versionado de Playlist</title>
+  <style>
+    body { font-family: monospace; background: #0a0e17; color: #e2e8f0; padding: 20px; }
+    .pass { color: #10b981; }
+    .fail { color: #ef4444; }
+    .test-box { border: 1px solid #1e293b; background: #0f172a; padding: 12px; margin-bottom: 12px; border-radius: 8px; }
+    pre { background: #020617; padding: 8px; border-radius: 4px; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <h1>Test Suite FASE 16: Versionado BIGINT y Sincronización Condicional</h1>
+  <div id="results">Ejecutando pruebas...</div>
+
+  <script type="module">
+    import { supabaseService } from '../src/modules/iptv/services/SupabaseService.js';
+
+    async function runTests() {
+      const results = [];
+      const container = document.getElementById('results');
+
+      try {
+        // 1. Obtener o crear playlist
+        const pl = await supabaseService.getOrCreateDefaultCustomPlaylist('Test Versionado FASE 16');
+        if (!pl || !pl.id) throw new Error('Supabase no disponible');
+
+        // Test 1: Consulta de versión
+        const vInfo1 = await supabaseService.getPlaylistVersion(pl.id);
+        const hasVersion = (vInfo1 && typeof vInfo1.version === 'number');
+        results.push({
+          name: '1. Obtención de versión BIGINT desde custom_playlists',
+          passed: hasVersion,
+          detail: `Versión leída: ${vInfo1?.version}, updated_at: ${vInfo1?.updated_at}`
+        });
+
+        // Test 2: Incremento de versión (version = version + 1)
+        const initialVer = vInfo1.version;
+        const newVer = await supabaseService.incrementPlaylistVersion(pl.id);
+        const incrementPassed = (newVer === initialVer + 1);
+        results.push({
+          name: '2. Incremento de versión (version = version + 1)',
+          passed: incrementPassed,
+          detail: `Versión anterior: ${initialVer} -> Nueva versión: ${newVer}`
+        });
+
+        // Test 3: Comprobación de Sincronización:
+        // "¿mi versión local = versión servidor?
+        //  Si sí: no hago nada
+        //  Si no: sincronizo"
+        const syncMatch = await supabaseService.checkPlaylistSync(pl.id, newVer);
+        const syncMismatch = await supabaseService.checkPlaylistSync(pl.id, newVer - 1);
+
+        const checkPassed = (syncMatch.inSync === true && syncMismatch.inSync === false);
+        results.push({
+          name: '3. Comprobación de Sincronización Local vs Servidor',
+          passed: checkPassed,
+          detail: `Local (${newVer}) == Servidor (${syncMatch.serverVersion}) -> inSync: ${syncMatch.inSync} (no hago nada)\nLocal (${newVer - 1}) != Servidor (${syncMismatch.serverVersion}) -> inSync: ${syncMismatch.inSync} (sincronizo)`
+        });
+
+        // Test 4: Modificación de playlist con syncPlaylistItems incrementa versión
+        const items = [
+          { name: 'Canal V16 Test 1', url: 'https://test.net/ch1.m3u8', group: 'General' },
+          { name: 'Canal V16 Test 2', url: 'https://test.net/ch2.m3u8', group: 'Deportes' }
+        ];
+        await supabaseService.syncPlaylistItems(pl.id, items);
+        const vInfoAfterSync = await supabaseService.getPlaylistVersion(pl.id);
+        const syncIncremented = (vInfoAfterSync.version > newVer);
+        results.push({
+          name: '4. Modificación de items (syncPlaylistItems) incrementa versión',
+          passed: syncIncremented,
+          detail: `Versión antes: ${newVer} -> Versión después de modificación: ${vInfoAfterSync.version}`
+        });
+
+      } catch (err) {
+        results.push({ name: 'Error en Test FASE 16', passed: false, detail: err.message });
+      }
+
+      // Renderizar resultados
+      let allPassed = true;
+      let html = '';
+      for (const t of results) {
+        if (!t.passed) allPassed = false;
+        html += `
+          <div class="test-box">
+            <h3 class="${t.passed ? 'pass' : 'fail'}">${t.passed ? '✅ PASS' : '❌ FAIL'}: ${t.name}</h3>
+            <pre>${t.detail}</pre>
+          </div>
+        `;
+      }
+      html += `<h2 class="${allPassed ? 'pass' : 'fail'}">${allPassed ? '🎉 TODOS LOS TESTS DE FASE 16 PASARON' : '⚠️ ALGUNOS TESTS FALLARON'}</h2>`;
+      container.innerHTML = html;
+      document.title = allPassed ? 'TESTS_PASSED_PHASE_16' : 'TESTS_FAILED_PHASE_16';
+    }
+
+    runTests();
+  </script>
+</body>
+</html>

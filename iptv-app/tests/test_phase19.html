@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Test FASE 19 - Seguridad de Credenciales del Proveedor</title>
+  <style>
+    body { font-family: monospace; background: #0a0e17; color: #e2e8f0; padding: 20px; }
+    .pass { color: #10b981; }
+    .fail { color: #ef4444; }
+    .test-box { border: 1px solid #1e293b; background: #0f172a; padding: 12px; margin-bottom: 12px; border-radius: 8px; }
+    pre { background: #020617; padding: 8px; border-radius: 4px; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <h1>Test Suite FASE 19: Seguridad de Credenciales y Redacción Centralizada</h1>
+  <div id="results">Ejecutando pruebas...</div>
+
+  <script type="module">
+    import { redactSensitiveUrl, redactSensitiveText } from '../src/modules/iptv/utils/security.js';
+    import { supabaseService } from '../src/modules/iptv/services/SupabaseService.js';
+
+    async function runTests() {
+      const results = [];
+      const container = document.getElementById('results');
+
+      // Test 1: Verificación de que el Frontend NUNCA recibe SUPABASE_SERVICE_ROLE_KEY
+      try {
+        const hasServiceRoleKey = (typeof window !== 'undefined' && (window.SUPABASE_SERVICE_ROLE_KEY || window.SERVICE_ROLE_KEY));
+        const anonKeyOnly = supabaseService.key && !supabaseService.key.toLowerCase().includes('service_role');
+
+        results.push({
+          name: '1. Frontend Libre de SUPABASE_SERVICE_ROLE_KEY',
+          passed: !hasServiceRoleKey && anonKeyOnly,
+          detail: `window.SERVICE_ROLE_KEY: ${hasServiceRoleKey ? 'EXPUESTA (PELIGRO)' : 'NO EXPUESTA (SEGURO)'}\nUso exclusivo de anon key: ${anonKeyOnly}`
+        });
+      } catch (err) {
+        results.push({ name: '1. Frontend Libre de SERVICE_ROLE_KEY', passed: false, detail: err.message });
+      }
+
+      // Test 2: Redacción de query strings (username=AAAA, password=BBBB)
+      try {
+        const rawUrl = 'http://xtream.server.tv:8080/get.php?username=UsuarioVIP&password=MiPasswordSecreto123&type=m3u_plus';
+        const redacted = redactSensitiveUrl(rawUrl);
+
+        const noRawUser = !redacted.includes('UsuarioVIP');
+        const noRawPass = !redacted.includes('MiPasswordSecreto123');
+        const hasRedactedUser = redacted.includes('username=***');
+        const hasRedactedPass = redacted.includes('password=***');
+
+        results.push({
+          name: '2. redactSensitiveUrl() en Query Strings (get.php / player_api)',
+          passed: noRawUser && noRawPass && hasRedactedUser && hasRedactedPass,
+          detail: `Original: ${rawUrl}\nRedactada: ${redacted}`
+        });
+      } catch (err) {
+        results.push({ name: '2. Redacción Query Strings', passed: false, detail: err.message });
+      }
+
+      // Test 3: Redacción de paths de streaming (/live/USER/PASS/..., /movie/..., /series/...)
+      try {
+        const rawLive = 'http://edge.cdn.net:8080/live/SuperAdmin/ClaveUltraSecreta/9981.m3u8';
+        const rawMovie = 'http://edge.cdn.net:8080/movie/SuperAdmin/ClaveUltraSecreta/5432.mp4';
+        const rawSeries = 'http://edge.cdn.net:8080/series/SuperAdmin/ClaveUltraSecreta/1234.mp4';
+
+        const redLive = redactSensitiveUrl(rawLive);
+        const redMovie = redactSensitiveUrl(rawMovie);
+        const redSeries = redactSensitiveUrl(rawSeries);
+
+        const passLive = redLive.includes('/live/***/***/9981.m3u8') && !redLive.includes('ClaveUltraSecreta');
+        const passMovie = redMovie.includes('/movie/***/***/5432.mp4') && !redMovie.includes('ClaveUltraSecreta');
+        const passSeries = redSeries.includes('/series/***/***/1234.mp4') && !redSeries.includes('ClaveUltraSecreta');
+
+        results.push({
+          name: '3. redactSensitiveUrl() en Stream URLs Xtream (/live, /movie, /series)',
+          passed: passLive && passMovie && passSeries,
+          detail: `Live:   ${redLive}\nMovie:  ${redMovie}\nSeries: ${redSeries}`
+        });
+      } catch (err) {
+        results.push({ name: '3. Redacción Stream URLs', passed: false, detail: err.message });
+      }
+
+      // Test 4: Redacción de Errores y Objetos arbitrarios
+      try {
+        const errorObj = new Error('Fallo conectando a http://provider.com/get.php?username=RootAdmin&password=SuperSecretPassword');
+        const redactedErr = redactSensitiveText(errorObj);
+
+        const errorSanitized = !redactedErr.message.includes('SuperSecretPassword') && redactedErr.message.includes('password=***');
+
+        results.push({
+          name: '4. redactSensitiveText() en Mensajes de Error y Objetos',
+          passed: errorSanitized,
+          detail: `Mensaje redactado: ${redactedErr.message}`
+        });
+      } catch (err) {
+        results.push({ name: '4. Redacción en Error Objects', passed: false, detail: err.message });
+      }
+
+      // Renderizar resultados
+      let allPassed = true;
+      let html = '';
+      for (const t of results) {
+        if (!t.passed) allPassed = false;
+        html += `
+          <div class="test-box">
+            <h3 class="${t.passed ? 'pass' : 'fail'}">${t.passed ? '✅ PASS' : '❌ FAIL'}: ${t.name}</h3>
+            <pre>${t.detail}</pre>
+          </div>
+        `;
+      }
+      html += `<h2 class="${allPassed ? 'pass' : 'fail'}">${allPassed ? '🎉 TODOS LOS TESTS DE FASE 19 PASARON' : '⚠️ ALGUNOS TESTS FALLARON'}</h2>`;
+      container.innerHTML = html;
+      document.title = allPassed ? 'TESTS_PASSED_PHASE_19' : 'TESTS_FAILED_PHASE_19';
+    }
+
+    runTests();
+  </script>
+</body>
+</html>

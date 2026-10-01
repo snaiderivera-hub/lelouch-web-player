@@ -10,137 +10,204 @@
  *    sin obligar a las aplicaciones nativas a reparsear texto M3U.
  */
 
+/**
+ * FASE 21 — Garantiza que las URLs de stream sean directas al proveedor (NO proxy por Vercel).
+ * Si la URL contiene un wrapper /api/proxy?target=..., lo desenvuelve a la URL directa original.
+ * @param {string} rawUrl
+ * @returns {string} URL directa del proveedor
+ */
+export function unwrapProxyUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return '';
+  const trimmed = rawUrl.trim();
+  if (trimmed.includes('/api/proxy') || trimmed.includes('/proxy?target=')) {
+    try {
+      const match = trimmed.match(/[?&]target=([^&]+)/);
+      if (match && match[1]) {
+        return decodeURIComponent(match[1]);
+      }
+    } catch {
+      // Ignorar fallo de decodificación
+    }
+  }
+  return trimmed;
+}
+
 export class PlaylistGenerator {
   /**
-   * Genera el contenido de texto completo en formato #EXTM3U a partir de LelouchMediaItem[].
+   * Convierte una colección de LelouchMediaItem[] al modelo de playlist estándar del parser (iptv-m3u-playlist-parser).
    * @param {import('./PlaylistTypes.js').LelouchMediaItem[]} items
+   * @param {Object} [options]
+   * @returns {import('./PlaylistTypes.js').ExternalM3uPlaylist}
+   */
+  static convertToParserPlaylist(items, options = {}) {
+    const {
+      playlistName = 'Mi Lista LELOUCH',
+      epgUrl = null
+    } = options;
+
+    const validItems = Array.isArray(items) 
+      ? items.filter(x => x.isEnabled !== false) 
+      : [];
+
+    const headerAttrs = {};
+    if (playlistName) headerAttrs['name'] = playlistName;
+    if (epgUrl) headerAttrs['x-tvg-url'] = epgUrl;
+
+    return {
+      header: {
+        attrs: headerAttrs,
+        raw: `#EXTM3U name="${playlistName}"`
+      },
+      items: validItems.map((item, idx) => ({
+        name: item.name || 'Canal',
+        url: unwrapProxyUrl(item.streamUrl || item.directUrl || item.url || ''),
+        tvg: {
+          id: item.tvgId || item.epgId || '',
+          name: item.tvgName || item.epgName || item.name || '',
+          logo: item.logo || item.directLogo || '',
+          country: item.country || '',
+          language: item.language || '',
+          rec: item.extraAttributes?.['tvg-rec'] || '',
+          shift: item.extraAttributes?.['tvg-shift'] || ''
+        },
+        group: {
+          title: item.group || item.categoryName || item.category || 'General'
+        },
+        http: {
+          referrer: item.headers?.referrer || item.headers?.Referer || '',
+          'user-agent': item.headers?.userAgent || item.headers?.['User-Agent'] || ''
+        },
+        catchup: item.catchup || null,
+        timeshift: item.catchup?.days ? String(item.catchup.days) : '',
+        kodiProps: item.kodiProps || {},
+        extraAttributes: item.extraAttributes || {},
+        line: idx + 1,
+        raw: ''
+      }))
+    };
+  }
+
+  /**
+   * Genera el contenido de texto completo en formato #EXTM3U a partir de
+   * un ExternalM3uPlaylist (modelo del parser) o LelouchMediaItem[].
+   * 
+   * Si una librería externa (como iptv-m3u-playlist-parser) con soporte generateM3U()
+   * está configurada, la invoca directamente; en caso contrario, serializa el modelo
+   * preservando el 100% de atributos y directivas.
+   * 
+   * @param {import('./PlaylistTypes.js').ExternalM3uPlaylist | import('./PlaylistTypes.js').LelouchMediaItem[]} input
    * @param {import('./PlaylistTypes.js').GenerateM3uOptions} [options]
    * @returns {string}
    */
-  static generateM3U(items, options = {}) {
+  static generateM3U(input, options = {}) {
+    // Si la entrada es un array de LelouchMediaItem[], convertir primero a parser playlist
+    let playlist = input;
+    if (Array.isArray(input)) {
+      playlist = this.convertToParserPlaylist(input, options);
+    }
+
+    if (!playlist || typeof playlist !== 'object') return '#EXTM3U\n';
+
+    // 1. Delegar en librería externa si tiene generateM3U (ej. iptv-m3u-playlist-parser >= 0.5.0)
+    if (typeof globalThis !== 'undefined' && globalThis.iptvPlaylistParser?.generateM3U) {
+      try {
+        return globalThis.iptvPlaylistParser.generateM3U(playlist, options);
+      } catch (e) {
+        console.warn('[PlaylistGenerator] Error en generateM3U externo, usando generador canónico:', e);
+      }
+    }
+
     const {
-      playlistName = 'Mi Lista LELOUCH',
-      epgUrl = null,
+      playlistName = playlist.header?.attrs?.name || 'Mi Lista LELOUCH',
+      epgUrl = playlist.header?.attrs?.['x-tvg-url'] || playlist.header?.attrs?.['url-tvg'] || null,
       includeCatchup = true,
       includeVlcOpts = true,
       includeKodiProps = true,
-      includeExtGrp = false,
-      onlyEnabled = true
+      includeExtGrp = false
     } = options;
 
-    if (!Array.isArray(items)) return '#EXTM3U\n';
+    const items = Array.isArray(playlist.items) ? playlist.items : [];
 
-    // Filtrar elementos activos y ordenar por sortOrder
-    let validItems = items;
-    if (onlyEnabled) {
-      validItems = validItems.filter(x => x.isEnabled !== false);
-    }
-    validItems = [...validItems].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    // Construcción limpia y estándar del manifiesto
+    const blocks = [];
 
-    // 1. Construir cabecera #EXTM3U
+    // Cabecera #EXTM3U
     let header = '#EXTM3U';
-    if (playlistName) {
-      header += ` name="${this._escapeAttr(playlistName)}"`;
-    }
-    if (epgUrl) {
-      header += ` x-tvg-url="${this._escapeAttr(epgUrl)}"`;
-    }
-    header += '\n\n';
+    if (playlistName) header += ` name="${this._escapeAttr(playlistName)}"`;
+    if (epgUrl) header += ` x-tvg-url="${this._escapeAttr(epgUrl)}"`;
+    blocks.push(header);
 
-    const outputLines = [header];
+    // Iterar items del modelo del parser
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      const streamUrl = it.url;
+      if (!streamUrl) continue;
 
-    // 2. Iterar items generando #EXTINF y directivas
-    for (let i = 0; i < validItems.length; i++) {
-      const item = validItems[i];
-      if (!item.streamUrl) continue;
-
-      const duration = (typeof item.duration === 'number' && !isNaN(item.duration)) ? item.duration : -1;
+      const duration = -1;
       let extinf = `#EXTINF:${duration}`;
 
-      const tvgId = item.tvgId || item.epgId;
-      if (tvgId) {
-        extinf += ` tvg-id="${this._escapeAttr(tvgId)}"`;
-      }
-      const tvgName = item.tvgName || item.epgName || item.name;
-      if (tvgName) {
-        extinf += ` tvg-name="${this._escapeAttr(tvgName)}"`;
-      }
-      if (item.logo) {
-        extinf += ` tvg-logo="${this._escapeAttr(item.logo)}"`;
-      }
-      if (item.country) {
-        extinf += ` tvg-country="${this._escapeAttr(item.country)}"`;
-      }
-      if (item.language) {
-        extinf += ` tvg-language="${this._escapeAttr(item.language)}"`;
-      }
-      if (item.mediaType === 'radio' || item.type === 'radio') {
-        extinf += ' radio="true"';
-      }
+      const tvgId = it.tvg?.id;
+      if (tvgId) extinf += ` tvg-id="${this._escapeAttr(tvgId)}"`;
 
-      // Categoría / Grupo
-      const group = item.group || item.categoryName || 'General';
+      const tvgName = it.tvg?.name || it.name;
+      if (tvgName) extinf += ` tvg-name="${this._escapeAttr(tvgName)}"`;
+
+      const logo = it.tvg?.logo;
+      if (logo) extinf += ` tvg-logo="${this._escapeAttr(logo)}"`;
+
+      const country = it.tvg?.country;
+      if (country) extinf += ` tvg-country="${this._escapeAttr(country)}"`;
+
+      const language = it.tvg?.language;
+      if (language) extinf += ` tvg-language="${this._escapeAttr(language)}"`;
+
+      const group = it.group?.title || 'General';
       extinf += ` group-title="${this._escapeAttr(group)}"`;
 
       // Catch-up / Timeshift
-      if (includeCatchup && item.catchup) {
-        const catchupType = item.catchup.type || 'default';
-        const catchupDays = item.catchup.days || 7;
+      if (includeCatchup && it.catchup) {
+        const catchupType = it.catchup.type || 'default';
+        const catchupDays = it.catchup.days || 7;
         extinf += ` tv-archive="1" tv-archive-duration="${catchupDays}" catchup="${catchupType}"`;
-        if (item.catchup.hours) {
-          extinf += ` catchup-hours="${item.catchup.hours}"`;
-        }
-        if (item.catchup.source) {
-          extinf += ` catchup-source="${this._escapeAttr(item.catchup.source)}"`;
-        }
+        if (it.catchup.hours) extinf += ` catchup-hours="${it.catchup.hours}"`;
+        if (it.catchup.source) extinf += ` catchup-source="${this._escapeAttr(it.catchup.source)}"`;
       }
 
       // Preservar atributos desconocidos
-      if (item.extraAttributes && typeof item.extraAttributes === 'object') {
-        for (const [k, v] of Object.entries(item.extraAttributes)) {
+      if (it.extraAttributes && typeof it.extraAttributes === 'object') {
+        for (const [k, v] of Object.entries(it.extraAttributes)) {
           if (v !== undefined && v !== null && !extinf.includes(` ${k}=`)) {
             extinf += ` ${k}="${this._escapeAttr(v)}"`;
           }
         }
       }
 
-      // Nombre del canal tras la coma
-      extinf += `,${item.name || 'Canal'}\n`;
-      outputLines.push(extinf);
+      const itemLines = [`${extinf},${it.name || 'Canal'}`];
 
-      // Línea redundante #EXTGRP (opcional para reproductores antiguos)
       if (includeExtGrp && group) {
-        outputLines.push(`#EXTGRP:${group}\n`);
+        itemLines.push(`#EXTGRP:${group}`);
+      }
+
+      // Directivas #KODIPROP
+      if (includeKodiProps && it.kodiProps && typeof it.kodiProps === 'object') {
+        for (const [k, v] of Object.entries(it.kodiProps)) {
+          itemLines.push(`#KODIPROP:${k}=${v}`);
+        }
       }
 
       // Directivas #EXTVLCOPT
       if (includeVlcOpts) {
-        const ua = item.headers?.userAgent || item.httpUserAgent;
-        const ref = item.headers?.referrer || item.httpReferrer;
-        const cookie = item.headers?.cookie;
-        if (ua) {
-          outputLines.push(`#EXTVLCOPT:http-user-agent=${ua}\n`);
-        }
-        if (ref) {
-          outputLines.push(`#EXTVLCOPT:http-referrer=${ref}\n`);
-        }
-        if (cookie) {
-          outputLines.push(`#EXTVLCOPT:http-cookie=${cookie}\n`);
-        }
+        const ua = it.http?.['user-agent'];
+        const ref = it.http?.referrer;
+        if (ua) itemLines.push(`#EXTVLCOPT:http-user-agent=${ua}`);
+        if (ref) itemLines.push(`#EXTVLCOPT:http-referrer=${ref}`);
       }
 
-      // Directivas #KODIPROP
-      if (includeKodiProps && item.kodiProps) {
-        for (const [k, v] of Object.entries(item.kodiProps)) {
-          outputLines.push(`#KODIPROP:${k}=${v}\n`);
-        }
-      }
-
-      // URL del stream
-      outputLines.push(`${item.streamUrl.trim()}\n\n`);
+      itemLines.push(streamUrl);
+      blocks.push(itemLines.join('\n'));
     }
 
-    return outputLines.join('');
+    return blocks.join('\n\n') + '\n';
   }
 
   /**
@@ -167,7 +234,7 @@ export class PlaylistGenerator {
         mediaType: item.mediaType || item.type,
         group: item.group || item.categoryName,
         logo: item.logo || null,
-        streamUrl: item.streamUrl,
+        streamUrl: unwrapProxyUrl(item.streamUrl || item.directUrl || item.url || ''),
         tvgId: item.tvgId || item.epgId || null,
         tvgName: item.tvgName || item.epgName || null,
         containerExtension: item.containerExtension || null,

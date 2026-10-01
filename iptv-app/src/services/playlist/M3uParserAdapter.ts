@@ -15,7 +15,7 @@
  * - URL original íntegra
  */
 
-import { ExternalM3uPlaylist, ExternalPlaylistItem } from './PlaylistTypes';
+import { ExternalM3uPlaylist, ExternalPlaylistItem, M3uPerformanceMetrics, M3uLimitsConfig } from './PlaylistTypes';
 
 const KNOWN_ATTRS = new Set([
   'tvg-id', 'tvg-name', 'tvg-logo', 'tvg-country', 'tvg-language', 'tvg-rec', 'tvg-shift',
@@ -23,15 +23,31 @@ const KNOWN_ATTRS = new Set([
   'tv-archive', 'tv-archive-duration', 'radio'
 ]);
 
+/**
+ * FASE 25: Umbrales y límites razonables para listas extremadamente grandes.
+ */
+export const M3U_LIMITS: M3uLimitsConfig = {
+  // 50 MB límite recomendado para release 1 en browser
+  MAX_RECOMMENDED_SIZE_BYTES: 50 * 1024 * 1024,
+  // 100 MB límite estricto de seguridad para evitar OOM crash del navegador
+  CRITICAL_SIZE_LIMIT_BYTES: 100 * 1024 * 1024,
+  // 50,000 entradas recomendadas en hilo principal
+  MAX_RECOMMENDED_ENTRIES: 50000,
+  // 100,000 entradas umbral crítico (roadmap: streaming parser / worker)
+  CRITICAL_ENTRIES_LIMIT: 100000,
+  // Límite por defecto para descargas automáticas (50 MB)
+  DEFAULT_FETCH_MAX_BYTES: 50 * 1024 * 1024
+};
+
 export function parseAttributes(attrString: string): Record<string, string> {
   const attrs: Record<string, string> = {};
   if (!attrString) return attrs;
 
-  const regex = /([a-zA-Z0-9_\-]+)=(?:["']([^"']*)["']|([^\s"']+))/g;
+  const regex = /([a-zA-Z0-9_\-]+)=(?:"([^"]*)"|'([^']*)'|([^\s"']+))/g;
   let match: RegExpExecArray | null;
   while ((match = regex.exec(attrString)) !== null) {
     const key = match[1].toLowerCase();
-    const val = match[2] !== undefined ? match[2] : match[3];
+    const val = match[2] !== undefined ? match[2] : (match[3] !== undefined ? match[3] : match[4]);
     attrs[key] = val;
   }
 
@@ -40,6 +56,10 @@ export function parseAttributes(attrString: string): Record<string, string> {
 
 export class M3uParserAdapter {
   private static _customParser: any = null;
+
+  static getLimits(): M3uLimitsConfig {
+    return { ...M3U_LIMITS };
+  }
 
   static setExternalParser(parserInstance: any): void {
     this._customParser = parserInstance;
@@ -56,7 +76,7 @@ export class M3uParserAdapter {
     return null;
   }
 
-  static parse(content: string, overrideParser: any = null): ExternalM3uPlaylist {
+  static parse(content: string, overrideParser: any = null, options: { maxEntries?: number } = {}): ExternalM3uPlaylist {
     if (!content || typeof content !== 'string') {
       return {
         header: { attrs: {}, raw: '' },
@@ -64,19 +84,209 @@ export class M3uParserAdapter {
       };
     }
 
+    const maxEntries = typeof options?.maxEntries === 'number' ? options.maxEntries : Infinity;
     const parser = overrideParser || this.getExternalParser();
 
     if (parser && typeof parser.parse === 'function') {
       try {
         const rawResult = parser.parse(content);
-        return this._adaptExternalOutput(rawResult);
+        const adapted = this._adaptExternalOutput(rawResult);
+        if (maxEntries < adapted.items.length) {
+          adapted.items = adapted.items.slice(0, maxEntries);
+        }
+        return adapted;
       } catch (err) {
         console.warn('[M3uParserAdapter] Error en parser externo, usando motor fallback nativo:', err);
       }
     }
 
-    return this._parseInternal(content);
+    return this._parseInternal(content, maxEntries);
   }
+
+  static measureM3u(content: string, options: { maxEntries?: number; executeParse?: boolean; includePlaylist?: boolean } = {}): M3uPerformanceMetrics {
+    if (!content || typeof content !== 'string') {
+      return {
+        sizeBytes: 0,
+        sizeMB: '0.00',
+        entryCount: 0,
+        parseTimeMs: 0,
+        throughputMBps: '0.00',
+        entriesPerSecond: 0,
+        memoryEstimate: {
+          jsHeapUsedMB: null,
+          estimatedObjectMemoryMB: 0
+        },
+        status: 'OPTIMAL',
+        recommendation: 'Contenido vacío.'
+      };
+    }
+
+    const sizeBytes = typeof Blob !== 'undefined' 
+      ? new Blob([content]).size 
+      : (typeof Buffer !== 'undefined' ? Buffer.byteLength(content, 'utf8') : content.length);
+    const sizeMB = (sizeBytes / (1024 * 1024)).toFixed(2);
+
+    const initialHeap = typeof performance !== 'undefined' && (performance as any).memory 
+      ? (performance as any).memory.usedJSHeapSize 
+      : null;
+
+    const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    let playlist: ExternalM3uPlaylist | null = null;
+    if (options.executeParse !== false) {
+      playlist = this.parse(content, null, options);
+    }
+    const t1 = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const parseTimeMs = Math.max(0.01, Number((t1 - t0).toFixed(2)));
+
+    const entryCount = playlist ? playlist.items.length : (content.match(/#EXTINF:/g) || []).length;
+    const timeSec = parseTimeMs / 1000;
+    const throughputMBps = timeSec > 0 ? ((sizeBytes / (1024 * 1024)) / timeSec).toFixed(2) : '0.00';
+    const entriesPerSecond = timeSec > 0 ? Math.round(entryCount / timeSec) : 0;
+
+    const finalHeap = typeof performance !== 'undefined' && (performance as any).memory 
+      ? (performance as any).memory.usedJSHeapSize 
+      : null;
+    const jsHeapUsedMB = finalHeap ? Number((finalHeap / (1024 * 1024)).toFixed(2)) : null;
+    const estimatedObjectMemoryMB = Number(((entryCount * 420) / (1024 * 1024)).toFixed(2));
+
+    let status: 'OPTIMAL' | 'MODERATE' | 'LARGE_WARNING' | 'CRITICAL_OVERSIZED' = 'OPTIMAL';
+    let recommendation = '';
+
+    const isCriticalSize = sizeBytes > M3U_LIMITS.CRITICAL_SIZE_LIMIT_BYTES;
+    const isCriticalEntries = entryCount > M3U_LIMITS.CRITICAL_ENTRIES_LIMIT;
+    const isWarnSize = sizeBytes > M3U_LIMITS.MAX_RECOMMENDED_SIZE_BYTES;
+    const isWarnEntries = entryCount > M3U_LIMITS.MAX_RECOMMENDED_ENTRIES;
+
+    if (isCriticalSize || isCriticalEntries) {
+      status = 'CRITICAL_OVERSIZED';
+      recommendation = `⚠️ LISTA CRÍTICA: ${entryCount.toLocaleString()} entradas (${sizeMB} MB). Excede límites del primer release. Se requiere Web Worker o streaming parser server-side (Etapa 2) para no congelar la UI.`;
+    } else if (isWarnSize || isWarnEntries) {
+      status = 'LARGE_WARNING';
+      recommendation = `⚡ LISTA GRANDE: ${entryCount.toLocaleString()} entradas (${sizeMB} MB). Funciona en el primer release pero está en el límite recomendado. Recomendado Web Worker en próxima etapa.`;
+    } else if (sizeBytes > 15 * 1024 * 1024 || entryCount > 15000) {
+      status = 'MODERATE';
+      recommendation = `✅ LISTA MODERADA: ${entryCount.toLocaleString()} entradas (${sizeMB} MB). Procesamiento óptimo con virtualización activa.`;
+    } else {
+      status = 'OPTIMAL';
+      recommendation = `🚀 LISTA ÓPTIMA: ${entryCount.toLocaleString()} entradas (${sizeMB} MB). Rendimiento instantáneo sin impacto perceptible en memoria.`;
+    }
+
+    return {
+      sizeBytes,
+      sizeMB,
+      entryCount,
+      parseTimeMs,
+      throughputMBps,
+      entriesPerSecond,
+      memoryEstimate: {
+        jsHeapUsedMB,
+        estimatedObjectMemoryMB
+      },
+      status,
+      recommendation,
+      playlist: options.includePlaylist && playlist ? playlist : undefined
+    };
+  }
+
+  static parseWithMetrics(content: string, options: { maxEntries?: number } = {}): { playlist: ExternalM3uPlaylist; metrics: M3uPerformanceMetrics } {
+    const metricsResult = this.measureM3u(content, {
+      ...options,
+      executeParse: true,
+      includePlaylist: true
+    });
+
+    const playlist = metricsResult.playlist || { header: { attrs: {} }, items: [] };
+    delete metricsResult.playlist;
+
+    if (metricsResult.status === 'CRITICAL_OVERSIZED' || metricsResult.status === 'LARGE_WARNING') {
+      console.warn(`[M3uParserAdapter] ${metricsResult.recommendation}`);
+    }
+
+    return { playlist, metrics: metricsResult };
+  }
+
+  static async safeFetchM3U(url: string, options: { maxSizeBytes?: number; timeoutMs?: number; headers?: Record<string, string>; signal?: AbortSignal } = {}): Promise<{ content: string; sizeBytes: number; metrics: M3uPerformanceMetrics }> {
+    if (!url || typeof url !== 'string') {
+      throw new Error('[M3uParserAdapter.safeFetchM3U] URL inválida');
+    }
+
+    const maxSizeBytes = options.maxSizeBytes || M3U_LIMITS.MAX_RECOMMENDED_SIZE_BYTES;
+    const timeoutMs = options.timeoutMs || 30000;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(new Error(`Timeout de descarga (${timeoutMs}ms)`)), timeoutMs);
+
+    if (options.signal) {
+      options.signal.addEventListener('abort', () => controller.abort(options.signal.reason));
+    }
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Accept': 'audio/x-mpegurl, application/vnd.apple.mpegurl, text/plain, */*',
+          ...(options.headers || {})
+        },
+        signal: controller.signal
+      });
+
+      if (!response.ok) {
+        throw new Error(`Error HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const contentLengthHeader = response.headers.get('content-length');
+      if (contentLengthHeader) {
+        const contentLength = parseInt(contentLengthHeader, 10);
+        if (!isNaN(contentLength) && contentLength > maxSizeBytes) {
+          controller.abort();
+          throw new Error(
+            `[Lelouch SafeFetch] M3U rechazada: El tamaño de la lista (${(contentLength / (1024 * 1024)).toFixed(2)} MB) excede el límite seguro permitido de ${(maxSizeBytes / (1024 * 1024)).toFixed(0)} MB. Se requiere procesamiento en background o streaming.`
+          );
+        }
+      }
+
+      let content = '';
+      let receivedBytes = 0;
+
+      if (response.body && typeof (response.body as any).getReader === 'function') {
+        const reader = (response.body as any).getReader();
+        const decoder = new TextDecoder('utf-8');
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          receivedBytes += value.byteLength;
+          if (receivedBytes > maxSizeBytes) {
+            await reader.cancel();
+            controller.abort();
+            throw new Error(
+              `[Lelouch SafeFetch] Descarga abortada en caliente: El archivo superó el límite de ${(maxSizeBytes / (1024 * 1024)).toFixed(0)} MB durante la transferencia streaming.`
+            );
+          }
+
+          content += decoder.decode(value, { stream: true });
+        }
+        content += decoder.decode();
+      } else {
+        content = await response.text();
+        receivedBytes = typeof Blob !== 'undefined' ? new Blob([content]).size : content.length;
+        if (receivedBytes > maxSizeBytes) {
+          throw new Error(
+            `[Lelouch SafeFetch] Contenido descargado excede el límite de ${(maxSizeBytes / (1024 * 1024)).toFixed(0)} MB.`
+          );
+        }
+      }
+
+      clearTimeout(timer);
+      const metrics = this.measureM3u(content, { executeParse: false });
+      return { content, sizeBytes: receivedBytes, metrics };
+    } catch (err) {
+      clearTimeout(timer);
+      throw err;
+    }
+  }
+
 
   private static _adaptExternalOutput(raw: any): ExternalM3uPlaylist {
     if (!raw) return { header: { attrs: {} }, items: [] };
@@ -91,7 +301,7 @@ export class M3uParserAdapter {
       const rawAttrs = item.attrs || item.attributes || {};
       const extraAttributes: Record<string, string> = {};
       for (const [k, v] of Object.entries(rawAttrs)) {
-        if (!KNOWN_ATTRS.has(k.toLowerCase()) && v !== undefined && v !== null) {
+        if ((!KNOWN_ATTRS.has(k.toLowerCase()) || k.toLowerCase() === 'radio') && v !== undefined && v !== null) {
           extraAttributes[k] = String(v);
         }
       }
@@ -132,7 +342,7 @@ export class M3uParserAdapter {
     return { header, items };
   }
 
-  private static _parseInternal(content: string): ExternalM3uPlaylist {
+  private static _parseInternal(content: string, maxEntries: number = Infinity): ExternalM3uPlaylist {
     const lines = content.split(/\r?\n/);
     const header = { attrs: {}, raw: '' };
     const items: ExternalPlaylistItem[] = [];
@@ -140,6 +350,9 @@ export class M3uParserAdapter {
     let currentEntry: ExternalPlaylistItem | null = null;
 
     for (let i = 0; i < lines.length; i++) {
+      if (items.length >= maxEntries) {
+        break;
+      }
       const line = lines[i].trim();
       if (!line) continue;
 
@@ -182,10 +395,10 @@ export class M3uParserAdapter {
 
         const attributes = parseAttributes(attrStr);
 
-        // Identificar y almacenar atributos desconocidos
+        // Identificar y almacenar atributos desconocidos y directivas especiales (ej. radio)
         const extraAttributes: Record<string, string> = {};
         for (const [k, v] of Object.entries(attributes)) {
-          if (!KNOWN_ATTRS.has(k.toLowerCase())) {
+          if (!KNOWN_ATTRS.has(k.toLowerCase()) || k.toLowerCase() === 'radio') {
             extraAttributes[k] = v;
           }
         }
@@ -288,7 +501,7 @@ export class M3uParserAdapter {
 
     try {
       const parsed = new URL(url.trim());
-      const path = parsed.pathname;
+      const path = (parsed.pathname || '').replace(/\/+$/, '');
 
       const pathMatch = path.match(/^\/(live|movie|series)\/([^\/]+)\/([^\/]+)\/(\d+)(?:\.([a-z0-9]+))?$/i);
       if (pathMatch) {

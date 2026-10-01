@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Test FASE 26 - Pruebas Unitarias & Fixtures M3U</title>
+  <style>
+    body { font-family: monospace; background: #0f172a; color: #f8fafc; padding: 20px; }
+    .pass { color: #10b981; font-weight: bold; }
+    .fail { color: #ef4444; font-weight: bold; }
+    .test-box { border: 1px solid #334155; padding: 12px; margin-bottom: 12px; border-radius: 8px; background: #1e293b; }
+    h1 { color: #38bdf8; }
+    pre { background: #090d16; padding: 8px; border-radius: 4px; overflow-x: auto; color: #cbd5e1; white-space: pre-wrap; word-break: break-all; }
+  </style>
+</head>
+<body>
+  <h1>Test Suite FASE 26: Pruebas Unitarias con Fixtures Ficticios (UTF-8, CJK, Emojis, VLC, Kodi, Catchup)</h1>
+  <div id="results">Ejecutando pruebas unitarias...</div>
+
+  <script type="module">
+    import { M3uParserAdapter } from '../src/services/playlist/M3uParserAdapter.js';
+    import { PlaylistNormalizer } from '../src/services/playlist/PlaylistNormalizer.js';
+    import { PlaylistDeduplicator } from '../src/services/playlist/PlaylistDeduplicator.js';
+    import {
+      TEST_BASIC_LIVE,
+      TEST_UTF8,
+      TEST_LOGO,
+      TEST_GROUPS,
+      TEST_EXTVLCOPT,
+      TEST_KODIPROP,
+      TEST_CATCHUP,
+      TEST_DUPLICATES,
+      TEST_MOVIES,
+      TEST_SERIES
+    } from './fixtures/fixturesData.js';
+
+    const results = document.getElementById('results');
+    results.innerHTML = '';
+
+    function log(title, passed, details = '') {
+      const div = document.createElement('div');
+      div.className = 'test-box';
+      div.innerHTML = `<span class="${passed ? 'pass' : 'fail'}">[${passed ? 'PASS' : 'FAIL'}]</span> <strong>${title}</strong>
+        ${details ? `<pre>${details}</pre>` : ''}`;
+      results.appendChild(div);
+      console.log(`[${passed ? 'PASS' : 'FAIL'}] ${title}`);
+    }
+
+    function runAllTests() {
+      // ====================================================================
+      // 1. FIXTURE: test-basic-live.m3u
+      // ====================================================================
+      try {
+        const parsed = M3uParserAdapter.parse(TEST_BASIC_LIVE);
+        const normalizer = new PlaylistNormalizer();
+        const normalized = normalizer.normalizeFromM3u(parsed);
+
+        const ok = parsed.items.length === 4 &&
+                   parsed.items[0].tvg.id === 'fictitious.es.la1' &&
+                   parsed.items[0].tvg.logo === 'https://fictitious-cdn.test/logos/la1.png' &&
+                   (parsed.items[3].extraAttributes?.radio === 'true' || normalized[3].mediaType === 'radio');
+
+        log('1. Fixture test-basic-live.m3u: Parseo de canales base, radio y cabecera EPG',
+          ok,
+          `Items encontrados: ${parsed.items.length}\n` +
+          `Primer canal: ${parsed.items[0].name} (tvg-id: ${parsed.items[0].tvg.id})\n` +
+          `Radio detectada: ${normalized[3].mediaType === 'radio'} (extraAttributes.radio: ${parsed.items[3].extraAttributes?.radio})`);
+      } catch (e) {
+        log('1. test-basic-live.m3u', false, e.message);
+      }
+
+      // ====================================================================
+      // 2. FIXTURE: test-utf8.m3u (中文, Español, acentos, emoji, comillas, URLs con & y =)
+      // ====================================================================
+      try {
+        const parsed = M3uParserAdapter.parse(TEST_UTF8);
+
+        // 1. Validar CJK (中文)
+        const cctv = parsed.items[0];
+        const hasChinese = cctv.name.includes('综合频道') && cctv.tvg.name === '中央电视台-综合';
+
+        // 2. Validar Español & Acentos (ñ, á, é, í, ó, ú, ¿, ¡)
+        const news = parsed.items[3];
+        const hasSpanishAccents = news.name.includes('¡ÚLTIMA HORA!') && news.name.includes('¿Qué ocurrió en España?');
+
+        // 3. Validar Emojis
+        const soccer = parsed.items[4];
+        const hasEmojis = soccer.name.includes('🏆') && soccer.name.includes('⚡') && soccer.group.title.includes('⚽');
+
+        // 4. Validar Comillas simples y dobles
+        const quotes = parsed.items[5];
+        const hasQuotes = quotes.name.includes('"Doble Comilla"') && quotes.name.includes("'Comilla Simple'");
+
+        // 5. Validar URLs con & y =
+        const hasComplexUrl = cctv.url.includes('&codec=h264') && cctv.url.includes('token=eyJhbGciOiJIUzI1NiJ9==');
+
+        const allOk = hasChinese && hasSpanishAccents && hasEmojis && hasQuotes && hasComplexUrl;
+
+        log('2. Fixture test-utf8.m3u: Preservación de 中文, Español, acentos, emojis, comillas y URLs con & y =',
+          allOk,
+          `中文 (CJK): ${cctv.name}\n` +
+          `Español & Acentos: ${news.name}\n` +
+          `Emojis: ${soccer.name} | Grupo: ${soccer.group.title}\n` +
+          `Comillas: ${quotes.name}\n` +
+          `URL con & y =: ${cctv.url}`);
+      } catch (e) {
+        log('2. test-utf8.m3u', false, e.message);
+      }
+
+      // ====================================================================
+      // 3. FIXTURE: test-logo.m3u (Logos con query params, &, =, encoded)
+      // ====================================================================
+      try {
+        const parsed = M3uParserAdapter.parse(TEST_LOGO);
+        const itemWithQuery = parsed.items[0];
+        const itemEmpty = parsed.items[2];
+        const itemNone = parsed.items[3];
+
+        const ok = itemWithQuery.tvg.logo.includes('&size=512x512') &&
+                   itemWithQuery.tvg.logo.includes('token=secret_key==') &&
+                   (itemEmpty.tvg.logo === '' || itemEmpty.tvg.logo === null) &&
+                   itemNone.tvg.logo === null;
+
+        log('3. Fixture test-logo.m3u: Logos complejos con &, =, URLs codificadas y casos borde vacíos',
+          ok,
+          `Logo con parámetros: ${itemWithQuery.tvg.logo}\nLogo vacío manejado: ${itemEmpty.tvg.logo === '' || itemEmpty.tvg.logo === null}\nLogo ausente: ${itemNone.tvg.logo}`);
+      } catch (e) {
+        log('3. test-logo.m3u', false, e.message);
+      }
+
+      // ====================================================================
+      // 4. FIXTURE: test-groups.m3u (group-title, #EXTGRP, fallback, especiales)
+      // ====================================================================
+      try {
+        const parsed = M3uParserAdapter.parse(TEST_GROUPS);
+        const normalizer = new PlaylistNormalizer();
+        const normalized = normalizer.normalizeFromM3u(parsed);
+
+        const ok = parsed.items[0].group.title === 'Noticias Internacionales' &&
+                   parsed.items[1].group.title === 'Grupo Primario Sobrescrito' &&
+                   parsed.items[2].group.title === 'Deportes Exclusivos' &&
+                   normalized[3].group === 'General' &&
+                   parsed.items[4].group.title.includes("Temporada '2026'");
+
+        log('4. Fixture test-groups.m3u: group-title, override con #EXTGRP, fallback a General y caracteres especiales',
+          ok,
+          `Atributo estándar: ${parsed.items[0].group.title}\n` +
+          `Sobrescrito por #EXTGRP: ${parsed.items[1].group.title}\n` +
+          `Solo #EXTGRP: ${parsed.items[2].group.title}\n` +
+          `Fallback sin grupo: ${normalized[3].group}\n` +
+          `Grupo con comillas y coma: ${parsed.items[4].group.title}`);
+      } catch (e) {
+        log('4. test-groups.m3u', false, e.message);
+      }
+
+      // ====================================================================
+      // 5. FIXTURE: test-extvlcopt.m3u (User-Agent, Referer, Cookie, case-insensitive)
+      // ====================================================================
+      try {
+        const parsed = M3uParserAdapter.parse(TEST_EXTVLCOPT);
+        const item1 = parsed.items[0];
+        const item2 = parsed.items[1];
+        const item3 = parsed.items[2];
+
+        const ok = item1.http.userAgent.includes('LelouchPlayer/2.5.0') &&
+                   item1.http.referrer.includes('session=abc123xyz==') &&
+                   item1.http.cookie.includes('session_id=fake_cookie_998877') &&
+                   item2.http.userAgent.includes('Mozilla/5.0') &&
+                   item3.http.userAgent === 'CustomExoPlayer/2.18';
+
+        log('5. Fixture test-extvlcopt.m3u: Captura fiel de User-Agent, Referer, Cookie y variantes de sintaxis',
+          ok,
+          `User-Agent completo: ${item1.http.userAgent}\n` +
+          `Referer con query params & y =: ${item1.http.referrer}\n` +
+          `Cookie de sesión: ${item1.http.cookie}\n` +
+          `Sintaxis mayúsculas: ${item2.http.userAgent}\n` +
+          `Sintaxis corta (user-agent/referer): ${item3.http.userAgent}`);
+      } catch (e) {
+        log('5. test-extvlcopt.m3u', false, e.message);
+      }
+
+      // ====================================================================
+      // 6. FIXTURE: test-kodiprop.m3u (inputstream, adaptive, widevine, clearkey)
+      // ====================================================================
+      try {
+        const parsed = M3uParserAdapter.parse(TEST_KODIPROP);
+        const dash = parsed.items[0];
+        const clearKey = parsed.items[1];
+
+        const ok = dash.kodiProps['inputstream'] === 'inputstream.adaptive' &&
+                   dash.kodiProps['inputstream.adaptive.manifest_type'] === 'mpd' &&
+                   dash.kodiProps['inputstream.adaptive.license_type'] === 'com.widevine.alpha' &&
+                   dash.kodiProps['inputstream.adaptive.license_key'].includes('https://license.fictitious-iptv.test') &&
+                   clearKey.kodiProps['inputstream.adaptive.license_type'] === 'org.w3.clearkey';
+
+        log('6. Fixture test-kodiprop.m3u: Preservación completa de directivas DRM #KODIPROP (Widevine y ClearKey)',
+          ok,
+          `Manifest type: ${dash.kodiProps['inputstream.adaptive.manifest_type']}\n` +
+          `License type: ${dash.kodiProps['inputstream.adaptive.license_type']}\n` +
+          `License URL: ${dash.kodiProps['inputstream.adaptive.license_key']}\n` +
+          `ClearKey JSON props: ${clearKey.kodiProps['inputstream.adaptive.license_type']}`);
+      } catch (e) {
+        log('6. test-kodiprop.m3u', false, e.message);
+      }
+
+      // ====================================================================
+      // 7. FIXTURE: test-catchup.m3u (catchup-days, catchup-hours, timeshift template)
+      // ====================================================================
+      try {
+        const parsed = M3uParserAdapter.parse(TEST_CATCHUP);
+        const itemDays = parsed.items[0];
+        const itemHours = parsed.items[1];
+        const itemLegacy = parsed.items[2];
+
+        const ok = itemDays.catchup.type === 'default' &&
+                   itemDays.catchup.days === 7 &&
+                   itemDays.catchup.source.includes('{duration}') &&
+                   itemHours.catchup.hours === 48 &&
+                   itemLegacy.catchup.days === 5;
+
+        log('7. Fixture test-catchup.m3u: Detección y normalización de catchup en días, horas y legacy tv-archive',
+          ok,
+          `Días de catchup: ${itemDays.catchup.days} (Tipo: ${itemDays.catchup.type})\n` +
+          `Plantilla de timeshift: ${itemDays.catchup.source}\n` +
+          `Catchup por horas: ${itemHours.catchup.hours} horas\n` +
+          `Legacy tv-archive duration: ${itemLegacy.catchup.days} días`);
+      } catch (e) {
+        log('7. test-catchup.m3u', false, e.message);
+      }
+
+      // ====================================================================
+      // 8. FIXTURE: test-duplicates.m3u (Preservación Multi-Fuente FASE 23)
+      // ====================================================================
+      try {
+        const parsed = M3uParserAdapter.parse(TEST_DUPLICATES);
+        const normalizer = new PlaylistNormalizer();
+        const normalized = normalizer.normalizeFromM3u(parsed);
+
+        const deduplicator = new PlaylistDeduplicator();
+        const uniqueItems = deduplicator.deduplicate(normalized, 'lelouch_multi_factor');
+        const removedCount = normalized.length - uniqueItems.length;
+
+        const hasAlpha = uniqueItems.some(i => i.streamUrl.includes('server-alpha') && i.streamUrl.includes('100.m3u8'));
+        const hasBeta = uniqueItems.some(i => i.streamUrl.includes('server-beta') && i.streamUrl.includes('200.m3u8'));
+        const hasFox = uniqueItems.some(i => i.streamUrl.includes('300.m3u8'));
+
+        const ok = uniqueItems.length === 3 && removedCount === 2 && hasAlpha && hasBeta && hasFox;
+
+        log('8. Fixture test-duplicates.m3u: Preservación de fuentes cruzadas (Fuente A vs Fuente B NUNCA se borran) y colapso de duplicados exactos',
+          ok,
+          `Items originales: ${normalized.length}\n` +
+          `Duplicados eliminados: ${removedCount}\n` +
+          `Items únicos conservados: ${uniqueItems.length}\n` +
+          `Servidor Alfa conservado: ${hasAlpha}\n` +
+          `Servidor Beta conservado (Cross-source): ${hasBeta}\n` +
+          `Fox Sports conservado: ${hasFox}`);
+      } catch (e) {
+        log('8. test-duplicates.m3u', false, e.message);
+      }
+
+      // ====================================================================
+      // 9. FIXTURE: test-movies.m3u (VOD, duraciones, extensiones mp4/mkv)
+      // ====================================================================
+      try {
+        const parsed = M3uParserAdapter.parse(TEST_MOVIES);
+        const normalizer = new PlaylistNormalizer();
+        const normalized = normalizer.normalizeFromM3u(parsed);
+
+        const ok = parsed.items.length === 3 &&
+                   parsed.items[0].duration === 7200 &&
+                   normalized[0].mediaType === 'movie' &&
+                   normalized[0].containerExtension === 'mp4' &&
+                   normalized[1].containerExtension === 'mkv';
+
+        log('9. Fixture test-movies.m3u: VOD de Películas con duración en segundos y extensiones de contenedor (.mp4 / .mkv)',
+          ok,
+          `Película 1: ${normalized[0].name} (Duración: ${normalized[0].duration}s, Tipo: ${normalized[0].mediaType}, Contenedor: ${normalized[0].containerExtension})\n` +
+          `Película 2: ${normalized[1].name} (Contenedor: ${normalized[1].containerExtension})`);
+      } catch (e) {
+        log('9. test-movies.m3u', false, e.message);
+      }
+
+      // ====================================================================
+      // 10. FIXTURE: test-series.m3u (Series, Temporadas, Episodios)
+      // ====================================================================
+      try {
+        const parsed = M3uParserAdapter.parse(TEST_SERIES);
+        const normalizer = new PlaylistNormalizer();
+        const normalized = normalizer.normalizeFromM3u(parsed);
+
+        const ok = parsed.items.length === 3 &&
+                   normalized[0].mediaType === 'series' &&
+                   normalized[0].name.includes('S01E01') &&
+                   normalized[2].mediaType === 'series';
+
+        log('10. Fixture test-series.m3u: Episodios de series, detección de tipo series y formatos mixtos (.mkv / .mp4)',
+          ok,
+          `Episodio 1: ${normalized[0].name} (Tipo: ${normalized[0].mediaType})\n` +
+          `Episodio 2: ${normalized[1].name} (Tipo: ${normalized[1].mediaType})\n` +
+          `Episodio 3: ${normalized[2].name} (Tipo: ${normalized[2].mediaType})`);
+      } catch (e) {
+        log('10. test-series.m3u', false, e.message);
+      }
+    }
+
+    runAllTests();
+  </script>
+</body>
+</html>

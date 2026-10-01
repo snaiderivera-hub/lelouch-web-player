@@ -1,11 +1,19 @@
 /**
- * Vercel Serverless Function: High-performance CORS & Mixed Content Proxy for IPTV streams and APIs.
- * Supports:
- * - Real-time chunk streaming with Node.js Readable stream piping (MPEG-TS, MP4, MKV).
- * - Intelligent M3U8 manifest rewriting to resolve relative chunk URLs and route through proxy.
- * - HTTP Range request forwarding for video seek/scrubbing.
- * - Anti-SSRF private/loopback protection.
- * - IPTV Whitelisted User-Agent spoofing to prevent 403 Forbidden blocks.
+ * Vercel Serverless Function: CORS & Mixed Content Proxy para desarrollo y vistas web locales.
+ * 
+ * FASE 21 — REGLA ARQUITECTÓNICA ESTRICTA:
+ * NUNCA se debe hacer proxy de los flujos continuos de vídeo de 10 Mbps hacia TVs o reproductores externos
+ * (TiviMate, VLC, OTT Navigator, Lelouch TV, Android Box, etc.).
+ * 
+ * Arquitectura canónica:
+ * TV -> descarga playlist -> LELOUCH VERCEL (devuelve texto M3U / manifest JSON)
+ * TV -> solicita stream directamente -> PROVEEDOR
+ * 
+ * Hacer proxy de streams de vídeo por Vercel es innecesario, costoso (ancho de banda CDN / timeouts de 10-60s)
+ * y frágil. Lelouch publica la playlist; NO retransmite el vídeo.
+ * 
+ * Este endpoint existe únicamente como mecanismo de compatibilidad para el reproductor web en navegador
+ * cuando se topa con restricciones del sandbox del navegador (CORS o Mixed Content HTTP sobre HTTPS).
  */
 import { Readable } from 'node:stream';
 

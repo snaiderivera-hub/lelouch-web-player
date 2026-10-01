@@ -1,0 +1,8 @@
+# Lelouch IPTV Player - Crawler Quarantine
+# The M3U playlist URLs and API endpoints act as shared secrets / private credentials.
+# Crawlers and search engines are strictly prohibited from indexing API and playlist endpoints.
+
+User-agent: *
+Disallow: /api/
+Disallow: /api/playlist/
+Disallow: /api/playlist/*

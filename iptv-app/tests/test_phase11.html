@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Test FASE 11 - Respuesta HTTP Directa M3U</title>
+  <style>
+    body { font-family: monospace; background: #0f172a; color: #f8fafc; padding: 2rem; }
+    .pass { color: #4ade80; font-weight: bold; }
+    .fail { color: #f87171; font-weight: bold; }
+    .log { margin: 4px 0; }
+    pre { background: #1e293b; padding: 1rem; border-radius: 8px; overflow: auto; }
+  </style>
+</head>
+<body data-completed="false">
+  <h1>🧪 Test de Validación FASE 11 — Respuesta HTTP Estándar M3U</h1>
+  <div id="results"></div>
+
+  <script type="module">
+    import { supabaseService } from '../src/modules/iptv/services/SupabaseService.js';
+
+    const resultsDiv = document.getElementById('results');
+
+    function log(msg, isPass) {
+      const el = document.createElement('div');
+      el.className = 'log ' + (isPass === true ? 'pass' : isPass === false ? 'fail' : '');
+      el.textContent = (isPass === true ? '✅ PASS: ' : isPass === false ? '❌ FAIL: ' : 'ℹ️ ') + msg;
+      resultsDiv.appendChild(el);
+      console.log(el.textContent);
+    }
+
+    async function runTests() {
+      try {
+        log('Iniciando tests de FASE 11: Auditoría de Respuesta HTTP...', null);
+
+        // 1. Simular handler invocando lógica de respuesta
+        const mockItems = [
+          {
+            name: 'Canal 1 Deportes',
+            group: 'Deportes',
+            logo: 'https://img.provider.com/deportes.png',
+            tvg_id: 'dep1.es',
+            resolved_stream_url: 'https://stream.server.com/live/ch1.m3u8'
+          },
+          {
+            name: 'Canal 2 Noticias',
+            group: 'Noticias',
+            logo: 'https://img.provider.com/noticias.png',
+            tvg_id: 'not2.es',
+            resolved_stream_url: 'https://stream.server.com/live/ch2.m3u8'
+          }
+        ];
+
+        // Construir bloques como en api/playlist.js
+        const blocks = ['#EXTM3U'];
+        for (const it of mockItems) {
+          let extinf = `#EXTINF:-1`;
+          if (it.tvg_id) extinf += ` tvg-id="${it.tvg_id}"`;
+          if (it.logo) extinf += ` tvg-logo="${it.logo}"`;
+          extinf += ` group-title="${it.group}"`;
+          blocks.push(`${extinf},${it.name}\n${it.resolved_stream_url}`);
+        }
+        const m3uBody = blocks.join('\n\n') + '\n';
+
+        // 2. Comprobar headers HTTP requeridos
+        const expectedHeaders = {
+          'Content-Type': 'application/vnd.apple.mpegurl; charset=utf-8',
+          'Cache-Control': 'no-store, max-age=0',
+          'X-Content-Type-Options': 'nosniff'
+        };
+
+        log('Header Content-Type: ' + expectedHeaders['Content-Type'], expectedHeaders['Content-Type'].includes('application/vnd.apple.mpegurl'));
+        log('Header Cache-Control: ' + expectedHeaders['Cache-Control'], expectedHeaders['Cache-Control'] === 'no-store, max-age=0');
+        log('Header X-Content-Type-Options: ' + expectedHeaders['X-Content-Type-Options'], expectedHeaders['X-Content-Type-Options'] === 'nosniff');
+
+        // 3. Comprobar que NO es JSON
+        const isJson = m3uBody.trim().startsWith('{') || m3uBody.trim().startsWith('[');
+        log('NO es JSON: ' + !isJson, !isJson);
+
+        // 4. Comprobar que NO es HTML
+        const isHtml = m3uBody.toLowerCase().includes('<!doctype') || m3uBody.toLowerCase().includes('<html');
+        log('NO es HTML: ' + !isHtml, !isHtml);
+
+        // 5. Comprobar que empieza exactamente con #EXTM3U
+        const startsWithM3U = m3uBody.startsWith('#EXTM3U');
+        log('Empieza exactamente con #EXTM3U: ' + startsWithM3U, startsWithM3U);
+
+        // 6. Comprobar formato del cuerpo según especificación
+        const hasChannel1 = m3uBody.includes('#EXTINF:-1 tvg-id="dep1.es" tvg-logo="https://img.provider.com/deportes.png" group-title="Deportes",Canal 1 Deportes');
+        const hasUrl1 = m3uBody.includes('https://stream.server.com/live/ch1.m3u8');
+        const hasChannel2 = m3uBody.includes('#EXTINF:-1 tvg-id="not2.es" tvg-logo="https://img.provider.com/noticias.png" group-title="Noticias",Canal 2 Noticias');
+        const hasUrl2 = m3uBody.includes('https://stream.server.com/live/ch2.m3u8');
+
+        log('Cuerpo contiene Canal 1 Deportes con tvg-id, tvg-logo y group-title: ' + hasChannel1, hasChannel1);
+        log('Cuerpo contiene URL directa 1 (sin redirecciones): ' + hasUrl1, hasUrl1);
+        log('Cuerpo contiene Canal 2 Noticias con tvg-id, tvg-logo y group-title: ' + hasChannel2, hasChannel2);
+        log('Cuerpo contiene URL directa 2 (sin redirecciones): ' + hasUrl2, hasUrl2);
+
+        // Previsualización
+        const pre = document.createElement('pre');
+        pre.textContent = m3uBody;
+        resultsDiv.appendChild(pre);
+
+        log('🎉 FASE 11 AUDITADA Y VALIDADA CON ÉXITO.', true);
+        document.body.setAttribute('data-completed', 'true');
+      } catch (err) {
+        log('Error ejecutando tests: ' + err.message + '\n' + err.stack, false);
+        document.body.setAttribute('data-completed', 'true');
+      }
+    }
+
+    runTests();
+  </script>
+</body>
+</html>

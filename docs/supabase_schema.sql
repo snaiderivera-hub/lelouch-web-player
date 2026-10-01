@@ -122,19 +122,27 @@ ALTER TABLE public.playlist_items ADD COLUMN IF NOT EXISTS direct_url TEXT;
 ALTER TABLE public.playlist_items ADD COLUMN IF NOT EXISTS direct_group TEXT;
 ALTER TABLE public.playlist_items ADD COLUMN IF NOT EXISTS direct_logo TEXT;
 
--- 8. TABLA: TOKENS DE ACCESO PÚBLICO PERMANENTE
+-- 8. TABLA: TOKENS DE ACCESO PÚBLICO PERMANENTE (FASE 9: HASH SHA-256)
 CREATE TABLE IF NOT EXISTS public.playlist_access_tokens (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     playlist_id UUID NOT NULL REFERENCES public.custom_playlists(id) ON DELETE CASCADE,
     token_hash TEXT NOT NULL UNIQUE,
-    token_preview TEXT NOT NULL,
-    name TEXT NOT NULL DEFAULT 'Acceso Dispositivo',
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    token_prefix TEXT,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
     expires_at TIMESTAMPTZ,
     last_accessed_at TIMESTAMPTZ,
-    access_count BIGINT NOT NULL DEFAULT 0,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    request_count BIGINT NOT NULL DEFAULT 0,
+    token_preview TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
+    access_count BIGINT DEFAULT 0,
+    name TEXT DEFAULT 'Dispositivo'
 );
+
+ALTER TABLE public.playlist_access_tokens ADD COLUMN IF NOT EXISTS token_prefix TEXT;
+ALTER TABLE public.playlist_access_tokens ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE public.playlist_access_tokens ADD COLUMN IF NOT EXISTS request_count BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE public.playlist_access_tokens ADD COLUMN IF NOT EXISTS last_accessed_at TIMESTAMPTZ;
 
 -- ====================================================================
 -- VISTA: RESOLUCIÓN DINÁMICA DE URLs VIVAS
@@ -149,16 +157,19 @@ SELECT
     pi.source_id,
     pi.catalog_item_id,
     pi.media_type,
+    -- Nombre resuelto (FASE 27: custom_name toma precedencia sobre nombre importado)
     CASE 
-        WHEN pi.item_type = 'direct' THEN COALESCE(pi.direct_name, pi.custom_name, 'Canal Directo')
+        WHEN pi.item_type = 'direct' THEN COALESCE(pi.custom_name, pi.direct_name, 'Canal Directo')
         ELSE COALESCE(pi.custom_name, 'Canal sin nombre')
     END AS name,
+    -- Grupo / Categoría resuelta (FASE 27: custom_group toma precedencia sobre grupo importado)
     CASE 
-        WHEN pi.item_type = 'direct' THEN COALESCE(pi.direct_group, pi.custom_group, 'Directos')
+        WHEN pi.item_type = 'direct' THEN COALESCE(pi.custom_group, pi.direct_group, 'Directos')
         ELSE COALESCE(pi.custom_group, 'General')
     END AS "group",
+    -- Logo resuelto (FASE 27: custom_logo toma precedencia sobre logo importado)
     CASE 
-        WHEN pi.item_type = 'direct' THEN COALESCE(pi.direct_logo, pi.custom_logo)
+        WHEN pi.item_type = 'direct' THEN COALESCE(pi.custom_logo, pi.direct_logo)
         ELSE pi.custom_logo
     END AS logo,
     pi.direct_name,
@@ -231,22 +242,54 @@ CREATE POLICY "Acceso total channel_health anon" ON public.channel_health FOR AL
 DROP POLICY IF EXISTS "Acceso total catalog_cache anon" ON public.catalog_cache;
 CREATE POLICY "Acceso total catalog_cache anon" ON public.catalog_cache FOR ALL TO anon USING (true) WITH CHECK (true);
 
+-- FASE 22: RLS Granular para Listas Personalizadas
+-- Usuario autenticado solo administra SUS playlists, items y tokens
 DROP POLICY IF EXISTS "Acceso total custom_playlists anon" ON public.custom_playlists;
-CREATE POLICY "Acceso total custom_playlists anon" ON public.custom_playlists FOR ALL TO anon USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "custom_playlists_auth_all" ON public.custom_playlists;
+CREATE POLICY "custom_playlists_auth_all" ON public.custom_playlists
+    FOR ALL TO authenticated
+    USING (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "custom_playlists_anon_all" ON public.custom_playlists;
+CREATE POLICY "custom_playlists_anon_all" ON public.custom_playlists
+    FOR ALL TO anon
+    USING (user_id IS NULL)
+    WITH CHECK (user_id IS NULL);
 
 DROP POLICY IF EXISTS "Acceso total playlist_items anon" ON public.playlist_items;
-CREATE POLICY "Acceso total playlist_items anon" ON public.playlist_items FOR ALL TO anon USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "playlist_items_auth_all" ON public.playlist_items;
+CREATE POLICY "playlist_items_auth_all" ON public.playlist_items
+    FOR ALL TO authenticated
+    USING (playlist_id IN (SELECT id FROM public.custom_playlists WHERE user_id = auth.uid()))
+    WITH CHECK (playlist_id IN (SELECT id FROM public.custom_playlists WHERE user_id = auth.uid()));
+
+DROP POLICY IF EXISTS "playlist_items_anon_all" ON public.playlist_items;
+CREATE POLICY "playlist_items_anon_all" ON public.playlist_items
+    FOR ALL TO anon
+    USING (playlist_id IN (SELECT id FROM public.custom_playlists WHERE user_id IS NULL))
+    WITH CHECK (playlist_id IN (SELECT id FROM public.custom_playlists WHERE user_id IS NULL));
 
 DROP POLICY IF EXISTS "Acceso total playlist_access_tokens anon" ON public.playlist_access_tokens;
-CREATE POLICY "Acceso total playlist_access_tokens anon" ON public.playlist_access_tokens FOR ALL TO anon USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "tokens_auth_all" ON public.playlist_access_tokens;
+CREATE POLICY "tokens_auth_all" ON public.playlist_access_tokens
+    FOR ALL TO authenticated
+    USING (playlist_id IN (SELECT id FROM public.custom_playlists WHERE user_id = auth.uid()))
+    WITH CHECK (playlist_id IN (SELECT id FROM public.custom_playlists WHERE user_id = auth.uid()));
 
--- Permisos directos al rol anon
-GRANT ALL ON TABLE public.playlists TO anon;
-GRANT ALL ON TABLE public.favorites TO anon;
-GRANT ALL ON TABLE public.watch_history TO anon;
-GRANT ALL ON TABLE public.channel_health TO anon;
-GRANT ALL ON TABLE public.catalog_cache TO anon;
-GRANT ALL ON TABLE public.custom_playlists TO anon;
-GRANT ALL ON TABLE public.playlist_items TO anon;
-GRANT ALL ON TABLE public.playlist_access_tokens TO anon;
-GRANT SELECT ON public.v_resolved_playlist_items TO anon;
+DROP POLICY IF EXISTS "tokens_anon_all" ON public.playlist_access_tokens;
+CREATE POLICY "tokens_anon_all" ON public.playlist_access_tokens
+    FOR ALL TO anon
+    USING (playlist_id IN (SELECT id FROM public.custom_playlists WHERE user_id IS NULL))
+    WITH CHECK (playlist_id IN (SELECT id FROM public.custom_playlists WHERE user_id IS NULL));
+
+-- Permisos directos
+GRANT ALL ON TABLE public.playlists TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.favorites TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.watch_history TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.channel_health TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.catalog_cache TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.custom_playlists TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.playlist_items TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.playlist_access_tokens TO anon, authenticated, service_role;
+GRANT SELECT ON public.v_resolved_playlist_items TO anon, authenticated, service_role;

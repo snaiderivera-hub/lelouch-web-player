@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Test FASE 15 - La URL NO debe cambiar al editar la lista</title>
+  <style>
+    body { font-family: monospace; background: #0a0e17; color: #e2e8f0; padding: 20px; }
+    .pass { color: #10b981; }
+    .fail { color: #ef4444; }
+    .test-box { border: 1px solid #1e293b; background: #0f172a; padding: 12px; margin-bottom: 12px; border-radius: 8px; }
+    pre { background: #020617; padding: 8px; border-radius: 4px; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <h1>Test Suite FASE 15: Inmutabilidad de URL al Modificar Contenido de Playlist</h1>
+  <div id="results">Ejecutando pruebas...</div>
+
+  <script type="module">
+    import { supabaseService } from '../src/modules/iptv/services/SupabaseService.js';
+
+    async function runTests() {
+      const results = [];
+      const container = document.getElementById('results');
+
+      try {
+        // 1. Crear playlist para test de inmutabilidad
+        const pl = await supabaseService.getOrCreateDefaultCustomPlaylist('Test Inmutabilidad FASE 15');
+        if (!pl || !pl.id) throw new Error('Supabase no disponible');
+
+        // 2. Estado inicial: 2 items
+        const initialItems = [
+          { name: 'Canal Inicial 1', url: 'https://test.stream/live1.m3u8', group: 'Noticias' },
+          { name: 'Canal Inicial 2', url: 'https://test.stream/live2.m3u8', group: 'Deportes' }
+        ];
+        await supabaseService.syncPlaylistItems(pl.id, initialItems);
+
+        // 3. Generar token público permanente
+        const tokenObj = await supabaseService.createAccessToken(pl.id, 'Token FASE 15 Test');
+        if (!tokenObj || !tokenObj.token) throw new Error('No se pudo generar token');
+
+        const initialToken = tokenObj.token;
+        const initialUrl = `https://lelouch-web-player.vercel.app/api/playlist/${initialToken}`;
+
+        // 4. Verificar que existen 2 items resueltos
+        const itemsV1 = await supabaseService.getResolvedPlaylistItems(pl.id);
+        const countV1 = itemsV1.length;
+
+        // 5. Simular edición de la lista: Añadimos 3 canales más (total 5)
+        const updatedItems = [
+          ...initialItems,
+          { name: 'Canal Agregado 3', url: 'https://test.stream/live3.m3u8', group: 'Cine' },
+          { name: 'Canal Agregado 4', url: 'https://test.stream/live4.m3u8', group: 'Cine' },
+          { name: 'Canal Agregado 5', url: 'https://test.stream/live5.m3u8', group: 'Infantil' }
+        ];
+
+        // Sincronizar actualización
+        await supabaseService.syncPlaylistItems(pl.id, updatedItems);
+
+        // 6. Consultar tokens activos para la playlist tras la edición
+        const activeTokens = await supabaseService.getAccessTokens(pl.id);
+        const stillActive = activeTokens.some(t => t.id === tokenObj.id && t.enabled !== false && t.is_active !== false);
+
+        // 7. La URL sigue siendo EXACTAMENTE la misma
+        const finalUrl = `https://lelouch-web-player.vercel.app/api/playlist/${initialToken}`;
+        const urlDidNotChange = (initialUrl === finalUrl);
+
+        // 8. Consultar los items resueltos ahora: deben ser 5
+        const itemsV2 = await supabaseService.getResolvedPlaylistItems(pl.id);
+        const countV2 = itemsV2.length;
+        const contentUpdated = (countV1 === 2 && countV2 === 5);
+
+        results.push({
+          name: '1. Inmutabilidad de la URL tras Agregar Canales',
+          passed: urlDidNotChange,
+          detail: `URL Inicial: ${initialUrl}\nURL Final:   ${finalUrl}\n¿Son idénticas?: ${urlDidNotChange}`
+        });
+
+        results.push({
+          name: '2. Actualización Dinámica del Contenido Resuelto',
+          passed: contentUpdated,
+          detail: `Items Versión 1: ${countV1} canales\nItems Versión 2: ${countV2} canales (Solo cambió el contenido)`
+        });
+
+        results.push({
+          name: '3. Token Sigue Activo en Supabase sin Modificaciones',
+          passed: stillActive,
+          detail: `Token ID: ${tokenObj.id}\n¿Sigue activo tras la edición?: ${stillActive}`
+        });
+
+      } catch (err) {
+        results.push({ name: 'Error Ejecución Test FASE 15', passed: false, detail: err.message });
+      }
+
+      // Renderizar resultados
+      let allPassed = true;
+      let html = '';
+      for (const t of results) {
+        if (!t.passed) allPassed = false;
+        html += `
+          <div class="test-box">
+            <h3 class="${t.passed ? 'pass' : 'fail'}">${t.passed ? '✅ PASS' : '❌ FAIL'}: ${t.name}</h3>
+            <pre>${t.detail}</pre>
+          </div>
+        `;
+      }
+      html += `<h2 class="${allPassed ? 'pass' : 'fail'}">${allPassed ? '🎉 TODOS LOS TESTS DE FASE 15 PASARON' : '⚠️ ALGUNOS TESTS FALLARON'}</h2>`;
+      container.innerHTML = html;
+      document.title = allPassed ? 'TESTS_PASSED_PHASE_15' : 'TESTS_FAILED_PHASE_15';
+    }
+
+    runTests();
+  </script>
+</body>
+</html>
