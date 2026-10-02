@@ -1704,6 +1704,13 @@ function setupSettingsTabs() {
       return;
     }
 
+    if (url.includes('/api/playlist/')) {
+      toast('💡 Esta es tu URL de lista sincronizada en la nube. Ya está lista en la pestaña "Creador de Lista M3U" o pulsando "TV en Vivo".', 'info', 5000);
+      const customTabBtn = document.querySelector('.settings-tab-btn[data-tab="custom-m3u"]');
+      if (customTabBtn) customTabBtn.click();
+      return;
+    }
+
     try {
       await loadCatalogWithProgress(url);
       $('settings-url-input').value = '';
@@ -1718,13 +1725,47 @@ async function renderSettingsPlaylists() {
   const container = $('saved-playlists-list');
   if (!container) return;
 
+  const customList = getCustomM3UList();
+  let customCardHtml = '';
+  if (customList && customList.length > 0) {
+    customCardHtml = `
+      <div class="playlist-card-row custom-m3u-featured-banner" style="background:linear-gradient(135deg, rgba(6,182,212,0.1) 0%, rgba(16,185,129,0.08) 100%); border:1px solid rgba(6,182,212,0.45); border-radius:14px; margin-bottom:1.5rem; box-shadow:0 6px 24px rgba(6,182,212,0.1); position:relative; overflow:hidden;">
+        <div style="position:absolute; top:0; left:0; width:4px; height:100%; background:linear-gradient(180deg, #00e5ff, #10b981);"></div>
+        <div class="pl-info" style="padding-left:6px;">
+          <div class="pl-title-row" style="flex-wrap:wrap; gap:6px;">
+            <span class="pl-name" style="color:var(--accent-cyan); font-weight:800; font-size:1.02rem; display:inline-flex; align-items:center; gap:6px;">
+              <span>⭐</span> Tu Lista Generada LELOUCH
+            </span>
+            <span class="badge-mini" style="background:rgba(16,185,129,0.2); color:#10b981; border:1px solid rgba(16,185,129,0.4); font-size:10px; font-weight:700;">☁️ Sincronizada en Supabase</span>
+            <span class="badge-mini" style="background:rgba(6,182,212,0.18); color:var(--accent-cyan); border:1px solid rgba(6,182,212,0.35); font-size:10px; font-weight:700;">${customList.length} canales</span>
+          </div>
+          <div class="pl-sub" style="margin-top:5px; color:var(--text-secondary); font-size:0.8rem;">
+            <span>Creada con el <b>Creador de Lista M3U</b></span> •
+            <span>Lista para consumir vía: <b>Copiar M3U</b>, <b>Descargar .m3u</b> o <b>URL Nube</b></span>
+          </div>
+        </div>
+        <div class="pl-actions" style="flex-wrap:wrap; gap:6px;">
+          <button id="btn-featured-custom-play" class="btn btn-primary btn-sm" style="font-weight:700; background:linear-gradient(135deg, #00e5ff, #0088ff); color:#02070d;" title="Ver y reproducir tus canales en TV en Vivo ahora">
+            📺 Ver en TV en Vivo
+          </button>
+          <button id="btn-featured-custom-manage" class="btn btn-secondary btn-sm" style="border-color:rgba(6,182,212,0.4); color:var(--accent-cyan);" title="Ir a la pestaña Creador M3U para editar, ordenar o agregar canales">
+            🔧 Abrir Creador M3U
+          </button>
+          <button id="btn-featured-custom-url" class="btn btn-primary btn-sm" style="font-weight:700; background:linear-gradient(135deg, #10b981, #059669); color:#ffffff; border:none;" title="Ver o copiar enlace M3U público con token">
+            🌐 Enlace M3U
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
   const lists = await playlistService.getAll();
-  if (lists.length === 0) {
+  if (lists.length === 0 && !customCardHtml) {
     container.innerHTML = `<div class="empty-state"><div class="empty-title">Sin playlists guardadas</div><div class="empty-sub">Ingresa un enlace arriba para registrar tu primera cuenta.</div></div>`;
     return;
   }
 
-  container.innerHTML = lists.map((pl) => `
+  const providerCardsHtml = lists.map((pl) => `
     <div class="playlist-card-row ${pl.isActive ? 'active' : ''}">
       <div class="pl-info">
         <div class="pl-title-row">
@@ -1751,7 +1792,21 @@ async function renderSettingsPlaylists() {
     </div>
   `).join('');
 
-  // Eventos de botones
+  container.innerHTML = customCardHtml + providerCardsHtml;
+
+  // Listeners de la tarjeta destacada de la lista personalizada
+  $('btn-featured-custom-play')?.addEventListener('click', () => {
+    $('btn-custom-m3u-play-live')?.click();
+  });
+  $('btn-featured-custom-manage')?.addEventListener('click', () => {
+    const customTabBtn = document.querySelector('.settings-tab-btn[data-tab="custom-m3u"]');
+    if (customTabBtn) customTabBtn.click();
+  });
+  $('btn-featured-custom-url')?.addEventListener('click', () => {
+    generateAndShowPublicM3ULink();
+  });
+
+  // Eventos de botones de proveedores
   container.querySelectorAll('.btn-activate-pl').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const active = await playlistService.activate(btn.dataset.id);

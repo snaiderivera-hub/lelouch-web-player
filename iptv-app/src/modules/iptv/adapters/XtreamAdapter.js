@@ -49,6 +49,9 @@ function getProxyBase() {
  * En Vercel / HTTPS siempre se activa para evitar bloqueo de contenido mixto y CORS.
  */
 function shouldUseProxy(serverBaseUrl) {
+  if (typeof window !== 'undefined' && serverBaseUrl.includes(window.location.host)) {
+    return false;
+  }
   if (typeof window !== 'undefined' && (window.location.protocol === 'https:' || (!window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1')))) {
     return true;
   }

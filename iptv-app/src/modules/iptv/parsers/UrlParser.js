@@ -87,7 +87,7 @@ function detectSourceType(pathname, params, rawUrl) {
     return SourceType.XMLTV;
   }
 
-  if (rawUrl.endsWith('.m3u') || rawUrl.endsWith('.m3u8') || params['type'] === 'm3u_plus') {
+  if (path.includes('/api/playlist') || rawUrl.endsWith('.m3u') || rawUrl.endsWith('.m3u8') || params['type'] === 'm3u_plus') {
     return hasCredentials ? SourceType.XTREAM_M3U : SourceType.M3U_REMOTE;
   }
 
