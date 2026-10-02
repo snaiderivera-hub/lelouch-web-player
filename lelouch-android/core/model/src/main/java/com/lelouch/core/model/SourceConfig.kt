@@ -21,5 +21,12 @@ data class SourceConfig(
     val expireDate: String? = null,
     val isTrial: Boolean = false,
     val isActive: Boolean = true,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    /**
+     * Token de acceso para playlists personalizadas (SourceType.M3U).
+     * Se usa para construir la URL: /api/playlist/<accessToken>
+     * No es la contraseña Xtream — es el token generado en Supabase/Vercel.
+     */
+    val accessToken: String? = null
 )
+

@@ -15,7 +15,11 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.lelouch.core.data.sync.SyncState
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.lelouch.core.designsystem.LelouchBackground
+import com.lelouch.core.designsystem.LelouchCyanAccent
 import com.lelouch.core.designsystem.LelouchTheme
 import com.lelouch.core.designsystem.LelouchTvTheme
 import com.lelouch.feature.mobile.MobileHomeScreen
@@ -82,7 +86,13 @@ class MainActivity : ComponentActivity() {
                 lifecycleScope.launch {
                     val activated = app.authRepository.activateSource(sourceId)
                     if (activated != null) {
-                        app.syncManager.syncAll(activated.id, activated.serverUrl, activated.username, activated.password)
+                        app.syncManager.syncAll(
+                            sourceId = activated.id,
+                            serverUrl = activated.serverUrl,
+                            user = activated.username,
+                            pass = activated.password,
+                            sourceType = activated.type
+                        )
                     }
                 }
             }
@@ -113,7 +123,13 @@ class MainActivity : ComponentActivity() {
             fun onForceSync() {
                 activeSource?.let { src ->
                     lifecycleScope.launch {
-                        app.syncManager.syncAll(src.id, src.serverUrl, src.username, src.password)
+                        app.syncManager.syncAll(
+                            sourceId = src.id,
+                            serverUrl = src.serverUrl,
+                            user = src.username,
+                            pass = src.password,
+                            sourceType = src.type
+                        )
                     }
                 }
             }
@@ -124,14 +140,22 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            val liveChannels by (if (activeSource != null) app.channelRepository.getAllChannels(activeSource!!.id) else app.channelRepository.getAllChannels()).collectAsStateWithLifecycle(initialValue = emptyList())
-            val liveChannelsPaging = if (activeSource != null) app.channelRepository.getAllChannelsPaging(activeSource!!.id) else app.channelRepository.getAllChannelsPaging()
+            val effectiveActiveSource = activeSource ?: allSources.firstOrNull()
+
+            LaunchedEffect(effectiveActiveSource?.id) {
+                if (activeSource == null && effectiveActiveSource != null) {
+                    onActivateSource(effectiveActiveSource.id)
+                }
+            }
+
+            val liveChannels by (if (effectiveActiveSource != null) app.channelRepository.getAllChannels(effectiveActiveSource.id) else kotlinx.coroutines.flow.emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
+            val liveChannelsPaging = if (effectiveActiveSource != null) app.channelRepository.getAllChannelsPaging(effectiveActiveSource.id) else app.channelRepository.getAllChannelsPaging("__empty__")
             
-            val movies by (if (activeSource != null) app.vodRepository.getAllMovies(activeSource!!.id) else app.vodRepository.getAllMovies()).collectAsStateWithLifecycle(initialValue = emptyList())
-            val seriesList by (if (activeSource != null) app.seriesRepository.getAllSeries(activeSource!!.id) else app.seriesRepository.getAllSeries()).collectAsStateWithLifecycle(initialValue = emptyList())
-            val liveCategories by (if (activeSource != null) app.channelRepository.getCategories(activeSource!!.id) else emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
-            val vodCategories by (if (activeSource != null) app.vodRepository.getCategories(activeSource!!.id) else emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
-            val seriesCategories by (if (activeSource != null) app.seriesRepository.getCategories(activeSource!!.id) else emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
+            val movies by (if (effectiveActiveSource != null) app.vodRepository.getAllMovies(effectiveActiveSource.id) else kotlinx.coroutines.flow.emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
+            val seriesList by (if (effectiveActiveSource != null) app.seriesRepository.getAllSeries(effectiveActiveSource.id) else kotlinx.coroutines.flow.emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
+            val liveCategories by (if (effectiveActiveSource != null) app.channelRepository.getCategories(effectiveActiveSource.id) else emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
+            val vodCategories by (if (effectiveActiveSource != null) app.vodRepository.getCategories(effectiveActiveSource.id) else emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
+            val seriesCategories by (if (effectiveActiveSource != null) app.seriesRepository.getCategories(effectiveActiveSource.id) else emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
             val favoriteChannels by app.channelRepository.getFavoriteChannels().collectAsStateWithLifecycle(initialValue = emptyList())
             val favoriteMovies by app.vodRepository.getFavoriteMovies().collectAsStateWithLifecycle(initialValue = emptyList())
 
@@ -141,9 +165,9 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxSize(),
                         color = LelouchBackground
                     ) {
-                        if (activeSource != null) {
+                        if (effectiveActiveSource != null) {
                             TvHomeScreen(
-                                activeSource = activeSource,
+                                activeSource = effectiveActiveSource,
                                 allSources = allSources,
                                 liveChannels = liveChannels,
                                 liveChannelsPaging = liveChannelsPaging,
@@ -167,28 +191,37 @@ class MainActivity : ComponentActivity() {
                                 onForceSync = ::onForceSync,
                                 onLogout = ::onLogout,
                                 onFetchSeriesDetails = { seriesId ->
-                                    activeSource?.let { src ->
-                                        app.seriesRepository.getSeriesDetailAndEpisodes(
-                                            src.serverUrl,
-                                            src.username,
-                                            src.password,
-                                            seriesId
-                                        )
-                                    } ?: Pair(listOf(1), emptyList())
+                                    app.seriesRepository.getSeriesDetailAndEpisodes(
+                                        effectiveActiveSource.serverUrl,
+                                        effectiveActiveSource.username,
+                                        effectiveActiveSource.password,
+                                        seriesId
+                                    )
                                 }
                             )
                         } else {
-                            TvLoginScreen(
-                                isLoading = isLoading,
-                                errorMessage = errorMessage,
-                                syncStatusText = syncStatusText,
-                                savedSources = allSources,
-                                onSelectSavedSource = { src ->
-                                    onLogin(src.serverUrl, src.username, src.password)
-                                },
-                                onSyncCloudSources = ::onSyncCloud,
-                                onLoginClick = ::onLogin
-                            )
+                            androidx.compose.foundation.layout.Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = androidx.compose.ui.Alignment.Center
+                            ) {
+                                androidx.compose.foundation.layout.Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+                                    androidx.compose.material3.Text(
+                                        text = "REPRODUCTOR LELOUCH",
+                                        color = androidx.compose.ui.graphics.Color.White,
+                                        fontSize = 28.sp,
+                                        fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+                                        letterSpacing = 2.sp
+                                    )
+                                    androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(10.dp))
+                                    androidx.compose.material3.Text(
+                                        text = "Sincronizando listas desde Supabase Cloud...",
+                                        color = LelouchCyanAccent,
+                                        fontSize = 13.sp
+                                    )
+                                    androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(24.dp))
+                                    androidx.compose.material3.CircularProgressIndicator(color = LelouchCyanAccent)
+                                }
+                            }
                         }
                     }
                 }
@@ -198,9 +231,9 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxSize(),
                         color = LelouchBackground
                     ) {
-                        if (activeSource != null) {
+                        if (effectiveActiveSource != null) {
                             MobileHomeScreen(
-                                activeSource = activeSource,
+                                activeSource = effectiveActiveSource,
                                 allSources = allSources,
                                 liveChannels = liveChannels,
                                 liveCategories = liveCategories,
@@ -224,16 +257,28 @@ class MainActivity : ComponentActivity() {
                                 onLogout = ::onLogout
                             )
                         } else {
-                            MobileLoginScreen(
-                                isLoading = isLoading,
-                                errorMessage = errorMessage,
-                                savedSources = allSources,
-                                onSelectSavedSource = { src ->
-                                    onLogin(src.serverUrl, src.username, src.password)
-                                },
-                                onSyncCloudSources = ::onSyncCloud,
-                                onLoginClick = ::onLogin
-                            )
+                            androidx.compose.foundation.layout.Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = androidx.compose.ui.Alignment.Center
+                            ) {
+                                androidx.compose.foundation.layout.Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+                                    androidx.compose.material3.Text(
+                                        text = "REPRODUCTOR LELOUCH",
+                                        color = androidx.compose.ui.graphics.Color.White,
+                                        fontSize = 22.sp,
+                                        fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+                                        letterSpacing = 1.5.sp
+                                    )
+                                    androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(10.dp))
+                                    androidx.compose.material3.Text(
+                                        text = "Sincronizando listas desde Supabase Cloud...",
+                                        color = LelouchCyanAccent,
+                                        fontSize = 12.sp
+                                    )
+                                    androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(20.dp))
+                                    androidx.compose.material3.CircularProgressIndicator(color = LelouchCyanAccent)
+                                }
+                            }
                         }
                     }
                 }

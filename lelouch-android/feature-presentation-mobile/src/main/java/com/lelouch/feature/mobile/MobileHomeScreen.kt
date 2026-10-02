@@ -79,6 +79,7 @@ fun MobileHomeScreen(
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var activeStreamUrl by remember { mutableStateOf<String?>(null) }
+    var isLivePlayback by remember { mutableStateOf(true) }
     var activeChannelName by remember { mutableStateOf("") }
     var searchQuery by remember { mutableStateOf("") }
     var isPlayerFullscreen by remember { mutableStateOf(false) }
@@ -87,13 +88,8 @@ fun MobileHomeScreen(
     val context = LocalContext.current
     val activity = context as? Activity
 
-    // Rotación automática horizontal para reproducción a pantalla completa en teléfonos
+    // No forzar rotacion horizontal para permitir orientacion natural en telefonos
     DisposableEffect(isPlayerFullscreen) {
-        if (isPlayerFullscreen) {
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        } else {
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        }
         onDispose {
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
@@ -146,7 +142,7 @@ fun MobileHomeScreen(
     var isUpdateModalOpen by remember { mutableStateOf(false) }
 
     LaunchedEffect(activeStreamUrl) {
-        activeStreamUrl?.let { url -> playerEngine.playStream(url, isLive = true) }
+        activeStreamUrl?.let { url -> playerEngine.playStream(url, isLive = isLivePlayback) }
     }
 
     if (isUpdateModalOpen) {
@@ -160,9 +156,9 @@ fun MobileHomeScreen(
             movie = movie,
             activeSource = activeSource,
             onPlay = { url ->
-                playerEngine.playStream(url, isLive = false)
-                activeStreamUrl = url
+                isLivePlayback = false
                 activeChannelName = movie.name
+                activeStreamUrl = url
                 selectedMovie = null
             },
             onDismiss = { selectedMovie = null }
@@ -173,16 +169,12 @@ fun MobileHomeScreen(
         MobileSeriesDetailDialog(series = series, onDismiss = { selectedSeries = null })
     }
 
+    BackHandler(enabled = selectedTab != 0 && !isPlayerFullscreen) {
+        selectedTab = 0
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
-            bottomBar = {
-                if (!isPlayerFullscreen) {
-                    MobileBottomNavBar(selectedTab = selectedTab, onTabChange = {
-                        selectedTab = it
-                        searchQuery = ""
-                    })
-                }
-            },
             containerColor = LelouchBackground
         ) { paddingValues ->
             Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
@@ -207,7 +199,9 @@ fun MobileHomeScreen(
                     showSearch = selectedTab != 4,
                     searchQuery = searchQuery,
                     onSearchChange = { searchQuery = it },
-                    onSettingsTap = { selectedTab = 4 }
+                    onSettingsTap = { selectedTab = 4 },
+                    selectedTab = selectedTab,
+                    onBackTap = { selectedTab = 0 }
                 )
                 AnimatedContent(
                     targetState = selectedTab,
@@ -219,7 +213,7 @@ fun MobileHomeScreen(
                         0 -> MobileHomeTab(
                             liveChannels = liveChannels, movies = movies, seriesList = seriesList,
                             activeSource = activeSource,
-                            onChannelClick = { ch, url -> activeChannelName = ch; activeStreamUrl = url },
+                            onChannelClick = { ch, url -> isLivePlayback = true; activeChannelName = ch; activeStreamUrl = url },
                             onMovieClick = { selectedMovie = it },
                             onSeriesClick = { selectedSeries = it },
                             onSeeAllLive = { selectedTab = 1 },
@@ -235,7 +229,7 @@ fun MobileHomeScreen(
                             categories = liveCategoryList,
                             favoriteChannels = favoriteChannels,
                             onToggleFavorite = onToggleFavoriteChannel,
-                            onChannelClick = { ch, url -> activeChannelName = ch; activeStreamUrl = url }
+                            onChannelClick = { ch, url -> isLivePlayback = true; activeChannelName = ch; activeStreamUrl = url }
                         )
                         2 -> MobileMoviesTab(
                             movies = if (searchQuery.isBlank()) movies
@@ -338,7 +332,8 @@ fun MobileHomeScreen(
 @Composable
 private fun MobileTopBar(
     activeSource: SourceConfig?, showSearch: Boolean,
-    searchQuery: String, onSearchChange: (String) -> Unit, onSettingsTap: () -> Unit
+    searchQuery: String, onSearchChange: (String) -> Unit, onSettingsTap: () -> Unit,
+    selectedTab: Int = 0, onBackTap: () -> Unit = {}
 ) {
     var expanded by remember { mutableStateOf(false) }
     Row(
@@ -365,6 +360,12 @@ private fun MobileTopBar(
             }
         } else {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                if (selectedTab != 0) {
+                    IconButton(onClick = onBackTap) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Volver", tint = LelouchCyanAccent)
+                    }
+                    Spacer(Modifier.width(4.dp))
+                }
                 Text("LELOUCH", color = LelouchTextPrimary, fontWeight = FontWeight.Black, fontSize = 20.sp, letterSpacing = 1.sp)
                 if (activeSource != null) {
                     Spacer(Modifier.width(10.dp))
@@ -494,9 +495,10 @@ private fun MobileHomeTab(
                 SectionHeader("Canales en Vivo", liveChannels.size, onSeeAllLive)
                 LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     items(liveChannels.take(15)) { ch ->
-                        val url = activeSource?.let {
-                            XtreamUrlBuilder.buildLiveStreamUrl(it.serverUrl, it.username, it.password, ch.streamId, "m3u8")
-                        } ?: ""
+                        val url = ch.streamUrl.takeIf { it.isNotBlank() }
+                            ?: activeSource?.let {
+                                XtreamUrlBuilder.buildLiveStreamUrl(it.serverUrl, it.username, it.password, ch.streamId, "m3u8")
+                            } ?: ""
                         LiveChannelCard(channel = ch, onClick = { onChannelClick(ch.name, url) })
                     }
                     item { SeeMoreCard(onClick = onSeeAllLive) }
@@ -635,9 +637,10 @@ private fun MobileLiveTab(
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             items(filtered, key = { it.streamId }) { ch ->
-                val url = activeSource?.let {
-                    XtreamUrlBuilder.buildLiveStreamUrl(it.serverUrl, it.username, it.password, ch.streamId, "m3u8")
-                } ?: ""
+                val url = ch.streamUrl.takeIf { it.isNotBlank() }
+                    ?: activeSource?.let {
+                        XtreamUrlBuilder.buildLiveStreamUrl(it.serverUrl, it.username, it.password, ch.streamId, "m3u8")
+                    } ?: ""
                 val isFav = ch.streamId in favIds
                 ChannelListItem(
                     channel = ch,
@@ -998,9 +1001,10 @@ private fun MobileMovieDetailDialog(
     movie: VodMovie, activeSource: SourceConfig?,
     onPlay: (String) -> Unit, onDismiss: () -> Unit
 ) {
-    val streamUrl = activeSource?.let {
-        XtreamUrlBuilder.buildVodStreamUrl(it.serverUrl, it.username, it.password, movie.streamId, movie.containerExtension)
-    } ?: ""
+    val streamUrl = movie.streamUrl.takeIf { it.isNotBlank() }
+        ?: activeSource?.let {
+            XtreamUrlBuilder.buildVodStreamUrl(it.serverUrl, it.username, it.password, movie.streamId, movie.containerExtension)
+        } ?: ""
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(modifier = Modifier.fillMaxWidth(0.95f).clip(RoundedCornerShape(16.dp)).background(LelouchBackground)) {
             Column {

@@ -16,3 +16,5 @@ _backup_*/
 *.rar
 *.log
 RESPALDOS_Y_DATOS/
+*.apk
+.freebuff/

@@ -138,15 +138,16 @@ fun TvHomeScreen(
     val displayChannels = remember(liveChannels, activeSource, liveCatMap) {
         if (liveChannels.isNotEmpty()) {
             liveChannels.mapIndexed { index, stream ->
-                val streamUrl = activeSource?.let {
-                    XtreamUrlBuilder.buildLiveStreamUrl(
-                        it.serverUrl,
-                        it.username,
-                        it.password,
-                        stream.streamId,
-                        "m3u8"
-                    )
-                } ?: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
+                val streamUrl = stream.streamUrl.takeIf { it.isNotBlank() }
+                    ?: activeSource?.let {
+                        XtreamUrlBuilder.buildLiveStreamUrl(
+                            it.serverUrl,
+                            it.username,
+                            it.password,
+                            stream.streamId,
+                            "m3u8"
+                        )
+                    } ?: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
 
                 val resolvedCategoryName = liveCatMap[stream.categoryId]
                     ?: stream.categoryName.takeIf { it.isNotBlank() }
@@ -451,7 +452,7 @@ fun TvHomeScreen(
     LaunchedEffect(Unit) {
         delay(350)
         try {
-            sidebarRequesters[selectedTopTab].requestFocus()
+            contentFocusRequester.requestFocus()
         } catch (_: Exception) {}
     }
 
@@ -678,19 +679,22 @@ fun TvHomeScreen(
     fun playMovie(movie: VodMovie) {
         isPlayingLive = false
         currentPlayingTitle = movie.name
-        activeSource?.let { src ->
-            val ext = movie.containerExtension.trimStart('.').ifEmpty { "mp4" }
-            val movieUrl = XtreamUrlBuilder.buildVodStreamUrl(
-                src.serverUrl,
-                src.username,
-                src.password,
-                movie.streamId,
-                ext
-            )
+        val ext = movie.containerExtension.trimStart('.').ifEmpty { "mp4" }
+        val movieUrl = movie.streamUrl.takeIf { it.isNotBlank() }
+            ?: activeSource?.let { src ->
+                XtreamUrlBuilder.buildVodStreamUrl(
+                    src.serverUrl,
+                    src.username,
+                    src.password,
+                    movie.streamId,
+                    ext
+                )
+            } ?: ""
+        if (movieUrl.isNotBlank()) {
             playerEngine.playStream(movieUrl, isLive = false)
+            isFullscreen = true
+            activeDetailMedia = null
         }
-        isFullscreen = true
-        activeDetailMedia = null
     }
 
     LaunchedEffect(seekFeedbackText) {
@@ -784,10 +788,10 @@ fun TvHomeScreen(
             isHudVisible -> isHudVisible = false
             isFullscreen -> isFullscreen = false
             selectedTopTab != 1 -> {
-                try {
-                    sidebarRequesters[1].requestFocus()
-                } catch (_: Exception) {}
                 selectedTopTab = 1
+                try {
+                    contentFocusRequester.requestFocus()
+                } catch (_: Exception) {}
             }
         }
     }
@@ -978,45 +982,17 @@ fun TvHomeScreen(
             }
         }
 
-        // CAPA 3: Interfaz Principal con Sidebar Izquierdo y Contenido Central (EveryCine Style)
+        // CAPA 3: Interfaz Principal Unificada a Pantalla Completa (Portal Dashboard EveryCine Style)
         AnimatedVisibility(
             visible = !isFullscreen,
             enter = fadeIn(tween(200)),
             exit = fadeOut(tween(200))
         ) {
-            Row(modifier = Modifier.fillMaxSize()) {
-                // ══════════════════════════════════════════════════════════════
-                // 1. SIDEBAR VERTICAL IZQUIERDO DE NAVEGACIÓN
-                // ══════════════════════════════════════════════════════════════
-                TvNavigationSidebar(
-                    selectedTab = selectedTopTab,
-                    onSelectTab = { newTab ->
-                        selectedTopTab = newTab
-                    },
-                    sidebarRequesters = sidebarRequesters,
-                    onNavigateContent = {
-                        coroutineScope.launch {
-                            delay(50)
-                            try {
-                                if (selectedTopTab == 0) {
-                                    searchFocusRequester.requestFocus()
-                                } else {
-                                    contentFocusRequester.requestFocus()
-                                }
-                            } catch (_: Exception) {}
-                        }
-                    }
-                )
-
-                // ══════════════════════════════════════════════════════════════
-                // 2. CONTENIDO PRINCIPAL POR PESTAÑA
-                // ══════════════════════════════════════════════════════════════
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                ) {
-                    when (selectedTopTab) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+            ) {
+                when (selectedTopTab) {
                         0 -> {
                             // 🔍 BUSCADOR NATIVO FLUIDO (Sin teclado virtual bloqueante, compatible con voz y control remoto)
                             TvSearchContent(
@@ -1040,6 +1016,7 @@ fun TvHomeScreen(
                                         synopsis = mov.plot ?: "Película en catálogo.",
                                         genre = mov.categoryName,
                                         containerExtension = mov.containerExtension.ifEmpty { "mp4" },
+                                        streamUrl = mov.streamUrl,
                                         isSeries = false,
                                         isFavorite = mov.isFavorite
                                     )
@@ -1090,7 +1067,8 @@ fun TvHomeScreen(
                                         onReloadCatalog = { onForceSync() },
                                         onOpenSettings = { isAdminModalVisible = true },
                                         onOpenDiagnostics = { selectedTopTab = 6 },
-                                        sidebarRequester = sidebarRequesters[1],
+                                        onNavigateToSearch = { selectedTopTab = 0 },
+                                        onNavigateToFavorites = { selectedTopTab = 5 },
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .padding(bottom = 24.dp)
@@ -1113,7 +1091,9 @@ fun TvHomeScreen(
                                                         focusedHeroMovie = null
                                                     },
                                                     onClick = { 
+                                                        focusedChannelIndex = idx
                                                         isPlayingLive = true
+                                                        playerEngine.playStream(ch.streamUrl, isLive = true)
                                                         isFullscreen = true 
                                                     },
                                                     cardWidth = 215.dp,
@@ -1571,9 +1551,10 @@ fun TvHomeScreen(
                                                     categoryName = stream.categoryName ?: "Favoritos",
                                                     streamIcon = stream.streamIcon,
                                                     currentProgram = "Canal Favorito",
-                                                    streamUrl = activeSource?.let {
-                                                        XtreamUrlBuilder.buildLiveStreamUrl(it.serverUrl, it.username, it.password, stream.streamId, "m3u8")
-                                                    } ?: ""
+                                                    streamUrl = stream.streamUrl.takeIf { it.isNotBlank() }
+                                                        ?: activeSource?.let {
+                                                            XtreamUrlBuilder.buildLiveStreamUrl(it.serverUrl, it.username, it.password, stream.streamId, "m3u8")
+                                                        } ?: ""
                                                 )
                                                 TvChannelCard(
                                                     channel = ch,
@@ -1616,6 +1597,7 @@ fun TvHomeScreen(
                                                             synopsis = mov.plot ?: "",
                                                             genre = mov.categoryName,
                                                             containerExtension = mov.containerExtension.ifEmpty { "mp4" },
+                                                            streamUrl = mov.streamUrl,
                                                             isSeries = false,
                                                             isFavorite = mov.isFavorite
                                                         )
@@ -1795,7 +1777,6 @@ fun TvHomeScreen(
                     }
                 }
             }
-        }
 
 
         // CAPA 5: Mini-Guía Carrusel HUD en Pantalla Completa (con iconos de canales)
@@ -2138,6 +2119,7 @@ fun TvHomeScreen(
                         synopsis = movie.plot ?: "",
                         genre = movie.categoryName,
                         containerExtension = movie.containerExtension.ifEmpty { "mp4" },
+                        streamUrl = movie.streamUrl,
                         isSeries = false,
                         isFavorite = movie.isFavorite
                     )
@@ -2273,15 +2255,18 @@ fun TvHomeScreen(
                         }
                     } else {
                         currentPlayingTitle = media.title
-                        activeSource?.let { src ->
-                            val ext = media.containerExtension.ifEmpty { "mp4" }
-                            val movieUrl = XtreamUrlBuilder.buildVodStreamUrl(
-                                src.serverUrl,
-                                src.username,
-                                src.password,
-                                media.id,
-                                ext
-                            )
+                        val ext = media.containerExtension.ifEmpty { "mp4" }
+                        val movieUrl = media.streamUrl.takeIf { it.isNotBlank() }
+                            ?: activeSource?.let { src ->
+                                XtreamUrlBuilder.buildVodStreamUrl(
+                                    src.serverUrl,
+                                    src.username,
+                                    src.password,
+                                    media.id,
+                                    ext
+                                )
+                            } ?: ""
+                        if (movieUrl.isNotBlank()) {
                             playerEngine.playStream(movieUrl, isLive = false)
                         }
                     }

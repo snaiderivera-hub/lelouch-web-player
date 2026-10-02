@@ -313,12 +313,24 @@ class SupabaseService {
       const rows = items.map((item, index) => {
         const isDirect = item.itemType === 'direct' || (!item.sourceId && !item.providerId && !item.catalogItemId);
         const isFromCatalog = !isDirect;
+        const targetUrl = item.directUrl || item.streamUrl || item.url || '';
+        const targetGroup = item.custom_group || item.direct_group || item.group || item.category || item.categoryName || '';
+        let resolvedMediaType = item.mediaType || item.type;
+        if (!resolvedMediaType) {
+          if (targetUrl.includes('/movie/') || targetGroup.toLowerCase().includes('película') || targetGroup.toLowerCase().includes('movie') || targetGroup.toLowerCase().includes('hbo') || targetGroup.toLowerCase().includes('netflix') || targetGroup.toLowerCase().includes('cine')) {
+            resolvedMediaType = 'movie';
+          } else if (targetUrl.includes('/series/') || targetGroup.toLowerCase().includes('serie')) {
+            resolvedMediaType = 'series';
+          } else {
+            resolvedMediaType = 'live';
+          }
+        }
         return {
           playlist_id: playlistId,
           item_type: isFromCatalog ? 'catalog' : 'direct',
           source_id: isFromCatalog ? (item.sourceId || null) : null,
           catalog_item_id: isFromCatalog ? String(item.providerId || item.catalogItemId) : null,
-          media_type: item.mediaType || item.type || 'live',
+          media_type: resolvedMediaType,
           custom_name: isFromCatalog ? item.name : null,
           custom_group: isFromCatalog ? (item.group || item.categoryName || 'General') : null,
           custom_logo: isFromCatalog ? (item.logo || null) : null,
@@ -347,20 +359,24 @@ class SupabaseService {
         headers: this._getHeaders()
       });
 
-      // 3. Insertar los nuevos items en lote
+      // 3. Insertar los nuevos items en lotes (evita 413 Payload Too Large en listas grandes)
       if (rows.length > 0) {
-        const insertRes = await fetch(`${this.url}/rest/v1/playlist_items`, {
-          method: 'POST',
-          headers: this._getHeaders({
-            'Prefer': 'return=minimal'
-          }),
-          body: JSON.stringify(rows)
-        });
+        const BATCH_SIZE = 250;
+        for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+          const chunk = rows.slice(i, i + BATCH_SIZE);
+          const insertRes = await fetch(`${this.url}/rest/v1/playlist_items`, {
+            method: 'POST',
+            headers: this._getHeaders({
+              'Prefer': 'return=minimal'
+            }),
+            body: JSON.stringify(chunk)
+          });
 
-        if (!insertRes.ok) {
-          const errText = await insertRes.text();
-          console.warn('[SupabaseService] Error insertando items de la playlist:', errText);
-          return false;
+          if (!insertRes.ok) {
+            const errText = await insertRes.text();
+            console.warn(`[SupabaseService] Error insertando lote ${i}-${i + chunk.length}:`, errText);
+            // Si falla un lote, continuar con los siguientes para no perder el resto
+          }
         }
       }
 

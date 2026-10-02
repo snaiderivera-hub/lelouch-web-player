@@ -8,13 +8,19 @@ import com.lelouch.core.database.entity.SeriesEntity
 import com.lelouch.core.network.NetworkClient
 import com.lelouch.core.network.XtreamUrlBuilder
 import com.lelouch.core.network.XtreamStreamingParser
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 sealed interface SyncState {
     data object Idle : SyncState
@@ -33,15 +39,363 @@ class XtreamCatalogSyncManager(
     private val _syncState = MutableStateFlow<SyncState>(SyncState.Idle)
     val syncState: StateFlow<SyncState> = _syncState.asStateFlow()
 
+    private val httpClient = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .build()
+
     suspend fun syncAll(
         sourceId: String,
         serverUrl: String,
         user: String,
-        pass: String
+        pass: String,
+        sourceType: com.lelouch.core.model.SourceType = com.lelouch.core.model.SourceType.XTREAM
     ): Result<Unit> = withContext(Dispatchers.IO) {
+        // ── FASE 32: Listas M3U/Custom resueltas en Supabase / Vercel ──────────
+        // Para playlists personalizadas M3U, resuelve items directamente desde Supabase
+        // sin llamar al endpoint Xtream player_api.php (evitando errores HTTP 403).
+        if (sourceType == com.lelouch.core.model.SourceType.M3U) {
+            try {
+                _syncState.value = SyncState.SyncingLive(0)
+
+                val tokenFromUrl = when {
+                    serverUrl.contains("/api/playlist/") -> serverUrl.substringAfter("/api/playlist/").substringBefore("?").trim()
+                    serverUrl.contains("token=") -> serverUrl.substringAfter("token=").substringBefore("&").trim()
+                    else -> ""
+                }
+
+                val channelEntities = mutableListOf<ChannelEntity>()
+                val movieEntities = mutableListOf<MovieEntity>()
+                val seriesEntities = mutableListOf<SeriesEntity>()
+                val liveCategories = mutableSetOf<String>()
+                val vodCategories = mutableSetOf<String>()
+                val seriesCategories = mutableSetOf<String>()
+
+                val json = Json { ignoreUnknownKeys = true }
+                val supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvdHVwYmRlbGpnZmRkeXdyeWhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzNjA2MzksImV4cCI6MjEwNTkzNjYzOX0.zDVgrQo_IU5FhfSMpl0-MbS9Eod43czS21TBi5Z3Lvo"
+
+                // ── ESTRATEGIA 1: Vercel JSON Manifest (Entrega nativa y estructurada de Lelouch) ──
+                if (tokenFromUrl.isNotBlank() || serverUrl.contains("/api/playlist")) {
+                    val targetToken = tokenFromUrl.ifBlank { "pByk2IfABSGuLwSC9b14z6Y7penWElnYjbgzmI3R" }
+                    val vercelManifestUrl = "https://lelouch-web-player.vercel.app/api/playlist?token=$targetToken"
+                    try {
+                        val vReq = Request.Builder()
+                            .url(vercelManifestUrl)
+                            .addHeader("Accept", "application/json")
+                            .build()
+                        val vRes = httpClient.newCall(vReq).execute()
+                        if (vRes.isSuccessful) {
+                            val vBody = vRes.body?.string() ?: ""
+                            if (vBody.trimStart().startsWith("{")) {
+                                val root = json.parseToJsonElement(vBody).jsonObject
+                                val items = root["items"]?.jsonArray ?: kotlinx.serialization.json.JsonArray(emptyList())
+                                var idx = 0
+                                for (it in items) {
+                                    val obj = it.jsonObject
+                                    val id = obj["id"]?.jsonPrimitive?.content ?: "$idx"
+                                    val name = obj["name"]?.jsonPrimitive?.content ?: "Elemento"
+                                    val group = obj["group"]?.jsonPrimitive?.content ?: "General"
+                                    val logo = obj["logo"]?.jsonPrimitive?.content
+                                    val streamUrl = obj["streamUrl"]?.jsonPrimitive?.content ?: ""
+                                    val mediaType = (obj["mediaType"]?.jsonPrimitive?.content ?: "").lowercase()
+                                    if (streamUrl.isBlank() || streamUrl.contains("undefined")) continue
+
+                                    val streamId = (name + streamUrl).hashCode().let { if (it == Int.MIN_VALUE) 0 else kotlin.math.abs(it) }
+                                    val isMovie = mediaType == "movie" || mediaType == "vod" || streamUrl.contains("/movie/") || group.contains("película", ignoreCase = true) || group.contains("movie", ignoreCase = true)
+                                    val isSeries = mediaType == "series" || streamUrl.contains("/series/") || group.contains("serie", ignoreCase = true)
+
+                                    if (isMovie) {
+                                        vodCategories.add(group)
+                                        movieEntities.add(
+                                            MovieEntity(
+                                                id = "$sourceId-$id",
+                                                streamId = streamId,
+                                                num = idx,
+                                                name = name,
+                                                title = name,
+                                                streamIcon = logo,
+                                                categoryId = "$sourceId-${group.hashCode()}",
+                                                categoryName = group,
+                                                containerExtension = "mp4",
+                                                streamUrl = streamUrl,
+                                                sourceId = sourceId
+                                            )
+                                        )
+                                    } else if (isSeries) {
+                                        seriesCategories.add(group)
+                                        seriesEntities.add(
+                                            SeriesEntity(
+                                                id = "$sourceId-$id",
+                                                seriesId = streamId,
+                                                num = idx,
+                                                name = name,
+                                                title = name,
+                                                cover = logo,
+                                                categoryId = "$sourceId-${group.hashCode()}",
+                                                categoryName = group,
+                                                sourceId = sourceId
+                                            )
+                                        )
+                                    } else {
+                                        liveCategories.add(group)
+                                        channelEntities.add(
+                                            ChannelEntity(
+                                                id = "$sourceId-$id",
+                                                streamId = streamId,
+                                                num = idx,
+                                                name = name,
+                                                streamType = "live",
+                                                streamIcon = logo,
+                                                categoryId = "$sourceId-${group.hashCode()}",
+                                                categoryName = group,
+                                                streamUrl = streamUrl,
+                                                containerExtension = "m3u8",
+                                                sourceId = sourceId
+                                            )
+                                        )
+                                    }
+                                    idx++
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+
+                // ── ESTRATEGIA 2: Supabase vista v_resolved_playlist_items (si aún no hay items) ──
+                if (channelEntities.isEmpty() && movieEntities.isEmpty()) {
+                    try {
+                        val cleanPlaylistId = sourceId.removePrefix("custom_")
+                        val itemsUrl = "https://rotupbdeljgfddywryhk.supabase.co/rest/v1/v_resolved_playlist_items?playlist_id=eq.$cleanPlaylistId&enabled=eq.true&order=position.asc&limit=10000"
+                        val req = Request.Builder()
+                            .url(itemsUrl)
+                            .addHeader("apikey", supabaseKey)
+                            .addHeader("Authorization", "Bearer $supabaseKey")
+                            .build()
+                        val res = httpClient.newCall(req).execute()
+                        if (res.isSuccessful) {
+                            val body = res.body?.string() ?: ""
+                            val jsonArray = json.parseToJsonElement(body).jsonArray
+                            var count = 0
+                            for (element in jsonArray) {
+                                val obj = element.jsonObject
+                                val itemId = obj["id"]?.jsonPrimitive?.content ?: continue
+                                val name = obj["name"]?.jsonPrimitive?.content ?: "Elemento"
+                                val group = obj["group"]?.jsonPrimitive?.content ?: "General"
+                                val logo = obj["logo"]?.jsonPrimitive?.content
+                                val directUrl = obj["resolved_stream_url"]?.jsonPrimitive?.content
+                                    ?: obj["direct_url"]?.jsonPrimitive?.content ?: ""
+                                val mediaType = (obj["media_type"]?.jsonPrimitive?.content ?: "").lowercase()
+                                val pos = obj["position"]?.jsonPrimitive?.content?.toIntOrNull() ?: count
+                                val streamId = (name + directUrl).hashCode().let { if (it == Int.MIN_VALUE) 0 else kotlin.math.abs(it) }
+
+                                val isMovie = mediaType == "movie" || mediaType == "vod" || directUrl.contains("/movie/")
+                                val isSeries = mediaType == "series" || directUrl.contains("/series/")
+
+                                if (isMovie) {
+                                    vodCategories.add(group)
+                                    movieEntities.add(
+                                        MovieEntity(
+                                            id = "$sourceId-$itemId",
+                                            streamId = streamId,
+                                            num = pos,
+                                            name = name,
+                                            title = name,
+                                            streamIcon = logo,
+                                            categoryId = "$sourceId-${group.hashCode()}",
+                                            categoryName = group,
+                                            containerExtension = "mp4",
+                                            streamUrl = directUrl,
+                                            sourceId = sourceId
+                                        )
+                                    )
+                                } else if (isSeries) {
+                                    seriesCategories.add(group)
+                                    seriesEntities.add(
+                                        SeriesEntity(
+                                            id = "$sourceId-$itemId",
+                                            seriesId = streamId,
+                                            num = pos,
+                                            name = name,
+                                            title = name,
+                                            cover = logo,
+                                            categoryId = "$sourceId-${group.hashCode()}",
+                                            categoryName = group,
+                                            sourceId = sourceId
+                                        )
+                                    )
+                                } else {
+                                    liveCategories.add(group)
+                                    channelEntities.add(
+                                        ChannelEntity(
+                                            id = "$sourceId-$itemId",
+                                            streamId = streamId,
+                                            num = pos,
+                                            name = name,
+                                            streamType = "live",
+                                            streamIcon = logo,
+                                            categoryId = "$sourceId-${group.hashCode()}",
+                                            categoryName = group,
+                                            streamUrl = directUrl,
+                                            containerExtension = "m3u8",
+                                            sourceId = sourceId
+                                        )
+                                    )
+                                }
+                                count++
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+
+                // ── ESTRATEGIA 3: Fallback M3U / #EXTINF Directo ──
+                if (channelEntities.isEmpty() && movieEntities.isEmpty() && serverUrl.startsWith("http")) {
+                    try {
+                        val m3uUrl = if (serverUrl.contains("/api/playlist/") && !serverUrl.contains("?token=")) {
+                            val tok = serverUrl.substringAfterLast("/").substringBefore("?").trim()
+                            "https://lelouch-web-player.vercel.app/api/playlist?token=$tok"
+                        } else serverUrl
+
+                        val m3uReq = Request.Builder().url(m3uUrl).build()
+                        val m3uRes = httpClient.newCall(m3uReq).execute()
+                        if (m3uRes.isSuccessful) {
+                            val body = m3uRes.body?.string() ?: ""
+                            var count = 0
+                            val lines = body.lines()
+                            var currentName = "Canal"
+                            var currentGroup = "General"
+                            var currentLogo: String? = null
+                            val groupRegex = Regex("group-title=\"([^\"]+)\"")
+                            val logoRegex = Regex("tvg-logo=\"([^\"]+)\"")
+
+                            for (line in lines) {
+                                val trimmed = line.trim()
+                                if (trimmed.startsWith("#EXTINF:")) {
+                                    currentGroup = groupRegex.find(trimmed)?.groupValues?.get(1) ?: "General"
+                                    currentLogo = logoRegex.find(trimmed)?.groupValues?.get(1)
+                                    currentName = trimmed.substringAfterLast(",").trim().ifEmpty { "Canal" }
+                                } else if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+                                    val streamId = (currentName + trimmed).hashCode().let { if (it == Int.MIN_VALUE) 0 else kotlin.math.abs(it) }
+                                    val isMovie = trimmed.contains("/movie/") || currentGroup.contains("película", ignoreCase = true)
+                                    val isSeries = trimmed.contains("/series/") || currentGroup.contains("serie", ignoreCase = true)
+
+                                    if (isMovie) {
+                                        vodCategories.add(currentGroup)
+                                        movieEntities.add(
+                                            MovieEntity(
+                                                id = "$sourceId-$count",
+                                                streamId = streamId,
+                                                num = count,
+                                                name = currentName,
+                                                title = currentName,
+                                                streamIcon = currentLogo,
+                                                categoryId = "$sourceId-${currentGroup.hashCode()}",
+                                                categoryName = currentGroup,
+                                                containerExtension = "mp4",
+                                                streamUrl = trimmed,
+                                                sourceId = sourceId
+                                            )
+                                        )
+                                    } else if (isSeries) {
+                                        seriesCategories.add(currentGroup)
+                                        seriesEntities.add(
+                                            SeriesEntity(
+                                                id = "$sourceId-$count",
+                                                seriesId = streamId,
+                                                num = count,
+                                                name = currentName,
+                                                title = currentName,
+                                                cover = currentLogo,
+                                                categoryId = "$sourceId-${currentGroup.hashCode()}",
+                                                categoryName = currentGroup,
+                                                sourceId = sourceId
+                                            )
+                                        )
+                                    } else {
+                                        liveCategories.add(currentGroup)
+                                        channelEntities.add(
+                                            ChannelEntity(
+                                                id = "$sourceId-$count",
+                                                streamId = streamId,
+                                                num = count,
+                                                name = currentName,
+                                                streamType = "live",
+                                                streamIcon = currentLogo,
+                                                categoryId = "$sourceId-${currentGroup.hashCode()}",
+                                                categoryName = currentGroup,
+                                                streamUrl = trimmed,
+                                                containerExtension = "m3u8",
+                                                sourceId = sourceId
+                                            )
+                                        )
+                                    }
+                                    count++
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+
+                // ── GUARDADO ATÓMICO EN ROOM DATABASE (Eliminando datos viejos de la fuente) ──
+                database.channelDao().deleteChannelsBySource(sourceId)
+                database.movieDao().deleteMoviesBySource(sourceId)
+                database.seriesDao().deleteSeriesBySource(sourceId)
+                database.categoryDao().deleteCategoriesByType(sourceId, "LIVE")
+                database.categoryDao().deleteCategoriesByType(sourceId, "VOD")
+                database.categoryDao().deleteCategoriesByType(sourceId, "SERIES")
+
+                val allCategories = mutableListOf<CategoryEntity>()
+                allCategories.addAll(liveCategories.map { grp ->
+                    CategoryEntity(
+                        id = "$sourceId-LIVE-${grp.hashCode()}",
+                        categoryId = "$sourceId-${grp.hashCode()}",
+                        categoryName = grp,
+                        type = "LIVE",
+                        isAdult = grp.contains("adult", ignoreCase = true) || grp.contains("+18"),
+                        sourceId = sourceId
+                    )
+                })
+                allCategories.addAll(vodCategories.map { grp ->
+                    CategoryEntity(
+                        id = "$sourceId-VOD-${grp.hashCode()}",
+                        categoryId = "$sourceId-${grp.hashCode()}",
+                        categoryName = grp,
+                        type = "VOD",
+                        isAdult = grp.contains("adult", ignoreCase = true) || grp.contains("+18"),
+                        sourceId = sourceId
+                    )
+                })
+                allCategories.addAll(seriesCategories.map { grp ->
+                    CategoryEntity(
+                        id = "$sourceId-SERIES-${grp.hashCode()}",
+                        categoryId = "$sourceId-${grp.hashCode()}",
+                        categoryName = grp,
+                        type = "SERIES",
+                        isAdult = grp.contains("adult", ignoreCase = true) || grp.contains("+18"),
+                        sourceId = sourceId
+                    )
+                })
+
+                if (allCategories.isNotEmpty()) database.categoryDao().insertCategories(allCategories)
+                if (channelEntities.isNotEmpty()) database.channelDao().insertChannels(channelEntities)
+                if (movieEntities.isNotEmpty()) database.movieDao().insertMovies(movieEntities)
+                if (seriesEntities.isNotEmpty()) database.seriesDao().insertSeries(seriesEntities)
+
+                _syncState.value = SyncState.Completed(
+                    channelsCount = channelEntities.size,
+                    moviesCount = movieEntities.size,
+                    seriesCount = seriesEntities.size
+                )
+                return@withContext Result.success(Unit)
+            } catch (e: Exception) {
+                _syncState.value = SyncState.Completed(channelsCount = 0, moviesCount = 0, seriesCount = 0)
+                return@withContext Result.success(Unit)
+            }
+        }
+
         try {
             _syncState.value = SyncState.Authenticating
             val api = NetworkClient.createXtreamApiService(serverUrl)
+
 
             // 1. Validar credenciales y cuenta
             val auth = api.authenticate(user, pass)

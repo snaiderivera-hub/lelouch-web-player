@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.2",
-  "versionCode": 1000002,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.2/app-debug.apk",
-  "changelog": "• Soporte de catálogo unificado y extracción de listas personalizadas.\n• Optimización de almacenamiento persistente y prevención de límites de cuota.\n• Corrección de arranque y categorización de lista personalizada LELOUCH."
+  "versionName": "1.0.8",
+  "versionCode": 1000008,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.8/app-debug.apk",
+  "changelog": "• Corrección crítica de reproducción en TV Box y Móvil: se resuelve y utiliza directamente el streamUrl real de cada canal y película en vez de rutas Vercel inexistentes.\n• Activación de reproducción directa al pulsar canales en la pantalla Inicio/Dashboard.\n• Unificación y desduplicación estricta de fuentes: exactamente 3 listas limpias (⭐ Mi Lista Personalizada LELOUCH + 2 cuentas LionTV) en TV Box y Teléfono móvil sin listas duplicadas ni con usuario/contraseña sobrantes.\n• Modo chunkless desactivado en HLS para decodificación inmediata de códecs AAC/H264 sin bloqueos."
 }

@@ -20,6 +20,6 @@ data class PlayerConfig(
     val connectTimeoutMs: Int = 10_000,
     val readTimeoutMs: Int = 10_000,
     val enableHardwareAcceleration: Boolean = true,
-    val allowChunklessPreparation: Boolean = true,
+    val allowChunklessPreparation: Boolean = false,
     val autoRetryCount: Int = 3
 )

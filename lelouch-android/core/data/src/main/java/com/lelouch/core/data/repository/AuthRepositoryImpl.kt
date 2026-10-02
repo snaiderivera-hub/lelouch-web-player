@@ -46,6 +46,24 @@ class AuthRepositoryImpl(
 
     override suspend fun removeSource(sourceId: String) {
         preferencesDataSource.removeSource(sourceId)
+        withContext(Dispatchers.IO) {
+            try {
+                val supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvdHVwYmRlbGpnZmRkeXdyeWhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzNjA2MzksImV4cCI6MjEwNTkzNjYzOX0.zDVgrQo_IU5FhfSMpl0-MbS9Eod43czS21TBi5Z3Lvo"
+                val deleteUrl = if (sourceId.startsWith("custom_")) {
+                    val cleanId = sourceId.removePrefix("custom_")
+                    "https://rotupbdeljgfddywryhk.supabase.co/rest/v1/custom_playlists?id=eq.$cleanId"
+                } else {
+                    "https://rotupbdeljgfddywryhk.supabase.co/rest/v1/playlists?id=eq.$sourceId"
+                }
+                val delReq = Request.Builder()
+                    .url(deleteUrl)
+                    .delete()
+                    .addHeader("apikey", supabaseKey)
+                    .addHeader("Authorization", "Bearer $supabaseKey")
+                    .build()
+                httpClient.newCall(delReq).execute()
+            } catch (_: Exception) {}
+        }
     }
 
     override suspend fun validateXtream(
@@ -133,22 +151,43 @@ class AuthRepositoryImpl(
                     serverFromUrl
                 }
 
-                if (cleanServer.isNotBlank()) {
+                val isM3u = url.contains("/api/playlist") || url.endsWith(".m3u") || url.endsWith(".m3u8") ||
+                        serverUrl.contains("vercel.app") || (!url.contains("username=") && !url.contains("password=") && url.startsWith("http"))
+
+                // Extraer token de URL si viene como /api/playlist/:token o ?token=:token
+                val tokenFromUrl = when {
+                    url.contains("/api/playlist/") -> url.substringAfter("/api/playlist/").substringBefore("?").trim()
+                    url.contains("token=") -> url.substringAfter("token=").substringBefore("&").trim()
+                    else -> null
+                }
+
+                // Normalizar URL para evitar errores 404 en Vercel
+                val normalizedM3uUrl = if (url.contains("/api/playlist/") && !url.contains("?token=")) {
+                    val tok = url.substringAfter("/api/playlist/").substringBefore("?").trim()
+                    "https://lelouch-web-player.vercel.app/api/playlist?token=$tok"
+                } else url
+
+                val finalType = if (isM3u) SourceType.M3U else SourceType.XTREAM
+                val finalServerUrl = if (isM3u && normalizedM3uUrl.isNotBlank()) normalizedM3uUrl else cleanServer.trimEnd('/')
+
+                if (finalServerUrl.isNotBlank()) {
                     cloudSources.add(
                         SourceConfig(
                             id = id,
                             name = name,
-                            serverUrl = cleanServer.trimEnd('/'),
+                            serverUrl = finalServerUrl,
                             username = userMatch,
                             password = passMatch,
-                            type = SourceType.XTREAM,
-                            isActive = isActive
+                            type = finalType,
+                            isActive = isActive,
+                            accessToken = tokenFromUrl
                         )
                     )
                 }
             }
 
             // Sincronizar listas personalizadas (FASE 30 / FASE 32)
+            // Consulta también playlist_access_tokens para obtener el token de acceso de cada playlist
             try {
                 val customSupabaseUrl = "https://rotupbdeljgfddywryhk.supabase.co/rest/v1/custom_playlists?select=*&order=updated_at.desc"
                 val customReq = Request.Builder()
@@ -160,43 +199,133 @@ class AuthRepositoryImpl(
                 if (customRes.isSuccessful) {
                     val customBody = customRes.body?.string() ?: ""
                     val customJsonArray = json.parseToJsonElement(customBody).jsonArray
+
+                    // Obtener TODOS los tokens activos de una sola llamada
+                    val tokensUrl = "https://rotupbdeljgfddywryhk.supabase.co/rest/v1/playlist_access_tokens?select=playlist_id,token&enabled=eq.true&order=created_at.asc"
+                    val tokensReq = Request.Builder()
+                        .url(tokensUrl)
+                        .addHeader("apikey", supabaseKey)
+                        .addHeader("Authorization", "Bearer $supabaseKey")
+                        .build()
+                    val tokensRes = httpClient.newCall(tokensReq).execute()
+                    val tokenMap = mutableMapOf<String, String>()
+                    if (tokensRes.isSuccessful) {
+                        val tokensBody = tokensRes.body?.string() ?: ""
+                        try {
+                            val tokensArray = json.parseToJsonElement(tokensBody).jsonArray
+                            for (t in tokensArray) {
+                                val tObj = t.jsonObject
+                                val pid = tObj["playlist_id"]?.jsonPrimitive?.content ?: continue
+                                val tok = tObj["token"]?.jsonPrimitive?.content ?: continue
+                                if (!tokenMap.containsKey(pid)) {
+                                    tokenMap[pid] = tok
+                                }
+                            }
+                        } catch (_: Exception) {}
+                    }
+
                     for (el in customJsonArray) {
                         val cObj = el.jsonObject
                         val cId = cObj["id"]?.jsonPrimitive?.content ?: continue
                         val cName = cObj["name"]?.jsonPrimitive?.content ?: "Mi Lista Personalizada"
                         val cIsActive = cObj["is_active"]?.jsonPrimitive?.content?.toBoolean() ?: false
+                        val cToken = tokenMap[cId]
+
+                        val cleanName = if (cName.startsWith("⭐")) cName else "⭐ $cName"
+                        val customUrl = if (!cToken.isNullOrBlank()) {
+                            "https://lelouch-web-player.vercel.app/api/playlist?token=$cToken"
+                        } else {
+                            "https://lelouch-web-player.vercel.app/api/playlist?token=pByk2IfABSGuLwSC9b14z6Y7penWElnYjbgzmI3R"
+                        }
                         cloudSources.add(
                             SourceConfig(
-                                id = "custom_$cId",
-                                name = "⭐ $cName",
-                                serverUrl = "https://lelouch-web-player.vercel.app/api/playlist",
-                                username = "custom",
+                                id = "custom_lelouch",
+                                name = cleanName,
+                                serverUrl = customUrl,
+                                username = "",
                                 password = "",
                                 type = SourceType.M3U,
-                                isActive = cIsActive
+                                isActive = cIsActive,
+                                accessToken = cToken ?: "pByk2IfABSGuLwSC9b14z6Y7penWElnYjbgzmI3R"
                             )
                         )
                     }
                 }
             } catch (_: Exception) {}
 
-            if (cloudSources.isNotEmpty()) {
-                val current = preferencesDataSource.allSources.first().toMutableList()
-                cloudSources.forEach { cloud ->
-                    val existingIdx = current.indexOfFirst { it.id == cloud.id || (it.serverUrl == cloud.serverUrl && it.username == cloud.username) }
-                    if (existingIdx >= 0) {
-                        current[existingIdx] = cloud.copy(
-                            password = if (cloud.password.isNotBlank()) cloud.password else current[existingIdx].password
-                        )
-                    } else {
-                        current.add(cloud)
-                    }
-                }
-                preferencesDataSource.saveAllSources(current)
-                return@withContext current
+            val currentSources = preferencesDataSource.allSources.first()
+            val currentPasswordMap = currentSources.associate { (it.serverUrl + it.username) to it.password }
+            val currentActiveId = currentSources.firstOrNull { it.isActive }?.id
+
+            // ── CONSOLIDACIÓN ESTRICTA (FASE 32) ──
+            // Colapsar cualquier entrada Vercel o Custom en EXACTAMENTE UNA lista personalizada limpia
+            val isCustomSource = { s: SourceConfig ->
+                s.serverUrl.contains("vercel.app") ||
+                s.username.equals("LELOUCH", ignoreCase = true) ||
+                s.name.contains("Personalizada", ignoreCase = true) ||
+                s.name.contains("Mi Lista", ignoreCase = true) ||
+                s.id.startsWith("custom_")
             }
 
-            preferencesDataSource.allSources.first()
+            val customList = cloudSources.filter { isCustomSource(it) }
+            val normalList = cloudSources.filterNot { isCustomSource(it) }
+
+            val consolidatedSources = mutableListOf<SourceConfig>()
+
+            if (customList.isNotEmpty()) {
+                val bestToken = customList.mapNotNull { it.accessToken }.firstOrNull { it.isNotBlank() }
+                    ?: "pByk2IfABSGuLwSC9b14z6Y7penWElnYjbgzmI3R"
+                val canonicalCustomUrl = "https://lelouch-web-player.vercel.app/api/playlist?token=$bestToken"
+                val wasCustomActive = customList.any { it.id == currentActiveId || it.isActive }
+                consolidatedSources.add(
+                    SourceConfig(
+                        id = "custom_lelouch",
+                        name = "⭐ Mi Lista Personalizada LELOUCH",
+                        serverUrl = canonicalCustomUrl,
+                        username = "",
+                        password = "",
+                        type = SourceType.M3U,
+                        isActive = wasCustomActive,
+                        accessToken = bestToken
+                    )
+                )
+            }
+
+            // Desduplicar fuentes normales por (servidor + usuario) y restaurar contraseñas
+            val seenKeys = mutableSetOf<String>()
+            for (src in normalList) {
+                val cleanUrl = src.serverUrl.trimEnd('/')
+                val cleanUser = src.username.trim().lowercase()
+                val key = "$cleanUrl|$cleanUser"
+                if (!seenKeys.contains(key)) {
+                    seenKeys.add(key)
+                    val existingPass = currentPasswordMap[src.serverUrl + src.username]
+                    val resolvedPass = if (src.password.isNotBlank()) src.password else (existingPass ?: "")
+                    consolidatedSources.add(
+                        src.copy(
+                            password = resolvedPass,
+                            isActive = (src.id == currentActiveId)
+                        )
+                    )
+                }
+            }
+
+            // Si ninguna fuente está activa pero hay fuentes disponibles, activar la primera
+            val finalSources = if (consolidatedSources.isNotEmpty() && consolidatedSources.none { it.isActive }) {
+                consolidatedSources.mapIndexed { idx, s -> s.copy(isActive = idx == 0) }
+            } else {
+                consolidatedSources
+            }
+
+            preferencesDataSource.saveAllSources(finalSources)
+
+            if (finalSources.isNotEmpty()) {
+                val activeExists = finalSources.any { it.id == currentActiveId }
+                if (!activeExists) {
+                    preferencesDataSource.setActiveSource(finalSources.first().id)
+                }
+            }
+            return@withContext finalSources
         } catch (e: Exception) {
             preferencesDataSource.allSources.first()
         }

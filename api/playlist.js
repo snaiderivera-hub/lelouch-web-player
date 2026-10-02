@@ -349,7 +349,7 @@ export default async function handler(req, res) {
     }).catch(err => console.warn('[API Playlist] Error actualizando métricas de token:', redactSensitiveUrl(err?.message || String(err))));
 
     // 5. Consultar los items resueltos de la vista 'v_resolved_playlist_items' y la playlist
-    const itemsUrl = `${SUPABASE_URL}/rest/v1/v_resolved_playlist_items?playlist_id=eq.${tokenRecord.playlist_id}&enabled=eq.true&order=position.asc`;
+    const itemsUrl = `${SUPABASE_URL}/rest/v1/v_resolved_playlist_items?playlist_id=eq.${tokenRecord.playlist_id}&enabled=eq.true&order=position.asc&limit=10000`;
     const [itemsRes, playlistRes] = await Promise.all([
       fetch(itemsUrl, { headers }),
       fetch(`${SUPABASE_URL}/rest/v1/custom_playlists?id=eq.${tokenRecord.playlist_id}&select=name,enabled,description,version,updated_at`, { headers })
@@ -413,23 +413,34 @@ export default async function handler(req, res) {
 
     // Mapear a LelouchMediaItem[] canónico con URLs directas al proveedor (FASE 21 & 27)
     // FASE 27: custom_name y custom_group tienen precedencia sobre los valores por defecto del proveedor
-    const mediaItems = items.map((it, idx) => ({
-      id: it.id,
-      name: it.custom_name || it.name || it.direct_name || 'Canal',
-      streamUrl: unwrapProxyUrl(it.resolved_stream_url || it.direct_url),
-      group: it.custom_group || it.group || it.direct_group || 'General',
-      logo: it.custom_logo || it.logo || it.direct_logo || '',
-      tvgId: it.tvg_id || '',
-      tvgName: it.tvg_name || it.custom_name || it.name || '',
-      mediaType: it.media_type || 'live',
-      sortOrder: it.position ?? idx,
-      isEnabled: it.enabled !== false,
-      itemType: it.item_type || 'catalog',
-      headers: it.metadata?.headers || null,
-      kodiProps: it.metadata?.kodiProps || null,
-      catchup: it.metadata?.catchup || null,
-      extraAttributes: it.metadata?.extraAttributes || null
-    }));
+    const mediaItems = items.map((it, idx) => {
+      const streamUrl = unwrapProxyUrl(it.resolved_stream_url || it.direct_url);
+      let mediaType = it.media_type || 'live';
+      if (mediaType === 'live' || !mediaType) {
+        if (streamUrl.includes('/movie/')) {
+          mediaType = 'movie';
+        } else if (streamUrl.includes('/series/')) {
+          mediaType = 'series';
+        }
+      }
+      return {
+        id: it.id,
+        name: it.custom_name || it.name || it.direct_name || 'Canal',
+        streamUrl,
+        group: it.custom_group || it.group || it.direct_group || 'General',
+        logo: it.custom_logo || it.logo || it.direct_logo || '',
+        tvgId: it.tvg_id || '',
+        tvgName: it.tvg_name || it.custom_name || it.name || '',
+        mediaType,
+        sortOrder: it.position ?? idx,
+        isEnabled: it.enabled !== false,
+        itemType: it.item_type || 'catalog',
+        headers: it.metadata?.headers || null,
+        kodiProps: it.metadata?.kodiProps || null,
+        catchup: it.metadata?.catchup || null,
+        extraAttributes: it.metadata?.extraAttributes || null
+      };
+    });
 
     // FASE 17 - CASO B: Entrega nativa de Playlist Manifest JSON (Lelouch TV / Phone / Web)
     // Lelouch TV -> playlist manifest JSON -> Room -> TV UI (sin re-parsear M3U)

@@ -2057,14 +2057,13 @@ export function scheduleCustomM3UCloudSync() {
       const pl = await supabaseService.getOrCreateDefaultCustomPlaylist('Mi Lista LELOUCH');
       if (pl?.id) {
         const currentList = getCustomM3UList();
-        // Limitar la sincronización a la nube a máximo 1500 items para evitar 413 Payload Too Large en Supabase
-        const listToSync = currentList.length > 1500 ? currentList.slice(0, 1500) : currentList;
-        await supabaseService.syncPlaylistItems(pl.id, listToSync);
+        // Sincronizar todos los items a la nube por lotes (evita truncamiento)
+        await supabaseService.syncPlaylistItems(pl.id, currentList);
         const serverInfo = await supabaseService.getPlaylistVersion(pl.id);
         if (serverInfo?.version) {
           setLocalM3UVersion(serverInfo.version);
         }
-        console.log(`☁️ [CloudSync] Lista sincronizada con Supabase (${listToSync.length}/${currentList.length} ítems, v${serverInfo?.version || 'N/A'}).`);
+        console.log(`☁️ [CloudSync] Lista sincronizada con Supabase (${currentList.length} ítems, v${serverInfo?.version || 'N/A'}).`);
       }
     } catch (e) {
       console.warn('[CloudSync] Error sincronizando en segundo plano con Supabase:', e);
@@ -2444,7 +2443,8 @@ export async function activateCustomM3UAsMainPlaylist() {
   // 7. Sincronizar en la tabla 'playlists' de Supabase (FASE 32)
   try {
     let tokenInfo = getStoredTokenInfo();
-    const publicUrl = tokenInfo?.publicUrl || `${window.location.origin}/api/playlist/${tokenInfo?.token || 'mi-lista'}`;
+    const token = tokenInfo?.token || 'pByk2IfABSGuLwSC9b14z6Y7penWElnYjbgzmI3R';
+    const publicUrl = `${window.location.origin || 'https://lelouch-web-player.vercel.app'}/api/playlist?token=${token}`;
     await supabaseService.savePlaylist({
       name: '⭐ Mi Lista Personalizada LELOUCH',
       url: publicUrl,
@@ -2613,7 +2613,7 @@ function updateTokenModalUI(tokenInfo, itemCount) {
   const toggleBtn = $('btn-token-modal-toggle-status');
   const toggleBtnText = $('btn-toggle-status-text');
 
-  const fullUrl = `${window.location.origin}/api/playlist/${tokenInfo.token}`;
+  const fullUrl = `${window.location.origin}/api/playlist?token=${tokenInfo.token}`;
   if (input) input.value = fullUrl;
 
   const totalItems = itemCount ?? getCustomM3UList().length;
@@ -3269,18 +3269,20 @@ async function executeCategoryImport(catNames) {
                 const sCatId = String(s.category_id || '');
                 if (selectedCatIds.has(sCatId)) {
                   const catName = catMapById.get(sCatId) || 'Importados';
+                  const actualStreamId = s.stream_id || s.id || s.series_id || '';
+                  const actualPass = parsed._password || parsed.password || (parsed.url ? (parsed.url.match(/[?&]password=([^&]+)/)?.[1] || '') : '');
                   itemsToImport.push({
-                    id: s.stream_id || s.series_id || s.id,
-                    streamId: s.stream_id || s.series_id || s.id,
+                    id: actualStreamId,
+                    streamId: actualStreamId,
                     name: s.name || s.title,
                     categoryName: catName,
                     logo: s.stream_icon || s.cover || '',
                     containerExtension: s.container_extension || 'mp4',
                     streamUrl: type === 'movies'
-                      ? buildVodStreamUrl(parsed.serverBaseUrl, parsed.username, parsed._password, s.stream_id, s.container_extension || 'mp4')
+                      ? buildVodStreamUrl(parsed.serverBaseUrl, parsed.username, actualPass, actualStreamId, s.container_extension || 'mp4')
                       : (type === 'series'
-                          ? `${parsed.serverBaseUrl}/series/${parsed.username}/${parsed._password}/${s.series_id}.mp4`
-                          : buildLiveStreamUrl(parsed.serverBaseUrl, parsed.username, parsed._password, s.stream_id, 'm3u8'))
+                          ? `${parsed.serverBaseUrl}/series/${parsed.username}/${actualPass}/${actualStreamId}.mp4`
+                          : buildLiveStreamUrl(parsed.serverBaseUrl, parsed.username, actualPass, actualStreamId, 'm3u8'))
                   });
                 }
               });
@@ -3297,18 +3299,20 @@ async function executeCategoryImport(catNames) {
               const rawStreams = await adapter._fetchAction(action);
               if (Array.isArray(rawStreams)) {
                 rawStreams.forEach(s => {
+                  const actualStreamId = s.stream_id || s.id || s.series_id || '';
+                  const actualPass = parsed._password || parsed.password || (parsed.url ? (parsed.url.match(/[?&]password=([^&]+)/)?.[1] || '') : '');
                   itemsToImport.push({
-                    id: s.stream_id || s.series_id || s.id,
-                    streamId: s.stream_id || s.series_id || s.id,
+                    id: actualStreamId,
+                    streamId: actualStreamId,
                     name: s.name || s.title,
                     categoryName: cat.name,
                     logo: s.stream_icon || s.cover || '',
                     containerExtension: s.container_extension || 'mp4',
                     streamUrl: type === 'movies'
-                      ? buildVodStreamUrl(parsed.serverBaseUrl, parsed.username, parsed._password, s.stream_id, s.container_extension || 'mp4')
+                      ? buildVodStreamUrl(parsed.serverBaseUrl, parsed.username, actualPass, actualStreamId, s.container_extension || 'mp4')
                       : (type === 'series'
-                          ? `${parsed.serverBaseUrl}/series/${parsed.username}/${parsed._password}/${s.series_id}.mp4`
-                          : buildLiveStreamUrl(parsed.serverBaseUrl, parsed.username, parsed._password, s.stream_id, 'm3u8'))
+                          ? `${parsed.serverBaseUrl}/series/${parsed.username}/${actualPass}/${actualStreamId}.mp4`
+                          : buildLiveStreamUrl(parsed.serverBaseUrl, parsed.username, actualPass, actualStreamId, 'm3u8'))
                   });
                 });
               }

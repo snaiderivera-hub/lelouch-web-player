@@ -45,35 +45,7 @@ class UserPreferencesDataSource(private val context: Context) {
         val ACTIVE_SOURCE_ID = stringPreferencesKey("active_source_id")
     }
 
-    val defaultInitialSources = listOf(
-        SourceConfig(
-            id = "source_67_220",
-            name = "67.220.71.35 (@full2)",
-            serverUrl = "http://67.220.71.35:8880",
-            username = "@full2",
-            password = "JdC2QtxtSDda",
-            type = SourceType.XTREAM,
-            isActive = true
-        ),
-        SourceConfig(
-            id = "source_liontv",
-            name = "liontv.es (Helenmejia)",
-            serverUrl = "http://liontv.es:80",
-            username = "Helenmejia",
-            password = "Ejmavv5cPf",
-            type = SourceType.XTREAM,
-            isActive = false
-        ),
-        SourceConfig(
-            id = "source_ak47",
-            name = "ak-47scan.dyndns.tv (Eliezer77tv)",
-            serverUrl = "http://ak-47scan.dyndns.tv:25461",
-            username = "Eliezer77tv",
-            password = "PfkMt2mwEtcR",
-            type = SourceType.XTREAM,
-            isActive = false
-        )
-    )
+    val defaultInitialSources = emptyList<SourceConfig>()
 
     val allSources: Flow<List<SourceConfig>> = context.dataStore.data.map { preferences ->
         val rawJson = preferences[PreferencesKeys.SAVED_SOURCES_JSON]
@@ -83,35 +55,72 @@ class UserPreferencesDataSource(private val context: Context) {
             try {
                 json.decodeFromString<List<SourceConfig>>(rawJson)
             } catch (e: Exception) {
-                defaultInitialSources
+                emptyList()
             }
         } else {
-            defaultInitialSources
+            emptyList()
         }
 
-        list.map { source ->
-            source.copy(isActive = (source.id == activeId || (activeId == null && source.id == list.firstOrNull()?.id)))
+        // Desduplicar en memoria para garantizar que el usuario nunca vea 4 listas
+        val isCustom = { s: SourceConfig ->
+            s.serverUrl.contains("vercel.app") ||
+            s.username.equals("LELOUCH", ignoreCase = true) ||
+            s.name.contains("Personalizada", ignoreCase = true) ||
+            s.name.contains("Mi Lista", ignoreCase = true) ||
+            s.id.startsWith("custom_")
+        }
+
+        val customItems = list.filter { isCustom(it) }
+        val normalItems = list.filterNot { isCustom(it) }
+        val deduplicated = mutableListOf<SourceConfig>()
+
+        if (customItems.isNotEmpty()) {
+            val best = customItems.find { it.serverUrl.contains("token=") } ?: customItems.first()
+            val token = best.accessToken.takeIf { !it.isNullOrBlank() }
+                ?: (if (best.serverUrl.contains("token=")) best.serverUrl.substringAfter("token=").substringBefore("&") else "pByk2IfABSGuLwSC9b14z6Y7penWElnYjbgzmI3R")
+            val tokenUrl = "https://lelouch-web-player.vercel.app/api/playlist?token=$token"
+            deduplicated.add(
+                SourceConfig(
+                    id = "custom_lelouch",
+                    name = "⭐ Mi Lista Personalizada LELOUCH",
+                    serverUrl = tokenUrl,
+                    username = "",
+                    password = "",
+                    type = SourceType.M3U,
+                    isActive = customItems.any { it.id == activeId || it.isActive },
+                    accessToken = token
+                )
+            )
+        }
+
+        val seen = mutableSetOf<String>()
+        for (src in normalItems) {
+            val key = (src.serverUrl.trimEnd('/') + "|" + src.username.trim().lowercase())
+            if (!seen.contains(key)) {
+                seen.add(key)
+                deduplicated.add(src)
+            }
+        }
+
+        deduplicated.map { source ->
+            source.copy(isActive = (source.id == activeId || (activeId == null && source.id == deduplicated.firstOrNull()?.id)))
         }
     }
 
     val activeSource: Flow<SourceConfig?> = context.dataStore.data.map { preferences ->
-        val isLoggedIn = preferences[PreferencesKeys.IS_LOGGED_IN] ?: false
-        if (!isLoggedIn) {
-            null
-        } else {
-            val activeId = preferences[PreferencesKeys.ACTIVE_SOURCE_ID] ?: preferences[PreferencesKeys.SOURCE_ID]
-            val rawJson = preferences[PreferencesKeys.SAVED_SOURCES_JSON]
-            val list = if (!rawJson.isNullOrBlank()) {
-                try {
-                    json.decodeFromString<List<SourceConfig>>(rawJson)
-                } catch (e: Exception) {
-                    defaultInitialSources
-                }
-            } else {
-                defaultInitialSources
+        val activeId = preferences[PreferencesKeys.ACTIVE_SOURCE_ID] ?: preferences[PreferencesKeys.SOURCE_ID]
+        val rawJson = preferences[PreferencesKeys.SAVED_SOURCES_JSON]
+        val list = if (!rawJson.isNullOrBlank()) {
+            try {
+                json.decodeFromString<List<SourceConfig>>(rawJson)
+            } catch (e: Exception) {
+                emptyList()
             }
-            list.find { it.id == activeId } ?: list.firstOrNull()
+        } else {
+            emptyList()
         }
+        val found = list.find { it.id == activeId } ?: list.firstOrNull()
+        found?.copy(isActive = true)
     }
 
     suspend fun saveActiveSource(source: SourceConfig) {
@@ -171,8 +180,8 @@ class UserPreferencesDataSource(private val context: Context) {
         context.dataStore.edit { preferences ->
             val rawJson = preferences[PreferencesKeys.SAVED_SOURCES_JSON]
             val currentList = if (!rawJson.isNullOrBlank()) {
-                try { json.decodeFromString<List<SourceConfig>>(rawJson) } catch (e: Exception) { defaultInitialSources }
-            } else defaultInitialSources
+                try { json.decodeFromString<List<SourceConfig>>(rawJson) } catch (e: Exception) { emptyList() }
+            } else emptyList()
 
             val updated = currentList.filter { it.id != sourceId }
             preferences[PreferencesKeys.SAVED_SOURCES_JSON] = json.encodeToString(updated)

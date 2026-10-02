@@ -54,12 +54,16 @@ fun TvPortalDashboard(
     onReloadCatalog: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenDiagnostics: () -> Unit,
+    onNavigateToSearch: () -> Unit = {},
+    onNavigateToFavorites: () -> Unit = {},
     modifier: Modifier = Modifier,
     sidebarRequester: FocusRequester? = null
 ) {
     val cardFocusRequesters = remember { List(4) { FocusRequester() } }
     val actionFocusRequesters = remember { List(4) { FocusRequester() } }
     val reloadBtnRequester = remember { FocusRequester() }
+    val searchBtnRequester = remember { FocusRequester() }
+    val favBtnRequester = remember { FocusRequester() }
 
     Column(
         modifier = modifier
@@ -132,6 +136,7 @@ fun TvPortalDashboard(
                     modifier = Modifier
                         .focusRequester(reloadBtnRequester)
                         .focusProperties {
+                            right = searchBtnRequester
                             down = cardFocusRequesters[0]
                         }
                         .onFocusChanged { isReloadFocused = it.isFocused },
@@ -162,6 +167,87 @@ fun TvPortalDashboard(
                     }
                 }
 
+                Spacer(modifier = Modifier.width(10.dp))
+
+                // Botón BUSCAR (Focusable con D-Pad)
+                var isSearchFocused by remember { mutableStateOf(false) }
+                Surface(
+                    onClick = onNavigateToSearch,
+                    modifier = Modifier
+                        .focusRequester(searchBtnRequester)
+                        .focusProperties {
+                            left = reloadBtnRequester
+                            right = favBtnRequester
+                            down = cardFocusRequesters[1]
+                        }
+                        .onFocusChanged { isSearchFocused = it.isFocused },
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = if (isSearchFocused) Color(0xFF00E5FF) else Color(0xFF061826),
+                        focusedContainerColor = Color(0xFF00E5FF)
+                    ),
+                    border = ClickableSurfaceDefaults.border(
+                        border = Border(BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.5f))),
+                        focusedBorder = Border(BorderStroke(1.5.dp, Color.White))
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = "🔍", fontSize = 11.sp)
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text(
+                            text = "BUSCAR",
+                            color = if (isSearchFocused) Color(0xFF02070D) else Color(0xFF00E5FF),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = 0.5.sp
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(10.dp))
+
+                // Botón FAVORITOS (Focusable con D-Pad)
+                var isFavFocused by remember { mutableStateOf(false) }
+                Surface(
+                    onClick = onNavigateToFavorites,
+                    modifier = Modifier
+                        .focusRequester(favBtnRequester)
+                        .focusProperties {
+                            left = searchBtnRequester
+                            down = cardFocusRequesters[2]
+                        }
+                        .onFocusChanged { isFavFocused = it.isFocused },
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = if (isFavFocused) Color(0xFF00E5FF) else Color(0xFF061826),
+                        focusedContainerColor = Color(0xFF00E5FF)
+                    ),
+                    border = ClickableSurfaceDefaults.border(
+                        border = Border(BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.5f))),
+                        focusedBorder = Border(BorderStroke(1.5.dp, Color.White))
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = "⭐", fontSize = 11.sp)
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text(
+                            text = "FAVORITOS",
+                            color = if (isFavFocused) Color(0xFF02070D) else Color(0xFF00E5FF),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = 0.5.sp
+                        )
+                    }
+                }
+
                 Spacer(modifier = Modifier.width(12.dp))
 
                 // Indicador de Vencimiento
@@ -177,6 +263,13 @@ fun TvPortalDashboard(
 
         Spacer(modifier = Modifier.height(18.dp))
 
+        // Auto-foco en la primera tarjeta (TV EN VIVO) al iniciar
+        LaunchedEffect(Unit) {
+            try {
+                cardFocusRequesters[0].requestFocus()
+            } catch (_: Exception) {}
+        }
+
         // ══════════════════════════════════════════════════════════════════════
         // 2. LAS 4 TARJETAS GIGANTES HERO (PORTAL DASHBOARD)
         // ══════════════════════════════════════════════════════════════════════
@@ -190,7 +283,7 @@ fun TvPortalDashboard(
             // 1. TV EN VIVO
             PortalHeroCard(
                 title = "TV EN VIVO",
-                iconEmoji = "📺",
+                iconContent = { TvCardVectorIcon(size = 72.dp) },
                 count = liveChannelsCount,
                 accentColor = Color(0xFF00E5FF),
                 onClick = onNavigateToLive,
@@ -198,7 +291,7 @@ fun TvPortalDashboard(
                 modifier = Modifier
                     .weight(1f)
                     .focusProperties {
-                        left = sidebarRequester ?: cardFocusRequesters[0]
+                        left = cardFocusRequesters[0]
                         right = cardFocusRequesters[1]
                         up = reloadBtnRequester
                         down = actionFocusRequesters[0]
@@ -208,7 +301,7 @@ fun TvPortalDashboard(
             // 2. PELÍCULAS
             PortalHeroCard(
                 title = "PELÍCULAS",
-                iconEmoji = "🎬",
+                iconContent = { MovieCardVectorIcon(size = 72.dp) },
                 count = moviesCount,
                 accentColor = Color(0xFF38BDF8),
                 onClick = onNavigateToMovies,
@@ -218,7 +311,7 @@ fun TvPortalDashboard(
                     .focusProperties {
                         left = cardFocusRequesters[0]
                         right = cardFocusRequesters[2]
-                        up = reloadBtnRequester
+                        up = searchBtnRequester
                         down = actionFocusRequesters[1]
                     }
             )
@@ -226,7 +319,7 @@ fun TvPortalDashboard(
             // 3. SERIES
             PortalHeroCard(
                 title = "SERIES",
-                iconEmoji = "🎞️",
+                iconContent = { SeriesCardVectorIcon(size = 72.dp) },
                 count = seriesCount,
                 accentColor = Color(0xFFA855F7),
                 onClick = onNavigateToSeries,
@@ -236,7 +329,7 @@ fun TvPortalDashboard(
                     .focusProperties {
                         left = cardFocusRequesters[1]
                         right = cardFocusRequesters[3]
-                        up = reloadBtnRequester
+                        up = favBtnRequester
                         down = actionFocusRequesters[2]
                     }
             )
@@ -244,7 +337,7 @@ fun TvPortalDashboard(
             // 4. DEPORTES
             PortalHeroCard(
                 title = "DEPORTES",
-                iconEmoji = "⚽",
+                iconContent = { SportsCardVectorIcon(size = 72.dp) },
                 count = sportsCount,
                 accentColor = Color(0xFF10B981),
                 onClick = onNavigateToSports,
@@ -254,7 +347,7 @@ fun TvPortalDashboard(
                     .focusProperties {
                         left = cardFocusRequesters[2]
                         right = cardFocusRequesters[3]
-                        up = reloadBtnRequester
+                        up = favBtnRequester
                         down = actionFocusRequesters[3]
                     }
             )
@@ -279,7 +372,7 @@ fun TvPortalDashboard(
                 modifier = Modifier
                     .weight(1f)
                     .focusProperties {
-                        left = sidebarRequester ?: actionFocusRequesters[0]
+                        left = actionFocusRequesters[0]
                         right = actionFocusRequesters[1]
                         up = cardFocusRequesters[0]
                     }
@@ -340,7 +433,7 @@ fun TvPortalDashboard(
 @Composable
 private fun PortalHeroCard(
     title: String,
-    iconEmoji: String,
+    iconContent: @Composable () -> Unit,
     count: Int,
     accentColor: Color,
     onClick: () -> Unit,
@@ -352,18 +445,18 @@ private fun PortalHeroCard(
     Surface(
         onClick = onClick,
         modifier = modifier
-            .height(180.dp)
+            .height(185.dp)
             .focusRequester(focusRequester)
             .onFocusChanged { isFocused = it.isFocused },
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(20.dp)),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.07f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color(0xFF040D18),
             focusedContainerColor = Color(0xFF0A1B2E)
         ),
         border = ClickableSurfaceDefaults.border(
-            border = Border(BorderStroke(1.5.dp, Color(0xFF00E5FF).copy(alpha = 0.35f))),
-            focusedBorder = Border(BorderStroke(2.5.dp, Color(0xFF00E5FF)))
+            border = Border(BorderStroke(1.5.dp, Color(0xFF00E5FF).copy(alpha = 0.45f))),
+            focusedBorder = Border(BorderStroke(3.dp, Color(0xFF00E5FF)))
         )
     ) {
         Box(
@@ -372,8 +465,8 @@ private fun PortalHeroCard(
                 .background(
                     if (isFocused) {
                         Brush.radialGradient(
-                            colors = listOf(Color(0xFF00E5FF).copy(alpha = 0.25f), Color(0xFF040D18)),
-                            radius = 400f
+                            colors = listOf(Color(0xFF00E5FF).copy(alpha = 0.30f), Color(0xFF040D18)),
+                            radius = 450f
                         )
                     } else {
                         Brush.verticalGradient(
@@ -383,13 +476,13 @@ private fun PortalHeroCard(
                 )
                 .padding(14.dp)
         ) {
-            // Badge contador superior derecho
+            // Badge contador superior derecho con resplandor
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFF00E5FF).copy(alpha = 0.12f))
-                    .border(1.dp, Color(0xFF00E5FF).copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                    .background(Color(0xFF00E5FF).copy(alpha = if (isFocused) 0.25f else 0.12f))
+                    .border(1.dp, Color(0xFF00E5FF).copy(alpha = if (isFocused) 0.7f else 0.35f), RoundedCornerShape(12.dp))
                     .padding(horizontal = 9.dp, vertical = 3.dp)
             ) {
                 Text(
@@ -400,16 +493,13 @@ private fun PortalHeroCard(
                 )
             }
 
-            // Contenido central: Icono + Título
+            // Contenido central: Ilustración Vectorial + Título
             Column(
                 modifier = Modifier.align(Alignment.Center),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                Text(
-                    text = iconEmoji,
-                    fontSize = 46.sp
-                )
+                iconContent()
 
                 Spacer(modifier = Modifier.height(10.dp))
 

@@ -151,7 +151,7 @@ fun MobilePortalDashboard(
             ) {
                 MobileHeroCard(
                     title = "TV EN VIVO",
-                    iconEmoji = "📺",
+                    iconContent = { TvCardVectorIcon(size = 54.dp) },
                     count = liveChannelsCount,
                     onClick = onNavigateToLive,
                     modifier = Modifier.weight(1f)
@@ -159,7 +159,7 @@ fun MobilePortalDashboard(
 
                 MobileHeroCard(
                     title = "PELÍCULAS",
-                    iconEmoji = "🎬",
+                    iconContent = { MovieCardVectorIcon(size = 54.dp) },
                     count = moviesCount,
                     onClick = onNavigateToMovies,
                     modifier = Modifier.weight(1f)
@@ -173,7 +173,7 @@ fun MobilePortalDashboard(
             ) {
                 MobileHeroCard(
                     title = "SERIES",
-                    iconEmoji = "🎞️",
+                    iconContent = { SeriesCardVectorIcon(size = 54.dp) },
                     count = seriesCount,
                     onClick = onNavigateToSeries,
                     modifier = Modifier.weight(1f)
@@ -181,7 +181,7 @@ fun MobilePortalDashboard(
 
                 MobileHeroCard(
                     title = "DEPORTES",
-                    iconEmoji = "⚽",
+                    iconContent = { SportsCardVectorIcon(size = 54.dp) },
                     count = sportsCount,
                     onClick = onNavigateToSports,
                     modifier = Modifier.weight(1f)
@@ -232,7 +232,7 @@ fun MobilePortalDashboard(
 @Composable
 private fun MobileHeroCard(
     title: String,
-    iconEmoji: String,
+    iconContent: @Composable () -> Unit,
     count: Int,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -267,13 +267,13 @@ private fun MobileHeroCard(
             )
         }
 
-        // Centro: Icono + Título
+        // Centro: Ilustración Vectorial + Título
         Column(
             modifier = Modifier.align(Alignment.Center),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Text(text = iconEmoji, fontSize = 34.sp)
+            iconContent()
             Spacer(modifier = Modifier.height(6.dp))
             Text(
                 text = title,

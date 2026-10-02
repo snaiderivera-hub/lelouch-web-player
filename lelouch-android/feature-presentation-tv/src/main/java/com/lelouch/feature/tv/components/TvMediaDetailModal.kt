@@ -58,6 +58,7 @@ data class MediaDetailUiModel(
     val genre: String? = null,
     val director: String? = null,
     val containerExtension: String = "mp4",
+    val streamUrl: String = "",
     val isSeries: Boolean = false,
     val isFavorite: Boolean = false,
     val seasons: List<Int> = emptyList(),
