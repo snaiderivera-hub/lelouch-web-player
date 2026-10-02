@@ -794,7 +794,10 @@
                 <h3 style="margin:0">Gestión de Categorías Visibles</h3>
                 <p class="card-desc" style="margin:0.25rem 0 0">Selecciona qué categorías y listas deseas que aparezcan en pantalla y cuáles ocultar.</p>
               </div>
-              <button class="btn btn-primary" id="btn-open-cat-manager-settings"><i class="ph-fill ph-funnel"></i> Abrir Selector de Categorías</button>
+              <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+                <button class="btn btn-secondary" id="btn-open-import-from-cat-manager" style="color:var(--accent-cyan); border-color:rgba(0,229,255,0.4); font-weight:700;"><i class="ph ph-package"></i> 📥 Extraer a Mi Lista</button>
+                <button class="btn btn-primary" id="btn-open-cat-manager-settings"><i class="ph-fill ph-funnel"></i> Abrir Selector de Categorías</button>
+              </div>
             </div>
             <div id="settings-categories-preview" style="padding:1.5rem 0;">
               <p style="color:var(--text-secondary);font-size:0.9rem;">Pulsa el botón de arriba o el botón <b>Filtrar</b> en el panel de TV en Vivo para marcar o desmarcar exactamente qué categorías mostrar.</p>
@@ -1019,6 +1022,57 @@
     <button id="btn-quick-add-new-cat" class="btn btn-secondary" style="width:100%; margin-bottom:0.75rem;">
       <i class="ph-bold ph-plus"></i> + Crear Nueva Categoría
     </button>
+  </div>
+</div>
+
+<!-- MODAL IMPORTADOR MASIVO A MI LISTA LELOUCH -->
+<div id="playlist-import-modal" class="modal-backdrop hidden" style="z-index:99999;">
+  <div class="modal-content" style="max-width:650px; width:92%; border:1px solid rgba(0,229,255,0.4); box-shadow:0 16px 48px rgba(0,0,0,0.9); border-radius:16px; background:#07111c; display:flex; flex-direction:column; max-height:88vh; padding:1.25rem 1.5rem;">
+    <div class="modal-header" style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:0.75rem;">
+      <h3 style="margin:0; font-size:1.15rem; color:#ffffff; display:flex; align-items:center; gap:8px;">
+        <span style="font-size:1.3rem;">📦</span> Añadir Contenido a Mi Lista LELOUCH
+      </h3>
+      <button id="btn-close-import-modal" class="modal-close-btn" style="position:static; font-size:1.4rem; color:var(--text-muted);">&times;</button>
+    </div>
+    <div style="padding:1rem 0; overflow-y:auto; flex:1;">
+      <!-- Cuenta Origen -->
+      <div class="form-group" style="margin-bottom:1rem;">
+        <label style="font-weight:700; font-size:0.85rem; color:var(--text-secondary); margin-bottom:0.35rem; display:block;">1. Selecciona la Cuenta / Servidor:</label>
+        <select id="import-modal-source-select" class="form-input" style="width:100%; font-weight:600;"></select>
+      </div>
+
+      <!-- Tipo de Contenido -->
+      <label style="font-weight:700; font-size:0.85rem; color:var(--text-secondary); margin-bottom:0.35rem; display:block;">2. Tipo de Contenido a Importar:</label>
+      <div style="display:flex; gap:8px; margin-bottom:1rem;">
+        <button type="button" class="btn btn-secondary btn-sm import-type-btn active" data-type="movies" style="flex:1; font-weight:700;">🎬 Películas</button>
+        <button type="button" class="btn btn-secondary btn-sm import-type-btn" data-type="series" style="flex:1; font-weight:700;">🎞️ Series</button>
+        <button type="button" class="btn btn-secondary btn-sm import-type-btn" data-type="live" style="flex:1; font-weight:700;">📺 Canales en Vivo</button>
+      </div>
+
+      <!-- Búsqueda y Selección rápida -->
+      <label style="font-weight:700; font-size:0.85rem; color:var(--text-secondary); margin-bottom:0.35rem; display:block;">3. Marca las Categorías que deseas añadir "de un solo":</label>
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:0.75rem;">
+        <input type="text" id="import-cat-search" class="form-input" placeholder="🔍 Filtrar categorías (ej. Acción, Estrenos)..." style="flex:1; padding:0.4rem 0.75rem; font-size:0.85rem;" />
+        <button type="button" id="btn-import-select-all" class="btn btn-secondary btn-sm" style="font-size:0.78rem;">☑️ Marcar Todas</button>
+        <button type="button" id="btn-import-deselect-all" class="btn btn-secondary btn-sm" style="font-size:0.78rem;">⬜ Desmarcar</button>
+      </div>
+
+      <!-- Lista de Categorías -->
+      <div id="import-categories-list" style="max-height:260px; overflow-y:auto; border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:0.5rem; background:rgba(0,0,0,0.35); display:flex; flex-direction:column; gap:4px;">
+        <div style="color:var(--text-muted); text-align:center; padding:1.5rem; font-size:0.85rem;">Cargando categorías...</div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div style="padding-top:0.85rem; border-top:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+      <span id="import-selected-count-label" style="font-size:0.85rem; color:var(--accent-cyan); font-weight:700;">0 categorías seleccionadas</span>
+      <div style="display:flex; gap:8px;">
+        <button id="btn-cancel-import-modal" class="btn btn-secondary" style="font-weight:600;">Cancelar</button>
+        <button id="btn-do-import-to-custom" class="btn btn-primary" style="font-weight:800; background:linear-gradient(135deg, #00e5ff, #0088ff); color:#02070d; border:none; box-shadow:0 4px 14px rgba(0,229,255,0.3); padding:0.55rem 1.3rem;">
+          📥 Añadir a Mi Lista LELOUCH
+        </button>
+      </div>
+    </div>
   </div>
 </div>
 

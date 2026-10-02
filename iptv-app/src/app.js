@@ -366,6 +366,7 @@ async function initApp() {
   setupParentalControl();
   setupCategoryManager();
   setupCustomM3UManager();
+  setupPlaylistImportModal();
   setupLifecycleSyncListeners(); // FASE 18: Disparadores 2 (background) y 4 (botón Actualizar)
   updateActivePlaylistUI();
 
@@ -1805,6 +1806,7 @@ async function renderSettingsPlaylists() {
         ${isThisActive
           ? '<button class="btn btn-sm" style="background:linear-gradient(90deg,#10b981,#059669);color:#fff;opacity:0.85;cursor:default;pointer-events:none;" disabled>✓ En uso</button>'
           : `<button class="btn btn-primary btn-sm btn-activate-pl" data-id="${pl.id}">⚡ Activar</button>`}
+        <button class="btn btn-secondary btn-sm btn-extract-pl" data-id="${pl.id}" style="color:var(--accent-cyan); border-color:rgba(0,229,255,0.4); font-weight:700;" title="Extraer contenido de esta cuenta para alimentar Mi Lista LELOUCH">📥 Extraer a Mi Lista</button>
         <button class="btn btn-secondary btn-sm btn-edit-pl" data-id="${pl.id}">✏️ Modificar</button>
         <button class="btn btn-secondary btn-sm btn-reload-pl" data-id="${pl.id}">🔄 Recargar</button>
         <button class="btn btn-danger btn-sm btn-delete-pl" data-id="${pl.id}">🗑️ Eliminar</button>
@@ -1828,6 +1830,13 @@ async function renderSettingsPlaylists() {
   });
   $('btn-featured-custom-url')?.addEventListener('click', () => {
     generateAndShowPublicM3ULink();
+  });
+
+  // Evento extraer contenido a Mi Lista LELOUCH
+  container.querySelectorAll('.btn-extract-pl').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      openPlaylistImportModal(btn.dataset.id);
+    });
   });
 
   // Eventos de botones de proveedores
@@ -2826,6 +2835,282 @@ export function setupCustomM3UManager() {
   });
 }
 
+// ════════════ IMPORTADOR MASIVO A MI LISTA LELOUCH ════════════
+let _importModalState = {
+  sourcePlaylistId: null,
+  sourcePlaylistObj: null,
+  contentType: 'movies',
+  categories: [],
+  selectedCatNames: new Set()
+};
+
+export async function openPlaylistImportModal(preferredSourceId = null) {
+  const modal = $('playlist-import-modal');
+  if (!modal) return;
+
+  const lists = await playlistService.getAll();
+  const providerLists = lists.filter(p => p.id !== 'custom_lelouch_playlist');
+  if (providerLists.length === 0) {
+    toast('No tienes listas proveedoras registradas para extraer contenido.', 'warning');
+    return;
+  }
+
+  const select = $('import-modal-source-select');
+  if (select) {
+    select.innerHTML = providerLists.map(p => `
+      <option value="${p.id}" ${p.id === preferredSourceId || (!preferredSourceId && p.isActive) ? 'selected' : ''}>
+        ${escHtml(p.name)} (${escHtml(p.serverBaseUrl)})
+      </option>
+    `).join('');
+  }
+
+  modal.classList.remove('hidden');
+  await refreshImportModalData();
+}
+window.openPlaylistImportModal = openPlaylistImportModal;
+
+async function refreshImportModalData() {
+  const select = $('import-modal-source-select');
+  const sourceId = select?.value;
+  const listContainer = $('import-categories-list');
+  if (!listContainer) return;
+
+  listContainer.innerHTML = `<div style="color:var(--text-muted); text-align:center; padding:1.5rem; font-size:0.85rem;"><i class="ph ph-spinner"></i> Cargando catálogo y categorías...</div>`;
+
+  const lists = await playlistService.getAll();
+  const provider = lists.find(p => p.id === sourceId) || lists[0];
+  _importModalState.sourcePlaylistId = sourceId;
+  _importModalState.sourcePlaylistObj = provider;
+  _importModalState.selectedCatNames.clear();
+
+  let items = [];
+  const type = _importModalState.contentType;
+
+  if (type === 'movies') items = iptvService.state.movies || [];
+  else if (type === 'series') items = iptvService.state.series || [];
+  else if (type === 'live') items = iptvService.state.live || [];
+
+  const catMap = new Map();
+  items.forEach(it => {
+    const cName = it.categoryName || 'General';
+    if (!catMap.has(cName)) catMap.set(cName, []);
+    catMap.get(cName).push(it);
+  });
+
+  _importModalState.categories = [...catMap.entries()].map(([name, catItems]) => ({
+    name,
+    count: catItems.length,
+    items: catItems
+  })).sort((a, b) => b.count - a.count);
+
+  renderImportModalCategoryList();
+}
+
+function renderImportModalCategoryList() {
+  const listContainer = $('import-categories-list');
+  const searchInput = $('import-cat-search');
+  if (!listContainer) return;
+
+  const query = (searchInput?.value || '').trim().toLowerCase();
+  const filtered = query
+    ? _importModalState.categories.filter(c => c.name.toLowerCase().includes(query))
+    : _importModalState.categories;
+
+  if (filtered.length === 0) {
+    listContainer.innerHTML = `<div style="color:var(--text-muted); text-align:center; padding:1.5rem; font-size:0.85rem;">No se encontraron categorías en esta sección.</div>`;
+    updateImportSelectedCountLabel();
+    return;
+  }
+
+  const unitLabel = _importModalState.contentType === 'movies' ? 'películas' : (_importModalState.contentType === 'series' ? 'series' : 'canales');
+
+  listContainer.innerHTML = filtered.map(c => {
+    const isChecked = _importModalState.selectedCatNames.has(c.name);
+    return `
+      <div class="import-cat-row" data-cat="${escHtml(c.name)}" style="display:flex; justify-content:space-between; align-items:center; padding:0.45rem 0.65rem; border-radius:8px; background:${isChecked ? 'rgba(0,229,255,0.08)' : 'rgba(255,255,255,0.02)'}; border:1px solid ${isChecked ? 'rgba(0,229,255,0.35)' : 'transparent'}; cursor:pointer; margin-bottom:3px;">
+        <div style="display:flex; align-items:center; gap:8px; flex:1; min-width:0;">
+          <input type="checkbox" class="import-cat-checkbox" ${isChecked ? 'checked' : ''} style="cursor:pointer;" />
+          <span style="font-weight:600; font-size:0.86rem; color:${isChecked ? 'var(--accent-cyan)' : '#e2e8f0'}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escHtml(c.name)}">
+            ${escHtml(c.name)}
+          </span>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span class="badge-mini" style="background:rgba(255,255,255,0.06); color:var(--text-secondary); font-size:10px;">${c.count} ${unitLabel}</span>
+          <button type="button" class="btn btn-secondary btn-sm btn-extract-single-cat" data-cat="${escHtml(c.name)}" style="font-size:0.75rem; padding:2px 7px; color:var(--accent-cyan);" title="Añadir únicamente esta categoría">
+            ⚡ Añadir
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  listContainer.querySelectorAll('.import-cat-row').forEach(row => {
+    const catName = row.dataset.cat;
+    const chk = row.querySelector('.import-cat-checkbox');
+
+    const toggle = (e) => {
+      const willBeChecked = (e.target === chk) ? chk.checked : !chk.checked;
+      chk.checked = willBeChecked;
+      if (willBeChecked) {
+        _importModalState.selectedCatNames.add(catName);
+        row.style.background = 'rgba(0,229,255,0.08)';
+        row.style.borderColor = 'rgba(0,229,255,0.35)';
+      } else {
+        _importModalState.selectedCatNames.delete(catName);
+        row.style.background = 'rgba(255,255,255,0.02)';
+        row.style.borderColor = 'transparent';
+      }
+      updateImportSelectedCountLabel();
+    };
+
+    row.addEventListener('click', toggle);
+    chk.addEventListener('click', (e) => e.stopPropagation());
+    chk.addEventListener('change', toggle);
+
+    row.querySelector('.btn-extract-single-cat')?.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await executeCategoryImport([catName]);
+    });
+  });
+
+  updateImportSelectedCountLabel();
+}
+
+function updateImportSelectedCountLabel() {
+  const lbl = $('import-selected-count-label');
+  if (!lbl) return;
+
+  const count = _importModalState.selectedCatNames.size;
+  let totalItems = 0;
+  _importModalState.categories.forEach(c => {
+    if (_importModalState.selectedCatNames.has(c.name)) {
+      totalItems += c.count;
+    }
+  });
+
+  const unitLabel = _importModalState.contentType === 'movies' ? 'películas' : (_importModalState.contentType === 'series' ? 'series' : 'canales');
+  lbl.textContent = `${count} categorías seleccionadas (~${totalItems} ${unitLabel})`;
+}
+
+async function executeCategoryImport(catNames) {
+  if (!catNames || catNames.length === 0) {
+    toast('Selecciona al menos una categoría para importar.', 'warning');
+    return;
+  }
+
+  const provider = _importModalState.sourcePlaylistObj;
+  const serverBase = provider?.serverBaseUrl || iptvService.state.server?.serverUrl || window.location.origin;
+  const username = provider?.username || iptvService.state.account?.username || 'user';
+  const password = provider?.password || 'pass';
+
+  let itemsToImport = [];
+  _importModalState.categories.forEach(c => {
+    if (catNames.includes(c.name)) {
+      itemsToImport.push(...c.items);
+    }
+  });
+
+  if (itemsToImport.length === 0) {
+    toast('No se encontraron elementos en las categorías seleccionadas.', 'warning');
+    return;
+  }
+
+  toast(`⏳ Extrayendo ${itemsToImport.length} títulos hacia Tu Lista LELOUCH...`, 'info', 2000);
+
+  const currentList = getCustomM3UList();
+  const existingUrls = new Set(currentList.map(x => PlaylistDeduplicator.normalizeStreamUrl(x.url)));
+  let addedCount = 0;
+
+  for (const it of itemsToImport) {
+    let streamUrl = it.streamUrl;
+    if (!streamUrl) {
+      if (_importModalState.contentType === 'movies') {
+        const ext = it.containerExtension || 'mp4';
+        streamUrl = buildVodStreamUrl(serverBase, username, password, it.streamId || it.id, ext);
+      } else if (_importModalState.contentType === 'series') {
+        streamUrl = `${serverBase}/series/${username}/${password}/${it.seriesId || it.id}.mp4`;
+      } else {
+        streamUrl = buildLiveStreamUrl(serverBase, username, password, it.streamId || it.id, 'm3u8');
+      }
+    }
+
+    const normUrl = PlaylistDeduplicator.normalizeStreamUrl(streamUrl);
+    if (!existingUrls.has(normUrl)) {
+      existingUrls.add(normUrl);
+      currentList.push({
+        id: String(it.id || it.streamId || it.seriesId || (Date.now() + Math.random())),
+        sourceId: provider?.id || 'imported',
+        name: it.name || it.title || 'Título',
+        category: it.categoryName || 'Películas Importadas',
+        logo: it.logo || it.poster || it.cover || it.streamIcon || '',
+        url: streamUrl,
+        epgId: it.epgChannelId || '',
+        addedAt: Date.now()
+      });
+      addedCount++;
+    }
+  }
+
+  saveCustomM3UList(currentList);
+  scheduleCustomM3UCloudSync();
+
+  $('playlist-import-modal')?.classList.add('hidden');
+  renderSettingsPlaylists();
+  renderCustomM3UManager();
+  updateCustomM3UBadges();
+
+  toast(`🎉 ¡Se agregaron ${addedCount} títulos a Tu Lista LELOUCH! (Total: ${currentList.length} elementos)`, 'success', 4000);
+}
+
+function setupPlaylistImportModal() {
+  const modal = $('playlist-import-modal');
+  const closeBtn = $('btn-close-import-modal');
+  const cancelBtn = $('btn-cancel-import-modal');
+  const doImportBtn = $('btn-do-import-to-custom');
+  const selectAllBtn = $('btn-import-select-all');
+  const deselectAllBtn = $('btn-import-deselect-all');
+  const searchInput = $('import-cat-search');
+  const sourceSelect = $('import-modal-source-select');
+
+  closeBtn?.addEventListener('click', () => modal?.classList.add('hidden'));
+  cancelBtn?.addEventListener('click', () => modal?.classList.add('hidden'));
+
+  sourceSelect?.addEventListener('change', () => {
+    refreshImportModalData();
+  });
+
+  document.querySelectorAll('.import-type-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.import-type-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      _importModalState.contentType = btn.dataset.type || 'movies';
+      refreshImportModalData();
+    });
+  });
+
+  searchInput?.addEventListener('input', () => {
+    renderImportModalCategoryList();
+  });
+
+  selectAllBtn?.addEventListener('click', () => {
+    const searchVal = (searchInput?.value || '').trim().toLowerCase();
+    const targets = searchVal
+      ? _importModalState.categories.filter(c => c.name.toLowerCase().includes(searchVal))
+      : _importModalState.categories;
+    targets.forEach(c => _importModalState.selectedCatNames.add(c.name));
+    renderImportModalCategoryList();
+  });
+
+  deselectAllBtn?.addEventListener('click', () => {
+    _importModalState.selectedCatNames.clear();
+    renderImportModalCategoryList();
+  });
+
+  doImportBtn?.addEventListener('click', async () => {
+    await executeCategoryImport([..._importModalState.selectedCatNames]);
+  });
+}
+
 // ════════════ PAGINACIÓN REUTILIZABLE ════════════
 function renderPagination(containerId, currentPage, totalPages, onPage) {
   const container = $(containerId);
@@ -3489,6 +3774,9 @@ function setupCategoryManager() {
 
   // Botón abrir desde Ajustes
   openSettingsBtn?.addEventListener('click', () => openCategoryManager('live'));
+
+  // Botón extraer desde Gestión de Categorías
+  $('btn-open-import-from-cat-manager')?.addEventListener('click', () => openPlaylistImportModal());
 
   // Tabs de scope (TV, Películas, Series)
   document.querySelectorAll('.cat-scope-btn').forEach((btn) => {
