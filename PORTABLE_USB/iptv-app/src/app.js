@@ -1637,16 +1637,21 @@ async function renderSettingsPlaylists() {
   if (!container) return;
 
   const customList = getCustomM3UList();
+  const isCustomActive = (localStorage.getItem('iptv_active_playlist_id') === 'custom_lelouch_playlist');
+
   let customCardHtml = '';
   if (customList && customList.length > 0) {
     customCardHtml = `
-      <div class="playlist-card-row custom-m3u-featured-banner" style="background:linear-gradient(135deg, rgba(6,182,212,0.1) 0%, rgba(16,185,129,0.08) 100%); border:1px solid rgba(6,182,212,0.45); border-radius:14px; margin-bottom:1.5rem; box-shadow:0 6px 24px rgba(6,182,212,0.1); position:relative; overflow:hidden;">
-        <div style="position:absolute; top:0; left:0; width:4px; height:100%; background:linear-gradient(180deg, #00e5ff, #10b981);"></div>
+      <div class="playlist-card-row custom-m3u-featured-banner ${isCustomActive ? 'active' : ''}" style="background:linear-gradient(135deg, rgba(6,182,212,0.1) 0%, rgba(16,185,129,0.08) 100%); border:1.5px solid ${isCustomActive ? 'rgba(16,185,129,0.6)' : 'rgba(6,182,212,0.45)'}; border-radius:14px; margin-bottom:1.5rem; box-shadow:0 6px 24px ${isCustomActive ? 'rgba(16,185,129,0.12)' : 'rgba(6,182,212,0.1)'}; position:relative; overflow:hidden;">
+        <div style="position:absolute; top:0; left:0; width:4px; height:100%; background:${isCustomActive ? 'linear-gradient(180deg, #10b981, #059669)' : 'linear-gradient(180deg, #00e5ff, #10b981)'};"></div>
         <div class="pl-info" style="padding-left:6px;">
-          <div class="pl-title-row" style="flex-wrap:wrap; gap:6px;">
+          <div class="pl-title-row" style="flex-wrap:wrap; gap:6px; align-items:center;">
             <span class="pl-name" style="color:var(--accent-cyan); font-weight:800; font-size:1.02rem; display:inline-flex; align-items:center; gap:6px;">
               <span>⭐</span> Tu Lista Generada LELOUCH
             </span>
+            ${isCustomActive
+              ? '<span class="pl-tag-active" style="background:linear-gradient(90deg,#10b981,#059669);color:#fff;font-size:0.65rem;font-weight:800;padding:0.2rem 0.65rem;border-radius:99px;letter-spacing:0.05em;">✓ EN USO</span>'
+              : ''}
             <span class="badge-mini" style="background:rgba(6,182,212,0.18); color:var(--accent-cyan); border:1px solid rgba(6,182,212,0.35); font-size:10px; font-weight:700;">${customList.length} canales</span>
           </div>
           <div class="pl-sub" style="margin-top:5px; color:var(--text-secondary); font-size:0.8rem;">
@@ -1655,7 +1660,11 @@ async function renderSettingsPlaylists() {
           </div>
         </div>
         <div class="pl-actions" style="flex-wrap:wrap; gap:6px;">
-          <button id="btn-featured-custom-play" class="btn btn-primary btn-sm" style="font-weight:700; background:linear-gradient(135deg, #00e5ff, #0088ff); color:#02070d;" title="Ver y reproducir tus canales en TV en Vivo ahora">
+          ${isCustomActive
+            ? '<button class="btn btn-sm" style="background:linear-gradient(90deg,#10b981,#059669);color:#fff;opacity:0.85;cursor:default;pointer-events:none;font-weight:700;" disabled>✓ En uso</button>'
+            : '<button id="btn-featured-custom-activate" class="btn btn-primary btn-sm" style="font-weight:700; background:linear-gradient(135deg, #00e5ff, #0088ff); color:#02070d; border:none; box-shadow:0 2px 10px rgba(0,229,255,0.25);" title="Activar Mi Lista LELOUCH como la playlist activa">⚡ Activar</button>'
+          }
+          <button id="btn-featured-custom-play" class="btn btn-secondary btn-sm" style="font-weight:700;" title="Ver y reproducir tus canales en TV en Vivo ahora">
             📺 Ver en TV en Vivo
           </button>
           <button id="btn-featured-custom-manage" class="btn btn-secondary btn-sm" style="border-color:rgba(6,182,212,0.4); color:var(--accent-cyan);" title="Ir a la pestaña Creador M3U para editar o agregar canales">
@@ -1672,9 +1681,42 @@ async function renderSettingsPlaylists() {
     return;
   }
 
+  const providerCardsHtml = lists.map((pl) => {
+    const isThisActive = !isCustomActive && pl.isActive;
+    return `
+    <div class="playlist-card-row ${isThisActive ? 'active' : ''}">
+      <div class="pl-info">
+        <div class="pl-title-row">
+          <span class="pl-name">${escHtml(pl.name)}</span>
+          ${isThisActive
+            ? '<span class="pl-tag-active" style="background:linear-gradient(90deg,#10b981,#059669);color:#fff;font-size:0.65rem;font-weight:800;padding:0.2rem 0.65rem;border-radius:99px;letter-spacing:0.05em;">✓ EN USO</span>'
+            : ''}
+          <span class="badge-mini" style="background:rgba(56,189,248,0.15); color:#38bdf8; font-size:10px; margin-left:8px; border:1px solid rgba(56,189,248,0.3)">☁️ En la Nube</span>
+        </div>
+        <div class="pl-sub">
+          <span>Servidor: ${escHtml(pl.serverBaseUrl)}</span> •
+          <span>Usuario: ${escHtml(pl.username || '—')}</span> •
+          <span>Contraseña: ••••••••</span>
+        </div>
+      </div>
+      <div class="pl-actions">
+        ${isThisActive
+          ? '<button class="btn btn-sm" style="background:linear-gradient(90deg,#10b981,#059669);color:#fff;opacity:0.85;cursor:default;pointer-events:none;" disabled>✓ En uso</button>'
+          : `<button class="btn btn-primary btn-sm btn-activate-pl" data-id="${pl.id}">⚡ Activar</button>`}
+        <button class="btn btn-secondary btn-sm btn-edit-pl" data-id="${pl.id}">✏️ Modificar</button>
+        <button class="btn btn-secondary btn-sm btn-reload-pl" data-id="${pl.id}">🔄 Recargar</button>
+        <button class="btn btn-danger btn-sm btn-delete-pl" data-id="${pl.id}">🗑️ Eliminar</button>
+      </div>
+    </div>
+  `;
+  }).join('');
+
   container.innerHTML = customCardHtml + providerCardsHtml;
 
   // Listeners de la tarjeta destacada de la lista personalizada
+  $('btn-featured-custom-activate')?.addEventListener('click', async () => {
+    await activateCustomM3UAsMainPlaylist();
+  });
   $('btn-featured-custom-play')?.addEventListener('click', () => {
     $('btn-custom-m3u-play-live')?.click();
   });
@@ -1686,6 +1728,7 @@ async function renderSettingsPlaylists() {
   // Eventos de botones
   container.querySelectorAll('.btn-activate-pl').forEach((btn) => {
     btn.addEventListener('click', async () => {
+      localStorage.removeItem('iptv_active_playlist_id');
       const active = await playlistService.activate(btn.dataset.id);
       if (active) {
         toast(`Activando ${active.name}...`, 'info');
@@ -1958,6 +2001,56 @@ export function downloadCustomM3U() {
   URL.revokeObjectURL(url);
   toast(`⬇ Lista M3U descargada (${list.length} elementos)`, 'success');
 }
+
+export async function activateCustomM3UAsMainPlaylist() {
+  const customList = getCustomM3UList();
+  if (!customList || customList.length === 0) {
+    toast('Tu lista personalizada está vacía. Añade canales primero.', 'warning');
+    return;
+  }
+
+  localStorage.setItem('iptv_active_playlist_id', 'custom_lelouch_playlist');
+
+  const customChannels = customList.map((item, index) => ({
+    id: item.id || `custom_${index}`,
+    streamId: parseInt(item.id, 10) || (90000 + index),
+    num: index + 1,
+    name: item.name,
+    streamIcon: item.logo || '',
+    categoryId: item.category || 'Mi Lista Personalizada',
+    categoryName: item.category || 'Mi Lista Personalizada',
+    streamUrl: item.url,
+    epgChannelId: item.epgId || '',
+    isFavorite: false
+  }));
+
+  const uniqueCats = [...new Set(customList.map(item => item.category || 'Mi Lista Personalizada'))];
+  const customCategories = uniqueCats.map((catName) => ({
+    categoryId: catName,
+    categoryName: catName,
+    itemCount: customList.filter(item => (item.category || 'Mi Lista Personalizada') === catName).length
+  }));
+
+  iptvService.state.live = customChannels;
+  iptvService.state.categories = { live: customCategories, vod: [], series: [] };
+  iptvService.state.movies = [];
+  iptvService.state.series = [];
+  iptvService.state.sportsCount = customChannels.filter(c => {
+    const n = c.name.toLowerCase();
+    const cat = c.categoryName.toLowerCase();
+    return n.includes('espn') || n.includes('fox sport') || n.includes('deport') || cat.includes('deport') || cat.includes('sport');
+  }).length;
+  iptvService.state.account = { username: 'LELOUCH (Mi Lista)', maxConnections: 1, expireDate: 'Permanente', status: 'Active' };
+  iptvService.state.server = { serverUrl: window.location.origin || 'https://lelouch-web-player.vercel.app' };
+  iptvService.state.connected = true;
+
+  updateAllViews(iptvService.state);
+  renderSettingsPlaylists();
+  updateActivePlaylistUI();
+
+  toast(`⚡ ¡Mi Lista Personalizada LELOUCH activada! (${customList.length} canales)`, 'success', 3500);
+}
+window.activateCustomM3UAsMainPlaylist = activateCustomM3UAsMainPlaylist;
 
 export function playCustomStream(url, title) {
   if (!url) return;
@@ -2331,9 +2424,15 @@ function updateLiveStats() {
 // ════════════ PLAYLIST ACTIVA – INDICADOR EN HEADER Y HERO ════════════
 async function updateActivePlaylistUI() {
   try {
-    const lists = await playlistService.getAll();
-    const active = lists.find(p => p.isActive) || lists[0];
-    const name = active?.name || 'Sin playlist';
+    const isCustomActive = (localStorage.getItem('iptv_active_playlist_id') === 'custom_lelouch_playlist');
+    let name;
+    if (isCustomActive) {
+      name = '⭐ Mi Lista Personalizada LELOUCH';
+    } else {
+      const lists = await playlistService.getAll();
+      const active = lists.find(p => p.isActive) || lists[0];
+      name = active?.name || 'Sin playlist';
+    }
 
     const headerName = $('header-active-pl-name');
     if (headerName) headerName.textContent = name;
