@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.1",
-  "versionCode": 1000001,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.1/app-debug.apk",
-  "changelog": "• Soporte para adelantar y retroceder en películas y series (VOD).\n• Corrección de categorías ocultas y contador de canales en TV Box.\n• Actualizador automático OTA para TV Box y teléfonos móviles."
+  "versionName": "1.0.2",
+  "versionCode": 1000002,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.2/app-debug.apk",
+  "changelog": "• Soporte de catálogo unificado y extracción de listas personalizadas.\n• Optimización de almacenamiento persistente y prevención de límites de cuota.\n• Corrección de arranque y categorización de lista personalizada LELOUCH."
 }
