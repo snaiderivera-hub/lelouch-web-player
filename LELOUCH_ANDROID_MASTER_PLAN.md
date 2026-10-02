@@ -57,7 +57,7 @@ Del archivo `iptv-app/src/styles/main.css`:
 
 | Web Feature | Dominio Android (`:domain`) | UI Phone / Tablet (`:feature-mobile`) | UI Android TV (`:feature-tv`) |
 | :--- | :--- | :--- | :--- |
-| **Home Dinámico** | `GetHomeSectionsUseCase` | Hero compacto vertical, filas táctiles horizontales | Hero cinematográfico inmersivo, Carrusel superior, filas con foco D-pad |
+| **Home (Portal Dashboard)** | `GetDashboardMetricsUseCase`, `GetActiveSourceUseCase` | Grilla 2x2 táctil con 4 tarjetas gigantes, badges de conteo y acciones inferiores | Fila 4x1 de tarjetas gigantes con resplandor neón, escala D-Pad y barra inferior |
 | **TV en Vivo** | `GetLiveChannelsUseCase`, `PlayStreamUseCase` | Pantalla vertical: Categorías en tabs + lista de canales. Al pulsar: reproductor en top o fullscreen apaisado | Layout especializado de 3 paneles simultáneos (Categorías \| Canales \| Reproductor integrado + EPG Now/Next) |
 | **Películas (VOD)** | `GetMoviesPagedUseCase`, `GetMovieDetailUseCase` | Grilla responsiva de pósters táctiles (2 o 3 columnas) con buscador | Rieles horizontales estilo Xbox Game Pass por categoría, Hero dinámico que cambia con el foco, navegación por D-Pad |
 | **Series** | `GetSeriesPagedUseCase`, `GetSeriesDetailUseCase` | Lista de pósters táctiles → Detalle con acordeón de temporadas y episodios | Carruseles horizontales de series → Pantalla de detalle con selector horizontal de temporadas y grilla de capítulos |
@@ -65,6 +65,26 @@ Del archivo `iptv-app/src/styles/main.css`:
 | **Continuar Viendo** | `GetContinueWatchingUseCase`, `SaveProgressUseCase` | Fila horizontal "Seguir Viendo" en Home con barra de progreso | Primer riel horizontal debajo del Hero principal con acción directa de reanudación |
 | **Búsqueda Instantánea** | `SearchCatalogUseCase` | Barra superior de búsqueda, teclado táctil, resultados instantáneos agrupados | Vista de búsqueda TV con teclado virtual en pantalla o integración con búsqueda por voz |
 | **Ajustes y Cuentas** | `ManagePlaylistsUseCase`, `ManageCredentialsUseCase` | Configuración en lista vertical con modales táctiles | Interfaz de ajustes en tarjetas de gran tamaño con selector D-pad |
+
+### 2.4 Portal Dashboard Canónico (Diseño Aprobado para TV Box y Móvil — FASE 32)
+El diseño fundacional del Home en Android TV y Móvil adopta la arquitectura del Portal Web:
+1. **Cabecera Central:**
+   - Logotipo y Título: `REPRODUCTOR LELOUCH` (tipografía bold con resplandor cyan).
+   - Subtítulo: `M3U • XTREAM CODES • HLS`.
+   - Chip de Cuenta Activa: Badge con nombre de servidor (ej: `liontv.es`), botón de recarga `[🔄 RECARGAR]` y fecha de vencimiento (`Vence: DD/MM/AAAA`).
+2. **Las 4 Tarjetas Gigantes Hero (Portal Dashboard):**
+   - 📺 **TV EN VIVO:** Acceso directo a canales en vivo, con badge numérico en tiempo real e integración de **"Mi Lista Personalizada"** (67 canales).
+   - 🎬 **PELÍCULAS:** Acceso al catálogo de películas VOD categorizadas.
+   - 🎞️ **SERIES:** Navegación por series, temporadas y capítulos.
+   - ⚽ **DEPORTES:** Acceso directo a eventos deportivos y canales en vivo filtrados.
+3. **Fila Inferior de Acciones Rápidas:**
+   - `📄 Descargar M3U`: Exportación rápida de lista.
+   - `🔄 Recargar Catálogo`: Refresco de caché y sincronización con el servidor.
+   - `⚙️ Ajustes y Listas`: Gestión de cuentas externas y lista personalizada.
+   - `🩺 Diagnóstico`: Test de latencia y estado de conexión.
+4. **Comportamiento Adaptativo:**
+   - **En Android TV (TV Box):** Disposición 4x1 horizontal centrada. Cada tarjeta escala (`scale = 1.08f`) y activa un halo de luz neón al recibir el foco del D-Pad.
+   - **En Teléfono Móvil:** Disposición en cuadrícula responsiva 2x2 con cards ergonómicas de toque rápido.
 
 ---
 

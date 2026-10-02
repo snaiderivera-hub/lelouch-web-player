@@ -30,3 +30,20 @@ Bajo ninguna circunstancia Antigravity debe:
 13. **Romper Descargar M3U**: Mantener siempre operativa la descarga física del archivo `.m3u` en disco local.
 14. **Generar una URL falsa sin endpoint real**: Toda URL pública generada debe mapear a `/api/playlist/:token` con resolución funcional en Vercel/Supabase.
 15. **Declarar "terminado" solamente porque npm build pasa**: Exigir siempre verificación funcional de extremo a extremo con tests reales.
+
+## FASE 32 — Directiva de Rediseño Unificado Android (TV Box y Móvil)
+El usuario ha ordenado explícitamente adoptar la interfaz del **Portal Dashboard de Lelouch Web Player** como el Home oficial tanto en Android TV (TV Box) como en Teléfono móvil:
+- **Cabecera Central:**
+  - Título: `REPRODUCTOR LELOUCH`
+  - Subtítulo: `M3U • XTREAM CODES • HLS`
+  - Indicadores: Pill badge con servidor/cuenta activa, botón `🔄 RECARGAR` y fecha de expiración `Vence: DD/MM/YYYY`.
+- **4 Tarjetas Principales Hero (Portal Dashboard con resplandor neón cian y contadores en tiempo real):**
+  1. 📺 **TV EN VIVO** (con badge de cantidad de canales e integración de la lista personalizada de 67 canales).
+  2. 🎬 **PELÍCULAS** (con badge de películas VOD).
+  3. 🎞️ **SERIES** (con badge de series disponibles).
+  4. ⚽ **DEPORTES** (con badge de canales deportivos).
+- **Fila Inferior de Acciones Rápidas (Navegación fluida con foco D-Pad en TV y táctil en móvil):**
+  - `📄 Descargar M3U`
+  - `🔄 Recargar Catálogo`
+  - `⚙️ Ajustes y Listas` (con acceso a cuentas guardadas y a la lista personalizada generada).
+  - `🩺 Diagnóstico`
