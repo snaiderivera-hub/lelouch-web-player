@@ -11,7 +11,9 @@ import { cacheService } from './modules/iptv/services/CacheService.js';
 import { searchService } from './modules/iptv/services/SearchService.js';
 import { playerService, PlayerState } from './modules/iptv/services/PlayerService.js';
 import { downloadJson, groupByCategory, downloadM3UPlus } from './modules/iptv/services/ExportService.js';
-import { buildSeriesStreamUrl, redactSensitiveUrl, redactSensitiveText } from './modules/iptv/utils/security.js';
+import { buildLiveStreamUrl, buildVodStreamUrl, buildSeriesStreamUrl, redactSensitiveUrl, redactSensitiveText } from './modules/iptv/utils/security.js';
+import { parseIPTVUrl } from './modules/iptv/parsers/UrlParser.js';
+import { XtreamAdapter } from './modules/iptv/adapters/XtreamAdapter.js';
 import { playerModal } from './components/PlayerModal.js';
 import { mediaDetailModal } from './components/MediaDetailModal.js';
 import { channelHealthService, HealthStatus } from './modules/iptv/services/ChannelHealthService.js';
@@ -2873,36 +2875,112 @@ async function refreshImportModalData() {
   const select = $('import-modal-source-select');
   const sourceId = select?.value;
   const listContainer = $('import-categories-list');
+  const subtitle = $('import-modal-subtitle');
+  const statusPill = $('import-modal-status-pill');
   if (!listContainer) return;
 
-  listContainer.innerHTML = `<div style="color:var(--text-muted); text-align:center; padding:1.5rem; font-size:0.85rem;"><i class="ph ph-spinner"></i> Cargando catálogo y categorías...</div>`;
+  listContainer.innerHTML = `
+    <div style="color:var(--text-muted); text-align:center; padding:2.5rem; font-size:0.9rem;">
+      <span style="font-size:1.8rem; display:block; margin-bottom:8px;">⏳</span>
+      Cargando catálogo y categorías del proveedor...
+    </div>
+  `;
+  if (statusPill) statusPill.textContent = 'Consultando...';
 
   const lists = await playlistService.getAll();
   const provider = lists.find(p => p.id === sourceId) || lists[0];
+  if (!provider) {
+    listContainer.innerHTML = `<div style="color:#ef4444; text-align:center; padding:2rem;">No se encontró la cuenta proveedora.</div>`;
+    return;
+  }
+
+  if (subtitle) {
+    subtitle.textContent = `Extrayendo de: ${provider.name} (${provider.serverBaseUrl})`;
+  }
+
   _importModalState.sourcePlaylistId = sourceId;
   _importModalState.sourcePlaylistObj = provider;
   _importModalState.selectedCatNames.clear();
 
-  let items = [];
-  const type = _importModalState.contentType;
+  const type = _importModalState.contentType; // 'movies' | 'series' | 'live'
+  let categories = [];
 
-  if (type === 'movies') items = iptvService.state.movies || [];
-  else if (type === 'series') items = iptvService.state.series || [];
-  else if (type === 'live') items = iptvService.state.live || [];
+  try {
+    // 1. Verificar si ya tenemos el catálogo completo en iptvService en memoria
+    if (iptvService.state?.connected && iptvService.state.server?.serverUrl?.includes(provider.serverBaseUrl)) {
+      let items = [];
+      if (type === 'movies') items = iptvService.state.movies || [];
+      else if (type === 'series') items = iptvService.state.series || [];
+      else if (type === 'live') items = iptvService.state.live || [];
 
-  const catMap = new Map();
-  items.forEach(it => {
-    const cName = it.categoryName || 'General';
-    if (!catMap.has(cName)) catMap.set(cName, []);
-    catMap.get(cName).push(it);
-  });
+      if (items.length > 0) {
+        const catMap = new Map();
+        items.forEach(it => {
+          const cName = it.categoryName || 'General';
+          const cId = it.categoryId || cName;
+          if (!catMap.has(cName)) catMap.set(cName, { id: cId, name: cName, count: 0, items: [] });
+          const entry = catMap.get(cName);
+          entry.count++;
+          entry.items.push(it);
+        });
+        categories = [...catMap.values()].sort((a, b) => b.count - a.count);
+      }
+    }
 
-  _importModalState.categories = [...catMap.entries()].map(([name, catItems]) => ({
-    name,
-    count: catItems.length,
-    items: catItems
-  })).sort((a, b) => b.count - a.count);
+    // 2. Si no estaba en memoria, consultar la caché de IndexedDB
+    if (categories.length === 0) {
+      const serverBase = (provider.serverBaseUrl || '').replace(/\/+$/, '');
+      const prefix = `cat_${btoa(unescape(encodeURIComponent(serverBase))).slice(0, 12)}_`;
 
+      const cachedItems = await cacheService.get(`${prefix}${type}`);
+      if (cachedItems && cachedItems.length > 0) {
+        const catMap = new Map();
+        cachedItems.forEach(it => {
+          const cName = it.categoryName || 'General';
+          const cId = it.categoryId || cName;
+          if (!catMap.has(cName)) catMap.set(cName, { id: cId, name: cName, count: 0, items: [] });
+          const entry = catMap.get(cName);
+          entry.count++;
+          entry.items.push(it);
+        });
+        categories = [...catMap.values()].sort((a, b) => b.count - a.count);
+      } else {
+        const cachedCats = await cacheService.get(`${prefix}categories`);
+        if (cachedCats) {
+          const targetCats = type === 'movies' ? cachedCats.vod : (type === 'series' ? cachedCats.series : cachedCats.live);
+          if (targetCats && targetCats.length > 0) {
+            categories = targetCats.map(c => ({
+              id: c.id,
+              name: c.name,
+              count: c.itemCount || 0,
+              items: null
+            }));
+          }
+        }
+      }
+    }
+
+    // 3. Si aún no hay categorías, conectar directamente con XtreamAdapter del proveedor
+    if (categories.length === 0 && provider.url) {
+      const parsed = parseIPTVUrl(provider.url);
+      const adapter = new XtreamAdapter(parsed);
+      const allCats = await adapter.getCategories();
+      const targetCats = type === 'movies' ? allCats.vod : (type === 'series' ? allCats.series : allCats.live);
+      if (targetCats && targetCats.length > 0) {
+        categories = targetCats.map(c => ({
+          id: c.id,
+          name: c.name,
+          count: c.itemCount || 0,
+          items: null
+        }));
+      }
+    }
+  } catch (err) {
+    console.error('[ImportModal] Error al obtener categorías del proveedor:', err);
+  }
+
+  if (statusPill) statusPill.textContent = 'Listo';
+  _importModalState.categories = categories;
   renderImportModalCategoryList();
 }
 
@@ -2917,48 +2995,58 @@ function renderImportModalCategoryList() {
     : _importModalState.categories;
 
   if (filtered.length === 0) {
-    listContainer.innerHTML = `<div style="color:var(--text-muted); text-align:center; padding:1.5rem; font-size:0.85rem;">No se encontraron categorías en esta sección.</div>`;
+    listContainer.innerHTML = `
+      <div class="empty-state" style="padding:2.5rem; text-align:center;">
+        <div class="empty-icon" style="font-size:2rem;">🔍</div>
+        <div class="empty-title" style="color:var(--text-secondary); font-size:1rem; margin-top:0.5rem;">
+          ${query ? 'No hay categorías que coincidan con la búsqueda.' : 'No se encontraron categorías en esta sección para este proveedor.'}
+        </div>
+      </div>
+    `;
     updateImportSelectedCountLabel();
     return;
   }
 
   const unitLabel = _importModalState.contentType === 'movies' ? 'películas' : (_importModalState.contentType === 'series' ? 'series' : 'canales');
 
-  listContainer.innerHTML = filtered.map(c => {
+  listContainer.innerHTML = '';
+  filtered.forEach(c => {
     const isChecked = _importModalState.selectedCatNames.has(c.name);
-    return `
-      <div class="import-cat-row" data-cat="${escHtml(c.name)}" style="display:flex; justify-content:space-between; align-items:center; padding:0.45rem 0.65rem; border-radius:8px; background:${isChecked ? 'rgba(0,229,255,0.08)' : 'rgba(255,255,255,0.02)'}; border:1px solid ${isChecked ? 'rgba(0,229,255,0.35)' : 'transparent'}; cursor:pointer; margin-bottom:3px;">
-        <div style="display:flex; align-items:center; gap:8px; flex:1; min-width:0;">
-          <input type="checkbox" class="import-cat-checkbox" ${isChecked ? 'checked' : ''} style="cursor:pointer;" />
-          <span style="font-weight:600; font-size:0.86rem; color:${isChecked ? 'var(--accent-cyan)' : '#e2e8f0'}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escHtml(c.name)}">
-            ${escHtml(c.name)}
-          </span>
-        </div>
-        <div style="display:flex; align-items:center; gap:8px;">
-          <span class="badge-mini" style="background:rgba(255,255,255,0.06); color:var(--text-secondary); font-size:10px;">${c.count} ${unitLabel}</span>
-          <button type="button" class="btn btn-secondary btn-sm btn-extract-single-cat" data-cat="${escHtml(c.name)}" style="font-size:0.75rem; padding:2px 7px; color:var(--accent-cyan);" title="Añadir únicamente esta categoría">
-            ⚡ Añadir
-          </button>
-        </div>
+    const row = document.createElement('div');
+    row.className = `cat-checkbox-row`;
+    row.style.marginBottom = '6px';
+    if (isChecked) {
+      row.style.borderColor = 'rgba(0,229,255,0.45)';
+      row.style.background = 'rgba(0,229,255,0.08)';
+    }
+
+    row.innerHTML = `
+      <div class="cat-row-left">
+        <input type="checkbox" class="cat-row-check import-cat-check" ${isChecked ? 'checked' : ''} />
+        <span class="cat-row-name" style="font-weight:600; color:${isChecked ? 'var(--accent-cyan)' : 'var(--text-primary)'};" title="${escHtml(c.name)}">${escHtml(c.name)}</span>
+      </div>
+      <div class="cat-row-badges" style="display:flex; align-items:center; gap:8px;">
+        <span class="cat-count-badge">${c.count ? `${c.count} ${unitLabel}` : unitLabel}</span>
+        <button type="button" class="btn btn-secondary btn-sm btn-extract-single-cat" style="font-size:0.75rem; padding:2px 8px; color:var(--accent-cyan);" title="Añadir únicamente esta categoría">
+          ⚡ Añadir
+        </button>
       </div>
     `;
-  }).join('');
 
-  listContainer.querySelectorAll('.import-cat-row').forEach(row => {
-    const catName = row.dataset.cat;
-    const chk = row.querySelector('.import-cat-checkbox');
-
+    const chk = row.querySelector('.cat-row-check');
     const toggle = (e) => {
       const willBeChecked = (e.target === chk) ? chk.checked : !chk.checked;
       chk.checked = willBeChecked;
       if (willBeChecked) {
-        _importModalState.selectedCatNames.add(catName);
+        _importModalState.selectedCatNames.add(c.name);
+        row.style.borderColor = 'rgba(0,229,255,0.45)';
         row.style.background = 'rgba(0,229,255,0.08)';
-        row.style.borderColor = 'rgba(0,229,255,0.35)';
+        row.querySelector('.cat-row-name').style.color = 'var(--accent-cyan)';
       } else {
-        _importModalState.selectedCatNames.delete(catName);
-        row.style.background = 'rgba(255,255,255,0.02)';
-        row.style.borderColor = 'transparent';
+        _importModalState.selectedCatNames.delete(c.name);
+        row.style.borderColor = 'rgba(255,255,255,0.06)';
+        row.style.background = 'rgba(255,255,255,0.03)';
+        row.querySelector('.cat-row-name').style.color = 'var(--text-primary)';
       }
       updateImportSelectedCountLabel();
     };
@@ -2969,8 +3057,10 @@ function renderImportModalCategoryList() {
 
     row.querySelector('.btn-extract-single-cat')?.addEventListener('click', async (e) => {
       e.stopPropagation();
-      await executeCategoryImport([catName]);
+      await executeCategoryImport([c.name]);
     });
+
+    listContainer.appendChild(row);
   });
 
   updateImportSelectedCountLabel();
@@ -2984,12 +3074,13 @@ function updateImportSelectedCountLabel() {
   let totalItems = 0;
   _importModalState.categories.forEach(c => {
     if (_importModalState.selectedCatNames.has(c.name)) {
-      totalItems += c.count;
+      totalItems += c.count || 0;
     }
   });
 
   const unitLabel = _importModalState.contentType === 'movies' ? 'películas' : (_importModalState.contentType === 'series' ? 'series' : 'canales');
-  lbl.textContent = `${count} categorías seleccionadas (~${totalItems} ${unitLabel})`;
+  const countStr = totalItems > 0 ? ` (~${totalItems} ${unitLabel})` : '';
+  lbl.innerHTML = `<span><strong>${count}</strong> categorías seleccionadas${countStr}</span>`;
 }
 
 async function executeCategoryImport(catNames) {
@@ -2999,49 +3090,86 @@ async function executeCategoryImport(catNames) {
   }
 
   const provider = _importModalState.sourcePlaylistObj;
-  const serverBase = provider?.serverBaseUrl || iptvService.state.server?.serverUrl || window.location.origin;
-  const username = provider?.username || iptvService.state.account?.username || 'user';
-  const password = provider?.password || 'pass';
+  if (!provider) return;
 
+  const type = _importModalState.contentType;
+  const statusPill = $('import-modal-status-pill');
+  if (statusPill) statusPill.textContent = 'Extrayendo...';
+
+  toast(`⏳ Extrayendo contenido de ${catNames.length} categorías...`, 'info', 2500);
+
+  const selectedCats = _importModalState.categories.filter(c => catNames.includes(c.name));
   let itemsToImport = [];
-  _importModalState.categories.forEach(c => {
-    if (catNames.includes(c.name)) {
-      itemsToImport.push(...c.items);
-    }
-  });
 
-  if (itemsToImport.length === 0) {
-    toast('No se encontraron elementos en las categorías seleccionadas.', 'warning');
-    return;
+  // 1. Si los items ya estaban en memoria:
+  const hasItems = selectedCats.every(c => Array.isArray(c.items) && c.items.length > 0);
+  if (hasItems) {
+    selectedCats.forEach(c => itemsToImport.push(...c.items));
+  } else {
+    // 2. Si no estaban en memoria, buscar en caché de IndexedDB o descargar con XtreamAdapter
+    const serverBase = (provider.serverBaseUrl || '').replace(/\/+$/, '');
+    const prefix = `cat_${btoa(unescape(encodeURIComponent(serverBase))).slice(0, 12)}_`;
+    const cachedItems = await cacheService.get(`${prefix}${type}`);
+
+    if (cachedItems && cachedItems.length > 0) {
+      itemsToImport = cachedItems.filter(it => catNames.includes(it.categoryName));
+    }
+
+    // Si aún no tenemos los items, descargarlos del servidor Xtream
+    if (itemsToImport.length === 0 && provider.url) {
+      const parsed = parseIPTVUrl(provider.url);
+      const adapter = new XtreamAdapter(parsed);
+      for (const cat of selectedCats) {
+        try {
+          const action = type === 'movies' 
+            ? `get_vod_streams&category_id=${cat.id}`
+            : (type === 'series' ? `get_series&category_id=${cat.id}` : `get_live_streams&category_id=${cat.id}`);
+          const rawStreams = await adapter._fetchAction(action);
+          if (Array.isArray(rawStreams)) {
+            rawStreams.forEach(s => {
+              itemsToImport.push({
+                id: s.stream_id || s.series_id || s.id,
+                streamId: s.stream_id || s.series_id || s.id,
+                name: s.name || s.title,
+                categoryName: cat.name,
+                logo: s.stream_icon || s.cover || '',
+                containerExtension: s.container_extension || 'mp4',
+                streamUrl: type === 'movies'
+                  ? buildVodStreamUrl(parsed.serverBaseUrl, parsed.username, parsed._password, s.stream_id, s.container_extension || 'mp4')
+                  : (type === 'series'
+                      ? `${parsed.serverBaseUrl}/series/${parsed.username}/${parsed._password}/${s.series_id}.mp4`
+                      : buildLiveStreamUrl(parsed.serverBaseUrl, parsed.username, parsed._password, s.stream_id, 'm3u8'))
+              });
+            });
+          }
+        } catch (e) {
+          console.warn(`[ImportModal] Error extrayendo categoría ${cat.name}:`, e);
+        }
+      }
+    }
   }
 
-  toast(`⏳ Extrayendo ${itemsToImport.length} títulos hacia Tu Lista LELOUCH...`, 'info', 2000);
+  if (itemsToImport.length === 0) {
+    toast('No se encontraron elementos para importar en las categorías seleccionadas.', 'warning');
+    if (statusPill) statusPill.textContent = 'Listo';
+    return;
+  }
 
   const currentList = getCustomM3UList();
   const existingUrls = new Set(currentList.map(x => PlaylistDeduplicator.normalizeStreamUrl(x.url)));
   let addedCount = 0;
 
   for (const it of itemsToImport) {
-    let streamUrl = it.streamUrl;
-    if (!streamUrl) {
-      if (_importModalState.contentType === 'movies') {
-        const ext = it.containerExtension || 'mp4';
-        streamUrl = buildVodStreamUrl(serverBase, username, password, it.streamId || it.id, ext);
-      } else if (_importModalState.contentType === 'series') {
-        streamUrl = `${serverBase}/series/${username}/${password}/${it.seriesId || it.id}.mp4`;
-      } else {
-        streamUrl = buildLiveStreamUrl(serverBase, username, password, it.streamId || it.id, 'm3u8');
-      }
-    }
-
+    const streamUrl = it.streamUrl;
+    if (!streamUrl) continue;
     const normUrl = PlaylistDeduplicator.normalizeStreamUrl(streamUrl);
     if (!existingUrls.has(normUrl)) {
       existingUrls.add(normUrl);
       currentList.push({
-        id: String(it.id || it.streamId || it.seriesId || (Date.now() + Math.random())),
-        sourceId: provider?.id || 'imported',
+        id: String(it.id || it.streamId || (Date.now() + Math.random())),
+        sourceId: provider.id,
         name: it.name || it.title || 'Título',
-        category: it.categoryName || 'Películas Importadas',
+        category: it.categoryName || 'Importados',
         logo: it.logo || it.poster || it.cover || it.streamIcon || '',
         url: streamUrl,
         epgId: it.epgChannelId || '',
@@ -3059,7 +3187,7 @@ async function executeCategoryImport(catNames) {
   renderCustomM3UManager();
   updateCustomM3UBadges();
 
-  toast(`🎉 ¡Se agregaron ${addedCount} títulos a Tu Lista LELOUCH! (Total: ${currentList.length} elementos)`, 'success', 4000);
+  toast(`🎉 ¡Se extrajeron y añadieron ${addedCount} títulos a Tu Lista LELOUCH! (Total: ${currentList.length})`, 'success', 4500);
 }
 
 function setupPlaylistImportModal() {
