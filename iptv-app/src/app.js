@@ -342,7 +342,9 @@ async function initApp() {
     }
   }
 
-  if (activePlaylist && activePlaylist.url) {
+  // SOLO conectar si la playlist activa NO es la lista personalizada interna (evita 403 en vercel.app)
+  const isActiveCustom = savedActiveId === 'custom_lelouch_playlist' || activePlaylist?.id === 'custom_lelouch_playlist';
+  if (!isActiveCustom && activePlaylist && activePlaylist.url) {
     // Normalizar URLs antiguas de LionTV que tenían puerto 80 para evitar bloqueos del proveedor
     if (activePlaylist.url.includes('liontv.es:80/')) {
       activePlaylist.url = activePlaylist.url.replace('liontv.es:80/', 'liontv.es:8080/');
@@ -365,6 +367,8 @@ async function initApp() {
         $('empty-welcome-banner').style.display = 'block';
       }
     }
+  } else if (isActiveCustom) {
+    $('empty-welcome-banner').style.display = 'none';
   } else {
     // Si no hay ninguna playlist guardada, mostrar sugerencia de configuración
     $('empty-welcome-banner').style.display = 'block';
@@ -2338,40 +2342,71 @@ export async function activateCustomM3UAsMainPlaylist() {
   // 1. Guardar como activa en localStorage
   localStorage.setItem('iptv_active_playlist_id', 'custom_lelouch_playlist');
 
-  // 2. Mapear los canales a estructura estándar LiveStream
-  const customChannels = customList.map((item, index) => ({
-    id: item.id || `custom_${index}`,
-    streamId: parseInt(item.id, 10) || (90000 + index),
-    num: index + 1,
-    name: item.name,
-    streamIcon: item.logo || '',
-    categoryId: item.category || 'Mi Lista Personalizada',
-    categoryName: item.category || 'Mi Lista Personalizada',
-    streamUrl: item.url,
-    epgChannelId: item.epgId || '',
-    isFavorite: false
-  }));
+  // 2. Clasificar items en Live, Películas y Series
+  const liveItems = [];
+  const movieItems = [];
+  const seriesItems = [];
 
-  // 3. Categorías únicas
-  const uniqueCats = [...new Set(customList.map(item => item.category || 'Mi Lista Personalizada'))];
-  const customCategories = uniqueCats.map((catName) => ({
-    categoryId: catName,
-    categoryName: catName,
-    itemCount: customList.filter(item => (item.category || 'Mi Lista Personalizada') === catName).length
-  }));
+  customList.forEach((item, index) => {
+    const url = item.url || '';
+    const isMovie = url.includes('/movie/') || (item.category && item.category.toLowerCase().includes('película'));
+    const isSeries = url.includes('/series/') || (item.category && item.category.toLowerCase().includes('serie'));
 
-  // 4. Configurar estado de IPTVService
-  iptvService.state.live = customChannels;
-  iptvService.state.categories = {
-    live: customCategories,
-    vod: [],
-    series: []
+    const baseObj = {
+      id: item.id || `custom_${index}`,
+      streamId: parseInt(item.id, 10) || (90000 + index),
+      seriesId: parseInt(item.id, 10) || (90000 + index),
+      num: index + 1,
+      name: item.name || 'Título',
+      title: item.name || 'Título',
+      streamIcon: item.logo || '',
+      poster: item.logo || '',
+      cover: item.logo || '',
+      categoryId: item.category || 'Mi Lista LELOUCH',
+      categoryName: item.category || 'Mi Lista LELOUCH',
+      streamUrl: item.url,
+      containerExtension: isMovie ? (url.split('.').pop()?.split('?')[0] || 'mp4') : 'mp4',
+      epgChannelId: item.epgId || '',
+      isFavorite: false
+    };
+
+    if (isMovie) {
+      movieItems.push(baseObj);
+    } else if (isSeries) {
+      seriesItems.push(baseObj);
+    } else {
+      liveItems.push(baseObj);
+    }
+  });
+
+  // 3. Generar categorías para cada sección
+  const buildCategories = (items) => {
+    const catMap = new Map();
+    items.forEach(it => {
+      const cName = it.categoryName || 'General';
+      const cId = it.categoryId || cName;
+      if (!catMap.has(cName)) catMap.set(cName, { categoryId: cId, categoryName: cName, id: cId, name: cName, itemCount: 0 });
+      catMap.get(cName).itemCount++;
+    });
+    return [...catMap.values()];
   };
-  iptvService.state.movies = [];
-  iptvService.state.series = [];
-  iptvService.state.sportsCount = customChannels.filter(c => {
-    const n = c.name.toLowerCase();
-    const cat = c.categoryName.toLowerCase();
+
+  const liveCats = buildCategories(liveItems);
+  const vodCats = buildCategories(movieItems);
+  const seriesCats = buildCategories(seriesItems);
+
+  // 4. Configurar estado completo de IPTVService
+  iptvService.state.live = liveItems;
+  iptvService.state.movies = movieItems;
+  iptvService.state.series = seriesItems;
+  iptvService.state.categories = {
+    live: liveCats,
+    vod: vodCats,
+    series: seriesCats
+  };
+  iptvService.state.sportsCount = liveItems.filter(c => {
+    const n = (c.name || '').toLowerCase();
+    const cat = (c.categoryName || '').toLowerCase();
     return n.includes('espn') || n.includes('fox sport') || n.includes('deport') || cat.includes('deport') || cat.includes('sport') || n.includes('tudn') || n.includes('dazn');
   }).length;
   iptvService.state.account = {
@@ -2387,9 +2422,9 @@ export async function activateCustomM3UAsMainPlaylist() {
 
   // 5. Reindexar búsqueda
   searchService.buildIndex({
-    live: customChannels,
-    movies: [],
-    series: []
+    live: liveItems,
+    movies: movieItems,
+    series: seriesItems
   });
 
   // 6. Persistir en caché local
@@ -2398,9 +2433,9 @@ export async function activateCustomM3UAsMainPlaylist() {
     await Promise.all([
       cacheService.set(`${prefix}account`, { account: iptvService.state.account, server: iptvService.state.server, updatedAt: Date.now() }),
       cacheService.set(`${prefix}categories`, iptvService.state.categories),
-      cacheService.set(`${prefix}live`, customChannels),
-      cacheService.set(`${prefix}movies`, []),
-      cacheService.set(`${prefix}series`, [])
+      cacheService.set(`${prefix}live`, liveItems),
+      cacheService.set(`${prefix}movies`, movieItems),
+      cacheService.set(`${prefix}series`, seriesItems)
     ]);
   } catch (e) {
     console.warn('[CustomM3U] Error en caché local:', e);
