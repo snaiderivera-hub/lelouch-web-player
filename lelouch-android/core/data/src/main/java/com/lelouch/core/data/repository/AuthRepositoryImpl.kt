@@ -148,6 +148,38 @@ class AuthRepositoryImpl(
                 }
             }
 
+            // Sincronizar listas personalizadas (FASE 30 / FASE 32)
+            try {
+                val customSupabaseUrl = "https://rotupbdeljgfddywryhk.supabase.co/rest/v1/custom_playlists?select=*&order=updated_at.desc"
+                val customReq = Request.Builder()
+                    .url(customSupabaseUrl)
+                    .addHeader("apikey", supabaseKey)
+                    .addHeader("Authorization", "Bearer $supabaseKey")
+                    .build()
+                val customRes = httpClient.newCall(customReq).execute()
+                if (customRes.isSuccessful) {
+                    val customBody = customRes.body?.string() ?: ""
+                    val customJsonArray = json.parseToJsonElement(customBody).jsonArray
+                    for (el in customJsonArray) {
+                        val cObj = el.jsonObject
+                        val cId = cObj["id"]?.jsonPrimitive?.content ?: continue
+                        val cName = cObj["name"]?.jsonPrimitive?.content ?: "Mi Lista Personalizada"
+                        val cIsActive = cObj["is_active"]?.jsonPrimitive?.content?.toBoolean() ?: false
+                        cloudSources.add(
+                            SourceConfig(
+                                id = "custom_$cId",
+                                name = "⭐ $cName",
+                                serverUrl = "https://lelouch-web-player.vercel.app/api/playlist",
+                                username = "custom",
+                                password = "",
+                                type = SourceType.M3U,
+                                isActive = cIsActive
+                            )
+                        )
+                    }
+                }
+            } catch (_: Exception) {}
+
             if (cloudSources.isNotEmpty()) {
                 val current = preferencesDataSource.allSources.first().toMutableList()
                 cloudSources.forEach { cloud ->

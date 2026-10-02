@@ -1059,52 +1059,41 @@ fun TvHomeScreen(
                                 contentPadding = PaddingValues(top = 16.dp, bottom = 48.dp)
                             ) {
                                 item {
-                                    HomeHeaderBar(
+                                    val sportsCount = remember(visibleChannels) {
+                                        visibleChannels.count { ch ->
+                                            val cat = ch.categoryName.lowercase()
+                                            val name = ch.name.lowercase()
+                                            cat.contains("deporte") || cat.contains("sport") || cat.contains("espn") || cat.contains("fox sport") || cat.contains("dazn") ||
+                                            name.contains("espn") || name.contains("fox sport") || name.contains("tudn") || name.contains("dazn")
+                                        }
+                                    }
+
+                                    TvPortalDashboard(
                                         activeSource = activeSource,
-                                        videoInfo = videoInfo,
-                                        playbackState = playbackState,
-                                        onOpenAdmin = { selectedTopTab = 6 }
-                                    )
-                                }
-
-                                item {
-                                    val heroTitle = focusedHeroMovie?.name ?: focusedChannel?.name ?: "Lelouch Stream TV"
-                                    val heroSubtitle = focusedHeroMovie?.plot ?: focusedChannel?.currentProgram ?: "Explora tus canales en directo, películas y series favoritas."
-                                    val heroBadge = if (focusedHeroMovie != null) "4K UHD" else if (focusedChannel != null) "EN VIVO" else "LIVETV"
-                                    val heroMeta = if (focusedHeroMovie != null) {
-                                        "★ ${focusedHeroMovie?.rating ?: 8.5}  •  ${focusedHeroMovie?.year ?: "2024"}  •  Cine"
-                                    } else if (focusedChannel != null) {
-                                        "CH ${focusedChannel.num}  •  ${focusedChannel.categoryName}  •  ${videoInfo.resolutionLabel}"
-                                    } else {
-                                        "0 canales visibles activados"
-                                    }
-                                    val heroButtonText = if (focusedHeroMovie != null) {
-                                        "Ver Película (OK)"
-                                    } else if (focusedChannel != null) {
-                                        "Ver Pantalla Completa (OK)"
-                                    } else {
-                                        "Gestionar Categorías"
-                                    }
-
-                                    TvHeroSpotlight(
-                                        title = heroTitle,
-                                        subtitle = heroSubtitle,
-                                        badge = heroBadge,
-                                        meta = heroMeta,
-                                        playButtonText = heroButtonText,
-                                        onPlayClick = {
-                                            if (focusedHeroMovie != null) {
-                                                playMovie(focusedHeroMovie!!)
-                                            } else if (focusedChannel != null) {
-                                                isPlayingLive = true
-                                                isFullscreen = true
-                                            } else {
-                                                categoryManagerInitialScope = CategoryScope.LIVE
-                                                isCategoryManagerVisible = true
+                                        liveChannelsCount = visibleChannels.size,
+                                        moviesCount = visibleMovies.size,
+                                        seriesCount = visibleSeries.size,
+                                        sportsCount = sportsCount,
+                                        onNavigateToLive = { selectedTopTab = 2 },
+                                        onNavigateToMovies = { selectedTopTab = 3 },
+                                        onNavigateToSeries = { selectedTopTab = 4 },
+                                        onNavigateToSports = {
+                                            val sportsCat = channelCategoryList.firstOrNull {
+                                                it.name.contains("deporte", ignoreCase = true) || it.name.contains("sport", ignoreCase = true)
                                             }
+                                            if (sportsCat != null) selectedChannelCategoryId = sportsCat.id
+                                            selectedTopTab = 2
                                         },
-                                        playButtonRequester = contentFocusRequester,
-                                        sidebarRequester = sidebarRequesters[1]
+                                        onDownloadM3U = {
+                                            android.widget.Toast.makeText(context, "Lista M3U lista para exportar", android.widget.Toast.LENGTH_SHORT).show()
+                                        },
+                                        onReloadCatalog = { onForceSync() },
+                                        onOpenSettings = { isAdminModalVisible = true },
+                                        onOpenDiagnostics = { selectedTopTab = 6 },
+                                        sidebarRequester = sidebarRequesters[1],
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(bottom = 24.dp)
                                     )
                                 }
 

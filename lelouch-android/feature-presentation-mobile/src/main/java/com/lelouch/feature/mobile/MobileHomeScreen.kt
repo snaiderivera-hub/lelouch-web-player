@@ -224,7 +224,9 @@ fun MobileHomeScreen(
                             onSeriesClick = { selectedSeries = it },
                             onSeeAllLive = { selectedTab = 1 },
                             onSeeAllMovies = { selectedTab = 2 },
-                            onSeeAllSeries = { selectedTab = 3 }
+                            onSeeAllSeries = { selectedTab = 3 },
+                            onReloadCatalog = onForceSync,
+                            onOpenSettings = { selectedTab = 4 }
                         )
                         1 -> MobileLiveTab(
                             channels = if (searchQuery.isBlank()) liveChannels
@@ -414,16 +416,48 @@ private fun MobileBottomNavBar(selectedTab: Int, onTabChange: (Int) -> Unit) {
     }
 }
 
-// TAB 0: INICIO
+// TAB 0: INICIO (PORTAL DASHBOARD FASE 32)
 @Composable
 private fun MobileHomeTab(
     liveChannels: List<LiveStream>, movies: List<VodMovie>, seriesList: List<Series>,
     activeSource: SourceConfig?,
     onChannelClick: (String, String) -> Unit, onMovieClick: (VodMovie) -> Unit,
     onSeriesClick: (Series) -> Unit, onSeeAllLive: () -> Unit,
-    onSeeAllMovies: () -> Unit, onSeeAllSeries: () -> Unit
+    onSeeAllMovies: () -> Unit, onSeeAllSeries: () -> Unit,
+    onReloadCatalog: () -> Unit = {},
+    onOpenSettings: () -> Unit = {}
 ) {
+    val context = LocalContext.current
+    val sportsCount = remember(liveChannels) {
+        liveChannels.count { ch ->
+            val cat = ch.categoryName.lowercase()
+            val name = ch.name.lowercase()
+            cat.contains("deporte") || cat.contains("sport") || cat.contains("espn") || cat.contains("fox sport") || cat.contains("dazn") ||
+            name.contains("espn") || name.contains("fox sport") || name.contains("tudn") || name.contains("dazn")
+        }
+    }
+
     LazyColumn(modifier = Modifier.fillMaxSize()) {
+        item {
+            MobilePortalDashboard(
+                activeSource = activeSource,
+                liveChannelsCount = liveChannels.size,
+                moviesCount = movies.size,
+                seriesCount = seriesList.size,
+                sportsCount = sportsCount,
+                onNavigateToLive = onSeeAllLive,
+                onNavigateToMovies = onSeeAllMovies,
+                onNavigateToSeries = onSeeAllSeries,
+                onNavigateToSports = onSeeAllLive,
+                onDownloadM3U = {
+                    android.widget.Toast.makeText(context, "Lista M3U lista para exportar", android.widget.Toast.LENGTH_SHORT).show()
+                },
+                onReloadCatalog = onReloadCatalog,
+                onOpenSettings = onOpenSettings,
+                onOpenDiagnostics = onOpenSettings,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+        }
         item {
             val featuredMovie = movies.firstOrNull()
             Box(
