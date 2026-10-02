@@ -2176,7 +2176,7 @@ export function copyCustomM3UAll() {
   const list = getCustomM3UList();
   if (list.length === 0) {
     toast('Tu lista personalizada está vacía. Añade canales primero.', 'warning');
-    return;
+    return null;
   }
   const content = generateCustomM3UContent();
   if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -2188,26 +2188,32 @@ export function copyCustomM3UAll() {
   } else {
     prompt('Copia todo el contenido de tu lista M3U:', content);
   }
+  return content;
 }
+window.copyCustomM3UAll = copyCustomM3UAll;
+window.generateCustomM3UContent = generateCustomM3UContent;
 
 export function downloadCustomM3U() {
   const list = getCustomM3UList();
   if (list.length === 0) {
     toast('Tu lista personalizada está vacía. Añade canales primero.', 'warning');
-    return;
+    return null;
   }
   const content = generateCustomM3UContent();
   const blob = new Blob([content], { type: 'audio/x-mpegurl;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `mi_lista_iptv_${new Date().toISOString().slice(0, 10)}.m3u`;
+  const filename = `mi_lista_iptv_${new Date().toISOString().slice(0, 10)}.m3u`;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
   toast(`⬇ Lista M3U descargada (${list.length} elementos)`, 'success');
+  return { content, filename, blob };
 }
+window.downloadCustomM3U = downloadCustomM3U;
 
 export function playCustomStream(url, title) {
   if (!url) return;
@@ -2458,6 +2464,10 @@ export function setupCustomM3UManager() {
   $('btn-custom-m3u-download')?.addEventListener('click', () => downloadCustomM3U());
   $('btn-custom-m3u-generate-link')?.addEventListener('click', () => generateAndShowPublicM3ULink());
   $('btn-custom-m3u-clear')?.addEventListener('click', () => clearCustomM3UList());
+
+  // Listeners de consumo rápido dentro del modal (FASE 30)
+  $('btn-token-modal-quick-copy')?.addEventListener('click', () => copyCustomM3UAll());
+  $('btn-token-modal-quick-download')?.addEventListener('click', () => downloadCustomM3U());
 
   // Listeners del modal de enlace permanente (FASE 14)
   $('btn-close-token-modal')?.addEventListener('click', () => {

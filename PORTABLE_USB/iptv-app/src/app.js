@@ -2042,6 +2042,9 @@ export function setupCustomM3UManager() {
 
   $('btn-custom-m3u-copy-all')?.addEventListener('click', () => copyCustomM3UAll());
   $('btn-custom-m3u-download')?.addEventListener('click', () => downloadCustomM3U());
+  $('btn-custom-m3u-generate-link')?.addEventListener('click', () => {
+    toast('🌐 Para generar URLs dinámicas en la nube con token sincronizado, utiliza la versión conectada a Vercel/Supabase.', 'info', 4000);
+  });
   $('btn-custom-m3u-clear')?.addEventListener('click', () => clearCustomM3UList());
 
   $('btn-custom-m3u-play-live')?.addEventListener('click', () => {

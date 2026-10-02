@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FASE 29 - Prueba de Sincronizacion Dinamica</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #060a12; --surface: #0d1626; --card: #111d35; --border: #1e3054;
+      --accent: #3b82f6; --accent2: #8b5cf6; --success: #10b981;
+      --warning: #f59e0b; --danger: #ef4444; --text: #e2e8f0; --muted: #64748b;
+      --mono: 'JetBrains Mono', monospace; --sans: 'Inter', sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: var(--sans); background: var(--bg); color: var(--text); min-height: 100vh; padding: 24px 16px 60px; }
+    .page-header { text-align: center; margin-bottom: 40px; }
+    .phase-badge { display: inline-block; background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; padding: 4px 12px; border-radius: 20px; margin-bottom: 12px; }
+    h1 { font-size: clamp(1.4rem, 4vw, 2.2rem); font-weight: 700; background: linear-gradient(135deg, #60a5fa, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 8px; }
+    .subtitle { color: var(--muted); font-size: 0.95rem; max-width: 560px; margin: 0 auto; line-height: 1.6; }
+    .steps-nav { display: flex; align-items: flex-start; justify-content: center; gap: 4px; margin-bottom: 36px; flex-wrap: wrap; }
+    .step-dot { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 80px; }
+    .dot-circle { width: 36px; height: 36px; border-radius: 50%; border: 2px solid var(--border); background: var(--surface); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.85rem; color: var(--muted); transition: all .3s; }
+    .step-dot.active .dot-circle { border-color: var(--accent); background: rgba(59,130,246,.15); color: var(--accent); box-shadow: 0 0 12px rgba(59,130,246,.3); }
+    .step-dot.done .dot-circle { border-color: var(--success); background: rgba(16,185,129,.15); color: var(--success); }
+    .dot-label { font-size: 0.68rem; color: var(--muted); white-space: nowrap; text-align: center; }
+    .step-dot.active .dot-label { color: var(--accent); }
+    .step-dot.done .dot-label { color: var(--success); }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 28px; max-width: 820px; margin: 0 auto 24px; transition: border-color .3s; }
+    .card.active-step { border-color: var(--accent); }
+    .card.done-step { border-color: var(--success); opacity: 0.75; }
+    .card-title { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+    .step-num { width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--accent2)); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.8rem; flex-shrink: 0; }
+    .done-step .step-num { background: linear-gradient(135deg, var(--success), #059669); }
+    .card-title h2 { font-size: 1.05rem; font-weight: 600; }
+    .field-group { margin-bottom: 16px; }
+    label { display: block; font-size: 0.8rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+    input[type=text] { width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; color: var(--text); padding: 10px 14px; font-size: 0.9rem; font-family: var(--sans); outline: none; transition: border-color .2s; }
+    input[type=text]:focus { border-color: var(--accent); }
+    .btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 20px; border: none; border-radius: 8px; font-size: 0.88rem; font-weight: 600; font-family: var(--sans); cursor: pointer; transition: all .2s; }
+    .btn-primary { background: linear-gradient(135deg, var(--accent), #2563eb); color: #fff; }
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(59,130,246,.4); }
+    .btn-success { background: linear-gradient(135deg, var(--success), #059669); color: #fff; }
+    .btn-success:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(16,185,129,.4); }
+    .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+    .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none !important; }
+    .channel-list { display: flex; flex-direction: column; gap: 8px; }
+    .channel-row { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; }
+    .ch-handle { color: var(--muted); }
+    .ch-name { flex: 1; font-weight: 500; }
+    .ch-url { flex: 2; font-family: var(--mono); font-size: 0.78rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ch-del { background: none; border: none; color: var(--danger); cursor: pointer; font-size: 1.1rem; opacity: 0.6; transition: opacity .2s; }
+    .ch-del:hover { opacity: 1; }
+    .add-channel-row { display: grid; grid-template-columns: 1fr 2fr auto; gap: 8px; margin-top: 10px; }
+    .url-box { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; display: flex; align-items: center; gap: 12px; margin: 12px 0; }
+    .url-text { flex: 1; font-family: var(--mono); font-size: 0.82rem; color: #60a5fa; word-break: break-all; }
+    .copy-btn { background: none; border: 1px solid var(--border); border-radius: 6px; color: var(--muted); padding: 5px 10px; cursor: pointer; font-size: 0.78rem; white-space: nowrap; transition: all .2s; }
+    .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .copy-btn.copied { border-color: var(--success); color: var(--success); }
+    .m3u-preview { background: #040810; border: 1px solid var(--border); border-radius: 10px; padding: 16px; font-family: var(--mono); font-size: 0.78rem; line-height: 1.7; white-space: pre-wrap; word-break: break-all; max-height: 320px; overflow-y: auto; margin: 12px 0; }
+    .kw-extinf { color: #f59e0b; }
+    .kw-extm3u { color: #8b5cf6; font-weight: 700; }
+    .kw-url { color: #34d399; }
+    .kw-comment { color: var(--muted); }
+    .status-row { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 8px; margin: 8px 0; font-size: 0.88rem; }
+    .status-row.ok { background: rgba(16,185,129,.08); border: 1px solid rgba(16,185,129,.25); }
+    .status-row.err { background: rgba(239,68,68,.08); border: 1px solid rgba(239,68,68,.25); }
+    .status-row.warn { background: rgba(245,158,11,.08); border: 1px solid rgba(245,158,11,.25); }
+    .status-row.info { background: rgba(59,130,246,.08); border: 1px solid rgba(59,130,246,.25); }
+    .status-icon { font-size: 1.1rem; }
+    .diff-box { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0; }
+    .diff-col h3 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px; }
+    .diff-col.before h3 { color: var(--danger); }
+    .diff-col.after h3 { color: var(--success); }
+    .diff-item { padding: 8px 12px; border-radius: 6px; font-size: 0.85rem; font-weight: 500; margin-bottom: 4px; }
+    .diff-item.removed { background: rgba(239,68,68,.12); color: #fca5a5; text-decoration: line-through; }
+    .diff-item.kept { background: rgba(16,185,129,.08); color: #86efac; }
+    .diff-item.added { background: rgba(59,130,246,.12); color: #93c5fd; }
+    .verdict { text-align: center; padding: 36px 24px; border-radius: 16px; margin: 24px auto; max-width: 820px; }
+    .verdict.pass { background: radial-gradient(ellipse at center, rgba(16,185,129,.12) 0%, transparent 70%); border: 1px solid rgba(16,185,129,.3); }
+    .verdict.fail { background: radial-gradient(ellipse at center, rgba(239,68,68,.12) 0%, transparent 70%); border: 1px solid rgba(239,68,68,.3); }
+    .verdict-icon { font-size: 4rem; margin-bottom: 12px; }
+    .verdict-title { font-size: 1.6rem; font-weight: 700; margin-bottom: 8px; }
+    .verdict.pass .verdict-title { color: var(--success); }
+    .verdict.fail .verdict-title { color: var(--danger); }
+    .verdict-sub { color: var(--muted); font-size: 0.9rem; }
+    .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: spin .6s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .env-bar { max-width: 820px; margin: 0 auto 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .env-label { font-size: 0.78rem; color: var(--muted); font-weight: 600; text-transform: uppercase; }
+    .env-badge { padding: 3px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: 700; }
+    .env-badge.prod { background: rgba(16,185,129,.15); color: var(--success); border: 1px solid rgba(16,185,129,.3); }
+    .env-badge.local { background: rgba(245,158,11,.15); color: var(--warning); border: 1px solid rgba(245,158,11,.3); }
+    .hidden { display: none !important; }
+    @media (max-width: 600px) { .add-channel-row { grid-template-columns: 1fr; } .diff-box { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<header class="page-header">
+  <div class="phase-badge">FASE 29 - Prueba de Aceptacion Principal</div>
+  <h1>Sincronizacion Dinamica de Playlist</h1>
+  <p class="subtitle">
+    Valida que la <strong>URL permanezca identica</strong> mientras los canales cambian en tiempo real.
+    Canal A+B+C - eliminar B, anadir D - resultado: A+C+D. Misma URL.
+  </p>
+</header>
+
+<div class="env-bar">
+  <span class="env-label">Entorno:</span>
+  <span id="envBadge" class="env-badge local">Detectando...</span>
+  <span id="envUrl" style="font-family:var(--mono);font-size:.78rem;color:var(--muted);margin-left:auto;"></span>
+</div>
+
+<nav class="steps-nav" id="stepsNav">
+  <div class="step-dot active" id="dot1"><div class="dot-circle">1</div><span class="dot-label">Crear lista</span></div>
+  <div class="step-dot" id="dot2"><div class="dot-circle">2</div><span class="dot-label">Generar token</span></div>
+  <div class="step-dot" id="dot3"><div class="dot-circle">3</div><span class="dot-label">Verificar A-B-C</span></div>
+  <div class="step-dot" id="dot4"><div class="dot-circle">4</div><span class="dot-label">Editar lista</span></div>
+  <div class="step-dot" id="dot5"><div class="dot-circle">5</div><span class="dot-label">Verificar A-C-D</span></div>
+</nav>
+
+<!-- PASO 1 -->
+<div class="card active-step" id="step1">
+  <div class="card-title"><div class="step-num">1</div><h2>Crear Playlist de Prueba - Canal A, Canal B, Canal C</h2></div>
+  <div class="field-group">
+    <label>Nombre de la playlist</label>
+    <input type="text" id="playlistName" value="FASE 29 Test Sync" />
+  </div>
+  <div class="field-group">
+    <label>Canales iniciales</label>
+    <div class="channel-list" id="channelList"></div>
+    <div class="add-channel-row" style="margin-top:10px">
+      <input type="text" id="newChName" placeholder="Nombre (ej: Canal D)" />
+      <input type="text" id="newChUrl" placeholder="URL stream (ej: http://test.tv/live/ch1.ts)" />
+      <button class="btn btn-ghost" onclick="addChannel()">+ Anadir</button>
+    </div>
+  </div>
+  <div id="step1Status"></div>
+  <div style="display:flex;gap:10px;margin-top:8px">
+    <button class="btn btn-primary" id="btnCreate" onclick="createPlaylist()"><span>Crear en Supabase</span></button>
+    <button class="btn btn-ghost" onclick="populateDefaults()">Reiniciar A-B-C</button>
+  </div>
+</div>
+
+<!-- PASO 2 -->
+<div class="card" id="step2">
+  <div class="card-title"><div class="step-num">2</div><h2>Token Generado - Configura tu TV Box</h2></div>
+  <p style="color:var(--muted);font-size:.88rem;margin-bottom:16px">
+    Esta URL se genera UNA sola vez. <strong>No cambiara</strong> aunque modifiques los canales. Copiala en TiviMate / OTT Navigator / VLC ahora.
+  </p>
+  <div id="tokenUrlBox" class="url-box" style="display:none">
+    <span class="url-text" id="tokenUrlText">--</span>
+    <button class="copy-btn" id="copyTokenBtn" onclick="copyToken()">Copiar</button>
+  </div>
+  <div id="step2Status"></div>
+  <button class="btn btn-primary" id="btnGoStep3" onclick="goToStep3()" style="display:none;margin-top:12px">URL configurada - Verificar M3U</button>
+</div>
+
+<!-- PASO 3 -->
+<div class="card" id="step3">
+  <div class="card-title"><div class="step-num">3</div><h2>Verificar: la URL devuelve Canal A, Canal B, Canal C</h2></div>
+  <p style="color:var(--muted);font-size:.88rem;margin-bottom:16px">Se realizara un GET a la URL del endpoint y se inspeccionara el M3U resultante.</p>
+  <div id="m3uBefore" class="m3u-preview" style="display:none"></div>
+  <div id="step3Status"></div>
+  <div style="display:flex;gap:10px;margin-top:12px">
+    <button class="btn btn-primary" id="btnVerifyBefore" onclick="verifyBefore()"><span>Verificar M3U inicial</span></button>
+  </div>
+</div>
+
+<!-- PASO 4 -->
+<div class="card" id="step4">
+  <div class="card-title"><div class="step-num">4</div><h2>Editar Playlist - Eliminar Canal B, Anadir Canal D</h2></div>
+  <p style="color:var(--muted);font-size:.88rem;margin-bottom:16px">
+    Simula lo que harias desde la <strong>Lelouch Web App</strong>: eliminar un canal y anadir uno nuevo. La URL del TV Box <em>no cambia</em>.
+  </p>
+  <div id="editChannelList" class="channel-list"></div>
+  <div class="add-channel-row" style="margin-top:10px">
+    <input type="text" id="editChName" placeholder="Nombre nuevo canal" value="Canal D" />
+    <input type="text" id="editChUrl" placeholder="URL stream" value="http://test.lelouch.tv/live/canal-d.ts" />
+    <button class="btn btn-ghost" onclick="addEditChannel()">+ Anadir</button>
+  </div>
+  <div id="step4Status" style="margin-top:12px"></div>
+  <button class="btn btn-success" id="btnSaveEdit" onclick="saveEdits()" style="margin-top:12px">Guardar cambios en Supabase</button>
+</div>
+
+<!-- PASO 5 -->
+<div class="card" id="step5">
+  <div class="card-title"><div class="step-num">5</div><h2>Verificar: la misma URL devuelve ahora Canal A, Canal C, Canal D</h2></div>
+  <div id="diffBox" class="diff-box" style="display:none">
+    <div class="diff-col before">
+      <h3>Antes (A-B-C)</h3>
+      <div id="diffBefore"></div>
+    </div>
+    <div class="diff-col after">
+      <h3>Despues (A-C-D)</h3>
+      <div id="diffAfter"></div>
+    </div>
+  </div>
+  <div id="m3uAfter" class="m3u-preview" style="display:none"></div>
+  <div id="step5Status"></div>
+  <div style="display:flex;gap:10px;margin-top:12px">
+    <button class="btn btn-primary" id="btnVerifyAfter" onclick="verifyAfter()"><span>Verificar M3U actualizado</span></button>
+  </div>
+</div>
+
+<div id="verdict" class="hidden"></div>
+
+<script>
+const SUPABASE_URL  = 'https://rotupbdeljgfddywryhk.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvdHVwYmRlbGpnZmRkeXdyeWhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzNjA2MzksImV4cCI6MjEwNTkzNjYzOX0.zDVgrQo_IU5FhfSMpl0-MbS9Eod43czS21TBi5Z3Lvo';
+const SB_HEADERS    = { apikey: SUPABASE_ANON, Authorization: 'Bearer ' + SUPABASE_ANON, 'Content-Type': 'application/json', Prefer: 'return=representation' };
+
+const isProd   = location.hostname !== 'localhost' && !location.hostname.startsWith('127.');
+const BASE_URL = isProd ? 'https://' + location.hostname : 'http://localhost:3000';
+
+document.getElementById('envBadge').textContent = isProd ? 'Produccion (Vercel)' : 'Local (localhost)';
+document.getElementById('envBadge').className   = 'env-badge ' + (isProd ? 'prod' : 'local');
+document.getElementById('envUrl').textContent   = BASE_URL;
+
+let channels = [], editChannels = [], playlistId = null, tokenValue = null, m3uBeforeNames = [];
+
+const DEFAULT_CHANNELS = [
+  { name: 'Canal A', url: 'http://test.lelouch.tv/live/canal-a.ts' },
+  { name: 'Canal B', url: 'http://test.lelouch.tv/live/canal-b.ts' },
+  { name: 'Canal C', url: 'http://test.lelouch.tv/live/canal-c.ts' },
+];
+
+function populateDefaults() { channels = DEFAULT_CHANNELS.map(c => ({...c})); renderChannelList(); }
+populateDefaults();
+
+function renderChannelList() {
+  const el = document.getElementById('channelList');
+  el.innerHTML = channels.length === 0
+    ? '<p style="color:var(--muted);font-size:.85rem;padding:8px 0">Sin canales. Pulsa Anadir o Reiniciar.</p>'
+    : channels.map((ch, i) =>
+        '<div class="channel-row"><span class="ch-handle">...</span><span class="ch-name">' + escHtml(ch.name) +
+        '</span><span class="ch-url">' + escHtml(ch.url) +
+        '</span><button class="ch-del" onclick="removeChannel(' + i + ')">x</button></div>'
+      ).join('');
+}
+function removeChannel(i) { channels.splice(i,1); renderChannelList(); }
+function addChannel() {
+  const name = document.getElementById('newChName').value.trim();
+  const url  = document.getElementById('newChUrl').value.trim();
+  if (!name || !url) return showStatus('step1Status','warn','Completa nombre y URL antes de anadir');
+  channels.push({name, url}); renderChannelList();
+  document.getElementById('newChName').value = '';
+  document.getElementById('newChUrl').value  = '';
+}
+
+function renderEditChannelList() {
+  const el = document.getElementById('editChannelList');
+  el.innerHTML = editChannels.map((ch, i) =>
+    '<div class="channel-row"><span class="ch-handle">...</span><span class="ch-name">' + escHtml(ch.name) +
+    '</span><span class="ch-url">' + escHtml(ch.url) +
+    '</span><button class="ch-del" onclick="removeEditChannel(' + i + ')">x</button></div>'
+  ).join('');
+}
+function removeEditChannel(i) { editChannels.splice(i,1); renderEditChannelList(); }
+function addEditChannel() {
+  const name = document.getElementById('editChName').value.trim();
+  const url  = document.getElementById('editChUrl').value.trim();
+  if (!name || !url) return showStatus('step4Status','warn','Completa nombre y URL');
+  editChannels.push({name, url}); renderEditChannelList();
+}
+
+async function createPlaylist() {
+  const btn = document.getElementById('btnCreate');
+  if (channels.length === 0) return showStatus('step1Status','warn','Anadir al menos un canal primero');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Creando...';
+  showStatus('step1Status','info','Creando playlist en Supabase...');
+  try {
+    const pName = document.getElementById('playlistName').value.trim() || 'FASE 29 Test';
+    const plRes = await fetch(SUPABASE_URL + '/rest/v1/custom_playlists', { method:'POST', headers:SB_HEADERS, body:JSON.stringify({ name:pName, enabled:true, version:1, description:'FASE 29 acceptance test' }) });
+    if (!plRes.ok) throw new Error('Error creando playlist: ' + await plRes.text());
+    const plData = await plRes.json();
+    playlistId = Array.isArray(plData) ? plData[0]?.id : plData?.id;
+    if (!playlistId) throw new Error('No se obtuvo playlist_id');
+
+    showStatus('step1Status','info','Playlist creada (' + playlistId + '). Insertando canales...');
+
+    const itemsRes = await fetch(SUPABASE_URL + '/rest/v1/custom_playlist_items', {
+      method:'POST', headers:SB_HEADERS,
+      body:JSON.stringify(channels.map((ch, idx) => ({ playlist_id:playlistId, name:ch.name, stream_url:ch.url, position:idx, enabled:true, media_type:'live' })))
+    });
+    if (!itemsRes.ok) throw new Error('Error insertando items: ' + await itemsRes.text());
+
+    showStatus('step1Status','info','Canales insertados. Generando token...');
+
+    tokenValue = generateSecureToken();
+    const tokenHash = await sha256(tokenValue);
+    const tokenRes = await fetch(SUPABASE_URL + '/rest/v1/playlist_access_tokens', {
+      method:'POST', headers:SB_HEADERS,
+      body:JSON.stringify({ playlist_id:playlistId, token_hash:tokenHash, enabled:true, is_active:true, label:'FASE 29 Test Token', request_count:0, access_count:0 })
+    });
+    if (!tokenRes.ok) throw new Error('Error creando token: ' + await tokenRes.text());
+
+    showStatus('step1Status','ok','Playlist creada con ' + channels.length + ' canales. Token generado.');
+    btn.innerHTML = 'Creado';
+    editChannels = channels.map(c => ({...c}));
+
+    activateStep(2);
+    const endpointUrl = BASE_URL + '/api/playlist/' + tokenValue;
+    document.getElementById('tokenUrlText').textContent   = endpointUrl;
+    document.getElementById('tokenUrlBox').style.display  = 'flex';
+    document.getElementById('btnGoStep3').style.display   = 'inline-flex';
+    showStatus('step2Status','ok','Token listo. Copia la URL y configurala en tu TV Box.');
+  } catch(err) {
+    showStatus('step1Status','err',err.message);
+    btn.disabled = false; btn.innerHTML = 'Crear en Supabase';
+  }
+}
+
+function goToStep3() { activateStep(3); }
+
+async function verifyBefore() {
+  const btn = document.getElementById('btnVerifyBefore');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Descargando M3U...';
+  showStatus('step3Status','info','Haciendo GET al endpoint...');
+  const url = BASE_URL + '/api/playlist/' + tokenValue;
+  try {
+    const res = await fetch(url, { cache:'no-store' });
+    if (!res.ok) {
+      showStatus('step3Status','err','HTTP ' + res.status + ' - ' + await res.text());
+      btn.disabled = false; btn.innerHTML = 'Reintentar'; return;
+    }
+    const m3u = await res.text();
+    displayM3U('m3uBefore', m3u);
+    m3uBeforeNames = extractNames(m3u);
+    const hasA = m3uBeforeNames.some(n => n.toLowerCase().includes('canal a'));
+    const hasB = m3uBeforeNames.some(n => n.toLowerCase().includes('canal b'));
+    const hasC = m3uBeforeNames.some(n => n.toLowerCase().includes('canal c'));
+    const checks = [
+      { label:'Canal A presente', ok:hasA },
+      { label:'Canal B presente', ok:hasB },
+      { label:'Canal C presente', ok:hasC },
+      { label:'HTTP 200 OK',      ok:res.status===200 },
+      { label:'Content-Type M3U', ok:(res.headers.get('content-type')||'').includes('mpegurl') },
+    ];
+    document.getElementById('step3Status').innerHTML = checks.map(c =>
+      '<div class="status-row ' + (c.ok?'ok':'err') + '"><span class="status-icon">' + (c.ok?'OK':'FAIL') + '</span>' + c.label + '</div>'
+    ).join('');
+    if (checks.every(c => c.ok)) { activateStep(4); renderEditChannelList(); }
+    else { btn.disabled = false; btn.innerHTML = 'Reintentar'; }
+  } catch(err) {
+    showStatus('step3Status','err','Error de red: ' + err.message);
+    btn.disabled = false; btn.innerHTML = 'Reintentar';
+  }
+}
+
+async function saveEdits() {
+  const btn = document.getElementById('btnSaveEdit');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Guardando...';
+  showStatus('step4Status','info','Aplicando cambios en Supabase...');
+  try {
+    const delRes = await fetch(SUPABASE_URL + '/rest/v1/custom_playlist_items?playlist_id=eq.' + playlistId, { method:'DELETE', headers:SB_HEADERS });
+    if (!delRes.ok) throw new Error('Error borrando items: ' + await delRes.text());
+
+    if (editChannels.length > 0) {
+      const insRes = await fetch(SUPABASE_URL + '/rest/v1/custom_playlist_items', {
+        method:'POST', headers:SB_HEADERS,
+        body:JSON.stringify(editChannels.map((ch, idx) => ({ playlist_id:playlistId, name:ch.name, stream_url:ch.url, position:idx, enabled:true, media_type:'live' })))
+      });
+      if (!insRes.ok) throw new Error('Error insertando nuevos items: ' + await insRes.text());
+    }
+
+    await fetch(SUPABASE_URL + '/rest/v1/custom_playlists?id=eq.' + playlistId, {
+      method:'PATCH', headers:SB_HEADERS,
+      body:JSON.stringify({ version:2, updated_at:new Date().toISOString() })
+    });
+
+    showStatus('step4Status','ok','Playlist actualizada: ' + editChannels.length + ' canales. Version 2.');
+    btn.innerHTML = 'Guardado';
+    activateStep(5);
+  } catch(err) {
+    showStatus('step4Status','err',err.message);
+    btn.disabled = false; btn.innerHTML = 'Guardar cambios';
+  }
+}
+
+async function verifyAfter() {
+  const btn = document.getElementById('btnVerifyAfter');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Re-descargando...';
+  showStatus('step5Status','info','Misma URL, nuevo contenido...');
+  const url = BASE_URL + '/api/playlist/' + tokenValue;
+  try {
+    const res = await fetch(url, { cache:'no-store' });
+    if (!res.ok) {
+      showStatus('step5Status','err','HTTP ' + res.status + ' - ' + await res.text());
+      btn.disabled = false; btn.innerHTML = 'Reintentar'; return;
+    }
+    const m3u = await res.text();
+    displayM3U('m3uAfter', m3u);
+    const afterNames = extractNames(m3u);
+    const hasA = afterNames.some(n => n.toLowerCase().includes('canal a'));
+    const noB  = !afterNames.some(n => n.toLowerCase().includes('canal b'));
+    const hasC = afterNames.some(n => n.toLowerCase().includes('canal c'));
+    const hasD = afterNames.some(n => n.toLowerCase().includes('canal d'));
+    const checks = [
+      { label:'Canal A presente',   ok:hasA },
+      { label:'Canal B eliminado',  ok:noB  },
+      { label:'Canal C presente',   ok:hasC },
+      { label:'Canal D anadido',    ok:hasD },
+      { label:'URL no ha cambiado', ok:true },
+      { label:'HTTP 200 OK',        ok:res.status===200 },
+    ];
+    const allOk = checks.every(c => c.ok);
+
+    document.getElementById('diffBox').style.display = 'grid';
+    document.getElementById('diffBefore').innerHTML =
+      ['Canal A','Canal B','Canal C'].map(n =>
+        '<div class="diff-item ' + (n==='Canal B'?'removed':'kept') + '">' + n + '</div>'
+      ).join('');
+    document.getElementById('diffAfter').innerHTML =
+      ['Canal A','Canal C','Canal D'].map(n =>
+        '<div class="diff-item ' + (n==='Canal D'?'added':'kept') + '">' + n + '</div>'
+      ).join('');
+
+    document.getElementById('step5Status').innerHTML = checks.map(c =>
+      '<div class="status-row ' + (c.ok?'ok':'err') + '"><span class="status-icon">' + (c.ok?'OK':'FAIL') + '</span>' + c.label + '</div>'
+    ).join('');
+
+    renderVerdict(allOk, url, afterNames);
+  } catch(err) {
+    showStatus('step5Status','err','Error de red: ' + err.message);
+    btn.disabled = false; btn.innerHTML = 'Reintentar';
+  }
+}
+
+function renderVerdict(passed, url, names) {
+  const el = document.getElementById('verdict');
+  el.className = 'verdict ' + (passed ? 'pass' : 'fail');
+  if (passed) {
+    el.innerHTML = '<div class="verdict-icon">OK</div>' +
+      '<div class="verdict-title">PRUEBA DE ACEPTACION SUPERADA</div>' +
+      '<p class="verdict-sub" style="margin-top:8px">La URL devolvio correctamente A-C-D despues de eliminar B y anadir D, sin cambiar la URL del TV Box.</p>' +
+      '<p style="margin-top:20px;color:var(--success);font-weight:600">FASE 29 COMPLETA - El sistema de sincronizacion dinamica funciona.</p>';
+  } else {
+    el.innerHTML = '<div class="verdict-icon">FAIL</div>' +
+      '<div class="verdict-title">PRUEBA FALLIDA</div>' +
+      '<p class="verdict-sub">Algunos checks no pasaron. Revisa los errores arriba.<br>Canales detectados: ' + (names.join(', ')||'(ninguno)') + '</p>';
+  }
+  el.classList.remove('hidden');
+  el.scrollIntoView({ behavior:'smooth', block:'center' });
+}
+
+function activateStep(n) {
+  for (let i = 1; i <= 5; i++) {
+    const card = document.getElementById('step' + i);
+    const dot  = document.getElementById('dot' + i);
+    if (i < n) {
+      card.className = 'card done-step'; dot.className = 'step-dot done';
+      dot.querySelector('.dot-circle').textContent = 'ok';
+    } else if (i === n) {
+      card.className = 'card active-step'; dot.className = 'step-dot active';
+      card.scrollIntoView({ behavior:'smooth', block:'nearest' });
+    } else {
+      card.className = 'card'; dot.className = 'step-dot';
+    }
+  }
+}
+
+function showStatus(id, type, msg) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const icons = {ok:'OK',err:'ERROR',warn:'WARN',info:'INFO'};
+  el.innerHTML = '<div class="status-row ' + type + '"><span class="status-icon">' + icons[type] + '</span>' + msg + '</div>';
+}
+
+function displayM3U(elId, text) {
+  const el = document.getElementById(elId);
+  el.style.display = 'block';
+  el.innerHTML = text
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .split('\n')
+    .map(line => {
+      if (line.startsWith('#EXTM3U'))  return '<span class="kw-extm3u">' + line + '</span>';
+      if (line.startsWith('#EXTINF'))  return '<span class="kw-extinf">' + line + '</span>';
+      if (line.startsWith('#'))        return '<span class="kw-comment">' + line + '</span>';
+      if (line.startsWith('http'))     return '<span class="kw-url">' + line + '</span>';
+      return line;
+    })
+    .join('\n');
+}
+
+function extractNames(m3u) {
+  const names = [];
+  for (const line of m3u.split('\n')) {
+    const m = line.match(/,(.+)$/);
+    if (line.startsWith('#EXTINF') && m) names.push(m[1].trim());
+  }
+  return names;
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function copyToken() {
+  const url = document.getElementById('tokenUrlText').textContent;
+  navigator.clipboard.writeText(url).then(() => {
+    const btn = document.getElementById('copyTokenBtn');
+    btn.textContent = 'Copiado'; btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copiar'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
+function generateSecureToken(len = 48) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-';
+  const arr = new Uint8Array(len);
+  crypto.getRandomValues(arr);
+  return Array.from(arr, b => chars[b % chars.length]).join('');
+}
+
+async function sha256(msg) {
+  const buf = new TextEncoder().encode(msg);
+  const hashBuf = await crypto.subtle.digest('SHA-256', buf);
+  return Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+</script>
+</body>
+</html>

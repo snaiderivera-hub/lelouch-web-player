@@ -663,37 +663,104 @@
                   Extrae enlaces directos de canales o películas con el botón <b>🔗</b> o <b>➕</b>, organízalos y descarga tu archivo <b>.M3U</b> para usarlo en VLC, TV Box o cualquier reproductor.
                 </p>
               </div>
-              <div style="display:flex; gap:0.6rem; flex-wrap:wrap;">
+              <div style="display:flex; gap:0.6rem; flex-wrap:wrap; align-items:center;">
                 <button id="btn-custom-m3u-play-live" class="btn btn-primary btn-sm" style="font-weight:700; background:linear-gradient(135deg, #00e5ff, #0088ff); color:#02070d;" title="Ver y reproducir tus canales en TV en Vivo ahora">
                   <i class="ph-bold ph-television"></i> 📺 Ver Mi Lista en TV en Vivo
                 </button>
-                <button id="btn-custom-m3u-copy-all" class="btn btn-secondary btn-sm" title="Copiar todo el contenido M3U al portapapeles">
-                  <i class="ph ph-copy"></i> 📋 Copiar M3U
-                </button>
-                <button id="btn-custom-m3u-download" class="btn btn-primary btn-sm" title="Descargar como archivo .m3u">
-                  <i class="ph ph-download-simple"></i> ⬇ Descargar Lista (.m3u)
-                </button>
                 <button id="btn-custom-m3u-clear" class="btn btn-secondary btn-sm" style="color:#ef4444; border-color:rgba(239,68,68,0.3);" title="Vaciar toda la lista personalizada">
-                  <i class="ph ph-trash"></i> Vaciar
+                  <i class="ph ph-trash"></i> 🗑 Vaciar
                 </button>
               </div>
             </div>
 
+            <!-- FASE 30: 3 MANERAS DISTINTAS DE CONSUMIR LA MISMA PLAYLIST -->
+            <div class="m3u-consumption-panel" style="background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:1.25rem; margin-bottom:1.5rem;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:8px;">
+                <div>
+                  <h4 style="margin:0; font-size:0.95rem; font-weight:800; color:var(--text-primary); display:flex; align-items:center; gap:8px; letter-spacing:0.3px;">
+                    <span style="font-size:1.15rem;">🚀</span> 3 MANERAS DE CONSUMIR TU PLAYLIST
+                  </h4>
+                  <p style="margin:3px 0 0 0; font-size:0.78rem; color:var(--text-secondary);">
+                    Tres opciones compatibles para consumir la misma lista de canales según tu dispositivo o caso de uso:
+                  </p>
+                </div>
+                <span class="badge-mini" style="background:rgba(6,182,212,0.12); color:var(--accent-cyan); border:1px solid rgba(6,182,212,0.25); padding:3px 9px; border-radius:6px; font-size:0.72rem; font-weight:700;">
+                  Misma Lista • 3 Salidas
+                </span>
+              </div>
+
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:1rem;">
+                
+                <!-- 1. COPIAR -->
+                <div style="background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:1.15rem; display:flex; flex-direction:column; justify-content:space-between;">
+                  <div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.6rem;">
+                      <span style="font-size:1.35rem;">📋</span>
+                      <span style="font-size:0.68rem; font-weight:700; background:rgba(255,255,255,0.08); color:var(--text-secondary); padding:2px 7px; border-radius:4px; text-transform:uppercase;">Manera 1 • Portapapeles</span>
+                    </div>
+                    <h5 style="margin:0 0 0.35rem 0; font-size:0.95rem; font-weight:800; color:var(--text-primary); letter-spacing:0.3px;">COPIAR</h5>
+                    <p style="margin:0 0 0.9rem 0; font-size:0.78rem; color:var(--text-secondary); line-height:1.45;">
+                      Copia el contenido <code>#EXTM3U</code> al portapapeles. Ideal para pegar en editores, blocs de notas o reproductores de escritorio sin guardar archivos.
+                    </p>
+                  </div>
+                  <button id="btn-custom-m3u-copy-all" class="btn btn-secondary btn-sm" style="width:100%; justify-content:center; font-weight:700;" title="Copiar todo el contenido M3U al portapapeles">
+                    <i class="ph ph-copy"></i> Copiar M3U
+                  </button>
+                </div>
+
+                <!-- 2. DESCARGAR -->
+                <div style="background:rgba(0,0,0,0.35); border:1px solid rgba(0,229,255,0.22); border-radius:12px; padding:1.15rem; display:flex; flex-direction:column; justify-content:space-between;">
+                  <div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.6rem;">
+                      <span style="font-size:1.35rem;">⬇️</span>
+                      <span style="font-size:0.68rem; font-weight:700; background:rgba(0,229,255,0.12); color:var(--accent-cyan); padding:2px 7px; border-radius:4px; text-transform:uppercase;">Manera 2 • Archivo .m3u</span>
+                    </div>
+                    <h5 style="margin:0 0 0.35rem 0; font-size:0.95rem; font-weight:800; color:var(--text-primary); letter-spacing:0.3px;">DESCARGAR</h5>
+                    <p style="margin:0 0 0.9rem 0; font-size:0.78rem; color:var(--text-secondary); line-height:1.45;">
+                      Descarga el archivo físico <code>.m3u</code> en tu almacenamiento. Ideal para transferir mediante USB a TV Box, Smart TV o reproducir offline con VLC.
+                    </p>
+                  </div>
+                  <button id="btn-custom-m3u-download" class="btn btn-primary btn-sm" style="width:100%; justify-content:center; font-weight:700; background:linear-gradient(135deg, #00e5ff, #0088ff); color:#02070d; border:none;" title="Descargar como archivo .m3u">
+                    <i class="ph ph-download-simple"></i> Descargar Lista (.m3u)
+                  </button>
+                </div>
+
+                <!-- 3. GENERAR URL -->
+                <div style="background:rgba(16,185,129,0.05); border:1px solid rgba(16,185,129,0.35); border-radius:12px; padding:1.15rem; display:flex; flex-direction:column; justify-content:space-between; box-shadow:0 4px 20px rgba(16,185,129,0.08);">
+                  <div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.6rem;">
+                      <span style="font-size:1.35rem;">🌐</span>
+                      <span style="font-size:0.68rem; font-weight:700; background:rgba(16,185,129,0.18); color:#10b981; padding:2px 7px; border-radius:4px; text-transform:uppercase;">Manera 3 • Nube Dinámica</span>
+                    </div>
+                    <h5 style="margin:0 0 0.35rem 0; font-size:0.95rem; font-weight:800; color:#10b981; letter-spacing:0.3px;">GENERAR URL</h5>
+                    <p style="margin:0 0 0.9rem 0; font-size:0.78rem; color:var(--text-secondary); line-height:1.45;">
+                      Enlace público permanente protegido con token seguro. Ideal para TiviMate o IPTV Smarters: se actualiza automáticamente al cambiar canales.
+                    </p>
+                  </div>
+                  <button id="btn-custom-m3u-generate-link" class="btn btn-primary btn-sm" style="width:100%; justify-content:center; font-weight:700; background:linear-gradient(135deg, #10b981, #059669); color:#ffffff; border:none; box-shadow:0 2px 10px rgba(16,185,129,0.25);" title="Generar enlace público M3U permanente con token seguro para reproductores externos">
+                    <i class="ph ph-globe"></i> Generar URL
+                  </button>
+                </div>
+
+              </div>
+            </div>
+
             <!-- GUÍA RÁPIDA: CÓMO USAR EN TV BOX Y TELÉFONO -->
-            <div style="background:rgba(0,229,255,0.06); border:1px solid rgba(0,229,255,0.25); border-radius:10px; padding:0.85rem 1.15rem; margin-bottom:1.5rem; font-size:0.83rem;">
+            <div style="background:rgba(0,229,255,0.05); border:1px solid rgba(0,229,255,0.2); border-radius:10px; padding:0.85rem 1.15rem; margin-bottom:1.5rem; font-size:0.83rem;">
               <strong style="color:var(--accent-cyan); display:flex; align-items:center; gap:6px; font-size:0.88rem; margin-bottom:4px;">
-                <span>📱 📺 ¿Cómo ver tu lista en TV Box o Teléfono?</span>
+                <span>📱 📺 ¿Cómo aprovechar tu lista en cualquier dispositivo?</span>
               </strong>
-              <p style="margin:0; color:var(--text-secondary); line-height:1.5;">
-                • <b>En TV Box o Teléfono (Cualquier app IPTV):</b> Pulsa <b>⬇ Descargar Lista (.m3u)</b> arriba. Pasa ese archivo a tu TV Box o teléfono y ábrelo con TiviMate, IPTV Smarters o VLC. ¡Solo aparecerá tu categoría con tus canales escogidos sin ninguna de las categorías desactivadas!<br>
-                • <b>En este reproductor web:</b> Pulsa <b>📺 Ver Mi Lista en TV en Vivo</b> y el reproductor filtrará todo automáticamente para mostrar solo tus canales.
+              <p style="margin:0; color:var(--text-secondary); line-height:1.55;">
+                • <b>En TV Box o Smart TV con TiviMate / IPTV Smarters:</b> Usa <b>GENERAR URL</b> para agregar la lista como URL remota (M3U) y mantenerla sincronizada siempre.<br>
+                • <b>En reproductores offline (VLC / Kodi / USB):</b> Usa <b>DESCARGAR</b> para obtener el archivo físico <code>.m3u</code> o <b>COPIAR</b> para pegarlo directamente.<br>
+                • <b>En este reproductor web:</b> Pulsa <b>📺 Ver Mi Lista en TV en Vivo</b> arriba y verás de inmediato tus canales organizados.
               </p>
             </div>
 
-            <!-- FORMULARIO PARA AÑADIR ENLACE DIRECTO MANUAL -->
+            <!-- FORMULARIO PARA AÑADIR CANAL DIRECTO -->
             <div style="background:rgba(255,255,255,0.02); border:1px solid var(--border-subtle); border-radius:12px; padding:1.25rem; margin-bottom:1.5rem;">
               <h4 style="margin:0 0 0.75rem 0; font-size:0.9rem; color:var(--accent-cyan); font-weight:700;">
-                ➕ Añadir Canal o Enlace Directo a Mi Lista
+                ➕ Añadir Canal Directo a Mi Lista
               </h4>
               <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)) 120px; gap:0.75rem; align-items:end;">
                 <div>
