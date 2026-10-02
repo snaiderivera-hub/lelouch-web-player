@@ -3116,7 +3116,26 @@ function renderImportModalCategoryList() {
 
     row.querySelector('.btn-extract-single-cat')?.addEventListener('click', async (e) => {
       e.stopPropagation();
-      await executeCategoryImport([c.name]);
+      const btn = e.currentTarget;
+      const origText = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Añadiendo...';
+      try {
+        await executeCategoryImport([c.name]);
+        btn.innerHTML = '✓ ¡Añadida!';
+        btn.style.color = '#10b981';
+      } catch (err) {
+        console.error('Error importando categoría:', err);
+        btn.innerHTML = origText;
+      } finally {
+        setTimeout(() => {
+          if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = origText;
+            btn.style.color = 'var(--accent-cyan)';
+          }
+        }, 3000);
+      }
     });
 
     listContainer.appendChild(row);
@@ -3142,6 +3161,57 @@ function updateImportSelectedCountLabel() {
   lbl.innerHTML = `<span><strong>${count}</strong> categorías seleccionadas${countStr}</span>`;
 }
 
+function showImportSuccessModal(addedCount, totalCount, type = 'movies') {
+  document.getElementById('import-success-dialog')?.remove();
+
+  const typeLabel = type === 'movies' ? 'películas' : (type === 'series' ? 'series' : 'canales');
+  const modal = document.createElement('div');
+  modal.id = 'import-success-dialog';
+  modal.className = 'modal-overlay';
+  modal.style.zIndex = '10000';
+  modal.style.display = 'flex';
+  modal.style.alignItems = 'center';
+  modal.style.justifyContent = 'center';
+  modal.innerHTML = `
+    <div class="cat-modal-content" style="max-width: 470px; width: 92%; text-align: center; padding: 2.2rem 1.8rem; background: var(--bg-surface, #131722); border: 1.5px solid rgba(0, 229, 255, 0.45); border-radius: 16px; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.85), 0 0 30px rgba(0, 229, 255, 0.25); animation: fadeIn 0.25s ease-out;">
+      <div style="font-size: 3.8rem; margin-bottom: 0.8rem; line-height: 1;">🎉</div>
+      <h3 style="font-size: 1.4rem; font-weight: 700; color: #fff; margin-bottom: 0.5rem; letter-spacing: 0.5px;">
+        ¡Extracción Exitosa!
+      </h3>
+      <p style="color: rgba(255,255,255,0.8); font-size: 0.98rem; line-height: 1.5; margin-bottom: 1.5rem;">
+        ${addedCount > 0 
+          ? `Se han agregado <strong style="color: var(--accent-cyan, #00e5ff); font-size: 1.2rem;">+${addedCount.toLocaleString()}</strong> ${typeLabel} a <strong>Tu Lista Maestra LELOUCH</strong>.`
+          : `Los títulos de las categorías seleccionadas ya estaban en tu lista (0 duplicados agregados).`
+        }
+        <br>
+        <span style="display: inline-block; margin-top: 10px; font-size: 0.88rem; color: rgba(255,255,255,0.7); background: rgba(0,229,255,0.08); border: 1px solid rgba(0,229,255,0.25); padding: 5px 14px; border-radius: 20px;">
+          Total acumulado en tu lista: <strong style="color:#fff;">${totalCount.toLocaleString()}</strong> elementos
+        </span>
+      </p>
+      <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+        <button id="btn-success-modal-activate" class="btn btn-primary" style="background: linear-gradient(135deg, #00e5ff, #0077ff); color: #000; font-weight: 700; padding: 0.75rem 1.4rem; border: none; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 15px rgba(0,229,255,0.35);">
+          📺 Ver Mi Lista en TV en Vivo
+        </button>
+        <button id="btn-success-modal-close" class="btn btn-secondary" style="background: rgba(255,255,255,0.1); color: #fff; padding: 0.75rem 1.4rem; border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; cursor: pointer;">
+          ✓ Listo, continuar
+        </button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  modal.querySelector('#btn-success-modal-close')?.addEventListener('click', () => {
+    modal.remove();
+  });
+
+  modal.querySelector('#btn-success-modal-activate')?.addEventListener('click', async () => {
+    modal.remove();
+    await activateCustomM3UAsMainPlaylist();
+    navigateTo('live');
+  });
+}
+
 async function executeCategoryImport(catNames) {
   if (!catNames || catNames.length === 0) {
     toast('Selecciona al menos una categoría para importar.', 'warning');
@@ -3155,132 +3225,155 @@ async function executeCategoryImport(catNames) {
   const statusPill = $('import-modal-status-pill');
   if (statusPill) statusPill.textContent = 'Extrayendo...';
 
+  const doImportBtn = $('btn-do-import-to-custom');
+  const originalBtnHtml = doImportBtn ? doImportBtn.innerHTML : '';
+  if (doImportBtn) {
+    doImportBtn.disabled = true;
+    doImportBtn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Extrayendo títulos... Por favor espera';
+  }
+
   toast(`⏳ Extrayendo contenido de ${catNames.length} categorías...`, 'info', 2500);
 
-  const selectedCats = _importModalState.categories.filter(c => catNames.includes(c.name));
-  let itemsToImport = [];
+  try {
+    const selectedCats = _importModalState.categories.filter(c => catNames.includes(c.name));
+    let itemsToImport = [];
 
-  // 1. Si los items ya estaban en memoria:
-  const hasItems = selectedCats.every(c => Array.isArray(c.items) && c.items.length > 0);
-  if (hasItems) {
-    selectedCats.forEach(c => itemsToImport.push(...c.items));
-  } else {
-    // 2. Si no estaban en memoria, buscar en caché de IndexedDB o descargar con XtreamAdapter
-    const serverBase = (provider.serverBaseUrl || '').replace(/\/+$/, '');
-    const prefix = `cat_${btoa(unescape(encodeURIComponent(serverBase))).slice(0, 12)}_`;
-    const cachedItems = await cacheService.get(`${prefix}${type}`);
+    // 1. Si los items ya estaban en memoria:
+    const hasItems = selectedCats.every(c => Array.isArray(c.items) && c.items.length > 0);
+    if (hasItems) {
+      selectedCats.forEach(c => itemsToImport.push(...c.items));
+    } else {
+      // 2. Si no estaban en memoria, buscar en caché de IndexedDB o descargar con XtreamAdapter
+      const serverBase = (provider.serverBaseUrl || '').replace(/\/+$/, '');
+      const prefix = `cat_${btoa(unescape(encodeURIComponent(serverBase))).slice(0, 12)}_`;
+      const cachedItems = await cacheService.get(`${prefix}${type}`);
 
-    if (cachedItems && cachedItems.length > 0) {
-      itemsToImport = cachedItems.filter(it => catNames.includes(it.categoryName));
-    }
+      if (cachedItems && cachedItems.length > 0) {
+        itemsToImport = cachedItems.filter(it => catNames.includes(it.categoryName));
+      }
 
-    // Si aún no tenemos los items, descargarlos del servidor Xtream
-    if (itemsToImport.length === 0 && provider.url) {
-      const parsed = parseIPTVUrl(provider.url);
-      const adapter = new XtreamAdapter(parsed);
-      const selectedCatIds = new Set(selectedCats.map(c => String(c.id)));
-      const catMapById = new Map(selectedCats.map(c => [String(c.id), c.name]));
+      // Si aún no tenemos los items, descargarlos del servidor Xtream
+      if (itemsToImport.length === 0 && provider.url) {
+        const parsed = parseIPTVUrl(provider.url);
+        const adapter = new XtreamAdapter(parsed);
+        const selectedCatIds = new Set(selectedCats.map(c => String(c.id)));
+        const catMapById = new Map(selectedCats.map(c => [String(c.id), c.name]));
 
-      if (selectedCats.length > 5) {
-        toast(`⚡ Descargando catálogo masivo (${selectedCats.length} categorías)...`, 'info', 3500);
-        const action = type === 'movies' ? 'get_vod_streams' : (type === 'series' ? 'get_series' : 'get_live_streams');
-        try {
-          const allStreams = await adapter._fetchAction(action);
-          if (Array.isArray(allStreams)) {
-            allStreams.forEach(s => {
-              const sCatId = String(s.category_id || '');
-              if (selectedCatIds.has(sCatId)) {
-                const catName = catMapById.get(sCatId) || 'Importados';
-                itemsToImport.push({
-                  id: s.stream_id || s.series_id || s.id,
-                  streamId: s.stream_id || s.series_id || s.id,
-                  name: s.name || s.title,
-                  categoryName: catName,
-                  logo: s.stream_icon || s.cover || '',
-                  containerExtension: s.container_extension || 'mp4',
-                  streamUrl: type === 'movies'
-                    ? buildVodStreamUrl(parsed.serverBaseUrl, parsed.username, parsed._password, s.stream_id, s.container_extension || 'mp4')
-                    : (type === 'series'
-                        ? `${parsed.serverBaseUrl}/series/${parsed.username}/${parsed._password}/${s.series_id}.mp4`
-                        : buildLiveStreamUrl(parsed.serverBaseUrl, parsed.username, parsed._password, s.stream_id, 'm3u8'))
-                });
-              }
-            });
-          }
-        } catch (e) {
-          console.warn('[ImportModal] Error en descarga masiva:', e);
-        }
-      } else {
-        for (const cat of selectedCats) {
+        if (selectedCats.length > 5) {
+          toast(`⚡ Descargando catálogo masivo (${selectedCats.length} categorías)...`, 'info', 3500);
+          const action = type === 'movies' ? 'get_vod_streams' : (type === 'series' ? 'get_series' : 'get_live_streams');
           try {
-            const action = type === 'movies' 
-              ? `get_vod_streams&category_id=${cat.id}`
-              : (type === 'series' ? `get_series&category_id=${cat.id}` : `get_live_streams&category_id=${cat.id}`);
-            const rawStreams = await adapter._fetchAction(action);
-            if (Array.isArray(rawStreams)) {
-              rawStreams.forEach(s => {
-                itemsToImport.push({
-                  id: s.stream_id || s.series_id || s.id,
-                  streamId: s.stream_id || s.series_id || s.id,
-                  name: s.name || s.title,
-                  categoryName: cat.name,
-                  logo: s.stream_icon || s.cover || '',
-                  containerExtension: s.container_extension || 'mp4',
-                  streamUrl: type === 'movies'
-                    ? buildVodStreamUrl(parsed.serverBaseUrl, parsed.username, parsed._password, s.stream_id, s.container_extension || 'mp4')
-                    : (type === 'series'
-                        ? `${parsed.serverBaseUrl}/series/${parsed.username}/${parsed._password}/${s.series_id}.mp4`
-                        : buildLiveStreamUrl(parsed.serverBaseUrl, parsed.username, parsed._password, s.stream_id, 'm3u8'))
-                });
+            const allStreams = await adapter._fetchAction(action);
+            if (Array.isArray(allStreams)) {
+              allStreams.forEach(s => {
+                const sCatId = String(s.category_id || '');
+                if (selectedCatIds.has(sCatId)) {
+                  const catName = catMapById.get(sCatId) || 'Importados';
+                  itemsToImport.push({
+                    id: s.stream_id || s.series_id || s.id,
+                    streamId: s.stream_id || s.series_id || s.id,
+                    name: s.name || s.title,
+                    categoryName: catName,
+                    logo: s.stream_icon || s.cover || '',
+                    containerExtension: s.container_extension || 'mp4',
+                    streamUrl: type === 'movies'
+                      ? buildVodStreamUrl(parsed.serverBaseUrl, parsed.username, parsed._password, s.stream_id, s.container_extension || 'mp4')
+                      : (type === 'series'
+                          ? `${parsed.serverBaseUrl}/series/${parsed.username}/${parsed._password}/${s.series_id}.mp4`
+                          : buildLiveStreamUrl(parsed.serverBaseUrl, parsed.username, parsed._password, s.stream_id, 'm3u8'))
+                  });
+                }
               });
             }
           } catch (e) {
-            console.warn(`[ImportModal] Error extrayendo categoría ${cat.name}:`, e);
+            console.warn('[ImportModal] Error en descarga masiva:', e);
+          }
+        } else {
+          for (const cat of selectedCats) {
+            try {
+              const action = type === 'movies' 
+                ? `get_vod_streams&category_id=${cat.id}`
+                : (type === 'series' ? `get_series&category_id=${cat.id}` : `get_live_streams&category_id=${cat.id}`);
+              const rawStreams = await adapter._fetchAction(action);
+              if (Array.isArray(rawStreams)) {
+                rawStreams.forEach(s => {
+                  itemsToImport.push({
+                    id: s.stream_id || s.series_id || s.id,
+                    streamId: s.stream_id || s.series_id || s.id,
+                    name: s.name || s.title,
+                    categoryName: cat.name,
+                    logo: s.stream_icon || s.cover || '',
+                    containerExtension: s.container_extension || 'mp4',
+                    streamUrl: type === 'movies'
+                      ? buildVodStreamUrl(parsed.serverBaseUrl, parsed.username, parsed._password, s.stream_id, s.container_extension || 'mp4')
+                      : (type === 'series'
+                          ? `${parsed.serverBaseUrl}/series/${parsed.username}/${parsed._password}/${s.series_id}.mp4`
+                          : buildLiveStreamUrl(parsed.serverBaseUrl, parsed.username, parsed._password, s.stream_id, 'm3u8'))
+                  });
+                });
+              }
+            } catch (e) {
+              console.warn(`[ImportModal] Error extrayendo categoría ${cat.name}:`, e);
+            }
           }
         }
       }
     }
-  }
 
-  if (itemsToImport.length === 0) {
-    toast('No se encontraron elementos para importar en las categorías seleccionadas.', 'warning');
-    if (statusPill) statusPill.textContent = 'Listo';
-    return;
-  }
-
-  const currentList = getCustomM3UList();
-  const existingUrls = new Set(currentList.map(x => PlaylistDeduplicator.normalizeStreamUrl(x.url)));
-  let addedCount = 0;
-
-  for (const it of itemsToImport) {
-    const streamUrl = it.streamUrl;
-    if (!streamUrl) continue;
-    const normUrl = PlaylistDeduplicator.normalizeStreamUrl(streamUrl);
-    if (!existingUrls.has(normUrl)) {
-      existingUrls.add(normUrl);
-      currentList.push({
-        id: String(it.id || it.streamId || (Date.now() + Math.random())),
-        sourceId: provider.id,
-        name: it.name || it.title || 'Título',
-        category: it.categoryName || 'Importados',
-        logo: it.logo || it.poster || it.cover || it.streamIcon || '',
-        url: streamUrl,
-        epgId: it.epgChannelId || '',
-        addedAt: Date.now()
-      });
-      addedCount++;
+    if (itemsToImport.length === 0) {
+      toast('No se encontraron elementos para importar en las categorías seleccionadas.', 'warning');
+      if (statusPill) statusPill.textContent = 'Listo';
+      return;
     }
+
+    const currentList = getCustomM3UList();
+    const existingUrls = new Set(currentList.map(x => PlaylistDeduplicator.normalizeStreamUrl(x.url)));
+    let addedCount = 0;
+
+    for (const it of itemsToImport) {
+      const streamUrl = it.streamUrl;
+      if (!streamUrl) continue;
+      const normUrl = PlaylistDeduplicator.normalizeStreamUrl(streamUrl);
+      if (!existingUrls.has(normUrl)) {
+        existingUrls.add(normUrl);
+        currentList.push({
+          id: String(it.id || it.streamId || (Date.now() + Math.random())),
+          sourceId: provider.id,
+          name: it.name || it.title || 'Título',
+          category: it.categoryName || 'Importados',
+          logo: it.logo || it.poster || it.cover || it.streamIcon || '',
+          url: streamUrl,
+          epgId: it.epgChannelId || '',
+          addedAt: Date.now()
+        });
+        addedCount++;
+      }
+    }
+
+    saveCustomM3UList(currentList);
+    scheduleCustomM3UCloudSync();
+
+    $('playlist-import-modal')?.classList.add('hidden');
+    renderSettingsPlaylists();
+    renderCustomM3UManager();
+    updateCustomM3UBadges();
+
+    if (localStorage.getItem('iptv_active_playlist_id') === 'custom_lelouch_playlist') {
+      await activateCustomM3UAsMainPlaylist();
+    }
+
+    // Notificación en Toast
+    toast(`🎉 ¡Se extrajeron y añadieron ${addedCount} títulos a Tu Lista LELOUCH! (Total: ${currentList.length})`, 'success', 5000);
+
+    // Modal visual inconfundible de confirmación
+    showImportSuccessModal(addedCount, currentList.length, type);
+  } finally {
+    if (doImportBtn) {
+      doImportBtn.disabled = false;
+      doImportBtn.innerHTML = originalBtnHtml;
+    }
+    if (statusPill) statusPill.textContent = 'Listo';
   }
-
-  saveCustomM3UList(currentList);
-  scheduleCustomM3UCloudSync();
-
-  $('playlist-import-modal')?.classList.add('hidden');
-  renderSettingsPlaylists();
-  renderCustomM3UManager();
-  updateCustomM3UBadges();
-
-  toast(`🎉 ¡Se extrajeron y añadieron ${addedCount} títulos a Tu Lista LELOUCH! (Total: ${currentList.length})`, 'success', 4500);
 }
 
 function setupPlaylistImportModal() {
