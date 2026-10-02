@@ -1898,23 +1898,35 @@ window.copyStreamUrl = copyStreamUrl;
 
 // ════════════ CREADOR Y GESTOR DE LISTA M3U PERSONALIZADA ════════════
 const CUSTOM_M3U_STORAGE_KEY = 'lelouch_custom_m3u_list';
+let _customM3UMemoryCache = null;
 
 export function getCustomM3UList() {
+  if (_customM3UMemoryCache !== null) {
+    return _customM3UMemoryCache;
+  }
   try {
     const raw = localStorage.getItem(CUSTOM_M3U_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
+    _customM3UMemoryCache = raw ? JSON.parse(raw) : [];
   } catch {
-    return [];
+    _customM3UMemoryCache = [];
   }
+  return _customM3UMemoryCache;
 }
 
 export function saveCustomM3UList(list) {
+  _customM3UMemoryCache = list;
   try {
     localStorage.setItem(CUSTOM_M3U_STORAGE_KEY, JSON.stringify(list));
-    updateCustomM3UBadges();
-  } catch (err) {
-    console.error('Error guardando lista M3U personalizada:', err);
+  } catch (quotaErr) {
+    console.warn('[App] LocalStorage quota alcanzada. Utilizando persistencia en IndexedDB:', quotaErr.name || quotaErr.message);
+    try {
+      localStorage.setItem(CUSTOM_M3U_STORAGE_KEY, JSON.stringify(list.slice(0, 500)));
+    } catch {}
   }
+  cacheService.set(CUSTOM_M3U_STORAGE_KEY, list, 365 * 24 * 3600 * 1000).catch(e => {
+    console.warn('[App] Error guardando en IndexedDB:', e);
+  });
+  updateCustomM3UBadges();
 }
 
 export function addCustomM3UItem(item) {
@@ -2339,31 +2351,65 @@ async function executeCategoryImport(catNames) {
     if (itemsToImport.length === 0 && provider.url) {
       const parsed = parseIPTVUrl(provider.url);
       const adapter = new XtreamAdapter(parsed);
-      for (const cat of selectedCats) {
+      const selectedCatIds = new Set(selectedCats.map(c => String(c.id)));
+      const catMapById = new Map(selectedCats.map(c => [String(c.id), c.name]));
+
+      if (selectedCats.length > 5) {
+        toast(`⚡ Descargando catálogo masivo (${selectedCats.length} categorías)...`, 'info', 3500);
+        const action = type === 'movies' ? 'get_vod_streams' : (type === 'series' ? 'get_series' : 'get_live_streams');
         try {
-          const action = type === 'movies' 
-            ? `get_vod_streams&category_id=${cat.id}`
-            : (type === 'series' ? `get_series&category_id=${cat.id}` : `get_live_streams&category_id=${cat.id}`);
-          const rawStreams = await adapter._fetchAction(action);
-          if (Array.isArray(rawStreams)) {
-            rawStreams.forEach(s => {
-              itemsToImport.push({
-                id: s.stream_id || s.series_id || s.id,
-                streamId: s.stream_id || s.series_id || s.id,
-                name: s.name || s.title,
-                categoryName: cat.name,
-                logo: s.stream_icon || s.cover || '',
-                containerExtension: s.container_extension || 'mp4',
-                streamUrl: type === 'movies'
-                  ? buildVodStreamUrl(parsed.serverBaseUrl, parsed.username, parsed._password, s.stream_id, s.container_extension || 'mp4')
-                  : (type === 'series'
-                      ? `${parsed.serverBaseUrl}/series/${parsed.username}/${parsed._password}/${s.series_id}.mp4`
-                      : buildLiveStreamUrl(parsed.serverBaseUrl, parsed.username, parsed._password, s.stream_id, 'm3u8'))
-              });
+          const allStreams = await adapter._fetchAction(action);
+          if (Array.isArray(allStreams)) {
+            allStreams.forEach(s => {
+              const sCatId = String(s.category_id || '');
+              if (selectedCatIds.has(sCatId)) {
+                const catName = catMapById.get(sCatId) || 'Importados';
+                itemsToImport.push({
+                  id: s.stream_id || s.series_id || s.id,
+                  streamId: s.stream_id || s.series_id || s.id,
+                  name: s.name || s.title,
+                  categoryName: catName,
+                  logo: s.stream_icon || s.cover || '',
+                  containerExtension: s.container_extension || 'mp4',
+                  streamUrl: type === 'movies'
+                    ? buildVodStreamUrl(parsed.serverBaseUrl, parsed.username, parsed._password, s.stream_id, s.container_extension || 'mp4')
+                    : (type === 'series'
+                        ? `${parsed.serverBaseUrl}/series/${parsed.username}/${parsed._password}/${s.series_id}.mp4`
+                        : buildLiveStreamUrl(parsed.serverBaseUrl, parsed.username, parsed._password, s.stream_id, 'm3u8'))
+                });
+              }
             });
           }
         } catch (e) {
-          console.warn(`[ImportModal] Error extrayendo categoría ${cat.name}:`, e);
+          console.warn('[ImportModal] Error en descarga masiva:', e);
+        }
+      } else {
+        for (const cat of selectedCats) {
+          try {
+            const action = type === 'movies' 
+              ? `get_vod_streams&category_id=${cat.id}`
+              : (type === 'series' ? `get_series&category_id=${cat.id}` : `get_live_streams&category_id=${cat.id}`);
+            const rawStreams = await adapter._fetchAction(action);
+            if (Array.isArray(rawStreams)) {
+              rawStreams.forEach(s => {
+                itemsToImport.push({
+                  id: s.stream_id || s.series_id || s.id,
+                  streamId: s.stream_id || s.series_id || s.id,
+                  name: s.name || s.title,
+                  categoryName: cat.name,
+                  logo: s.stream_icon || s.cover || '',
+                  containerExtension: s.container_extension || 'mp4',
+                  streamUrl: type === 'movies'
+                    ? buildVodStreamUrl(parsed.serverBaseUrl, parsed.username, parsed._password, s.stream_id, s.container_extension || 'mp4')
+                    : (type === 'series'
+                        ? `${parsed.serverBaseUrl}/series/${parsed.username}/${parsed._password}/${s.series_id}.mp4`
+                        : buildLiveStreamUrl(parsed.serverBaseUrl, parsed.username, parsed._password, s.stream_id, 'm3u8'))
+                });
+              });
+            }
+          } catch (e) {
+            console.warn(`[ImportModal] Error extrayendo categoría ${cat.name}:`, e);
+          }
         }
       }
     }
