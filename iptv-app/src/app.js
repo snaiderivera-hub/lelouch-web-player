@@ -1879,12 +1879,20 @@ async function renderSettingsPlaylists() {
   }
 
   const lists = await playlistService.getAll();
-  if (lists.length === 0 && !customCardHtml) {
+  // Filtrar la lista personalizada para que no aparezca duplicada como tarjeta de proveedor
+  const providerLists = lists.filter(pl =>
+    pl.id !== 'custom_lelouch_playlist' &&
+    pl.username !== 'LELOUCH' &&
+    !pl.name?.includes('Mi Lista Personalizada LELOUCH') &&
+    !pl.name?.includes('Tu Lista Generada LELOUCH')
+  );
+
+  if (providerLists.length === 0 && !customCardHtml) {
     container.innerHTML = `<div class="empty-state"><div class="empty-title">Sin playlists guardadas</div><div class="empty-sub">Ingresa un enlace arriba para registrar tu primera cuenta.</div></div>`;
     return;
   }
 
-  const providerCardsHtml = lists.map((pl) => {
+  const providerCardsHtml = providerLists.map((pl) => {
     const isThisActive = !isCustomActive && pl.isActive;
     return `
     <div class="playlist-card-row ${isThisActive ? 'active' : ''}">
@@ -2116,6 +2124,15 @@ export function getCustomM3UList() {
   return _customM3UMemoryCache;
 }
 
+// localStorage puede tener una copia recortada (cuota llena); IndexedDB guarda la lista completa.
+cacheService.get(CUSTOM_M3U_STORAGE_KEY).then(full => {
+  if (Array.isArray(full) && full.length > getCustomM3UList().length) {
+    _customM3UMemoryCache = full;
+    updateCustomM3UBadges();
+    renderCustomM3UManager();
+  }
+}).catch(() => {});
+
 const CUSTOM_M3U_VERSION_KEY = 'custom_m3u_version_v1';
 
 export function getLocalM3UVersion() {
@@ -2133,10 +2150,15 @@ export function setLocalM3UVersion(ver) {
 }
 
 let _cloudSyncTimeout = null;
+let _cloudSyncRunning = false;
+let _cloudSyncPending = false;
 export function scheduleCustomM3UCloudSync() {
   if (!supabaseService.isAvailable) return;
   if (_cloudSyncTimeout) clearTimeout(_cloudSyncTimeout);
   _cloudSyncTimeout = setTimeout(async () => {
+    // Evita sincronizaciones solapadas: el DELETE de una borraría los lotes de la otra.
+    if (_cloudSyncRunning) { _cloudSyncPending = true; return; }
+    _cloudSyncRunning = true;
     try {
       const pl = await supabaseService.getOrCreateDefaultCustomPlaylist('Mi Lista LELOUCH');
       if (pl?.id) {
@@ -2151,6 +2173,9 @@ export function scheduleCustomM3UCloudSync() {
       }
     } catch (e) {
       console.warn('[CloudSync] Error sincronizando en segundo plano con Supabase:', e);
+    } finally {
+      _cloudSyncRunning = false;
+      if (_cloudSyncPending) { _cloudSyncPending = false; scheduleCustomM3UCloudSync(); }
     }
   }, 1500);
 }
@@ -2167,6 +2192,7 @@ export function scheduleCustomM3UCloudSync() {
 let _isLifecycleSyncing = false;
 export async function checkAndSyncCustomM3UVersion(triggerSource = 'manual') {
   if (_isLifecycleSyncing) return { inSync: true, busy: true };
+  if (_cloudSyncRunning) return { inSync: true, busy: true };
   if (!supabaseService.isAvailable) return { inSync: true };
 
   _isLifecycleSyncing = true;
@@ -2204,6 +2230,11 @@ export async function checkAndSyncCustomM3UVersion(triggerSource = 'manual') {
           logo: it.logo || it.direct_logo || '',
           url: it.streamUrl || it.resolved_stream_url || it.direct_url,
           epgId: it.tvgId || it.tvg_id || '',
+          mediaType: it.mediaType || it.media_type || '',
+          itemType: it.itemType || it.item_type || 'direct',
+          containerExtension: it.containerExtension || it.container_extension || '',
+          sourceId: it.sourceId || it.source_id || '',
+          catalogItemId: it.catalogItemId || it.catalog_item_id || '',
           addedAt: Date.now()
         }));
 
@@ -2338,6 +2369,9 @@ export function addCustomM3UItem(item) {
     logo: item.logo || '',
     url: item.url,
     epgId: item.epgId || '',
+    mediaType: item.mediaType || '',
+    itemType: item.itemType || 'direct',
+    containerExtension: item.containerExtension || '',
     addedAt: Date.now()
   });
   saveCustomM3UList(list);
@@ -2371,6 +2405,65 @@ export function clearCustomM3UList() {
   renderCustomM3UManager();
 }
 window.clearCustomM3UList = clearCustomM3UList;
+
+export function removeCustomM3UCategory(categoryName, mediaType = null) {
+  if (!categoryName) return;
+  const list = getCustomM3UList();
+  const typeOf = (it) => {
+    const mt = (it.mediaType || '').toLowerCase();
+    if (mt === 'movie' || mt === 'series' || mt === 'live') return mt;
+    const u = (it.url || '').toLowerCase();
+    return u.includes('/series/') ? 'series' : (u.includes('/movie/') ? 'movie' : 'live');
+  };
+
+  const targetCategory = categoryName.trim().toLowerCase();
+  const toDelete = list.filter(it => {
+    const itCat = (it.category || 'General').trim().toLowerCase();
+    if (itCat !== targetCategory) return false;
+    if (mediaType && mediaType !== 'all') {
+      return typeOf(it) === mediaType;
+    }
+    return true;
+  });
+
+  if (toDelete.length === 0) {
+    toast(`No hay elementos en la categoría "${categoryName}"`, 'warning');
+    return;
+  }
+
+  const typeLabel = mediaType === 'live' ? 'canales' : (mediaType === 'movie' ? 'películas' : (mediaType === 'series' ? 'series' : 'elementos'));
+  const confirmMsg = `¿Estás seguro de eliminar todos los ${toDelete.length} ${typeLabel} de la categoría "${categoryName}" de tu lista?`;
+  if (!confirm(confirmMsg)) return;
+
+  const remaining = list.filter(it => {
+    const itCat = (it.category || 'General').trim().toLowerCase();
+    if (itCat !== targetCategory) return true;
+    if (mediaType && mediaType !== 'all') {
+      return typeOf(it) !== mediaType;
+    }
+    return false;
+  });
+
+  saveCustomM3UList(remaining);
+  toast(`🗑️ Categoría "${categoryName}" eliminada (${toDelete.length} ${typeLabel} removidos)`, 'info', 3500);
+  renderCustomM3UManager();
+}
+window.removeCustomM3UCategory = removeCustomM3UCategory;
+
+export function removeCustomM3USelected(indexes) {
+  if (!indexes || indexes.length === 0) return;
+  const list = getCustomM3UList();
+  const confirmMsg = `¿Eliminar los ${indexes.length} elementos seleccionados de tu lista?`;
+  if (!confirm(confirmMsg)) return;
+
+  const indexSet = new Set(indexes);
+  const remaining = list.filter((_, idx) => !indexSet.has(idx));
+  saveCustomM3UList(remaining);
+  toast(`🗑️ ${indexes.length} elementos eliminados de tu lista`, 'info', 3500);
+  renderCustomM3UManager();
+}
+window.removeCustomM3USelected = removeCustomM3USelected;
+
 
 export function generateCustomM3UContent() {
   const list = getCustomM3UList();
@@ -2442,8 +2535,9 @@ export async function activateCustomM3UAsMainPlaylist() {
 
   customList.forEach((item, index) => {
     const url = item.url || '';
-    const isMovie = url.includes('/movie/') || (item.category && item.category.toLowerCase().includes('película'));
-    const isSeries = url.includes('/series/') || (item.category && item.category.toLowerCase().includes('serie'));
+    const mt = (item.mediaType || '').toLowerCase();
+    const isMovie = mt ? mt === 'movie' : (url.includes('/movie/') || (item.category && item.category.toLowerCase().includes('película')));
+    const isSeries = mt ? mt === 'series' : (url.includes('/series/') || (item.category && item.category.toLowerCase().includes('serie')));
 
     const baseObj = {
       id: item.id || `custom_${index}`,
@@ -2546,9 +2640,9 @@ export async function activateCustomM3UAsMainPlaylist() {
       username: 'LELOUCH',
       password: '••••••••',
       isActive: true,
-      channelsCount: customList.length,
-      moviesCount: 0,
-      seriesCount: 0
+      channelsCount: liveItems.length,
+      moviesCount: movieItems.length,
+      seriesCount: seriesItems.length
     });
   } catch (e) {
     console.warn('[CustomM3U] Error sincronizando a Supabase playlists:', e);
@@ -2604,6 +2698,95 @@ export function updateCustomM3UBadges() {
   if (badge) badge.textContent = `${count} ${count === 1 ? 'ítem' : 'ítems'}`;
 }
 
+let _customListTab = 'live';
+let _customListCatFilter = '';
+let _customListSearch = '';
+const _customListSelected = new Set();
+
+window.setCustomListTab = (key) => {
+  _customListTab = key;
+  _customListCatFilter = '';
+  _customListSelected.clear();
+  renderCustomM3UManager();
+};
+
+window.setCustomCatFilter = (cat) => {
+  _customListCatFilter = cat;
+  _customListSelected.clear();
+  renderCustomM3UManager();
+};
+
+window.setCustomSearchFilter = (term) => {
+  _customListSearch = (term || '').toLowerCase().trim();
+  renderCustomM3UManager();
+};
+
+window.toggleSelectCustomItem = (idx, checked) => {
+  if (checked) _customListSelected.add(idx);
+  else _customListSelected.delete(idx);
+  updateSelectedCountUI();
+};
+
+window.toggleSelectAllCustomItems = (checked) => {
+  const checkboxes = document.querySelectorAll('.custom-item-checkbox');
+  checkboxes.forEach(cb => {
+    cb.checked = checked;
+    const idx = parseInt(cb.dataset.idx, 10);
+    if (!isNaN(idx)) {
+      if (checked) _customListSelected.add(idx);
+      else _customListSelected.delete(idx);
+    }
+  });
+  updateSelectedCountUI();
+};
+
+function updateSelectedCountUI() {
+  const btn = $('btn-delete-selected-custom');
+  const countSpan = $('selected-custom-count');
+  if (countSpan) countSpan.textContent = _customListSelected.size;
+  if (btn) btn.style.display = _customListSelected.size > 0 ? 'inline-flex' : 'none';
+  const headerCheck = $('custom-check-all');
+  if (headerCheck) {
+    const checkboxes = document.querySelectorAll('.custom-item-checkbox');
+    headerCheck.checked = checkboxes.length > 0 && Array.from(checkboxes).every(c => c.checked);
+  }
+}
+
+window.deleteSelectedCustomItems = () => {
+  if (_customListSelected.size === 0) return;
+  removeCustomM3USelected(Array.from(_customListSelected));
+  _customListSelected.clear();
+};
+
+window.promptDeleteCategory = () => {
+  const list = getCustomM3UList();
+  if (list.length === 0) {
+    toast('No hay elementos en tu lista para borrar.', 'info');
+    return;
+  }
+  const typeOf = (it) => {
+    const mt = (it.mediaType || '').toLowerCase();
+    if (mt === 'movie' || mt === 'series' || mt === 'live') return mt;
+    const u = (it.url || '').toLowerCase();
+    return u.includes('/series/') ? 'series' : (u.includes('/movie/') ? 'movie' : 'live');
+  };
+  const items = _customListTab === 'all' ? list : list.filter(it => typeOf(it) === _customListTab);
+  const catMap = {};
+  items.forEach(it => {
+    const c = it.category || 'General';
+    catMap[c] = (catMap[c] || 0) + 1;
+  });
+  const catNames = Object.keys(catMap).sort();
+  if (catNames.length === 0) {
+    toast('No hay categorías disponibles en esta sección.', 'info');
+    return;
+  }
+  const chosen = prompt(`Escribe el nombre de la categoría que deseas eliminar por completo:\n\nCategorías disponibles:\n${catNames.map(c => `• ${c} (${catMap[c]} ítems)`).join('\n')}`);
+  if (chosen) {
+    removeCustomM3UCategory(chosen, _customListTab);
+  }
+};
+
 export function renderCustomM3UManager() {
   const container = $('custom-m3u-list-container');
   if (!container) return;
@@ -2616,19 +2799,146 @@ export function renderCustomM3UManager() {
         <span style="font-size:3rem; display:block; margin-bottom:0.75rem;">📋</span>
         <h4 style="margin:0 0 0.5rem 0; color:var(--text-primary);">Aún no has añadido elementos a tu lista</h4>
         <p style="margin:0 auto 1.25rem; max-width:520px; font-size:0.85rem; color:var(--text-secondary);">
-          Navega por la sección <b>TV en Vivo</b> o <b>Películas</b> y pulsa el botón <b>➕</b> para coleccionar tus canales favoritos, o bien pega tus enlaces directos arriba para construir tu lista M3U a tu gusto.
+          Navega por la sección <b>TV en Vivo</b> o <b>Películas</b> y pulsa el botón <b>➕</b> para coleccionar tus canales favoritos, o bien usa el botón <b>📥 Extraer a Mi Lista</b> para importar categorías completas.
         </p>
       </div>
     `;
     return;
   }
 
+  // Separación por tipo: Canales / Películas / Series
+  const typeOf = (it) => {
+    const mt = (it.mediaType || '').toLowerCase();
+    if (mt === 'movie' || mt === 'series' || mt === 'live') return mt;
+    const u = (it.url || '').toLowerCase();
+    return u.includes('/series/') ? 'series' : (u.includes('/movie/') ? 'movie' : 'live');
+  };
+
+  const counts = { live: 0, movie: 0, series: 0, all: list.length };
+  list.forEach(it => counts[typeOf(it)]++);
+
+  // Ajustar tab activo si está vacío
+  if (_customListTab !== 'all' && !counts[_customListTab]) {
+    _customListTab = ['live', 'movie', 'series'].find(t => counts[t]) || 'all';
+  }
+
+  // Filtrar elementos según pestaña
+  let tabRows = list.map((item, idx) => ({ item, idx }));
+  if (_customListTab !== 'all') {
+    tabRows = tabRows.filter(r => typeOf(r.item) === _customListTab);
+  }
+
+  // Recopilar categorías de esta pestaña
+  const categoryCounts = {};
+  tabRows.forEach(r => {
+    const cat = r.item.category || 'General';
+    categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+  });
+  const sortedCategories = Object.keys(categoryCounts).sort((a, b) => a.localeCompare(b));
+
+  // Aplicar filtro por categoría si hay uno seleccionado
+  let filteredRows = tabRows;
+  if (_customListCatFilter) {
+    filteredRows = filteredRows.filter(r => (r.item.category || 'General').trim().toLowerCase() === _customListCatFilter.trim().toLowerCase());
+  }
+
+  // Aplicar filtro por búsqueda
+  if (_customListSearch) {
+    filteredRows = filteredRows.filter(r =>
+      (r.item.name || '').toLowerCase().includes(_customListSearch) ||
+      (r.item.category || '').toLowerCase().includes(_customListSearch) ||
+      (r.item.url || '').toLowerCase().includes(_customListSearch)
+    );
+  }
+
+  const RENDER_CAP = 400;
+  const visibleRows = filteredRows.slice(0, RENDER_CAP);
+
+  const tabBtn = (key, label, count) => `
+    <button type="button" id="custom-list-tab-${key}" class="btn btn-sm ${_customListTab === key ? 'btn-primary' : 'btn-secondary'}" onclick="window.setCustomListTab('${key}')" style="font-weight:700; border-radius:8px; padding:6px 14px;">
+      ${label} <span style="opacity:0.85; margin-left:4px; font-weight:800;">(${count})</span>
+    </button>`;
+
+  // Chips de categorías con botón directo de borrado por categoría
+  const categoryChipsHtml = sortedCategories.length > 0 ? `
+    <div style="background:rgba(255,255,255,0.02); border:1px solid var(--border-subtle); border-radius:10px; padding:0.75rem 1rem; margin-bottom:1rem;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem; flex-wrap:wrap; gap:6px;">
+        <span style="font-size:0.78rem; font-weight:700; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.04em;">
+          📁 Categorías en esta sección (${sortedCategories.length}) — Haz clic para filtrar o pulsa 🗑️ para borrar:
+        </span>
+        ${_customListCatFilter ? `<button class="btn btn-secondary btn-sm" onclick="window.setCustomCatFilter('')" style="font-size:0.72rem; padding:2px 8px;">✕ Ver todas las categorías</button>` : ''}
+      </div>
+      <div style="display:flex; gap:6px; flex-wrap:wrap; max-height:130px; overflow-y:auto; padding:2px;">
+        ${sortedCategories.map(cat => {
+          const isSelected = _customListCatFilter.trim().toLowerCase() === cat.trim().toLowerCase();
+          return `
+            <div style="display:inline-flex; align-items:center; gap:6px; background:${isSelected ? 'rgba(0,229,255,0.18)' : 'rgba(255,255,255,0.04)'}; border:1px solid ${isSelected ? 'var(--accent-cyan)' : 'rgba(255,255,255,0.08)'}; border-radius:6px; padding:3px 9px; font-size:0.75rem;">
+              <span style="cursor:pointer; font-weight:${isSelected ? '700' : '500'}; color:${isSelected ? 'var(--accent-cyan)' : 'var(--text-primary)'};" onclick="window.setCustomCatFilter('${escHtml(isSelected ? '' : cat)}')">
+                ${escHtml(cat)} <b style="color:var(--accent-cyan);">(${categoryCounts[cat]})</b>
+              </span>
+              <button type="button" onclick="event.stopPropagation(); window.removeCustomM3UCategory('${escHtml(cat)}', '${_customListTab}')" title="Eliminar toda la categoría '${escHtml(cat)}'" style="background:transparent; border:none; color:#ef4444; cursor:pointer; font-size:0.8rem; padding:0 2px; line-height:1;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'">
+                🗑️
+              </button>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  ` : '';
+
   container.innerHTML = `
-    <div style="overflow-x:auto;">
+    <!-- PESTAÑAS PRINCIPALES POR TIPO (COLUMNAS / SECCIONES) -->
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:1rem; padding-bottom:0.75rem; border-bottom:1px solid var(--border-subtle);">
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        ${tabBtn('live', '📺 Canales TV', counts.live)}
+        ${tabBtn('movie', '🎬 Películas', counts.movie)}
+        ${tabBtn('series', '🎞️ Series', counts.series)}
+        ${tabBtn('all', '🌐 Ver Todo', counts.all)}
+      </div>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <button id="btn-delete-selected-custom" class="btn btn-danger btn-sm" style="display:${_customListSelected.size > 0 ? 'inline-flex' : 'none'}; font-weight:700;" onclick="window.deleteSelectedCustomItems()">
+          🗑️ Eliminar seleccionados (<span id="selected-custom-count">${_customListSelected.size}</span>)
+        </button>
+        <button class="btn btn-secondary btn-sm" style="color:#ef4444; border-color:rgba(239,68,68,0.35); font-weight:700;" onclick="window.promptDeleteCategory()">
+          🗑️ Borrar por Categoría...
+        </button>
+      </div>
+    </div>
+
+    <!-- PANEL DE CHIPS DE CATEGORÍAS -->
+    ${categoryChipsHtml}
+
+    <!-- BARRA DE BÚSQUEDA Y FILTRADO POR CATEGORÍA -->
+    <div style="display:grid; grid-template-columns: minmax(180px, 260px) 1fr auto; gap:0.75rem; align-items:center; margin-bottom:0.75rem;">
+      <div>
+        <select class="form-input" style="width:100%; font-size:0.82rem; height:36px;" onchange="window.setCustomCatFilter(this.value)">
+          <option value="">📁 Todas las categorías (${sortedCategories.length})</option>
+          ${sortedCategories.map(cat => `
+            <option value="${escHtml(cat)}" ${_customListCatFilter.trim().toLowerCase() === cat.trim().toLowerCase() ? 'selected' : ''}>
+              ${escHtml(cat)} (${categoryCounts[cat]})
+            </option>
+          `).join('')}
+        </select>
+      </div>
+      <div>
+        <input type="text" class="form-input" placeholder="🔍 Buscar por nombre, categoría o URL en esta sección..." value="${escHtml(_customListSearch)}" oninput="window.setCustomSearchFilter(this.value)" style="width:100%; font-size:0.82rem; height:36px;" />
+      </div>
+      <div style="font-size:0.78rem; color:var(--text-secondary); white-space:nowrap;">
+        ${filteredRows.length} ${filteredRows.length === 1 ? 'resultado' : 'resultados'}
+        ${filteredRows.length > RENDER_CAP ? `(mostrando ${RENDER_CAP})` : ''}
+      </div>
+    </div>
+
+    <!-- TABLA DE CONTENIDO CON COLUMNAS SEPARADAS -->
+    <div style="overflow-x:auto; background:rgba(0,0,0,0.2); border:1px solid var(--border-subtle); border-radius:10px;">
       <table class="custom-m3u-table" style="width:100%; border-collapse:collapse; font-size:0.85rem;">
         <thead>
-          <tr style="border-bottom:1px solid var(--border-subtle); text-align:left; color:var(--text-secondary); font-size:0.75rem;">
-            <th style="padding:10px 8px; width:40px;">#</th>
+          <tr style="border-bottom:1px solid var(--border-subtle); text-align:left; color:var(--text-secondary); font-size:0.75rem; background:rgba(255,255,255,0.02);">
+            <th style="padding:10px 8px; width:36px; text-align:center;">
+              <input type="checkbox" id="custom-check-all" onclick="window.toggleSelectAllCustomItems(this.checked)" title="Seleccionar todos" />
+            </th>
+            <th style="padding:10px 8px; width:45px;">#</th>
+            <th style="padding:10px 8px; width:95px;">Tipo</th>
             <th style="padding:10px 8px;">Canal / Contenido</th>
             <th style="padding:10px 8px;">Categoría</th>
             <th style="padding:10px 8px;">Enlace Directo</th>
@@ -2636,19 +2946,46 @@ export function renderCustomM3UManager() {
           </tr>
         </thead>
         <tbody>
-          ${list.map((item, idx) => `
-            <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
-              <td style="padding:10px 8px; color:var(--text-muted); font-size:0.75rem;">${idx + 1}</td>
+          ${visibleRows.length === 0 ? `
+            <tr>
+              <td colspan="7" style="text-align:center; padding:2rem; color:var(--text-muted); font-size:0.85rem;">
+                No se encontraron elementos con los filtros aplicados.
+              </td>
+            </tr>
+          ` : visibleRows.map(({ item, idx }, pos) => {
+            const itType = typeOf(item);
+            const typeBadge = itType === 'live'
+              ? '<span class="badge-mini" style="background:rgba(16,185,129,0.18); color:#10b981; border:1px solid rgba(16,185,129,0.4); font-size:0.7rem; font-weight:700;">📺 Canal</span>'
+              : (itType === 'movie'
+                ? '<span class="badge-mini" style="background:rgba(168,85,247,0.18); color:#c084fc; border:1px solid rgba(168,85,247,0.4); font-size:0.7rem; font-weight:700;">🎬 Película</span>'
+                : '<span class="badge-mini" style="background:rgba(234,179,8,0.18); color:#facc15; border:1px solid rgba(234,179,8,0.4); font-size:0.7rem; font-weight:700;">🎞️ Serie</span>');
+
+            const isChecked = _customListSelected.has(idx);
+
+            return `
+            <tr style="border-bottom:1px solid rgba(255,255,255,0.04); background:${isChecked ? 'rgba(0,229,255,0.05)' : 'transparent'};">
+              <td style="padding:10px 8px; text-align:center;">
+                <input type="checkbox" class="custom-item-checkbox" data-idx="${idx}" ${isChecked ? 'checked' : ''} onchange="window.toggleSelectCustomItem(${idx}, this.checked)" />
+              </td>
+              <td style="padding:10px 8px; color:var(--text-muted); font-size:0.75rem;">${pos + 1}</td>
+              <td style="padding:10px 8px;">${typeBadge}</td>
               <td style="padding:10px 8px; font-weight:600; color:var(--text-primary);">
                 <div style="display:flex; align-items:center; gap:8px;">
-                  ${item.logo ? `<img src="${escHtml(item.logo)}" style="width:26px; height:26px; object-fit:contain; border-radius:4px;" onerror="this.style.display='none'">` : '📺'}
+                  ${item.logo ? `<img src="${escHtml(item.logo)}" style="width:26px; height:26px; object-fit:contain; border-radius:4px;" onerror="this.style.display='none'">` : (itType === 'movie' ? '🎬' : (itType === 'series' ? '🎞️' : '📺'))}
                   <span>${escHtml(item.name)}</span>
                 </div>
               </td>
               <td style="padding:10px 8px;">
-                <span class="badge-mini" style="font-size:0.72rem; background:rgba(255,255,255,0.06); color:var(--text-secondary); padding:2px 8px; border-radius:4px;">${escHtml(item.category)}</span>
+                <div style="display:inline-flex; align-items:center; gap:6px;">
+                  <span class="badge-mini" style="font-size:0.72rem; background:rgba(255,255,255,0.06); color:var(--text-secondary); padding:2px 8px; border-radius:4px; cursor:pointer;" onclick="window.setCustomCatFilter('${escHtml(item.category || 'General')}')" title="Filtrar por categoría '${escHtml(item.category || 'General')}'">
+                    📁 ${escHtml(item.category || 'General')}
+                  </span>
+                  <button type="button" onclick="window.removeCustomM3UCategory('${escHtml(item.category || 'General')}', '${_customListTab}')" title="Eliminar toda la categoría '${escHtml(item.category || 'General')}'" style="background:transparent; border:none; color:rgba(239,68,68,0.7); cursor:pointer; font-size:0.75rem; padding:0 2px;" onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='rgba(239,68,68,0.7)'">
+                    🗑️
+                  </button>
+                </div>
               </td>
-              <td style="padding:10px 8px; max-width:280px;">
+              <td style="padding:10px 8px; max-width:260px;">
                 <div class="m3u-url-code" title="${escHtml(item.url)}" style="font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:var(--accent-cyan); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; background:rgba(6,182,212,0.06); padding:4px 8px; border-radius:4px; border:1px solid rgba(6,182,212,0.15);">
                   ${escHtml(item.url)}
                 </div>
@@ -2657,11 +2994,12 @@ export function renderCustomM3UManager() {
                 <div style="display:inline-flex; gap:6px;">
                   <button class="btn btn-secondary btn-sm" onclick="window.copyStreamUrl('${escHtml(item.url)}', '${escHtml(item.name)}')" title="Copiar enlace directo">🔗 Copiar</button>
                   <button class="btn btn-secondary btn-sm" onclick="window.playCustomStream('${escHtml(item.url)}', '${escHtml(item.name)}')" title="Probar reproducción">▶️ Ver</button>
-                  <button class="btn btn-secondary btn-sm" style="color:#ef4444; border-color:rgba(239,68,68,0.25);" onclick="window.removeCustomM3UItem(${idx})" title="Eliminar de mi lista">🗑</button>
+                  <button class="btn btn-secondary btn-sm" style="color:#ef4444; border-color:rgba(239,68,68,0.25);" onclick="window.removeCustomM3UItem(${idx})" title="Eliminar este ítem">🗑</button>
                 </div>
               </td>
             </tr>
-          `).join('')}
+          `;
+          }).join('')}
         </tbody>
       </table>
     </div>
@@ -3430,8 +3768,22 @@ async function executeCategoryImport(catNames) {
 
     const itemMediaType = type === 'movies' ? 'movie' : (type === 'series' ? 'series' : 'live');
 
+    // Las series del catálogo (normalizeSeriesList) no traen streamUrl: se construye con las credenciales del proveedor.
+    let providerCreds = null;
+    try { providerCreds = provider.url ? parseIPTVUrl(provider.url) : null; } catch {}
+    const buildFallbackUrl = (it) => {
+      const sid = it.streamId || it.id;
+      if (!providerCreds || !sid) return '';
+      const base = providerCreds.serverBaseUrl;
+      const user = providerCreds.username;
+      const pass = providerCreds._password || providerCreds.password || '';
+      if (type === 'series') return buildSeriesStreamUrl(base, user, pass, sid, 'mp4');
+      if (type === 'movies') return buildVodStreamUrl(base, user, pass, sid, it.containerExtension || 'mp4');
+      return buildLiveStreamUrl(base, user, pass, sid, 'm3u8');
+    };
+
     for (const it of itemsToImport) {
-      const streamUrl = it.streamUrl;
+      const streamUrl = it.streamUrl || it.url || buildFallbackUrl(it);
       if (!streamUrl) continue;
       const normUrl = PlaylistDeduplicator.normalizeStreamUrl(streamUrl);
       if (!existingUrls.has(normUrl)) {

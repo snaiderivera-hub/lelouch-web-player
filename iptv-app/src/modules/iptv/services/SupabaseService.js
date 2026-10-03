@@ -371,21 +371,35 @@ class SupabaseService {
       // 3. Insertar los nuevos items en lotes (evita 413 Payload Too Large en listas grandes)
       if (rows.length > 0) {
         const BATCH_SIZE = 250;
+        let failedItems = 0;
         for (let i = 0; i < rows.length; i += BATCH_SIZE) {
           const chunk = rows.slice(i, i + BATCH_SIZE);
-          const insertRes = await fetch(`${this.url}/rest/v1/playlist_items`, {
-            method: 'POST',
-            headers: this._getHeaders({
-              'Prefer': 'return=minimal'
-            }),
-            body: JSON.stringify(chunk)
-          });
+          let insertRes = null;
+          for (let attempt = 1; attempt <= 2; attempt++) {
+            try {
+              insertRes = await fetch(`${this.url}/rest/v1/playlist_items`, {
+                method: 'POST',
+                headers: this._getHeaders({
+                  'Prefer': 'return=minimal'
+                }),
+                body: JSON.stringify(chunk)
+              });
+            } catch (netErr) {
+              insertRes = null;
+            }
+            if (insertRes?.ok) break;
+            if (attempt === 1) await new Promise(r => setTimeout(r, 800));
+          }
 
-          if (!insertRes.ok) {
-            const errText = await insertRes.text();
+          if (!insertRes?.ok) {
+            failedItems += chunk.length;
+            const errText = insertRes ? await insertRes.text() : 'error de red';
             console.warn(`[SupabaseService] Error insertando lote ${i}-${i + chunk.length}:`, errText);
             // Si falla un lote, continuar con los siguientes para no perder el resto
           }
+        }
+        if (failedItems > 0) {
+          console.warn(`[SupabaseService] ${failedItems} de ${rows.length} ítems no se pudieron guardar en la nube.`);
         }
       }
 
