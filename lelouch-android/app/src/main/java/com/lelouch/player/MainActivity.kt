@@ -142,10 +142,24 @@ class MainActivity : ComponentActivity() {
 
             val effectiveActiveSource = activeSource ?: allSources.firstOrNull()
 
+            // ── FASE 33: sincronizar Room en CADA arranque, no solo si no hay fuente activa ──
+            // Antes la condición era `if (activeSource == null)`, así que si existía una fuente
+            // guardada de una sesión previa, syncAll nunca se ejecutaba, Room quedaba vacío o
+            // desactualizado y la pantalla mostraba 0 canales sin ningún error visible.
+            // Se activa solo cuando cambia el id de la fuente, para no repetir en cada recomposición.
             LaunchedEffect(effectiveActiveSource?.id) {
-                if (activeSource == null && effectiveActiveSource != null) {
-                    onActivateSource(effectiveActiveSource.id)
+                val src = effectiveActiveSource ?: return@LaunchedEffect
+                if (activeSource == null) {
+                    // Fija el id activo en DataStore si aún no está fijado.
+                    app.authRepository.activateSource(src.id)
                 }
+                app.syncManager.syncAll(
+                    sourceId = src.id,
+                    serverUrl = src.serverUrl,
+                    user = src.username,
+                    pass = src.password,
+                    sourceType = src.type
+                )
             }
 
             val liveChannels by (if (effectiveActiveSource != null) app.channelRepository.getAllChannels(effectiveActiveSource.id) else kotlinx.coroutines.flow.emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
@@ -190,6 +204,7 @@ class MainActivity : ComponentActivity() {
                                 onSyncCloudSources = ::onSyncCloud,
                                 onForceSync = ::onForceSync,
                                 onLogout = ::onLogout,
+                                syncStateText = syncStatusText,
                                 onFetchSeriesDetails = { seriesId ->
                                     app.seriesRepository.getSeriesDetailAndEpisodes(
                                         effectiveActiveSource.serverUrl,

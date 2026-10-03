@@ -200,6 +200,20 @@ class LelouchPlayerEngine(
      * Sintoniza y reproduce una URL de transmisión IPTV en vivo o VOD bajo demanda.
      */
     fun playStream(url: String, isLive: Boolean = false) {
+        // GUARDIA (FASE 33): nunca preparar ExoPlayer con una URL vacía o malformada.
+        // Uri.parse("") produce un MediaSource inválido y ExoPlayer entra en estado de error
+        // sin llegar a emitir un mensaje comprensible (pantalla negra).
+        if (url.isBlank()) {
+            _currentUrl.value = null
+            autoRetryAttemptsLeft = config.autoRetryCount
+            _playbackState.value = PlaybackState.Error(
+                errorMessage = "Este elemento no tiene enlace de reproducción. Re-sincroniza el catálogo desde Ajustes.",
+                errorCode = PlaybackException.ERROR_CODE_BAD_VALUE,
+                canRetry = false
+            )
+            return
+        }
+
         if (url == _currentUrl.value && exoPlayer.playbackState == Player.STATE_READY) {
             if (!exoPlayer.playWhenReady) {
                 exoPlayer.playWhenReady = true
@@ -268,6 +282,30 @@ class LelouchPlayerEngine(
     private fun stopProgressTracking() {
         progressTrackingJob?.cancel()
         progressTrackingJob = null
+    }
+
+    /**
+     * FASE 33 — Reintenta la última URL tras un error, sin cambiar de canal.
+     * Usado por el botón «Reintentar» del overlay de error de [LelouchVideoPlayer].
+     */
+    fun retry() {
+        val url = _currentUrl.value
+        if (url.isNullOrBlank()) {
+            _playbackState.value = PlaybackState.Error(
+                errorMessage = "No hay ninguna reproducción anterior que reintentar.",
+                errorCode = PlaybackException.ERROR_CODE_BAD_VALUE,
+                canRetry = false
+            )
+            return
+        }
+        val isLive = isCurrentStreamLive
+        autoRetryAttemptsLeft = config.autoRetryCount
+        _playbackState.value = PlaybackState.Buffering
+        val mediaSource = buildMediaSource(url)
+        exoPlayer.setMediaSource(mediaSource)
+        exoPlayer.prepare()
+        exoPlayer.playWhenReady = true
+        isCurrentStreamLive = isLive
     }
 
     fun pause() {

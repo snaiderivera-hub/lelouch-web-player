@@ -47,10 +47,18 @@ class UserPreferencesDataSource(private val context: Context) {
 
     val defaultInitialSources = emptyList<SourceConfig>()
 
-    val allSources: Flow<List<SourceConfig>> = context.dataStore.data.map { preferences ->
-        val rawJson = preferences[PreferencesKeys.SAVED_SOURCES_JSON]
-        val activeId = preferences[PreferencesKeys.ACTIVE_SOURCE_ID] ?: preferences[PreferencesKeys.SOURCE_ID]
-
+    /**
+     * Deduplica en memoria el JSON crudo de fuentes.
+     *
+     * Cualquier entrada que parezca la lista personalizada (dominio Vercel, usuario LELOUCH,
+     * nombre "Mi Lista"/"Personalizada" o id `custom_*`) se colapsa en UNA sola fuente
+     * canónica `custom_lelouch`; el resto se deduplica por (servidor + usuario).
+     *
+     * Extraído a función para que [allSources] y [activeSource] compartan EXACTAMENTE el
+     * mismo resultado: así el id que ve la UI, con el que se consulta Room y con el que se
+     * llama a syncAll es siempre idéntico.
+     */
+    private fun deduplicatedSources(rawJson: String?, activeId: String?): List<SourceConfig> {
         val list = if (!rawJson.isNullOrBlank()) {
             try {
                 json.decodeFromString<List<SourceConfig>>(rawJson)
@@ -61,7 +69,6 @@ class UserPreferencesDataSource(private val context: Context) {
             emptyList()
         }
 
-        // Desduplicar en memoria para garantizar que el usuario nunca vea 4 listas
         val isCustom = { s: SourceConfig ->
             s.serverUrl.contains("vercel.app") ||
             s.username.equals("LELOUCH", ignoreCase = true) ||
@@ -75,9 +82,13 @@ class UserPreferencesDataSource(private val context: Context) {
         val deduplicated = mutableListOf<SourceConfig>()
 
         if (customItems.isNotEmpty()) {
-            val best = customItems.find { it.serverUrl.contains("token=") } ?: customItems.first()
+            val best = customItems.find { it.accessToken?.isNotBlank() == true || it.serverUrl.contains("token=") || it.serverUrl.contains("/api/playlist/") } ?: customItems.first()
             val token = best.accessToken.takeIf { !it.isNullOrBlank() }
-                ?: (if (best.serverUrl.contains("token=")) best.serverUrl.substringAfter("token=").substringBefore("&") else "pByk2IfABSGuLwSC9b14z6Y7penWElnYjbgzmI3R")
+                ?: (when {
+                    best.serverUrl.contains("/api/playlist/") -> best.serverUrl.substringAfter("/api/playlist/").substringBefore("?").trim()
+                    best.serverUrl.contains("token=") -> best.serverUrl.substringAfter("token=").substringBefore("&").trim()
+                    else -> "pByk2IfABSGuLwSC9b14z6Y7penWElnYjbgzmI3R"
+                })
             val tokenUrl = "https://lelouch-web-player.vercel.app/api/playlist?token=$token"
             deduplicated.add(
                 SourceConfig(
@@ -87,7 +98,7 @@ class UserPreferencesDataSource(private val context: Context) {
                     username = "",
                     password = "",
                     type = SourceType.M3U,
-                    isActive = customItems.any { it.id == activeId || it.isActive },
+                    isActive = customItems.any { it.id == activeId || it.id == "custom_lelouch" || it.isActive },
                     accessToken = token
                 )
             )
@@ -102,25 +113,31 @@ class UserPreferencesDataSource(private val context: Context) {
             }
         }
 
-        deduplicated.map { source ->
+        return deduplicated.map { source ->
             source.copy(isActive = (source.id == activeId || (activeId == null && source.id == deduplicated.firstOrNull()?.id)))
         }
     }
 
+    val allSources: Flow<List<SourceConfig>> = context.dataStore.data.map { preferences ->
+        val activeId = preferences[PreferencesKeys.ACTIVE_SOURCE_ID] ?: preferences[PreferencesKeys.SOURCE_ID]
+        deduplicatedSources(preferences[PreferencesKeys.SAVED_SOURCES_JSON], activeId)
+    }
+
+    /**
+     * FASE 33 — Fuente activa derivada del catálogo YA deduplicado.
+     *
+     * Antes releía el JSON crudo (`list.find { it.id == activeId } ?: firstOrNull()`), con lo
+     * que podía devolver una fila duplicada que [allSources] ya había colapsado en
+     * `custom_lelouch`. La pantalla consultaba entonces Room con un `sourceId` con el que
+     * nunca se guardó nada -> 0 canales -> lista vacía sin ningún error visible.
+     *
+     * Derivarla de [allSources] garantiza que el id que ve la UI, el que se usa para
+     * consultar Room y el que se pasa a syncAll sean siempre el mismo.
+     */
     val activeSource: Flow<SourceConfig?> = context.dataStore.data.map { preferences ->
         val activeId = preferences[PreferencesKeys.ACTIVE_SOURCE_ID] ?: preferences[PreferencesKeys.SOURCE_ID]
-        val rawJson = preferences[PreferencesKeys.SAVED_SOURCES_JSON]
-        val list = if (!rawJson.isNullOrBlank()) {
-            try {
-                json.decodeFromString<List<SourceConfig>>(rawJson)
-            } catch (e: Exception) {
-                emptyList()
-            }
-        } else {
-            emptyList()
-        }
-        val found = list.find { it.id == activeId } ?: list.firstOrNull()
-        found?.copy(isActive = true)
+        val list = deduplicatedSources(preferences[PreferencesKeys.SAVED_SOURCES_JSON], activeId)
+        if (list.isEmpty()) null else (list.firstOrNull { it.id == activeId } ?: list.firstOrNull())
     }
 
     suspend fun saveActiveSource(source: SourceConfig) {
@@ -155,11 +172,12 @@ class UserPreferencesDataSource(private val context: Context) {
         var active: SourceConfig? = null
         context.dataStore.edit { preferences ->
             val rawJson = preferences[PreferencesKeys.SAVED_SOURCES_JSON]
-            val currentList = if (!rawJson.isNullOrBlank()) {
-                try { json.decodeFromString<List<SourceConfig>>(rawJson) } catch (e: Exception) { defaultInitialSources }
-            } else defaultInitialSources
+            val currentList = deduplicatedSources(rawJson, sourceId)
 
-            val target = currentList.find { it.id == sourceId }
+            val isCustomId = sourceId == "custom_lelouch" || sourceId.startsWith("custom_")
+            val target = currentList.find { 
+                it.id == sourceId || (isCustomId && (it.id == "custom_lelouch" || it.serverUrl.contains("vercel.app") || it.name.contains("Personalizada", ignoreCase = true)))
+            }
             if (target != null) {
                 preferences[PreferencesKeys.ACTIVE_SOURCE_ID] = target.id
                 preferences[PreferencesKeys.SOURCE_ID] = target.id

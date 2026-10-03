@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.8",
-  "versionCode": 1000008,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.8/app-debug.apk",
-  "changelog": "• Corrección crítica de reproducción en TV Box y Móvil: se resuelve y utiliza directamente el streamUrl real de cada canal y película en vez de rutas Vercel inexistentes.\n• Activación de reproducción directa al pulsar canales en la pantalla Inicio/Dashboard.\n• Unificación y desduplicación estricta de fuentes: exactamente 3 listas limpias (⭐ Mi Lista Personalizada LELOUCH + 2 cuentas LionTV) en TV Box y Teléfono móvil sin listas duplicadas ni con usuario/contraseña sobrantes.\n• Modo chunkless desactivado en HLS para decodificación inmediata de códecs AAC/H264 sin bloqueos."
+  "versionName": "1.0.10",
+  "versionCode": 1000010,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.10/app-debug.apk",
+  "changelog": "• Separación Estricta de Medios: Eliminación total de filtrado de series/episodios en TV en Vivo tanto en Android TV Box como en Teléfono Móvil, canalizando series a Series y canales a Live TV.\n• Sincronización Web a Android: Corrección en resolución y consulta UUID de listas personalizadas en Supabase y DataStore, permitiendo que las listas guardadas desde el reproductor Web se carguen y persistan de forma inmediata en TV Box.\n• Parser y Clasificación Inteligente: Inyección de atributos tvg-type/media-type en manifiestos y M3U, con detección multifactorial de temporadas y episodios (S01, Cap., Dorama, Anime).\n• Filtro Defensivo en UI: Protección en tiempo real en TvHomeScreen y MobileHomeScreen contra contaminación de canales en vivo."
 }

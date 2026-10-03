@@ -118,6 +118,7 @@ class PlaylistGenerator {
         timeshift: item.catchup?.days ? String(item.catchup.days) : '',
         kodiProps: item.kodiProps || {},
         extraAttributes: item.extraAttributes || {},
+        mediaType: item.mediaType || item.media_type || (item.url?.includes('/series/') ? 'series' : (item.url?.includes('/movie/') ? 'movie' : 'live')),
         line: idx + 1,
         raw: ''
       }))
@@ -174,6 +175,9 @@ class PlaylistGenerator {
 
       const group = it.group?.title || 'General';
       extinf += ` group-title="${this._escapeAttr(group)}"`;
+
+      const itemMediaType = it.mediaType || (streamUrl.includes('/series/') ? 'series' : (streamUrl.includes('/movie/') ? 'movie' : 'live'));
+      extinf += ` tvg-type="${this._escapeAttr(itemMediaType)}" media-type="${this._escapeAttr(itemMediaType)}"`;
 
       if (includeCatchup && it.catchup) {
         const catchupType = it.catchup.type || 'default';
@@ -415,19 +419,29 @@ export default async function handler(req, res) {
     // FASE 27: custom_name y custom_group tienen precedencia sobre los valores por defecto del proveedor
     const mediaItems = items.map((it, idx) => {
       const streamUrl = unwrapProxyUrl(it.resolved_stream_url || it.direct_url);
-      let mediaType = it.media_type || 'live';
-      if (mediaType === 'live' || !mediaType) {
-        if (streamUrl.includes('/movie/')) {
-          mediaType = 'movie';
-        } else if (streamUrl.includes('/series/')) {
+      const itemName = it.custom_name || it.name || it.direct_name || 'Canal';
+      const itemGroup = it.custom_group || it.group || it.direct_group || 'General';
+      let mediaType = (it.media_type || '').toLowerCase();
+      if (!mediaType || mediaType === 'live') {
+        const lUrl = streamUrl.toLowerCase();
+        const lName = itemName.toLowerCase();
+        const lGrp = itemGroup.toLowerCase();
+        const hasEpisodePattern = /\b(s\d{1,2}|t\d{1,2}|cap\.?\s*\d+|ep\.?\s*\d+|temporada\s*\d+)\b/i.test(lName);
+        const isSeriesGroup = lGrp.includes('serie') || lGrp.includes('temporada') || lGrp.includes('season') || lGrp.includes('dorama') || lGrp.includes('anime') || lGrp.includes('novela');
+        const isMovieGroup = lGrp.includes('película') || lGrp.includes('pelicula') || lGrp.includes('movie') || lGrp.includes('cine') || lGrp.includes('estrenos') || lGrp.includes('vod');
+        if (lUrl.includes('/series/') || isSeriesGroup || hasEpisodePattern) {
           mediaType = 'series';
+        } else if (lUrl.includes('/movie/') || isMovieGroup || (lUrl.endsWith('.mp4') && !lUrl.includes('.m3u8'))) {
+          mediaType = 'movie';
+        } else {
+          mediaType = mediaType || 'live';
         }
       }
       return {
         id: it.id,
-        name: it.custom_name || it.name || it.direct_name || 'Canal',
+        name: itemName,
         streamUrl,
-        group: it.custom_group || it.group || it.direct_group || 'General',
+        group: itemGroup,
         logo: it.custom_logo || it.logo || it.direct_logo || '',
         tvgId: it.tvg_id || '',
         tvgName: it.tvg_name || it.custom_name || it.name || '',

@@ -315,12 +315,21 @@ class SupabaseService {
         const isFromCatalog = !isDirect;
         const targetUrl = item.directUrl || item.streamUrl || item.url || '';
         const targetGroup = item.custom_group || item.direct_group || item.group || item.category || item.categoryName || '';
-        let resolvedMediaType = item.mediaType || item.type;
-        if (!resolvedMediaType) {
-          if (targetUrl.includes('/movie/') || targetGroup.toLowerCase().includes('película') || targetGroup.toLowerCase().includes('movie') || targetGroup.toLowerCase().includes('hbo') || targetGroup.toLowerCase().includes('netflix') || targetGroup.toLowerCase().includes('cine')) {
-            resolvedMediaType = 'movie';
-          } else if (targetUrl.includes('/series/') || targetGroup.toLowerCase().includes('serie')) {
+        const targetName = item.custom_name || item.direct_name || item.name || '';
+        
+        let resolvedMediaType = (item.mediaType || item.type || '').toLowerCase();
+        if (!resolvedMediaType || resolvedMediaType === 'undefined') {
+          const lUrl = targetUrl.toLowerCase();
+          const lGrp = targetGroup.toLowerCase();
+          const lName = targetName.toLowerCase();
+          const hasEpisodePattern = /\b(s\d{1,2}|t\d{1,2}|cap\.?\s*\d+|ep\.?\s*\d+|temporada\s*\d+)\b/i.test(lName);
+          const isSeriesGroup = lGrp.includes('serie') || lGrp.includes('temporada') || lGrp.includes('season') || lGrp.includes('dorama') || lGrp.includes('anime') || lGrp.includes('novela');
+          const isMovieGroup = lGrp.includes('película') || lGrp.includes('pelicula') || lGrp.includes('movie') || lGrp.includes('cine') || lGrp.includes('estrenos') || lGrp.includes('vod');
+          
+          if (lUrl.includes('/series/') || isSeriesGroup || hasEpisodePattern) {
             resolvedMediaType = 'series';
+          } else if (lUrl.includes('/movie/') || isMovieGroup || (lUrl.endsWith('.mp4') && !lUrl.includes('.m3u8'))) {
+            resolvedMediaType = 'movie';
           } else {
             resolvedMediaType = 'live';
           }
@@ -331,16 +340,16 @@ class SupabaseService {
           source_id: isFromCatalog ? (item.sourceId || null) : null,
           catalog_item_id: isFromCatalog ? String(item.providerId || item.catalogItemId) : null,
           media_type: resolvedMediaType,
-          custom_name: isFromCatalog ? item.name : null,
-          custom_group: isFromCatalog ? (item.group || item.categoryName || 'General') : null,
+          custom_name: isFromCatalog ? (item.name || targetName) : null,
+          custom_group: isFromCatalog ? (item.group || item.categoryName || targetGroup || 'General') : null,
           custom_logo: isFromCatalog ? (item.logo || null) : null,
-          direct_name: isDirect ? (item.directName || item.name || 'Canal Directo') : null,
-          direct_url: isDirect ? (item.directUrl || item.streamUrl || item.url) : null,
-          direct_group: isDirect ? (item.directGroup || item.group || item.category || 'Directos') : null,
-          direct_logo: isDirect ? (item.directLogo || item.logo || null) : null,
+          direct_name: targetName || 'Canal Directo',
+          direct_url: targetUrl,
+          direct_group: targetGroup || 'Directos',
+          direct_logo: item.directLogo || item.logo || null,
           tvg_id: item.tvgId || item.epgId || null,
           tvg_name: item.tvgName || item.epgName || null,
-          container_extension: item.containerExtension || 'm3u8',
+          container_extension: item.containerExtension || (resolvedMediaType === 'live' ? 'm3u8' : 'mp4'),
           position: index,
           enabled: item.isEnabled !== false,
           metadata: {

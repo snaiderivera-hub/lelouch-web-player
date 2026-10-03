@@ -6,6 +6,7 @@ import com.lelouch.core.database.entity.ChannelEntity
 import com.lelouch.core.database.entity.MovieEntity
 import com.lelouch.core.database.entity.SeriesEntity
 import com.lelouch.core.network.NetworkClient
+import com.lelouch.core.network.StreamUrlResolver
 import com.lelouch.core.network.XtreamUrlBuilder
 import com.lelouch.core.network.XtreamStreamingParser
 import okhttp3.OkHttpClient
@@ -44,6 +45,36 @@ class XtreamCatalogSyncManager(
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
+    private fun detectMediaType(mediaType: String?, name: String, group: String, url: String): String {
+        val mt = mediaType?.lowercase()?.trim().orEmpty()
+        if (mt == "series" || mt == "movie" || mt == "vod") return if (mt == "vod") "movie" else mt
+
+        val normUrl = url.lowercase()
+        val normGroup = group.lowercase()
+        val normName = name.lowercase()
+
+        val isSeriesUrl = normUrl.contains("/series/") || normUrl.contains("action=get_series") || normUrl.contains("type=series")
+        val isSeriesGroup = normGroup.contains("serie") || normGroup.contains("temporada") || normGroup.contains("season") ||
+            normGroup.contains("capitulo") || normGroup.contains("episodio") || normGroup.contains("novela") ||
+            normGroup.contains("dorama") || normGroup.contains("anime")
+        val hasEpisodePattern = Regex("(?i)\\b(s\\d{1,2}|t\\d{1,2}|cap\\.?\\s*\\d+|ep\\.?\\s*\\d+|temporada\\s*\\d+)\\b").containsMatchIn(normName)
+
+        if (isSeriesUrl || isSeriesGroup || hasEpisodePattern) {
+            return "series"
+        }
+
+        val isMovieUrl = normUrl.contains("/movie/") || normUrl.contains("action=get_vod_streams") || normUrl.contains("type=movie")
+        val isMovieGroup = normGroup.contains("película") || normGroup.contains("pelicula") || normGroup.contains("movie") ||
+            normGroup.contains("cine") || normGroup.contains("estrenos") || normGroup.contains("vod") || normGroup.contains("4k cinema")
+        val hasMovieExtension = (normUrl.endsWith(".mp4") || normUrl.endsWith(".mkv") || normUrl.endsWith(".avi")) && !normUrl.contains(".m3u8")
+
+        if (isMovieUrl || isMovieGroup || hasMovieExtension) {
+            return "movie"
+        }
+
+        return "live"
+    }
+
     suspend fun syncAll(
         sourceId: String,
         serverUrl: String,
@@ -51,10 +82,25 @@ class XtreamCatalogSyncManager(
         pass: String,
         sourceType: com.lelouch.core.model.SourceType = com.lelouch.core.model.SourceType.XTREAM
     ): Result<Unit> = withContext(Dispatchers.IO) {
+        // ── FASE 33: Autodetección de M3U ────────────────────────────────────
+        // Varios llamadores (onLogin / onAddSource en MainActivity) invocan syncAll sin
+        // sourceType, lo que cae en el default XTREAM y dispara player_api.php contra
+        // https://lelouch-web-player.vercel.app -> HTTP 404 silencioso -> Room queda vacío
+        // y la UI no muestra ningún canal. Si la base no es un servidor Xtream legítimo,
+        // se fuerza la rama M3U sin importar lo que el llamador haya declarado.
+        val effectiveType = if (
+            sourceType == com.lelouch.core.model.SourceType.XTREAM &&
+            !StreamUrlResolver.isXtreamBase(serverUrl, user)
+        ) {
+            com.lelouch.core.model.SourceType.M3U
+        } else {
+            sourceType
+        }
+
         // ── FASE 32: Listas M3U/Custom resueltas en Supabase / Vercel ──────────
         // Para playlists personalizadas M3U, resuelve items directamente desde Supabase
         // sin llamar al endpoint Xtream player_api.php (evitando errores HTTP 403).
-        if (sourceType == com.lelouch.core.model.SourceType.M3U) {
+        if (effectiveType == com.lelouch.core.model.SourceType.M3U) {
             try {
                 _syncState.value = SyncState.SyncingLive(0)
 
@@ -72,6 +118,9 @@ class XtreamCatalogSyncManager(
                 val seriesCategories = mutableSetOf<String>()
 
                 val json = Json { ignoreUnknownKeys = true }
+                // FASE 33: las 3 estrategias registran aquí su fallo real. Antes se tragaban
+                // con `catch (_: Exception) {}` y el usuario nunca sabía por qué no había nada.
+                val strategyErrors = mutableListOf<String>()
                 val supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvdHVwYmRlbGpnZmRkeXdyeWhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzNjA2MzksImV4cCI6MjEwNTkzNjYzOX0.zDVgrQo_IU5FhfSMpl0-MbS9Eod43czS21TBi5Z3Lvo"
 
                 // ── ESTRATEGIA 1: Vercel JSON Manifest (Entrega nativa y estructurada de Lelouch) ──
@@ -101,10 +150,9 @@ class XtreamCatalogSyncManager(
                                     if (streamUrl.isBlank() || streamUrl.contains("undefined")) continue
 
                                     val streamId = (name + streamUrl).hashCode().let { if (it == Int.MIN_VALUE) 0 else kotlin.math.abs(it) }
-                                    val isMovie = mediaType == "movie" || mediaType == "vod" || streamUrl.contains("/movie/") || group.contains("película", ignoreCase = true) || group.contains("movie", ignoreCase = true)
-                                    val isSeries = mediaType == "series" || streamUrl.contains("/series/") || group.contains("serie", ignoreCase = true)
+                                    val resolvedType = detectMediaType(mediaType, name, group, streamUrl)
 
-                                    if (isMovie) {
+                                    if (resolvedType == "movie") {
                                         vodCategories.add(group)
                                         movieEntities.add(
                                             MovieEntity(
@@ -121,7 +169,7 @@ class XtreamCatalogSyncManager(
                                                 sourceId = sourceId
                                             )
                                         )
-                                    } else if (isSeries) {
+                                    } else if (resolvedType == "series") {
                                         seriesCategories.add(group)
                                         seriesEntities.add(
                                             SeriesEntity(
@@ -158,13 +206,31 @@ class XtreamCatalogSyncManager(
                                 }
                             }
                         }
-                    } catch (_: Exception) {}
+                    } catch (e: Exception) {
+                        strategyErrors.add("Manifiesto Vercel: ${e.message ?: e.javaClass.simpleName}")
+                    }
                 }
 
                 // ── ESTRATEGIA 2: Supabase vista v_resolved_playlist_items (si aún no hay items) ──
                 if (channelEntities.isEmpty() && movieEntities.isEmpty()) {
                     try {
-                        val cleanPlaylistId = sourceId.removePrefix("custom_")
+                        val cleanPlaylistId = if (sourceId == "custom_lelouch" || sourceId.startsWith("custom_")) {
+                            val cpReq = Request.Builder()
+                                .url("https://rotupbdeljgfddywryhk.supabase.co/rest/v1/custom_playlists?select=id&order=updated_at.desc&limit=1")
+                                .addHeader("apikey", supabaseKey)
+                                .addHeader("Authorization", "Bearer $supabaseKey")
+                                .build()
+                            val cpRes = httpClient.newCall(cpReq).execute()
+                            val cpBody = if (cpRes.isSuccessful) cpRes.body?.string() ?: "" else ""
+                            try {
+                                val cpArr = json.parseToJsonElement(cpBody).jsonArray
+                                cpArr.firstOrNull()?.jsonObject?.get("id")?.jsonPrimitive?.content ?: "c9da4a22-534c-41f9-af70-42ee9f6682df"
+                            } catch (_: Exception) {
+                                "c9da4a22-534c-41f9-af70-42ee9f6682df"
+                            }
+                        } else {
+                            sourceId.removePrefix("custom_")
+                        }
                         val itemsUrl = "https://rotupbdeljgfddywryhk.supabase.co/rest/v1/v_resolved_playlist_items?playlist_id=eq.$cleanPlaylistId&enabled=eq.true&order=position.asc&limit=10000"
                         val req = Request.Builder()
                             .url(itemsUrl)
@@ -188,10 +254,9 @@ class XtreamCatalogSyncManager(
                                 val pos = obj["position"]?.jsonPrimitive?.content?.toIntOrNull() ?: count
                                 val streamId = (name + directUrl).hashCode().let { if (it == Int.MIN_VALUE) 0 else kotlin.math.abs(it) }
 
-                                val isMovie = mediaType == "movie" || mediaType == "vod" || directUrl.contains("/movie/")
-                                val isSeries = mediaType == "series" || directUrl.contains("/series/")
+                                val resolvedType = detectMediaType(mediaType, name, group, directUrl)
 
-                                if (isMovie) {
+                                if (resolvedType == "movie") {
                                     vodCategories.add(group)
                                     movieEntities.add(
                                         MovieEntity(
@@ -208,7 +273,7 @@ class XtreamCatalogSyncManager(
                                             sourceId = sourceId
                                         )
                                     )
-                                } else if (isSeries) {
+                                } else if (resolvedType == "series") {
                                     seriesCategories.add(group)
                                     seriesEntities.add(
                                         SeriesEntity(
@@ -244,7 +309,9 @@ class XtreamCatalogSyncManager(
                                 count++
                             }
                         }
-                    } catch (_: Exception) {}
+                    } catch (e: Exception) {
+                        strategyErrors.add("Vista Supabase: ${e.message ?: e.javaClass.simpleName}")
+                    }
                 }
 
                 // ── ESTRATEGIA 3: Fallback M3U / #EXTINF Directo ──
@@ -264,21 +331,23 @@ class XtreamCatalogSyncManager(
                             var currentName = "Canal"
                             var currentGroup = "General"
                             var currentLogo: String? = null
+                            var currentMediaType: String? = null
                             val groupRegex = Regex("group-title=\"([^\"]+)\"")
                             val logoRegex = Regex("tvg-logo=\"([^\"]+)\"")
+                            val mediaTypeRegex = Regex("(?:tvg-type|media-type)=\"([^\"]+)\"")
 
                             for (line in lines) {
                                 val trimmed = line.trim()
                                 if (trimmed.startsWith("#EXTINF:")) {
                                     currentGroup = groupRegex.find(trimmed)?.groupValues?.get(1) ?: "General"
                                     currentLogo = logoRegex.find(trimmed)?.groupValues?.get(1)
+                                    currentMediaType = mediaTypeRegex.find(trimmed)?.groupValues?.get(1)
                                     currentName = trimmed.substringAfterLast(",").trim().ifEmpty { "Canal" }
                                 } else if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
                                     val streamId = (currentName + trimmed).hashCode().let { if (it == Int.MIN_VALUE) 0 else kotlin.math.abs(it) }
-                                    val isMovie = trimmed.contains("/movie/") || currentGroup.contains("película", ignoreCase = true)
-                                    val isSeries = trimmed.contains("/series/") || currentGroup.contains("serie", ignoreCase = true)
+                                    val resolvedType = detectMediaType(currentMediaType, currentName, currentGroup, trimmed)
 
-                                    if (isMovie) {
+                                    if (resolvedType == "movie") {
                                         vodCategories.add(currentGroup)
                                         movieEntities.add(
                                             MovieEntity(
@@ -295,7 +364,7 @@ class XtreamCatalogSyncManager(
                                                 sourceId = sourceId
                                             )
                                         )
-                                    } else if (isSeries) {
+                                    } else if (resolvedType == "series") {
                                         seriesCategories.add(currentGroup)
                                         seriesEntities.add(
                                             SeriesEntity(
@@ -332,10 +401,32 @@ class XtreamCatalogSyncManager(
                                 }
                             }
                         }
-                    } catch (_: Exception) {}
+                    } catch (e: Exception) {
+                        strategyErrors.add("M3U directo: ${e.message ?: e.javaClass.simpleName}")
+                    }
                 }
 
-                // ── GUARDADO ATÓMICO EN ROOM DATABASE (Eliminando datos viejos de la fuente) ──
+                // ── FASE 33: GUARDADO ATÓMICO — no se borra Room sin tener datos nuevos ──
+                // Antes los deleteBySource corrían siempre dentro del try: si las 3 estrategias
+                // fallaban, se vaciaba la base y se devolvía Result.success con 0 canales,
+                // dejando la UI en silencio. Ahora: o hay datos y se reemplaza, o no se toca
+                // nada y se reporta el error real.
+                val hasAnyItem = channelEntities.isNotEmpty() ||
+                    movieEntities.isNotEmpty() ||
+                    seriesEntities.isNotEmpty()
+
+                if (!hasAnyItem) {
+                    val detail = if (strategyErrors.isEmpty()) {
+                        "el proveedor no devolvió ningún elemento para esta lista"
+                    } else {
+                        strategyErrors.joinToString(" | ")
+                    }
+                    val errorMsg = "No se pudo cargar el catálogo M3U: $detail"
+                    android.util.Log.e("XtreamCatalogSync", errorMsg)
+                    _syncState.value = SyncState.Error(errorMsg)
+                    return@withContext Result.failure(IllegalStateException(errorMsg))
+                }
+
                 database.channelDao().deleteChannelsBySource(sourceId)
                 database.movieDao().deleteMoviesBySource(sourceId)
                 database.seriesDao().deleteSeriesBySource(sourceId)
@@ -387,8 +478,11 @@ class XtreamCatalogSyncManager(
                 )
                 return@withContext Result.success(Unit)
             } catch (e: Exception) {
-                _syncState.value = SyncState.Completed(channelsCount = 0, moviesCount = 0, seriesCount = 0)
-                return@withContext Result.success(Unit)
+                // FASE 33: un fallo inesperado es un error, nunca un éxito con 0 elementos.
+                val errorMsg = "Sincronización M3U interrumpida: ${e.message ?: e.javaClass.simpleName}"
+                android.util.Log.e("XtreamCatalogSync", errorMsg, e)
+                _syncState.value = SyncState.Error(errorMsg)
+                return@withContext Result.failure(e)
             }
         }
 

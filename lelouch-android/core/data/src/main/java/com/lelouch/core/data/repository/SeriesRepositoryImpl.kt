@@ -10,6 +10,7 @@ import com.lelouch.core.model.ContentType
 import com.lelouch.core.model.Episode
 import com.lelouch.core.model.Series
 import com.lelouch.core.network.NetworkClient
+import com.lelouch.core.network.StreamUrlResolver
 import com.lelouch.core.network.XtreamUrlBuilder
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -77,6 +78,13 @@ class SeriesRepositoryImpl(
     ): Pair<List<Int>, List<Episode>> {
         val seasonsList = mutableListOf<Int>()
         val episodesList = mutableListOf<Episode>()
+
+        // FASE 33: si la fuente activa no es un servidor Xtream legítimo (p. ej. la lista
+        // personalizada cuyo serverUrl es el endpoint de manifiesto de Vercel), NO se consultan
+        // episodios ni se fabrican URLs ficticias: devolvemos vacío y la UI lo indica.
+        if (!StreamUrlResolver.isXtreamBase(serverUrl, username)) {
+            return Pair(emptyList(), emptyList())
+        }
 
         try {
             val api = NetworkClient.createXtreamApiService(serverUrl)

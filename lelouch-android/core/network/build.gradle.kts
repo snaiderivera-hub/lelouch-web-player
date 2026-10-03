@@ -34,4 +34,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.androidx.core.ktx)
+
+    // FASE 33: cobertura del StreamUrlResolver (lógica pura de resolución de URLs)
+    testImplementation(libs.junit)
 }

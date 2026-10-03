@@ -3428,6 +3428,8 @@ async function executeCategoryImport(catNames) {
     const existingUrls = new Set(currentList.map(x => PlaylistDeduplicator.normalizeStreamUrl(x.url)));
     let addedCount = 0;
 
+    const itemMediaType = type === 'movies' ? 'movie' : (type === 'series' ? 'series' : 'live');
+
     for (const it of itemsToImport) {
       const streamUrl = it.streamUrl;
       if (!streamUrl) continue;
@@ -3437,11 +3439,16 @@ async function executeCategoryImport(catNames) {
         currentList.push({
           id: String(it.id || it.streamId || (Date.now() + Math.random())),
           sourceId: provider.id,
+          catalogItemId: String(it.id || it.streamId || ''),
           name: it.name || it.title || 'Título',
           category: it.categoryName || 'Importados',
           logo: it.logo || it.poster || it.cover || it.streamIcon || '',
           url: streamUrl,
+          directUrl: streamUrl,
           epgId: it.epgChannelId || '',
+          mediaType: itemMediaType,
+          itemType: 'direct',
+          containerExtension: it.containerExtension || (type === 'live' ? 'm3u8' : 'mp4'),
           addedAt: Date.now()
         });
         addedCount++;

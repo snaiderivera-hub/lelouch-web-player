@@ -36,6 +36,7 @@ import androidx.compose.ui.input.key.*
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -61,7 +62,7 @@ import com.lelouch.core.model.Series
 import com.lelouch.core.model.SourceConfig
 import com.lelouch.core.model.Episode
 import com.lelouch.core.model.VodMovie
-import com.lelouch.core.network.XtreamUrlBuilder
+import com.lelouch.core.network.StreamUrlResolver
 import com.lelouch.core.player.LelouchVideoPlayer
 import com.lelouch.core.player.PlaybackState
 import com.lelouch.core.player.rememberLelouchPlayer
@@ -114,6 +115,8 @@ fun TvHomeScreen(
     onForceSync: () -> Unit = {},
     onLogout: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
+    // FASE 33: último estado de la sincronización, para el panel de diagnóstico.
+    syncStateText: String = "",
     onFetchSeriesDetails: (suspend (seriesId: Int) -> Pair<List<Int>, List<Episode>>)? = null
 ) {
     val playerEngine = rememberLelouchPlayer()
@@ -134,20 +137,26 @@ fun TvHomeScreen(
         seriesCategories.associate { it.categoryId to it.categoryName }
     }
 
+    // FASE 33: Regex defensivo para evitar que episodios de series se cuelen en TV en Vivo
+    val seriesLeakRegex = remember { Regex("(?i)\\b(s\\d{1,2}|t\\d{1,2}|cap\\.?\\s*\\d+|ep\\.?\\s*\\d+)\\b") }
+
     // Canales mapeados o canales de demostración con logos reales de alta resolución
     val displayChannels = remember(liveChannels, activeSource, liveCatMap) {
-        if (liveChannels.isNotEmpty()) {
-            liveChannels.mapIndexed { index, stream ->
-                val streamUrl = stream.streamUrl.takeIf { it.isNotBlank() }
-                    ?: activeSource?.let {
-                        XtreamUrlBuilder.buildLiveStreamUrl(
-                            it.serverUrl,
-                            it.username,
-                            it.password,
-                            stream.streamId,
-                            "m3u8"
-                        )
-                    } ?: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
+        val cleanChannels = liveChannels.filter { stream ->
+            (stream.streamType.isBlank() || stream.streamType.equals("live", ignoreCase = true)) &&
+            !seriesLeakRegex.containsMatchIn(stream.name)
+        }
+        if (cleanChannels.isNotEmpty()) {
+            cleanChannels.mapIndexed { index, stream ->
+                // FASE 33: el resolvedor único evita reconstruir URLs sobre Vercel (404).
+                // Si no hay URL directa ni fuente Xtream legítima, queda vacío y la UI lo indica.
+                val streamUrl = StreamUrlResolver.resolve(
+                    directUrl = stream.streamUrl,
+                    source = activeSource,
+                    streamId = stream.streamId,
+                    kind = StreamUrlResolver.Kind.LIVE,
+                    extension = "m3u8"
+                )
 
                 val resolvedCategoryName = liveCatMap[stream.categoryId]
                     ?: stream.categoryName.takeIf { it.isNotBlank() }
@@ -680,16 +689,13 @@ fun TvHomeScreen(
         isPlayingLive = false
         currentPlayingTitle = movie.name
         val ext = movie.containerExtension.trimStart('.').ifEmpty { "mp4" }
-        val movieUrl = movie.streamUrl.takeIf { it.isNotBlank() }
-            ?: activeSource?.let { src ->
-                XtreamUrlBuilder.buildVodStreamUrl(
-                    src.serverUrl,
-                    src.username,
-                    src.password,
-                    movie.streamId,
-                    ext
-                )
-            } ?: ""
+        val movieUrl = StreamUrlResolver.resolve(
+            directUrl = movie.streamUrl,
+            source = activeSource,
+            streamId = movie.streamId,
+            kind = StreamUrlResolver.Kind.VOD,
+            extension = ext
+        )
         if (movieUrl.isNotBlank()) {
             playerEngine.playStream(movieUrl, isLive = false)
             isFullscreen = true
@@ -1551,10 +1557,9 @@ fun TvHomeScreen(
                                                     categoryName = stream.categoryName ?: "Favoritos",
                                                     streamIcon = stream.streamIcon,
                                                     currentProgram = "Canal Favorito",
-                                                    streamUrl = stream.streamUrl.takeIf { it.isNotBlank() }
-                                                        ?: activeSource?.let {
-                                                            XtreamUrlBuilder.buildLiveStreamUrl(it.serverUrl, it.username, it.password, stream.streamId, "m3u8")
-                                                        } ?: ""
+                                                    streamUrl = StreamUrlResolver.resolveLive(
+                                                        stream.streamUrl, activeSource, stream.streamId
+                                                    )
                                                 )
                                                 TvChannelCard(
                                                     channel = ch,
@@ -1685,6 +1690,24 @@ fun TvHomeScreen(
                                     }
 
                                     Spacer(modifier = Modifier.height(24.dp))
+
+                                    // 🩺 FASE 33: DIAGNÓSTICO DE REPRODUCCIÓN
+                                    // Deja de adivinar: muestra la fuente activa, qué hay en Room
+                                    // para ese sourceId, cuántos canales carecen de URL y qué URL
+                                    // final recibiría el reproductor.
+                                    TvDiagnosticsSection(
+                                        activeSource = activeSource,
+                                        liveCount = liveChannels.size,
+                                        movieCount = movies.size,
+                                        seriesCount = seriesList.size,
+                                        blankUrlCount = liveChannels.count { it.streamUrl.isBlank() },
+                                        resolvedUrl = focusedChannel?.let { ch ->
+                                            StreamUrlResolver.resolveLive(ch.streamUrl, activeSource, ch.streamId)
+                                        },
+                                        focusedChannelName = focusedChannel?.name,
+                                        playbackState = playbackState,
+                                        syncStateText = syncStateText
+                                    )
 
                                     // 🎯 GESTIÓN DE CATEGORÍAS VISIBLES (Exacto al diseño Web solicitado)
                                     TvCategoryVisibilitySection(
@@ -2240,32 +2263,29 @@ fun TvHomeScreen(
                         if (ep != null && ep.streamUrl.isNotEmpty()) {
                             playerEngine.playStream(ep.streamUrl, isLive = false)
                         } else {
-                            activeSource?.let { src ->
-                                val targetId = ep?.episodeId ?: episodeId ?: media.id
-                                val ext = ep?.containerExtension?.ifEmpty { "mp4" } ?: "mp4"
-                                val fallbackUrl = XtreamUrlBuilder.buildSeriesStreamUrl(
-                                    src.serverUrl,
-                                    src.username,
-                                    src.password,
-                                    targetId,
-                                    ext
-                                )
-                                playerEngine.playStream(fallbackUrl, isLive = false)
-                            }
+                            // FASE 33: el resolvedor decide; en fuentes M3U devuelve "" en vez
+                            // de una URL de Vercel que devolvería 404.
+                            val targetId = ep?.episodeId ?: episodeId ?: media.id
+                            val ext = ep?.containerExtension?.ifEmpty { "mp4" } ?: "mp4"
+                            val fallbackUrl = StreamUrlResolver.resolve(
+                                directUrl = null,
+                                source = activeSource,
+                                streamId = targetId,
+                                kind = StreamUrlResolver.Kind.SERIES,
+                                extension = ext
+                            )
+                            playerEngine.playStream(fallbackUrl, isLive = false)
                         }
                     } else {
                         currentPlayingTitle = media.title
                         val ext = media.containerExtension.ifEmpty { "mp4" }
-                        val movieUrl = media.streamUrl.takeIf { it.isNotBlank() }
-                            ?: activeSource?.let { src ->
-                                XtreamUrlBuilder.buildVodStreamUrl(
-                                    src.serverUrl,
-                                    src.username,
-                                    src.password,
-                                    media.id,
-                                    ext
-                                )
-                            } ?: ""
+                        val movieUrl = StreamUrlResolver.resolve(
+                            directUrl = media.streamUrl,
+                            source = activeSource,
+                            streamId = media.id,
+                            kind = StreamUrlResolver.Kind.VOD,
+                            extension = ext
+                        )
                         if (movieUrl.isNotBlank()) {
                             playerEngine.playStream(movieUrl, isLive = false)
                         }
@@ -2606,5 +2626,149 @@ fun TvChannelCard(
                 )
             }
         }
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// 🩺 FASE 33 — PANEL DE DIAGNÓSTICO DE REPRODUCCIÓN
+// Muestra la cadena completa: fuente activa -> ítems en Room -> URL final
+// -> estado de ExoPlayer. Pensado para dejar de adivinar por qué no suena.
+// ══════════════════════════════════════════════════════════════════════
+
+/** Oculta credenciales de rutas Xtream (`/live/USER/PASS/`) y parámetros sensibles. */
+private fun redactUrl(url: String?): String {
+    if (url.isNullOrBlank()) return "— (vacía)"
+    var out = url
+    out = Regex("/(live|movie|series)/[^/]+/[^/]+/")
+        .replace(out) { "/${it.groupValues[1]}/***/***/" }
+    out = Regex("([?&](?:password|pass|pwd|username)=)[^&]+")
+        .replace(out) { "${it.groupValues[1]}***" }
+    out = Regex("([?&]token=)([a-zA-Z0-9_-]{8})[a-zA-Z0-9_-]*")
+        .replace(out) { "${it.groupValues[1]}${it.groupValues[2]}…" }
+    return out
+}
+
+@Composable
+private fun TvDiagnosticsSection(
+    activeSource: SourceConfig?,
+    liveCount: Int,
+    movieCount: Int,
+    seriesCount: Int,
+    blankUrlCount: Int,
+    resolvedUrl: String?,
+    focusedChannelName: String?,
+    playbackState: PlaybackState,
+    syncStateText: String
+) {
+    val stateLabel = when (val s = playbackState) {
+        is PlaybackState.Idle -> "En reposo"
+        is PlaybackState.Buffering -> "⏳ Cargando búfer…"
+        is PlaybackState.Playing -> "▶ Reproduciendo"
+        is PlaybackState.Paused -> "⏸ Pausado"
+        is PlaybackState.Ended -> "Fin del stream"
+        is PlaybackState.Error -> "✖ ${s.errorMessage} (código ${s.errorCode})"
+    }
+
+    val isBroken = resolvedUrl.isNullOrBlank() ||
+        resolvedUrl.contains("vercel.app", ignoreCase = true)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(LelouchSurfaceVariant, RoundedCornerShape(14.dp))
+            .border(1.dp, LelouchBorder, RoundedCornerShape(14.dp))
+            .padding(18.dp)
+    ) {
+        Text(
+            text = "🩺 DIAGNÓSTICO DE REPRODUCCIÓN",
+            color = LelouchCyanAccent,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = 1.sp
+        )
+        Spacer(modifier = Modifier.height(14.dp))
+
+        DiagnosticRow("Fuente activa", activeSource?.name ?: "— ninguna —")
+        DiagnosticRow("ID de fuente (Room)", activeSource?.id ?: "—")
+        DiagnosticRow("Tipo", activeSource?.type?.name ?: "—")
+        DiagnosticRow("Servidor", redactUrl(activeSource?.serverUrl))
+        DiagnosticRow(
+            "Usuario",
+            activeSource?.username?.takeIf { it.isNotBlank() } ?: "(vacío — es lista por token)"
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+        DiagnosticRow("Canales en Room", liveCount.toString())
+        DiagnosticRow("Películas en Room", movieCount.toString())
+        DiagnosticRow("Series en Room", seriesCount.toString())
+        DiagnosticRow("Canales SIN URL", blankUrlCount.toString())
+
+        Spacer(modifier = Modifier.height(10.dp))
+        DiagnosticRow("Canal enfocado", focusedChannelName ?: "—")
+        DiagnosticRow("Última sincronización", syncStateText.ifBlank { "— sin datos —" })
+        DiagnosticRow("Estado del reproductor", stateLabel)
+
+        Spacer(modifier = Modifier.height(14.dp))
+        Text(
+            text = "URL que recibiría el reproductor",
+            color = LelouchTextSecondary,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = redactUrl(resolvedUrl),
+            color = if (isBroken) LelouchError else LelouchSuccess,
+            fontSize = 13.sp,
+            lineHeight = 19.sp
+        )
+
+        if (isBroken) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "⚠️ La URL está vacía o apunta a Vercel, que no transmite vídeo. " +
+                    "Pulsa «🔄 Re-sincronizar Catálogo»; si persiste, la lista no tiene " +
+                    "streamUrl guardado para este elemento.",
+                color = LelouchWarning,
+                fontSize = 12.sp,
+                lineHeight = 17.sp
+            )
+        } else if (liveCount == 0 && movieCount == 0) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "⚠️ Room está vacío para este sourceId. La app debería re-sincronizar " +
+                    "al arrancar; si no lo hace, usa «🔄 Re-sincronizar Catálogo».",
+                color = LelouchWarning,
+                fontSize = 12.sp,
+                lineHeight = 17.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun DiagnosticRow(label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = label,
+            color = LelouchTextSecondary,
+            fontSize = 13.sp,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            text = value,
+            color = LelouchTextPrimary,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.End,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1.2f)
+        )
     }
 }

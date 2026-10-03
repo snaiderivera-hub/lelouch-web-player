@@ -47,7 +47,7 @@ import com.lelouch.core.model.LiveStream
 import com.lelouch.core.model.VodMovie
 import com.lelouch.core.model.Series
 import com.lelouch.core.model.SourceConfig
-import com.lelouch.core.network.XtreamUrlBuilder
+import com.lelouch.core.network.StreamUrlResolver
 import com.lelouch.core.player.LelouchVideoPlayer
 import com.lelouch.core.player.rememberLelouchPlayer
 
@@ -99,9 +99,18 @@ fun MobileHomeScreen(
         isPlayerFullscreen = false
     }
 
-    val liveCategoryList = remember(liveCategories, liveChannels) {
+    // FASE 33: Regex defensivo para filtrar episodios de series en pantalla de canales en vivo
+    val seriesLeakRegex = remember { Regex("(?i)\\b(s\\d{1,2}|t\\d{1,2}|cap\\.?\\s*\\d+|ep\\.?\\s*\\d+)\\b") }
+    val cleanLiveChannels = remember(liveChannels) {
+        liveChannels.filter { stream ->
+            (stream.streamType.isBlank() || stream.streamType.equals("live", ignoreCase = true)) &&
+            !seriesLeakRegex.containsMatchIn(stream.name)
+        }
+    }
+
+    val liveCategoryList = remember(liveCategories, cleanLiveChannels) {
         val fromDb = liveCategories.map { MobileCategoryItem(id = it.categoryId, name = it.categoryName) }
-        val fromChannels = liveChannels.mapNotNull { ch ->
+        val fromChannels = cleanLiveChannels.mapNotNull { ch ->
             if (ch.categoryName.isNotBlank() && ch.categoryId.isNotBlank()) {
                 MobileCategoryItem(id = ch.categoryId, name = ch.categoryName)
             } else null
@@ -211,7 +220,7 @@ fun MobileHomeScreen(
                 ) { tab ->
                     when (tab) {
                         0 -> MobileHomeTab(
-                            liveChannels = liveChannels, movies = movies, seriesList = seriesList,
+                            liveChannels = cleanLiveChannels, movies = movies, seriesList = seriesList,
                             activeSource = activeSource,
                             onChannelClick = { ch, url -> isLivePlayback = true; activeChannelName = ch; activeStreamUrl = url },
                             onMovieClick = { selectedMovie = it },
@@ -223,8 +232,8 @@ fun MobileHomeScreen(
                             onOpenSettings = { selectedTab = 4 }
                         )
                         1 -> MobileLiveTab(
-                            channels = if (searchQuery.isBlank()) liveChannels
-                                       else liveChannels.filter { it.name.contains(searchQuery, ignoreCase = true) },
+                            channels = if (searchQuery.isBlank()) cleanLiveChannels
+                                       else cleanLiveChannels.filter { it.name.contains(searchQuery, ignoreCase = true) },
                             activeSource = activeSource,
                             categories = liveCategoryList,
                             favoriteChannels = favoriteChannels,
@@ -495,10 +504,7 @@ private fun MobileHomeTab(
                 SectionHeader("Canales en Vivo", liveChannels.size, onSeeAllLive)
                 LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     items(liveChannels.take(15)) { ch ->
-                        val url = ch.streamUrl.takeIf { it.isNotBlank() }
-                            ?: activeSource?.let {
-                                XtreamUrlBuilder.buildLiveStreamUrl(it.serverUrl, it.username, it.password, ch.streamId, "m3u8")
-                            } ?: ""
+                        val url = StreamUrlResolver.resolveLive(ch.streamUrl, activeSource, ch.streamId)
                         LiveChannelCard(channel = ch, onClick = { onChannelClick(ch.name, url) })
                     }
                     item { SeeMoreCard(onClick = onSeeAllLive) }
@@ -637,10 +643,7 @@ private fun MobileLiveTab(
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             items(filtered, key = { it.streamId }) { ch ->
-                val url = ch.streamUrl.takeIf { it.isNotBlank() }
-                    ?: activeSource?.let {
-                        XtreamUrlBuilder.buildLiveStreamUrl(it.serverUrl, it.username, it.password, ch.streamId, "m3u8")
-                    } ?: ""
+                val url = StreamUrlResolver.resolveLive(ch.streamUrl, activeSource, ch.streamId)
                 val isFav = ch.streamId in favIds
                 ChannelListItem(
                     channel = ch,
@@ -1001,10 +1004,13 @@ private fun MobileMovieDetailDialog(
     movie: VodMovie, activeSource: SourceConfig?,
     onPlay: (String) -> Unit, onDismiss: () -> Unit
 ) {
-    val streamUrl = movie.streamUrl.takeIf { it.isNotBlank() }
-        ?: activeSource?.let {
-            XtreamUrlBuilder.buildVodStreamUrl(it.serverUrl, it.username, it.password, movie.streamId, movie.containerExtension)
-        } ?: ""
+    val streamUrl = StreamUrlResolver.resolve(
+        directUrl = movie.streamUrl,
+        source = activeSource,
+        streamId = movie.streamId,
+        kind = StreamUrlResolver.Kind.VOD,
+        extension = movie.containerExtension
+    )
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(modifier = Modifier.fillMaxWidth(0.95f).clip(RoundedCornerShape(16.dp)).background(LelouchBackground)) {
             Column {
