@@ -408,25 +408,39 @@ export default async function handler(req, res) {
     // 6. Consultar los items resueltos de la vista 'v_resolved_playlist_items' con paginación
     // Supabase PostgREST tiene un tope estricto de 1000 filas por petición. Paginamos por lotes.
     let allItems = [];
-    let offset = 0;
     const PAGE_SIZE = 1000;
-    const MAX_PAGES = 30; // Soporta hasta 30,000 elementos
+    const page0Url = `${SUPABASE_URL}/rest/v1/v_resolved_playlist_items?playlist_id=eq.${tokenRecord.playlist_id}&enabled=eq.true&order=position.asc&select=id,name,direct_name,group,direct_group,logo,direct_logo,resolved_stream_url,direct_url,media_type,tvg_id,tvg_name,position,container_extension&limit=${PAGE_SIZE}&offset=0`;
+    const res0 = await fetch(page0Url, { headers });
 
-    for (let page = 0; page < MAX_PAGES; page++) {
-      const pagedUrl = `${SUPABASE_URL}/rest/v1/v_resolved_playlist_items?playlist_id=eq.${tokenRecord.playlist_id}&enabled=eq.true&order=position.asc&select=id,name,direct_name,group,direct_group,logo,direct_logo,resolved_stream_url,direct_url,media_type,tvg_id,tvg_name,position,container_extension&limit=${PAGE_SIZE}&offset=${offset}`;
-      const pageRes = await fetch(pagedUrl, { headers });
-      if (!pageRes.ok) {
-        if (allItems.length === 0) {
-          console.error('[API Playlist] Error obteniendo items:', redactSensitiveUrl(await pageRes.text()));
-          return sendError(500, 'Error cargando items de la lista');
-        }
-        break;
+    if (!res0.ok) {
+      console.error('[API Playlist] Error obteniendo items:', redactSensitiveUrl(await res0.text()));
+      return sendError(500, 'Error cargando items de la lista');
+    }
+
+    const data0 = await res0.json();
+    allItems = Array.isArray(data0) ? data0 : [];
+
+    // Si la primera página vino llena (1000 items), consultar páginas restantes en paralelo
+    if (allItems.length === PAGE_SIZE) {
+      const remainingOffsets = [];
+      for (let offset = 1000; offset < 35000; offset += 1000) {
+        remainingOffsets.push(offset);
       }
-      const pageData = await pageRes.json();
-      if (!Array.isArray(pageData) || pageData.length === 0) break;
-      allItems = allItems.concat(pageData);
-      if (pageData.length < PAGE_SIZE) break;
-      offset += PAGE_SIZE;
+      const pagePromises = remainingOffsets.map(async (offset) => {
+        const pUrl = `${SUPABASE_URL}/rest/v1/v_resolved_playlist_items?playlist_id=eq.${tokenRecord.playlist_id}&enabled=eq.true&order=position.asc&select=id,name,direct_name,group,direct_group,logo,direct_logo,resolved_stream_url,direct_url,media_type,tvg_id,tvg_name,position,container_extension&limit=${PAGE_SIZE}&offset=${offset}`;
+        try {
+          const r = await fetch(pUrl, { headers });
+          return r.ok ? await r.json() : [];
+        } catch {
+          return [];
+        }
+      });
+      const results = await Promise.all(pagePromises);
+      for (const batch of results) {
+        if (Array.isArray(batch) && batch.length > 0) {
+          allItems = allItems.concat(batch);
+        }
+      }
     }
 
     const items = allItems;
