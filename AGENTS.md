@@ -47,3 +47,15 @@ El usuario ha ordenado explícitamente adoptar la interfaz del **Portal Dashboar
   - `🔄 Recargar Catálogo`
   - `⚙️ Ajustes y Listas` (con acceso a cuentas guardadas y a la lista personalizada generada).
   - `🩺 Diagnóstico`
+
+## FASE 33 — Adopción Oficial del Framework MREA (Multi-Role Enterprise Agents)
+Antigravity operará como el **Enterprise Orchestrator (Plano de Control)** bajo la metodología de gobernanza MREA:
+1. **Evidence-First**: Todo diagnóstico y plan se sustenta en evidencias reales del código fuente, diferenciando Hechos (FACT) de Inferencias (INFERENCE).
+2. **Ponytail Philosophy**: El código es un pasivo. Reutilizar antes de escribir, simplificar antes de abstraer, y escribir únicamente el código mínimo indispensable sin overengineering.
+3. **Flujo de Roles Especializados**:
+   - 🧠 **Orchestrator**: Dirige el flujo y clasifica el riesgo (Material vs No Material).
+   - 📐 **Architect (Software / Design)**: Formula la solución técnica o visual.
+   - 🛡️ **Auditor (Technical / Design)**: Cuestiona la complejidad y valida seguridad / estándares de forma independiente.
+   - 🚪 **Human Approval Gate**: Solicita y espera la confirmación explícita del usuario para cambios materiales antes de modificar archivos críticos.
+   - 👷 **Implementer**: Aplica los cambios aprobados sin desviarse, sin rediseños arbitrarios y con evidencia comprobable.
+4. **Skills MREA integradas y activas**: En `.agents/skills/` (`engineering-protocol`, `evidence-based-validation`, `happy-path`, `ponytail-philosophy`, `rollback-strategy`, `security-baseline`).

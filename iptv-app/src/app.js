@@ -686,13 +686,15 @@ export function getUserCreatedCategories() {
     // Auto-detectar e incluir categorías del Creador de Lista M3U (CUSTOM_M3U_STORAGE_KEY)
     let m3uList = [];
     try {
+      m3uList = getCustomM3UList();
+    } catch {
       const m3uRaw = typeof localStorage !== 'undefined' ? localStorage.getItem('lelouch_custom_m3u_list') : null;
       if (m3uRaw) m3uList = JSON.parse(m3uRaw);
-    } catch {}
+    }
 
     const m3uCats = new Map();
     m3uList.forEach(item => {
-      const cname = (item.category || 'Mi Lista').trim();
+      const cname = (item.category || item.group || item.custom_group || item.direct_group || item.categoryName || 'Mi Lista').trim();
       const nKey = cname.toLowerCase();
       if (!m3uCats.has(nKey)) {
         m3uCats.set(nKey, { name: cname, items: [] });
@@ -701,7 +703,7 @@ export function getUserCreatedCategories() {
     });
 
     m3uCats.forEach(({ name, items }, nKey) => {
-      let existing = cats.find(c => (c.name || '').toLowerCase() === nKey);
+      let existing = cats.find(c => (c.name || '').trim().toLowerCase() === nKey);
       const itemIds = items.map(it => String(it.id || it.url));
       if (!existing) {
         let hash = 0;
@@ -710,12 +712,14 @@ export function getUserCreatedCategories() {
           id: 'ucat_' + Math.abs(hash),
           name: name,
           channelIds: itemIds,
+          items: items,
           createdAt: Date.now()
         };
         cats.push(existing);
       } else {
         const merged = new Set([...(existing.channelIds || []).map(String), ...itemIds]);
         existing.channelIds = [...merged];
+        existing.items = items;
       }
     });
 
@@ -728,45 +732,125 @@ export function getUserCreatedCategories() {
 
 export function getUserCategoryChannels(ucat) {
   if (!ucat) return [];
-  const ucatNameLower = (ucat.name || '').toLowerCase();
-  const idSet = new Set((ucat.channelIds || []).map(String));
-
-  // 1. Canales del custom M3U que pertenezcan a esta categoría
-  let m3uList = [];
-  try {
-    const m3uRaw = typeof localStorage !== 'undefined' ? localStorage.getItem('lelouch_custom_m3u_list') : null;
-    if (m3uRaw) m3uList = JSON.parse(m3uRaw);
-  } catch {}
-
-  const customItems = m3uList.filter(it => (it.category || '').toLowerCase() === ucatNameLower);
-  const customUrlSet = new Set(customItems.map(it => it.url));
-  const customNameSet = new Set(customItems.map(it => (it.name || '').toLowerCase()));
-
-  // 2. Canales del servidor que coincidan por ID, URL o Nombre
-  const serverChannels = (iptvService.state?.live || []).filter(c =>
-    idSet.has(String(c.id)) ||
-    customUrlSet.has(c.streamUrl) ||
-    customNameSet.has((c.name || '').toLowerCase())
-  );
-
-  // 3. Si hay items en custom M3U que no están en el servidor, agregarlos directamente
-  const existingUrls = new Set(serverChannels.map(c => c.streamUrl));
-  customItems.forEach(item => {
-    if (!existingUrls.has(item.url)) {
-      serverChannels.push({
-        id: item.id || `custom_${item.url}`,
-        name: item.name,
-        categoryName: item.category || ucat.name,
-        logo: item.logo || '',
-        streamUrl: item.url,
-        epgChannelId: item.epgId || ''
-      });
-      existingUrls.add(item.url);
+  const ucatNameLower = (ucat.name || '').trim().toLowerCase();
+  
+  // Conjunto de identificadores asociados a la categoría (con extracción de stream IDs si son URLs)
+  const idSet = new Set();
+  (ucat.channelIds || []).forEach(rawId => {
+    const sId = String(rawId || '').trim();
+    if (!sId) return;
+    idSet.add(sId);
+    if (sId.startsWith('custom_')) {
+      idSet.add(sId.replace('custom_', ''));
+    }
+    const urlMatch = sId.match(/\/(\d+)\.(m3u8|ts|mp4)/);
+    if (urlMatch) {
+      idSet.add(urlMatch[1]);
     }
   });
 
+  // 1. Canales de la lista M3U personalizada (memoria/IndexedDB/localStorage)
+  let m3uList = [];
+  try {
+    m3uList = getCustomM3UList();
+  } catch {
+    const m3uRaw = typeof localStorage !== 'undefined' ? localStorage.getItem('lelouch_custom_m3u_list') : null;
+    if (m3uRaw) m3uList = JSON.parse(m3uRaw);
+  }
+
+  const customItems = m3uList.filter(it => {
+    const itCat = (it.category || it.group || it.custom_group || it.direct_group || it.categoryName || '').trim().toLowerCase();
+    return itCat === ucatNameLower;
+  });
+
+  // Si ucat tiene items asociados directamente en memoria
+  if (customItems.length === 0 && Array.isArray(ucat.items) && ucat.items.length > 0) {
+    customItems.push(...ucat.items);
+  }
+
+  const customUrlSet = new Set(customItems.map(it => (it.url || it.streamUrl || '').trim()).filter(Boolean));
+  const customNameSet = new Set(customItems.map(it => (it.name || '').trim().toLowerCase()).filter(Boolean));
+
+  // Alimentar idSet con IDs y URLs de customItems
+  customItems.forEach(it => {
+    if (it.id) idSet.add(String(it.id).trim());
+    const url = (it.url || it.streamUrl || '').trim();
+    if (url) {
+      idSet.add(url);
+      const m = url.match(/\/(\d+)\.(m3u8|ts|mp4)/);
+      if (m) idSet.add(m[1]);
+    }
+  });
+
+  // 2. Canales del servidor que coincidan por ID, stream_id, URL, Nombre o Categoría
+  const serverChannels = (iptvService.state?.live || []).filter(c => {
+    const cId = String(c.id || '').trim();
+    const cStreamId = c.stream_id ? String(c.stream_id).trim() : '';
+    const cUrl = (c.streamUrl || '').trim();
+    const cName = (c.name || '').trim().toLowerCase();
+    const cCategory = (c.categoryName || '').trim().toLowerCase();
+
+    // Coincidencia directa por ID de canal o stream_id
+    if (idSet.has(cId) || (cStreamId && idSet.has(cStreamId))) return true;
+
+    // Coincidencia por URL de streaming
+    if (cUrl && (idSet.has(cUrl) || customUrlSet.has(cUrl))) return true;
+
+    // Coincidencia por nombre de canal
+    if (cName && customNameSet.has(cName)) return true;
+
+    // Si la categoría de usuario coincide exactamente con la categoría del servidor y el canal está en idSet
+    if (cCategory === ucatNameLower && idSet.size > 0) {
+      if (idSet.has(cId) || idSet.has(cStreamId) || idSet.has(cUrl)) return true;
+    }
+
+    return false;
+  });
+
+  // 3. Agregar items de custom M3U que no estén en el servidor (preserva canales personalizados)
+  const existingUrls = new Set(serverChannels.map(c => (c.streamUrl || '').trim()).filter(Boolean));
+  const existingNames = new Set(serverChannels.map(c => (c.name || '').trim().toLowerCase()));
+
+  customItems.forEach(item => {
+    const streamUrl = (item.url || item.streamUrl || '').trim();
+    const itemName = (item.name || '').trim().toLowerCase();
+
+    if (!existingUrls.has(streamUrl) && !existingNames.has(itemName)) {
+      serverChannels.push({
+        id: item.id || `custom_${streamUrl || Date.now()}`,
+        name: item.name || 'Canal',
+        categoryName: item.category || item.group || ucat.name,
+        logo: item.logo || '',
+        streamUrl: streamUrl,
+        epgChannelId: item.epgId || item.tvgId || ''
+      });
+      if (streamUrl) existingUrls.add(streamUrl);
+      if (itemName) existingNames.add(itemName);
+    }
+  });
+
+  // 4. Fallback de rescate si serverChannels sigue vacío pero la categoría coincide con una del servidor
+  if (serverChannels.length === 0 && idSet.size > 0) {
+    const byCategoryAndId = (iptvService.state?.live || []).filter(c => {
+      const cCategory = (c.categoryName || '').trim().toLowerCase();
+      const cId = String(c.id || '').trim();
+      return cCategory === ucatNameLower && (idSet.has(cId) || idSet.has(c.streamUrl));
+    });
+    if (byCategoryAndId.length > 0) {
+      serverChannels.push(...byCategoryAndId);
+    }
+  }
+
+  // 5. Fallback si el usuario tiene canales respaldados en ucat.channels
+  if (serverChannels.length === 0 && Array.isArray(ucat.channels) && ucat.channels.length > 0) {
+    ucat.channels.forEach(ch => {
+      serverChannels.push(ch);
+    });
+  }
+
   return serverChannels;
 }
+
 
 export function saveUserCreatedCategories(cats) {
   try {
@@ -2105,6 +2189,14 @@ export async function checkAndSyncCustomM3UVersion(triggerSource = 'manual') {
       // Descarga nativa de Playlist Manifest JSON (FASE 17) sin re-parsear M3U
       const manifest = await supabaseService.getPlaylistManifest(pl.id);
       if (manifest?.items) {
+        const localList = getCustomM3UList();
+        // Guardrail MREA: Si el servidor devuelve 0 items pero existen canales locales, NO vaciar la lista
+        if (manifest.items.length === 0 && localList.length > 0) {
+          console.warn('[Lifecycle Sync] El servidor reporta 0 items pero existen canales locales. Preservando lista local y sincronizando hacia la nube.');
+          scheduleCustomM3UCloudSync();
+          return syncCheck;
+        }
+
         const mapped = manifest.items.map(it => ({
           id: it.id,
           name: it.name || it.direct_name || 'Canal',
@@ -2115,15 +2207,17 @@ export async function checkAndSyncCustomM3UVersion(triggerSource = 'manual') {
           addedAt: Date.now()
         }));
 
-        saveCustomM3UList(mapped);
-        setLocalM3UVersion(syncCheck.serverVersion);
-        renderCustomM3UManager();
+        if (mapped.length > 0) {
+          saveCustomM3UList(mapped);
+          setLocalM3UVersion(syncCheck.serverVersion);
+          renderCustomM3UManager();
 
-        if (uiState.activePage === 'live') {
-          renderLiveTVView();
+          if (uiState.activePage === 'live') {
+            renderLiveTVView();
+          }
+
+          toast(`🔄 Lista sincronizada con la nube (v${syncCheck.serverVersion}, ${mapped.length} canales).`, 'success', 3000);
         }
-
-        toast(`🔄 Lista sincronizada con la nube (v${syncCheck.serverVersion}, ${mapped.length} canales).`, 'success', 3000);
       }
       return syncCheck;
     }

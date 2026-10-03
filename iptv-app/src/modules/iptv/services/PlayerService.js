@@ -75,6 +75,12 @@ class PlayerService {
 
   _notify(state, message = '') {
     this._state = state;
+    if (state === PlayerState.PLAYING || state === PlayerState.ERROR || state === PlayerState.IDLE) {
+      if (this._loadingTimeout) {
+        clearTimeout(this._loadingTimeout);
+        this._loadingTimeout = null;
+      }
+    }
     for (const fn of this._listeners) {
       try {
         fn({ state, message, media: this._currentMedia });
@@ -153,6 +159,22 @@ class PlayerService {
     this._retryCount = 0;
     this._triedHlsFallback = false;
     this._triedTsFallback = false;
+
+    if (this._loadingTimeout) {
+      clearTimeout(this._loadingTimeout);
+      this._loadingTimeout = null;
+    }
+    this._loadingTimeout = setTimeout(() => {
+      if (this._state === PlayerState.LOADING || this._state === PlayerState.RECONNECTING) {
+        console.warn('[PlayerService] Timeout de conexión de stream (12s).');
+        if (media?.type === 'live' && !this._triedTsFallback) {
+          this._triedTsFallback = true;
+          this._fallbackMpegts(media.url, media);
+        } else {
+          this._notify(PlayerState.ERROR, 'El stream tarda demasiado en responder o está temporalmente fuera de línea.');
+        }
+      }
+    }, 12000);
 
     this._notify(PlayerState.LOADING, 'Iniciando stream...');
 
@@ -471,6 +493,10 @@ class PlayerService {
   }
 
   destroy() {
+    if (this._loadingTimeout) {
+      clearTimeout(this._loadingTimeout);
+      this._loadingTimeout = null;
+    }
     this._destroyEngines();
     this._currentMedia = null;
     this._state = PlayerState.IDLE;
