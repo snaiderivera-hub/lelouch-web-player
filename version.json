@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.10",
-  "versionCode": 1000010,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.10/app-debug.apk",
-  "changelog": "• Separación Estricta de Medios: Eliminación total de filtrado de series/episodios en TV en Vivo tanto en Android TV Box como en Teléfono Móvil, canalizando series a Series y canales a Live TV.\n• Sincronización Web a Android: Corrección en resolución y consulta UUID de listas personalizadas en Supabase y DataStore, permitiendo que las listas guardadas desde el reproductor Web se carguen y persistan de forma inmediata en TV Box.\n• Parser y Clasificación Inteligente: Inyección de atributos tvg-type/media-type en manifiestos y M3U, con detección multifactorial de temporadas y episodios (S01, Cap., Dorama, Anime).\n• Filtro Defensivo en UI: Protección en tiempo real en TvHomeScreen y MobileHomeScreen contra contaminación de canales en vivo."
+  "versionName": "1.0.11",
+  "versionCode": 1000011,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.11/app-debug.apk",
+  "changelog": "• Paginación Completa Supabase: Eliminación del tope de 1000 filas de PostgREST, cargando el catálogo íntegro de miles de películas y series sin truncamiento.\n• Resiliencia sin Bloqueo: Conexión directa y paralela a la base de datos sin depender de desafíos bot de Vercel.\n• Sincronización Móvil y TV: Carga masiva de películas y series sin pérdida de items al pulsar Recargar o Sincronizar."
 }
