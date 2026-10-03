@@ -231,82 +231,98 @@ class XtreamCatalogSyncManager(
                         } else {
                             sourceId.removePrefix("custom_")
                         }
-                        val itemsUrl = "https://rotupbdeljgfddywryhk.supabase.co/rest/v1/v_resolved_playlist_items?playlist_id=eq.$cleanPlaylistId&enabled=eq.true&order=position.asc&limit=10000"
-                        val req = Request.Builder()
-                            .url(itemsUrl)
-                            .addHeader("apikey", supabaseKey)
-                            .addHeader("Authorization", "Bearer $supabaseKey")
-                            .build()
-                        val res = httpClient.newCall(req).execute()
-                        if (res.isSuccessful) {
-                            val body = res.body?.string() ?: ""
-                            val jsonArray = json.parseToJsonElement(body).jsonArray
-                            var count = 0
-                            for (element in jsonArray) {
-                                val obj = element.jsonObject
-                                val itemId = obj["id"]?.jsonPrimitive?.content ?: continue
-                                val name = obj["name"]?.jsonPrimitive?.content ?: "Elemento"
-                                val group = obj["group"]?.jsonPrimitive?.content ?: "General"
-                                val logo = obj["logo"]?.jsonPrimitive?.content
-                                val directUrl = obj["resolved_stream_url"]?.jsonPrimitive?.content
-                                    ?: obj["direct_url"]?.jsonPrimitive?.content ?: ""
-                                val mediaType = (obj["media_type"]?.jsonPrimitive?.content ?: "").lowercase()
-                                val pos = obj["position"]?.jsonPrimitive?.content?.toIntOrNull() ?: count
-                                val streamId = (name + directUrl).hashCode().let { if (it == Int.MIN_VALUE) 0 else kotlin.math.abs(it) }
+                        var offset = 0
+                        val pageSize = 1000
+                        var hasMore = true
+                        var count = 0
 
-                                val resolvedType = detectMediaType(mediaType, name, group, directUrl)
+                        while (hasMore && offset < 30000) {
+                            val itemsUrl = "https://rotupbdeljgfddywryhk.supabase.co/rest/v1/v_resolved_playlist_items?playlist_id=eq.$cleanPlaylistId&enabled=eq.true&order=position.asc&limit=$pageSize&offset=$offset"
+                            val req = Request.Builder()
+                                .url(itemsUrl)
+                                .addHeader("apikey", supabaseKey)
+                                .addHeader("Authorization", "Bearer $supabaseKey")
+                                .build()
+                            val res = httpClient.newCall(req).execute()
+                            if (res.isSuccessful) {
+                                val body = res.body?.string() ?: ""
+                                val jsonArray = try { json.parseToJsonElement(body).jsonArray } catch (_: Exception) { kotlinx.serialization.json.JsonArray(emptyList()) }
+                                if (jsonArray.isEmpty()) break
 
-                                if (resolvedType == "movie") {
-                                    vodCategories.add(group)
-                                    movieEntities.add(
-                                        MovieEntity(
-                                            id = "$sourceId-$itemId",
-                                            streamId = streamId,
-                                            num = pos,
-                                            name = name,
-                                            title = name,
-                                            streamIcon = logo,
-                                            categoryId = "$sourceId-${group.hashCode()}",
-                                            categoryName = group,
-                                            containerExtension = "mp4",
-                                            streamUrl = directUrl,
-                                            sourceId = sourceId
+                                for (element in jsonArray) {
+                                    val obj = element.jsonObject
+                                    val itemId = obj["id"]?.jsonPrimitive?.content ?: continue
+                                    val name = obj["name"]?.jsonPrimitive?.content ?: "Elemento"
+                                    val group = obj["group"]?.jsonPrimitive?.content ?: "General"
+                                    val logo = obj["logo"]?.jsonPrimitive?.content
+                                    val directUrl = obj["resolved_stream_url"]?.jsonPrimitive?.content
+                                        ?: obj["direct_url"]?.jsonPrimitive?.content ?: ""
+                                    val mediaType = (obj["media_type"]?.jsonPrimitive?.content ?: "").lowercase()
+                                    val pos = obj["position"]?.jsonPrimitive?.content?.toIntOrNull() ?: count
+                                    val streamId = (name + directUrl).hashCode().let { if (it == Int.MIN_VALUE) 0 else kotlin.math.abs(it) }
+
+                                    val resolvedType = detectMediaType(mediaType, name, group, directUrl)
+
+                                    if (resolvedType == "movie") {
+                                        vodCategories.add(group)
+                                        movieEntities.add(
+                                            MovieEntity(
+                                                id = "$sourceId-$itemId",
+                                                streamId = streamId,
+                                                num = pos,
+                                                name = name,
+                                                title = name,
+                                                streamIcon = logo,
+                                                categoryId = "$sourceId-${group.hashCode()}",
+                                                categoryName = group,
+                                                containerExtension = "mp4",
+                                                streamUrl = directUrl,
+                                                sourceId = sourceId
+                                            )
                                         )
-                                    )
-                                } else if (resolvedType == "series") {
-                                    seriesCategories.add(group)
-                                    seriesEntities.add(
-                                        SeriesEntity(
-                                            id = "$sourceId-$itemId",
-                                            seriesId = streamId,
-                                            num = pos,
-                                            name = name,
-                                            title = name,
-                                            cover = logo,
-                                            categoryId = "$sourceId-${group.hashCode()}",
-                                            categoryName = group,
-                                            sourceId = sourceId
+                                    } else if (resolvedType == "series") {
+                                        seriesCategories.add(group)
+                                        seriesEntities.add(
+                                            SeriesEntity(
+                                                id = "$sourceId-$itemId",
+                                                seriesId = streamId,
+                                                num = pos,
+                                                name = name,
+                                                title = name,
+                                                cover = logo,
+                                                categoryId = "$sourceId-${group.hashCode()}",
+                                                categoryName = group,
+                                                sourceId = sourceId
+                                            )
                                         )
-                                    )
-                                } else {
-                                    liveCategories.add(group)
-                                    channelEntities.add(
-                                        ChannelEntity(
-                                            id = "$sourceId-$itemId",
-                                            streamId = streamId,
-                                            num = pos,
-                                            name = name,
-                                            streamType = "live",
-                                            streamIcon = logo,
-                                            categoryId = "$sourceId-${group.hashCode()}",
-                                            categoryName = group,
-                                            streamUrl = directUrl,
-                                            containerExtension = "m3u8",
-                                            sourceId = sourceId
+                                    } else {
+                                        liveCategories.add(group)
+                                        channelEntities.add(
+                                            ChannelEntity(
+                                                id = "$sourceId-$itemId",
+                                                streamId = streamId,
+                                                num = pos,
+                                                name = name,
+                                                streamType = "live",
+                                                streamIcon = logo,
+                                                categoryId = "$sourceId-${group.hashCode()}",
+                                                categoryName = group,
+                                                streamUrl = directUrl,
+                                                containerExtension = "m3u8",
+                                                sourceId = sourceId
+                                            )
                                         )
-                                    )
+                                    }
+                                    count++
                                 }
-                                count++
+                                if (jsonArray.size < pageSize) {
+                                    hasMore = false
+                                } else {
+                                    offset += pageSize
+                                }
+                            } else {
+                                strategyErrors.add("Vista Supabase: HTTP ${res.code}")
+                                hasMore = false
                             }
                         }
                     } catch (e: Exception) {

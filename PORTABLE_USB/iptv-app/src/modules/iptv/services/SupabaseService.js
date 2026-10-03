@@ -248,14 +248,28 @@ class SupabaseService {
   async getResolvedPlaylistItems(playlistId) {
     if (!this.isAvailable || !playlistId) return [];
     try {
-      // 1. Intentar consultar vista dinámica v_resolved_playlist_items
-      const res = await fetch(
-        `${this.url}/rest/v1/v_resolved_playlist_items?playlist_id=eq.${encodeURIComponent(playlistId)}&order=position.asc`,
-        { headers: this._getHeaders() }
-      );
-      if (res.ok) {
+      // 1. Consultar vista dinámica v_resolved_playlist_items con paginación (PostgREST límite de 1000)
+      let allRows = [];
+      let offset = 0;
+      const PAGE_SIZE = 1000;
+      const MAX_PAGES = 30; // hasta 30,000 items
+
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const pagedUrl = `${this.url}/rest/v1/v_resolved_playlist_items?playlist_id=eq.${encodeURIComponent(playlistId)}&order=position.asc&limit=${PAGE_SIZE}&offset=${offset}`;
+        const res = await fetch(pagedUrl, { headers: this._getHeaders() });
+        if (!res.ok) {
+          if (allRows.length === 0) break;
+          else break;
+        }
         const rows = await res.json();
-        return rows.map(r => ({
+        if (!Array.isArray(rows) || rows.length === 0) break;
+        allRows = allRows.concat(rows);
+        if (rows.length < PAGE_SIZE) break;
+        offset += PAGE_SIZE;
+      }
+
+      if (allRows.length > 0) {
+        return allRows.map(r => ({
           ...r,
           id: r.id,
           name: r.name || r.direct_name || r.custom_name || 'Canal',

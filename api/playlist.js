@@ -13,6 +13,7 @@
  */
 
 import crypto from 'node:crypto';
+import zlib from 'node:zlib';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://rotupbdeljgfddywryhk.supabase.co';
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvdHVwYmRlbGpnZmRkeXdyeWhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzNjA2MzksImV4cCI6MjEwNTkzNjYzOX0.zDVgrQo_IU5FhfSMpl0-MbS9Eod43czS21TBi5Z3Lvo';
@@ -352,17 +353,8 @@ export default async function handler(req, res) {
       })
     }).catch(err => console.warn('[API Playlist] Error actualizando métricas de token:', redactSensitiveUrl(err?.message || String(err))));
 
-    // 5. Consultar los items resueltos de la vista 'v_resolved_playlist_items' y la playlist
-    const itemsUrl = `${SUPABASE_URL}/rest/v1/v_resolved_playlist_items?playlist_id=eq.${tokenRecord.playlist_id}&enabled=eq.true&order=position.asc&limit=10000`;
-    const [itemsRes, playlistRes] = await Promise.all([
-      fetch(itemsUrl, { headers }),
-      fetch(`${SUPABASE_URL}/rest/v1/custom_playlists?id=eq.${tokenRecord.playlist_id}&select=name,enabled,description,version,updated_at`, { headers })
-    ]);
-
-    if (!itemsRes.ok) {
-      console.error('[API Playlist] Error obteniendo items:', redactSensitiveUrl(await itemsRes.text()));
-      return sendError(500, 'Error cargando items de la lista');
-    }
+    // 5. Consultar metadatos y versión de la playlist
+    const playlistRes = await fetch(`${SUPABASE_URL}/rest/v1/custom_playlists?id=eq.${tokenRecord.playlist_id}&select=name,enabled,description,version,updated_at`, { headers });
 
     let playlistName = 'Mi Lista LELOUCH';
     let playlistVersion = 1;
@@ -413,7 +405,31 @@ export default async function handler(req, res) {
       });
     }
 
-    const items = await itemsRes.json();
+    // 6. Consultar los items resueltos de la vista 'v_resolved_playlist_items' con paginación
+    // Supabase PostgREST tiene un tope estricto de 1000 filas por petición. Paginamos por lotes.
+    let allItems = [];
+    let offset = 0;
+    const PAGE_SIZE = 1000;
+    const MAX_PAGES = 30; // Soporta hasta 30,000 elementos
+
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const pagedUrl = `${SUPABASE_URL}/rest/v1/v_resolved_playlist_items?playlist_id=eq.${tokenRecord.playlist_id}&enabled=eq.true&order=position.asc&select=id,name,direct_name,group,direct_group,logo,direct_logo,resolved_stream_url,direct_url,media_type,tvg_id,tvg_name,position,container_extension&limit=${PAGE_SIZE}&offset=${offset}`;
+      const pageRes = await fetch(pagedUrl, { headers });
+      if (!pageRes.ok) {
+        if (allItems.length === 0) {
+          console.error('[API Playlist] Error obteniendo items:', redactSensitiveUrl(await pageRes.text()));
+          return sendError(500, 'Error cargando items de la lista');
+        }
+        break;
+      }
+      const pageData = await pageRes.json();
+      if (!Array.isArray(pageData) || pageData.length === 0) break;
+      allItems = allItems.concat(pageData);
+      if (pageData.length < PAGE_SIZE) break;
+      offset += PAGE_SIZE;
+    }
+
+    const items = allItems;
 
     // Mapear a LelouchMediaItem[] canónico con URLs directas al proveedor (FASE 21 & 27)
     // FASE 27: custom_name y custom_group tienen precedencia sobre los valores por defecto del proveedor
@@ -484,6 +500,14 @@ export default async function handler(req, res) {
         return res.status(200).end();
       }
 
+      const acceptEncoding = (req.headers['accept-encoding'] || '').toLowerCase();
+      if (acceptEncoding.includes('gzip')) {
+        const compressed = zlib.gzipSync(Buffer.from(jsonBody, 'utf8'));
+        res.setHeader('Content-Encoding', 'gzip');
+        res.setHeader('Content-Length', String(compressed.length));
+        return res.status(200).send(compressed);
+      }
+
       return res.status(200).send(jsonBody);
     }
 
@@ -496,7 +520,6 @@ export default async function handler(req, res) {
     const contentLength = Buffer.byteLength(m3uContent, 'utf8');
 
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
-    res.setHeader('Content-Length', String(contentLength));
     res.setHeader('Cache-Control', 'no-store, max-age=0');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Playlist-Version', String(playlistVersion));
@@ -504,9 +527,19 @@ export default async function handler(req, res) {
     res.setHeader('Content-Disposition', `inline; filename="${safeFilename}.m3u"`);
 
     if (req.method === 'HEAD') {
+      res.setHeader('Content-Length', String(contentLength));
       return res.status(200).end();
     }
 
+    const acceptEncoding = (req.headers['accept-encoding'] || '').toLowerCase();
+    if (acceptEncoding.includes('gzip')) {
+      const compressed = zlib.gzipSync(Buffer.from(m3uContent, 'utf8'));
+      res.setHeader('Content-Encoding', 'gzip');
+      res.setHeader('Content-Length', String(compressed.length));
+      return res.status(200).send(compressed);
+    }
+
+    res.setHeader('Content-Length', String(contentLength));
     return res.status(200).send(m3uContent);
 
   } catch (error) {
