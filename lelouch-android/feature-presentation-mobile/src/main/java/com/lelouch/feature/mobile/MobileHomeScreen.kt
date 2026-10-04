@@ -4,13 +4,18 @@ import android.app.Activity
 import android.content.pm.ActivityInfo
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -145,6 +150,46 @@ fun MobileHomeScreen(
         }
     }
 
+    // FASE 34: Gestos táctiles de cambio de canal y OSD flotante
+    var channelOsdText by remember { mutableStateOf<String?>(null) }
+    var channelOsdSubtext by remember { mutableStateOf<String?>(null) }
+    var channelOsdDirection by remember { mutableStateOf<String?>(null) }
+    var channelOsdVersion by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(channelOsdVersion) {
+        if (channelOsdVersion > 0) {
+            kotlinx.coroutines.delay(2200L)
+            channelOsdText = null
+            channelOsdSubtext = null
+            channelOsdDirection = null
+        }
+    }
+
+    val switchChannelByOffset: (Int) -> Unit = remember(cleanLiveChannels, activeStreamUrl, activeChannelName) {
+        { delta: Int ->
+            if (cleanLiveChannels.isNotEmpty()) {
+                val currentIndex = cleanLiveChannels.indexOfFirst { it.streamUrl == activeStreamUrl || it.name == activeChannelName }
+                val newIndex = when {
+                    currentIndex == -1 -> 0
+                    delta > 0 -> if (currentIndex < cleanLiveChannels.size - 1) currentIndex + 1 else 0
+                    else -> if (currentIndex > 0) currentIndex - 1 else cleanLiveChannels.size - 1
+                }
+                val targetChannel = cleanLiveChannels[newIndex]
+                activeChannelName = targetChannel.name
+                val targetUrl = targetChannel.streamUrl
+                if (targetUrl == activeStreamUrl) {
+                    playerEngine.playStream(targetUrl, isLive = true)
+                } else {
+                    activeStreamUrl = targetUrl
+                }
+                channelOsdText = targetChannel.name
+                channelOsdSubtext = "Canal ${newIndex + 1} de ${cleanLiveChannels.size}"
+                channelOsdDirection = if (delta > 0) "▲ Siguiente Canal" else "▼ Canal Anterior"
+                channelOsdVersion++
+            }
+        }
+    }
+
     val liveCategoryList = remember(liveCategories, cleanLiveChannels) {
         val fromDb = liveCategories.map { MobileCategoryItem(id = it.categoryId, name = it.categoryName) }
         val fromChannels = cleanLiveChannels.mapNotNull { ch ->
@@ -252,7 +297,15 @@ fun MobileHomeScreen(
                                 android.widget.Toast.makeText(context, "📋 Enlace copiado: $activeChannelName", android.widget.Toast.LENGTH_SHORT).show()
                             }
                         },
-                        onClose = { playerEngine.stop(); activeStreamUrl = null }
+                        onClose = { playerEngine.stop(); activeStreamUrl = null },
+                        osdText = channelOsdText,
+                        osdSubtext = channelOsdSubtext,
+                        osdDirection = channelOsdDirection,
+                        modifier = Modifier.swipeToChangeChannel(
+                            enabled = isLivePlayback,
+                            onNext = { switchChannelByOffset(1) },
+                            onPrev = { switchChannelByOffset(-1) }
+                        )
                     )
                 }
                 MobileTopBar(
@@ -329,11 +382,30 @@ fun MobileHomeScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black)
+                    .swipeToChangeChannel(
+                        enabled = isLivePlayback,
+                        onNext = { switchChannelByOffset(1) },
+                        onPrev = { switchChannelByOffset(-1) }
+                    )
             ) {
                 LelouchVideoPlayer(
                     playerEngine = playerEngine,
                     modifier = Modifier.fillMaxSize()
                 )
+
+                // OSD Flotante Neón en pantalla completa
+                AnimatedVisibility(
+                    visible = channelOsdText != null,
+                    enter = fadeIn() + slideInVertically { it / 2 },
+                    exit = fadeOut() + slideOutVertically { it / 2 },
+                    modifier = Modifier.align(Alignment.Center)
+                ) {
+                    ChannelChangeOsd(
+                        channelName = channelOsdText.orEmpty(),
+                        subtext = channelOsdSubtext.orEmpty(),
+                        direction = channelOsdDirection.orEmpty()
+                    )
+                }
 
                 // Barra Superior
                 Row(
@@ -1089,6 +1161,98 @@ private fun formatDuration(ms: Long): String {
     }
 }
 
+// GESTO SWIPE TÁCTIL PARA CAMBIO DE CANAL
+fun Modifier.swipeToChangeChannel(
+    enabled: Boolean,
+    onNext: () -> Unit,
+    onPrev: () -> Unit
+): Modifier = if (!enabled) this else this.pointerInput(Unit) {
+    var totalX = 0f
+    var totalY = 0f
+    detectDragGestures(
+        onDragStart = {
+            totalX = 0f
+            totalY = 0f
+        },
+        onDragEnd = {
+            val minThreshold = 45.dp.toPx()
+            if (kotlin.math.abs(totalY) > kotlin.math.abs(totalX)) {
+                if (totalY < -minThreshold) {
+                    onNext()
+                } else if (totalY > minThreshold) {
+                    onPrev()
+                }
+            } else {
+                if (totalX < -minThreshold) {
+                    onNext()
+                } else if (totalX > minThreshold) {
+                    onPrev()
+                }
+            }
+        },
+        onDrag = { change, dragAmount ->
+            change.consume()
+            totalX += dragAmount.x
+            totalY += dragAmount.y
+        }
+    )
+}
+
+// OSD FLOTANTE DE CAMBIO DE CANAL
+@Composable
+private fun ChannelChangeOsd(
+    channelName: String,
+    subtext: String,
+    direction: String,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .padding(16.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.Black.copy(alpha = 0.88f))
+            .border(1.5.dp, LelouchCyanAccent, RoundedCornerShape(16.dp))
+            .padding(horizontal = 22.dp, vertical = 12.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "📺",
+                    fontSize = 18.sp
+                )
+                Text(
+                    text = direction,
+                    color = LelouchCyanAccent,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = channelName,
+                color = Color.White,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Black,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (subtext.isNotBlank()) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = subtext,
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+    }
+}
+
 // MINI PLAYER
 @Composable
 private fun MiniPlayerOverlay(
@@ -1097,10 +1261,28 @@ private fun MiniPlayerOverlay(
     playerEngine: com.lelouch.core.player.LelouchPlayerEngine,
     onToggleFullscreen: () -> Unit,
     onCopyUrl: () -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    osdText: String? = null,
+    osdSubtext: String? = null,
+    osdDirection: String? = null,
+    modifier: Modifier = Modifier
 ) {
-    Box(modifier = Modifier.fillMaxWidth().height(220.dp).background(Color.Black)) {
+    Box(modifier = modifier.fillMaxWidth().height(220.dp).background(Color.Black)) {
         LelouchVideoPlayer(playerEngine = playerEngine, modifier = Modifier.fillMaxSize())
+
+        AnimatedVisibility(
+            visible = osdText != null,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.Center)
+        ) {
+            ChannelChangeOsd(
+                channelName = osdText.orEmpty(),
+                subtext = osdSubtext.orEmpty(),
+                direction = osdDirection.orEmpty()
+            )
+        }
+
         Row(
             modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp)

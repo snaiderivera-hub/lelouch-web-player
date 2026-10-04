@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.16",
-  "versionCode": 1000016,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.16/app-debug.apk",
-  "changelog": "• Limpieza y Sincronización Real con Supabase: Eliminadas 48,000+ películas residuales de la base de datos (0 películas restantes) sincronizando el catálogo real del usuario.\n• Corrección de Categorías Duplicadas: Eliminado el chip repetido 'Todos' en la barra de categorías de la vista móvil.\n• Calidad Adaptativa Inteligente (Anti-Traba / ABR): Si un stream presenta buffering por más de 3s, el reproductor reduce dinámicamente la tasa de bits a 1.5 Mbps antes de intentar reconectar o saltar, evitando la pérdida de señal.\n• Favoritos en TV Box con Control Remoto: Soporte para marcar favoritos manteniendo presionado OK (Long Press), o pulsando las teclas Menú, Info, Botón Amarillo o Y."
+  "versionName": "1.0.18",
+  "versionCode": 1000018,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.18/app-debug.apk",
+  "changelog": "• Cambio de Canales por Gestos Touch: En teléfono ahora puedes deslizar el dedo (swipe) hacia arriba/izquierda para canal siguiente o hacia abajo/derecha para canal anterior.\n• OSD Flotante Neón: Indicador visual en pantalla con nombre de canal, número y animación suave.\n• Compatible tanto en pantalla completa como en el mini reproductor."
 }
