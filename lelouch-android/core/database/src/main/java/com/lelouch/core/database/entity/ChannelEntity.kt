@@ -7,7 +7,7 @@ import androidx.room.PrimaryKey
 @Entity(
     tableName = "channels",
     indices = [
-        Index(value = ["streamId"], unique = true),
+        Index(value = ["streamId"]),
         Index(value = ["categoryId"]),
         Index(value = ["name"]),
         Index(value = ["isFavorite"])

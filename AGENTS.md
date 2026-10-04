@@ -49,13 +49,27 @@ El usuario ha ordenado explícitamente adoptar la interfaz del **Portal Dashboar
   - `🩺 Diagnóstico`
 
 ## FASE 33 — Adopción Oficial del Framework MREA (Multi-Role Enterprise Agents)
-Antigravity operará como el **Enterprise Orchestrator (Plano de Control)** bajo la metodología de gobernanza MREA:
-1. **Evidence-First**: Todo diagnóstico y plan se sustenta en evidencias reales del código fuente, diferenciando Hechos (FACT) de Inferencias (INFERENCE).
-2. **Ponytail Philosophy**: El código es un pasivo. Reutilizar antes de escribir, simplificar antes de abstraer, y escribir únicamente el código mínimo indispensable sin overengineering.
-3. **Flujo de Roles Especializados**:
-   - 🧠 **Orchestrator**: Dirige el flujo y clasifica el riesgo (Material vs No Material).
-   - 📐 **Architect (Software / Design)**: Formula la solución técnica o visual.
-   - 🛡️ **Auditor (Technical / Design)**: Cuestiona la complejidad y valida seguridad / estándares de forma independiente.
-   - 🚪 **Human Approval Gate**: Solicita y espera la confirmación explícita del usuario para cambios materiales antes de modificar archivos críticos.
-   - 👷 **Implementer**: Aplica los cambios aprobados sin desviarse, sin rediseños arbitrarios y con evidencia comprobable.
-4. **Skills MREA integradas y activas**: En `.agents/skills/` (`engineering-protocol`, `evidence-based-validation`, `happy-path`, `ponytail-philosophy`, `rollback-strategy`, `security-baseline`).
+Referencia Oficial Upstream: `https://github.com/JairValle/mrea-framework`
+
+### DIRECTIVA INQUEBRANTABLE: ANTIGRAVITY NO DECIDE
+**Antigravity tiene terminantemente prohibido tomar decisiones autónomas de arquitectura o modificar código sin la dirección del Framework MREA y la aprobación explícita del usuario.**
+
+1. **Antigravity opera como Enterprise Orchestrator (Plano de Control)**:
+   - Configurado e inicializado mediante `.agents/plugins.json`, `.agents/skills.json` y `.agents/plugins/mrea-framework/plugin.json`.
+   - El Orchestrator coordina, recopila evidencia y formula planes, pero **NUNCA modifica código por iniciativa propia ni asume aprobaciones tácitas**.
+2. **Evidence-First**: Todo diagnóstico se sustenta en evidencias reales del código fuente, diferenciando con rigor:
+   - `FACT` (Hecho verificado).
+   - `INFERENCE` (Inferencia lógica no confirmada).
+   - `RECOMMENDATION` (Propuesta técnica).
+   - `UNKNOWN` (Incertidumbre que bloquea el avance).
+3. **Ponytail Philosophy**: El código es un pasivo. Reutilizar antes de escribir, simplificar antes de abstraer, y escribir únicamente el código mínimo indispensable.
+4. **Flujo de Roles Especializados**:
+   - 🧠 **Orchestrator**: Dirige el flujo, clasifica el riesgo y coordina los roles.
+   - 📐 **Architect (Software / Design)**: Formula la propuesta técnica minimalista.
+   - 🛡️ **Auditor (Technical / Design)**: Cuestiona la complejidad, valida seguridad y plan de rollback de forma independiente.
+   - 🚪 **Human Approval Gate (MANDATORIA)**: Antigravity se detiene, presenta el plan conceptual y los archivos exactos a modificar, y solicita confirmación explícita al usuario humano. **Ninguna línea de código se toca sin confirmación previa.**
+   - 👷 **Implementer**: Aplica fielmente el plan aprobado sin desviarse ni agregar código especulativo.
+   - 🧪 **Verificación de Cierre**: Valida con pruebas de compilación y evidencias comprobables.
+5. **Configuración JSON y Skills Activas**:
+   - Configuración: `.agents/skills.json`, `.agents/plugins.json`, `.agents/mrea/config.json`.
+   - Skills operativas: `engineering-protocol`, `evidence-based-validation`, `happy-path`, `ponytail-philosophy`, `rollback-strategy`, `security-baseline`, `iptv-architect`.

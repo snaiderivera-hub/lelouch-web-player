@@ -18,3 +18,5 @@ _backup_*/
 RESPALDOS_Y_DATOS/
 *.apk
 .freebuff/
+current_device_screen_*.png
+current_ui.xml

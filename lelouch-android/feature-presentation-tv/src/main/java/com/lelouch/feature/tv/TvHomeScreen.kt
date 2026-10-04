@@ -145,7 +145,7 @@ fun TvHomeScreen(
         val cleanChannels = liveChannels.filter { stream ->
             (stream.streamType.isBlank() || stream.streamType.equals("live", ignoreCase = true)) &&
             !seriesLeakRegex.containsMatchIn(stream.name)
-        }
+        }.distinctBy { ch -> ch.streamUrl.ifBlank { ch.name } }
         if (cleanChannels.isNotEmpty()) {
             cleanChannels.mapIndexed { index, stream ->
                 // FASE 33: el resolvedor único evita reconstruir URLs sobre Vercel (404).
@@ -676,6 +676,26 @@ fun TvHomeScreen(
         }
     }
 
+    // FASE 33: Anticaídas de señal y Omisión Automática de canales en TV Box
+    DisposableEffect(playerEngine, visibleChannels, activePlaybackChannels, activePlaybackChannelIndex, isPlayingLive) {
+        playerEngine.onChannelUnavailable = {
+            if (isPlayingLive) {
+                val channels = if (activePlaybackChannels.isNotEmpty()) activePlaybackChannels else visibleChannels
+                if (channels.isNotEmpty()) {
+                    val nextIndex = if (activePlaybackChannelIndex in 0 until channels.size - 1) activePlaybackChannelIndex + 1 else 0
+                    activePlaybackChannelIndex = nextIndex
+                    val nextCh = channels[nextIndex]
+                    focusedChannelIndex = visibleChannels.indexOfFirst { it.streamId == nextCh.streamId }.coerceAtLeast(0)
+                    playerEngine.playStream(nextCh.streamUrl, isLive = true)
+                    isHudVisible = true
+                }
+            }
+        }
+        onDispose {
+            playerEngine.onChannelUnavailable = null
+        }
+    }
+
     val playerFocusRequester = remember { FocusRequester() }
 
     LaunchedEffect(isFullscreen) {
@@ -892,8 +912,12 @@ fun TvHomeScreen(
                                     true
                                 }
                             }
-                            KeyEvent.KEYCODE_PROG_YELLOW -> {
-                                // Tecla Amarilla: toggle Favorito del canal en reproducción actual
+                            KeyEvent.KEYCODE_PROG_YELLOW,
+                            KeyEvent.KEYCODE_MENU,
+                            KeyEvent.KEYCODE_INFO,
+                            KeyEvent.KEYCODE_BUTTON_Y,
+                            KeyEvent.KEYCODE_STAR -> {
+                                // Tecla Amarilla / Menú / Info / Y / *: toggle Favorito del canal en reproducción actual
                                 if (isLiveStream && focusedChannel != null) {
                                     val isFav = favoriteChannels.any { it.streamId == focusedChannel!!.streamId }
                                     onToggleFavoriteChannel(focusedChannel!!.streamId, !isFav)
@@ -1088,7 +1112,7 @@ fun TvHomeScreen(
                                             contentPadding = PaddingValues(horizontal = 32.dp),
                                             horizontalArrangement = Arrangement.spacedBy(16.dp)
                                         ) {
-                                            itemsIndexed(visibleChannels, key = { _, ch -> "home_ch_${ch.streamId}" }) { idx, ch ->
+                                            itemsIndexed(visibleChannels, key = { idx, ch -> "home_ch_${ch.streamId}_$idx" }) { idx, ch ->
                                                 TvChannelCard(
                                                     channel = ch,
                                                     isSelected = (idx == focusedChannelIndex),
@@ -1102,6 +1126,11 @@ fun TvHomeScreen(
                                                         playerEngine.playStream(ch.streamUrl, isLive = true)
                                                         isFullscreen = true 
                                                     },
+                                                    onToggleFavorite = {
+                                                        val isFav = favoriteChannels.any { it.streamId == ch.streamId }
+                                                        onToggleFavoriteChannel(ch.streamId, !isFav)
+                                                    },
+                                                    isFavorite = favoriteChannels.any { it.streamId == ch.streamId },
                                                     cardWidth = 215.dp,
                                                     modifier = if (idx == 0) Modifier.focusProperties { left = sidebarRequesters[1] } else Modifier
                                                 )
@@ -1118,7 +1147,7 @@ fun TvHomeScreen(
                                             contentPadding = PaddingValues(horizontal = 32.dp),
                                             horizontalArrangement = Arrangement.spacedBy(16.dp)
                                         ) {
-                                            itemsIndexed(visibleMovies, key = { _, mov -> "home_mov_${mov.streamId}" }) { idx, mov ->
+                                            itemsIndexed(visibleMovies, key = { idx, mov -> "home_mov_${mov.streamId}_$idx" }) { idx, mov ->
                                                 TvPosterCard(
                                                     title = mov.name,
                                                     posterUrl = mov.streamIcon,
@@ -1143,7 +1172,7 @@ fun TvHomeScreen(
                                             contentPadding = PaddingValues(horizontal = 32.dp),
                                             horizontalArrangement = Arrangement.spacedBy(16.dp)
                                         ) {
-                                            itemsIndexed(visibleSeries, key = { _, ser -> "home_ser_${ser.seriesId}" }) { idx, ser ->
+                                            itemsIndexed(visibleSeries, key = { idx, ser -> "home_ser_${ser.seriesId}_$idx" }) { idx, ser ->
                                                 TvPosterCard(
                                                     title = ser.name,
                                                     posterUrl = ser.cover,
@@ -1257,7 +1286,7 @@ fun TvHomeScreen(
                                         contentPadding = PaddingValues(bottom = 64.dp),
                                         modifier = Modifier.fillMaxSize()
                                     ) {
-                                        itemsIndexed(filteredChannels, key = { _, ch -> "grid_live_ch_${ch.streamId}" }) { index, ch ->
+                                        itemsIndexed(filteredChannels, key = { idx, ch -> "grid_live_ch_${ch.streamId}_$idx" }) { index, ch ->
                                             val cardModifier = if (index == 0) {
                                                 Modifier
                                                     .fillMaxWidth()
@@ -1386,7 +1415,7 @@ fun TvHomeScreen(
                                         contentPadding = PaddingValues(bottom = 48.dp),
                                         modifier = Modifier.fillMaxSize()
                                     ) {
-                                        itemsIndexed(filteredMovies, key = { _, movie -> "grid_movie_${movie.streamId}" }) { idx, movie ->
+                                        itemsIndexed(filteredMovies, key = { idx, movie -> "grid_movie_${movie.streamId}_$idx" }) { idx, movie ->
                                             val cardModifier = if (idx == 0) {
                                                 Modifier.focusProperties { left = sidebarRequesters[3] }
                                             } else {
@@ -1503,7 +1532,7 @@ fun TvHomeScreen(
                                         contentPadding = PaddingValues(bottom = 48.dp),
                                         modifier = Modifier.fillMaxSize()
                                     ) {
-                                        itemsIndexed(filteredSeries, key = { _, series -> "grid_series_${series.seriesId}" }) { idx, series ->
+                                        itemsIndexed(filteredSeries, key = { idx, series -> "grid_series_${series.seriesId}_$idx" }) { idx, series ->
                                             val cardModifier = if (idx == 0) {
                                                 Modifier.focusProperties { left = sidebarRequesters[4] }
                                             } else {
@@ -1569,6 +1598,10 @@ fun TvHomeScreen(
                                                         playerEngine.playStream(ch.streamUrl, isLive = true)
                                                         isFullscreen = true
                                                     },
+                                                    onToggleFavorite = {
+                                                        onToggleFavoriteChannel(ch.streamId, false)
+                                                    },
+                                                    isFavorite = true,
                                                     cardWidth = 215.dp,
                                                     modifier = if (idx == 0) Modifier.focusRequester(contentFocusRequester).focusProperties { left = sidebarRequesters[5] } else Modifier
                                                 )
@@ -1887,7 +1920,7 @@ fun TvHomeScreen(
                         ) {
                             itemsIndexed(
                                 items = visibleChannels,
-                                key = { _, channel -> "hud_ch_${channel.streamId}" }
+                                key = { idx, channel -> "hud_ch_${channel.streamId}_$idx" }
                             ) { index, channel ->
                                 val isSelected = (index == focusedChannelIndex)
                                 var isCardFocused by remember { mutableStateOf(false) }
@@ -2488,6 +2521,7 @@ fun TvChannelCard(
 
     Surface(
         onClick = onClick,
+        onLongClick = onToggleFavorite,
         modifier = modifier
             .then(widthModifier)
             .height(125.dp)
@@ -2496,6 +2530,23 @@ fun TvChannelCard(
                 if (it.isFocused) {
                     onFocused()
                 }
+            }
+            .onKeyEvent { keyEvent ->
+                if (keyEvent.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN) {
+                    when (keyEvent.nativeKeyEvent.keyCode) {
+                        android.view.KeyEvent.KEYCODE_MENU,
+                        android.view.KeyEvent.KEYCODE_INFO,
+                        android.view.KeyEvent.KEYCODE_PROG_YELLOW,
+                        android.view.KeyEvent.KEYCODE_BUTTON_Y,
+                        android.view.KeyEvent.KEYCODE_STAR -> {
+                            if (onToggleFavorite != null) {
+                                onToggleFavorite()
+                                true
+                            } else false
+                        }
+                        else -> false
+                    }
+                } else false
             },
         shape = ClickableSurfaceDefaults.shape(
             shape = RoundedCornerShape(12.dp),
@@ -2557,20 +2608,41 @@ fun TvChannelCard(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    // Estrella de Favorito: aparece cuando la tarjeta está enfocada para agregar/quitar
-                    if (onToggleFavorite != null && isFocused) {
+                    // Badge / Indicador de Favorito para TV Box y Móvil
+                    if (isFavorite) {
                         Box(
                             modifier = Modifier
-                                .size(22.dp)
-                                .clip(CircleShape)
-                                .background(if (isFavorite) Color(0xFFFFD700).copy(alpha = 0.2f) else Color.Transparent)
-                                .clickable { onToggleFavorite() },
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0xFFFFD700).copy(alpha = 0.25f))
+                                .border(1.dp, Color(0xFFFFD700), RoundedCornerShape(6.dp))
+                                .clickable(enabled = onToggleFavorite != null) { onToggleFavorite?.invoke() }
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(text = if (isFavorite) "⭐" else "☆", fontSize = 14.sp)
+                            Text(
+                                text = if (isFocused) "⭐ FAV (OK largo)" else "⭐",
+                                color = Color(0xFFFFD700),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
-                    } else if (isFavorite) {
-                        Text(text = "⭐", fontSize = 12.sp)
+                    } else if (isFocused && onToggleFavorite != null) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color.White.copy(alpha = 0.12f))
+                                .border(0.5.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(6.dp))
+                                .clickable { onToggleFavorite.invoke() }
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "☆ +FAV",
+                                color = Color.White.copy(alpha = 0.85f),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
                     }
                     Column(horizontalAlignment = Alignment.End) {
                         Text(

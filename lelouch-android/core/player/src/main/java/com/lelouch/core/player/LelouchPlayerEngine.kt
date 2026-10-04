@@ -84,15 +84,24 @@ class LelouchPlayerEngine(
     }
 
     private val trackSelector by lazy {
-        // ABR adaptativo: ExoPlayer bajará automáticamente la calidad (ej. 1080p -> 720p -> 480p)
-        // cuando el ancho de banda decaiga, en lugar de congelarse esperando el siguiente fragmento.
-        val adaptiveTrackSelectionFactory = AdaptiveTrackSelection.Factory()
+        // ABR adaptativo agresivo para IPTV:
+        // - minDurationForQualityIncreaseMs = 12s para subir de resolución (evita fluctuaciones)
+        // - maxDurationForQualityDecreaseMs = 5s (si el buffer decae a menos de 5s, baja calidad de inmediato)
+        // - minDurationToRetainAfterDiscardMs = 3s (descarta paquetes pesados para no congelar la imagen)
+        // - bandwidthFraction = 0.75f (utiliza hasta el 75% del ancho de banda disponible)
+        val adaptiveTrackSelectionFactory = AdaptiveTrackSelection.Factory(
+            12_000,
+            5_000,
+            3_000,
+            0.75f
+        )
         DefaultTrackSelector(context, adaptiveTrackSelectionFactory).also { selector ->
             selector.setParameters(
                 selector.buildUponParameters()
                     .setMaxVideoBitrate(Int.MAX_VALUE)
                     .setAllowVideoMixedMimeTypeAdaptiveness(true)
                     .setAllowAudioMixedMimeTypeAdaptiveness(true)
+                    .setExceedRendererCapabilitiesIfNecessary(true)
             )
         }
     }
@@ -111,18 +120,78 @@ class LelouchPlayerEngine(
     private var isCurrentStreamLive: Boolean = false
     // Contador de reintentos automáticos ante fallos de red (se reinicia al cambiar de canal)
     private var autoRetryAttemptsLeft: Int = config.autoRetryCount
+    private var bufferingWatchdogJob: Job? = null
+    var onChannelUnavailable: (() -> Unit)? = null
+
+    private fun startBufferingWatchdog() {
+        stopBufferingWatchdog()
+        if (!isCurrentStreamLive) return
+        bufferingWatchdogJob = scope.launch {
+            // FASE 1 (3 segundos de buffering):
+            // Reducir temporalmente la calidad de video al bitrate más bajo (720p/480p) para salvar la transmisión sin cortar.
+            delay(3_000L)
+            if (!isActive || !isCurrentStreamLive) return@launch
+
+            android.util.Log.w("LelouchPlayer", "Buffer en riesgo (>3s). Reduciendo calidad de video (ABR) para evitar corte...")
+            try {
+                trackSelector.setParameters(
+                    trackSelector.parameters.buildUpon().setMaxVideoBitrate(1_500_000)
+                )
+            } catch (_: Exception) {}
+
+            // FASE 2 (7 segundos continuos en buffering):
+            // Si el buffer no se recuperó a menor bitrate, intentar reconectar stream.
+            delay(4_000L)
+            if (!isActive || !isCurrentStreamLive) return@launch
+
+            if (autoRetryAttemptsLeft > 0) {
+                autoRetryAttemptsLeft--
+                android.util.Log.w("LelouchPlayer", "Stream congelado >7s. Intentando reconectar señal...")
+                exoPlayer.prepare()
+                exoPlayer.playWhenReady = true
+                delay(5_000L)
+                if (exoPlayer.playbackState == Player.STATE_BUFFERING && isActive && isCurrentStreamLive) {
+                    android.util.Log.e("LelouchPlayer", "Canal sin señal tras reconexión. Saltando al siguiente canal...")
+                    triggerChannelUnavailable("Señal caída (stream congelado). Saltando al siguiente canal...")
+                }
+            } else {
+                android.util.Log.e("LelouchPlayer", "Señal IPTV caída (>7s congelado). Saltando al siguiente canal...")
+                triggerChannelUnavailable("Señal caída (stream congelado). Saltando al siguiente canal...")
+            }
+        }
+    }
+
+    private fun stopBufferingWatchdog() {
+        bufferingWatchdogJob?.cancel()
+        bufferingWatchdogJob = null
+    }
+
+    private fun triggerChannelUnavailable(reason: String) {
+        stopBufferingWatchdog()
+        stopProgressTracking()
+        _playbackState.value = PlaybackState.Error(
+            errorMessage = reason,
+            errorCode = PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
+            canRetry = true
+        )
+        onChannelUnavailable?.invoke()
+    }
 
     private val playerListener = object : Player.Listener {
         override fun onPlaybackStateChanged(state: Int) {
             when (state) {
                 Player.STATE_IDLE -> {
+                    stopBufferingWatchdog()
                     _playbackState.value = PlaybackState.Idle
                     stopProgressTracking()
                 }
                 Player.STATE_BUFFERING -> {
                     _playbackState.value = PlaybackState.Buffering
+                    startBufferingWatchdog()
                 }
                 Player.STATE_READY -> {
+                    stopBufferingWatchdog()
+                    autoRetryAttemptsLeft = config.autoRetryCount
                     val isPlaying = exoPlayer.playWhenReady
                     updateState(isPlaying)
                     if (isPlaying) {
@@ -132,6 +201,7 @@ class LelouchPlayerEngine(
                     }
                 }
                 Player.STATE_ENDED -> {
+                    stopBufferingWatchdog()
                     _playbackState.value = PlaybackState.Ended
                     stopProgressTracking()
                 }
@@ -153,6 +223,7 @@ class LelouchPlayerEngine(
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            stopBufferingWatchdog()
             stopProgressTracking()
             // Auto-recuperación silenciosa para errores de red y timeout:
             // Si hay una URL activa y es un stream en vivo, reintentamos automáticamente
@@ -180,19 +251,28 @@ class LelouchPlayerEngine(
             val errorDescription = when (error.errorCode) {
                 PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
                 PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ->
-                    "Sin conexión al servidor IPTV. Verifica tu internet."
+                    "Sin conexión al servidor IPTV. Saltando canal..."
                 PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ->
-                    "Error del servidor (403 / URL expirada). Intenta de nuevo."
+                    "Canal no disponible (Error 403/404). Saltando al siguiente..."
                 PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
                 PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED ->
-                    "Formato de stream no compatible. Cambia de canal."
-                else -> error.localizedMessage ?: "Error desconocido durante la reproducción."
+                    "Formato de stream incompatible. Saltando al siguiente..."
+                else -> error.localizedMessage ?: "Error durante la reproducción."
             }
             _playbackState.value = PlaybackState.Error(
                 errorMessage = errorDescription,
                 errorCode = error.errorCode,
                 canRetry = true
             )
+            // Auto-salto si el canal está caído/muerto
+            if (isCurrentStreamLive) {
+                scope.launch {
+                    delay(1_200L)
+                    if (currentStreamUrl == _currentUrl.value) {
+                        onChannelUnavailable?.invoke()
+                    }
+                }
+            }
         }
     }
 
@@ -201,16 +281,20 @@ class LelouchPlayerEngine(
      */
     fun playStream(url: String, isLive: Boolean = false) {
         // GUARDIA (FASE 33): nunca preparar ExoPlayer con una URL vacía o malformada.
-        // Uri.parse("") produce un MediaSource inválido y ExoPlayer entra en estado de error
-        // sin llegar a emitir un mensaje comprensible (pantalla negra).
         if (url.isBlank()) {
             _currentUrl.value = null
             autoRetryAttemptsLeft = config.autoRetryCount
             _playbackState.value = PlaybackState.Error(
-                errorMessage = "Este elemento no tiene enlace de reproducción. Re-sincroniza el catálogo desde Ajustes.",
+                errorMessage = "Este elemento no tiene enlace de reproducción.",
                 errorCode = PlaybackException.ERROR_CODE_BAD_VALUE,
                 canRetry = false
             )
+            if (isLive) {
+                scope.launch {
+                    delay(500L)
+                    onChannelUnavailable?.invoke()
+                }
+            }
             return
         }
 
@@ -227,6 +311,15 @@ class LelouchPlayerEngine(
         isCurrentStreamLive = isLive
         autoRetryAttemptsLeft = config.autoRetryCount
         _playbackState.value = PlaybackState.Buffering
+
+        // Reiniciar límites de bitrate para permitir la máxima calidad al iniciar cada nuevo canal
+        try {
+            trackSelector.setParameters(
+                trackSelector.parameters.buildUpon()
+                    .setMaxVideoBitrate(Int.MAX_VALUE)
+                    .setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
+            )
+        } catch (_: Exception) {}
 
         val mediaSource = buildMediaSource(url)
         exoPlayer.setMediaSource(mediaSource)
@@ -348,13 +441,20 @@ class LelouchPlayerEngine(
         exoPlayer.volume = if (muted) 0f else 1f
     }
 
+    fun setPlaybackSpeed(speed: Float) {
+        exoPlayer.setPlaybackSpeed(speed)
+    }
+
+
     fun stop() {
+        stopBufferingWatchdog()
         exoPlayer.stop()
         stopProgressTracking()
         _playbackState.value = PlaybackState.Idle
     }
 
     fun release() {
+        stopBufferingWatchdog()
         stopProgressTracking()
         exoPlayer.removeListener(playerListener)
         exoPlayer.release()

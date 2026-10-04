@@ -123,96 +123,14 @@ class XtreamCatalogSyncManager(
                 val strategyErrors = mutableListOf<String>()
                 val supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvdHVwYmRlbGpnZmRkeXdyeWhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzNjA2MzksImV4cCI6MjEwNTkzNjYzOX0.zDVgrQo_IU5FhfSMpl0-MbS9Eod43czS21TBi5Z3Lvo"
 
-                // ── ESTRATEGIA 1: Vercel JSON Manifest (Entrega nativa y estructurada de Lelouch) ──
-                if (tokenFromUrl.isNotBlank() || serverUrl.contains("/api/playlist")) {
-                    val targetToken = tokenFromUrl.ifBlank { "pByk2IfABSGuLwSC9b14z6Y7penWElnYjbgzmI3R" }
-                    val vercelManifestUrl = "https://lelouch-web-player.vercel.app/api/playlist?token=$targetToken"
-                    try {
-                        val vReq = Request.Builder()
-                            .url(vercelManifestUrl)
-                            .addHeader("Accept", "application/json")
-                            .build()
-                        val vRes = httpClient.newCall(vReq).execute()
-                        if (vRes.isSuccessful) {
-                            val vBody = vRes.body?.string() ?: ""
-                            if (vBody.trimStart().startsWith("{")) {
-                                val root = json.parseToJsonElement(vBody).jsonObject
-                                val items = root["items"]?.jsonArray ?: kotlinx.serialization.json.JsonArray(emptyList())
-                                var idx = 0
-                                for (it in items) {
-                                    val obj = it.jsonObject
-                                    val id = obj["id"]?.jsonPrimitive?.content ?: "$idx"
-                                    val name = obj["name"]?.jsonPrimitive?.content ?: "Elemento"
-                                    val group = obj["group"]?.jsonPrimitive?.content ?: "General"
-                                    val logo = obj["logo"]?.jsonPrimitive?.content
-                                    val streamUrl = obj["streamUrl"]?.jsonPrimitive?.content ?: ""
-                                    val mediaType = (obj["mediaType"]?.jsonPrimitive?.content ?: "").lowercase()
-                                    if (streamUrl.isBlank() || streamUrl.contains("undefined")) continue
+                // ── ESTRATEGIA 1: Consulta DIRECTA a Supabase v_resolved_playlist_items (Nativa, sin límites de Vercel) ──
+                val isSupabasePlaylist = serverUrl.contains("rotupbdeljgfddywryhk.supabase.co") ||
+                        serverUrl.contains("/api/playlist") ||
+                        serverUrl.contains("token=") ||
+                        sourceId == "custom_lelouch" ||
+                        sourceId.startsWith("custom_")
 
-                                    val streamId = (name + streamUrl).hashCode().let { if (it == Int.MIN_VALUE) 0 else kotlin.math.abs(it) }
-                                    val resolvedType = detectMediaType(mediaType, name, group, streamUrl)
-
-                                    if (resolvedType == "movie") {
-                                        vodCategories.add(group)
-                                        movieEntities.add(
-                                            MovieEntity(
-                                                id = "$sourceId-$id",
-                                                streamId = streamId,
-                                                num = idx,
-                                                name = name,
-                                                title = name,
-                                                streamIcon = logo,
-                                                categoryId = "$sourceId-${group.hashCode()}",
-                                                categoryName = group,
-                                                containerExtension = "mp4",
-                                                streamUrl = streamUrl,
-                                                sourceId = sourceId
-                                            )
-                                        )
-                                    } else if (resolvedType == "series") {
-                                        seriesCategories.add(group)
-                                        seriesEntities.add(
-                                            SeriesEntity(
-                                                id = "$sourceId-$id",
-                                                seriesId = streamId,
-                                                num = idx,
-                                                name = name,
-                                                title = name,
-                                                cover = logo,
-                                                categoryId = "$sourceId-${group.hashCode()}",
-                                                categoryName = group,
-                                                sourceId = sourceId
-                                            )
-                                        )
-                                    } else {
-                                        liveCategories.add(group)
-                                        channelEntities.add(
-                                            ChannelEntity(
-                                                id = "$sourceId-$id",
-                                                streamId = streamId,
-                                                num = idx,
-                                                name = name,
-                                                streamType = "live",
-                                                streamIcon = logo,
-                                                categoryId = "$sourceId-${group.hashCode()}",
-                                                categoryName = group,
-                                                streamUrl = streamUrl,
-                                                containerExtension = "m3u8",
-                                                sourceId = sourceId
-                                            )
-                                        )
-                                    }
-                                    idx++
-                                }
-                            }
-                        }
-                    } catch (e: Exception) {
-                        strategyErrors.add("Manifiesto Vercel: ${e.message ?: e.javaClass.simpleName}")
-                    }
-                }
-
-                // ── ESTRATEGIA 2: Supabase vista v_resolved_playlist_items (si aún no hay items) ──
-                if (channelEntities.isEmpty() && movieEntities.isEmpty()) {
+                if (isSupabasePlaylist) {
                     try {
                         val cleanPlaylistId = if (sourceId == "custom_lelouch" || sourceId.startsWith("custom_")) {
                             val cpReq = Request.Builder()
@@ -231,12 +149,14 @@ class XtreamCatalogSyncManager(
                         } else {
                             sourceId.removePrefix("custom_")
                         }
+
                         var offset = 0
                         val pageSize = 1000
                         var hasMore = true
                         var count = 0
 
-                        while (hasMore && offset < 30000) {
+                        while (hasMore && offset < 35000) {
+                            _syncState.value = SyncState.SyncingLive(offset)
                             val itemsUrl = "https://rotupbdeljgfddywryhk.supabase.co/rest/v1/v_resolved_playlist_items?playlist_id=eq.$cleanPlaylistId&enabled=eq.true&order=position.asc&limit=$pageSize&offset=$offset"
                             val req = Request.Builder()
                                 .url(itemsUrl)
@@ -257,6 +177,22 @@ class XtreamCatalogSyncManager(
                                     val logo = obj["logo"]?.jsonPrimitive?.content
                                     val directUrl = obj["resolved_stream_url"]?.jsonPrimitive?.content
                                         ?: obj["direct_url"]?.jsonPrimitive?.content ?: ""
+
+                                    // FASE 33: Filtro defensivo contra canales vacíos, separadores de categoría o enlaces inválidos
+                                    val isHeaderSeparator = name.matches(Regex("^[\\s\\-=*#_]{3,}.*")) ||
+                                        name.matches(Regex(".*[\\s\\-=*#_]{3,}$")) ||
+                                        name.trim().startsWith("---") ||
+                                        name.trim().startsWith("===")
+
+                                    val isValidUrl = directUrl.isNotBlank() &&
+                                        (directUrl.startsWith("http://", ignoreCase = true) || directUrl.startsWith("https://", ignoreCase = true)) &&
+                                        !directUrl.contains("localhost") &&
+                                        !directUrl.contains("undefined")
+
+                                    if (!isValidUrl || isHeaderSeparator) {
+                                        continue
+                                    }
+
                                     val mediaType = (obj["media_type"]?.jsonPrimitive?.content ?: "").lowercase()
                                     val pos = obj["position"]?.jsonPrimitive?.content?.toIntOrNull() ?: count
                                     val streamId = (name + directUrl).hashCode().let { if (it == Int.MIN_VALUE) 0 else kotlin.math.abs(it) }

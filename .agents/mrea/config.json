@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "mrea-framework-governance",
+  "version": "1.0.0",
+  "repository": "https://github.com/JairValle/mrea-framework",
+  "settings": {
+    "antigravity_autonomous_decisions": false,
+    "human_approval_gate_mandatory": true,
+    "evidence_first_enforced": true,
+    "ponytail_philosophy_enforced": true,
+    "execution_model": "orchestrator_control_plane",
+    "roles": [
+      {
+        "id": "orchestrator",
+        "description": "Control plane, intent classification, discovery, routing, human approval gate, verification",
+        "can_edit_code": false
+      },
+      {
+        "id": "enterprise-architect",
+        "description": "Software architecture, contracts, minimal implementation plan",
+        "can_edit_code": false
+      },
+      {
+        "id": "design-architect",
+        "description": "UX/UI, Design System, frontend interaction architecture",
+        "can_edit_code": false
+      },
+      {
+        "id": "technical-auditor",
+        "description": "Independent software audit, complexity reduction, security check, rollback plan",
+        "can_edit_code": false
+      },
+      {
+        "id": "design-auditor",
+        "description": "Independent UX/UI and accessibility audit",
+        "can_edit_code": false
+      },
+      {
+        "id": "human-approval-gate",
+        "description": "Mandatory human checkpoint. Blocks all implementation until explicit user confirmation",
+        "required_for": ["material_changes", "file_edits", "architectural_shifts", "contract_changes"]
+      },
+      {
+        "id": "implementer",
+        "description": "Faithful execution of approved plan. Minimum code, zero unsolicited additions",
+        "can_edit_code": true,
+        "requires_prior_approval": true
+      }
+    ],
+    "pipeline": [
+      "1. Discovery & Evidence Gathering (FACT vs INFERENCE vs UNKNOWN)",
+      "2. Specialized Architecture Design (Ponytail: code is a liability)",
+      "3. Independent Technical & Security Audit (Challenge complexity)",
+      "4. HUMAN APPROVAL GATE (Explicit user authorization required)",
+      "5. Minimal Implementation (Execute only approved scope)",
+      "6. Evidence Verification (Compilation, tests, functional verification)"
+    ],
+    "skills_registered": [
+      "engineering-protocol",
+      "ponytail-philosophy",
+      "happy-path",
+      "evidence-based-validation",
+      "security-baseline",
+      "rollback-strategy",
+      "iptv-architect"
+    ]
+  }
+}

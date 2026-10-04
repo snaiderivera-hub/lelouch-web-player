@@ -1,0 +1,24 @@
+{
+  "name": "mrea-framework",
+  "displayName": "MREA Framework (Multi-Role Enterprise Agents)",
+  "version": "1.0.0",
+  "description": "Multi-Role Enterprise Agents Framework based on https://github.com/JairValle/mrea-framework. Enforces Orchestrator control plane, Evidence-First doctrine, Ponytail Philosophy, and Mandatory Human Approval Gate before any implementation.",
+  "author": {
+    "name": "Jair Valle / Lelouch Enterprise Orchestration"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JairValle/mrea-framework"
+  },
+  "keywords": [
+    "mrea",
+    "governance",
+    "orchestrator",
+    "architect",
+    "auditor",
+    "implementer",
+    "human-approval-gate",
+    "ponytail-philosophy",
+    "evidence-first"
+  ]
+}

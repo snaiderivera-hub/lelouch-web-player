@@ -120,17 +120,18 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            val effectiveActiveSource = activeSource ?: allSources.firstOrNull()
+
             fun onForceSync() {
-                activeSource?.let { src ->
-                    lifecycleScope.launch {
-                        app.syncManager.syncAll(
-                            sourceId = src.id,
-                            serverUrl = src.serverUrl,
-                            user = src.username,
-                            pass = src.password,
-                            sourceType = src.type
-                        )
-                    }
+                val src = effectiveActiveSource ?: return
+                lifecycleScope.launch {
+                    app.syncManager.syncAll(
+                        sourceId = src.id,
+                        serverUrl = src.serverUrl,
+                        user = src.username,
+                        pass = src.password,
+                        sourceType = src.type
+                    )
                 }
             }
 
@@ -139,8 +140,6 @@ class MainActivity : ComponentActivity() {
                     app.authRepository.logout()
                 }
             }
-
-            val effectiveActiveSource = activeSource ?: allSources.firstOrNull()
 
             // ── FASE 33: sincronizar Room en CADA arranque, no solo si no hay fuente activa ──
             // Antes la condición era `if (activeSource == null)`, así que si existía una fuente
@@ -269,7 +268,15 @@ class MainActivity : ComponentActivity() {
                                 onAddSource = ::onAddSource,
                                 onSyncCloudSources = ::onSyncCloud,
                                 onForceSync = ::onForceSync,
-                                onLogout = ::onLogout
+                                onLogout = ::onLogout,
+                                onFetchSeriesDetails = { seriesId ->
+                                    app.seriesRepository.getSeriesDetailAndEpisodes(
+                                        effectiveActiveSource.serverUrl,
+                                        effectiveActiveSource.username,
+                                        effectiveActiveSource.password,
+                                        seriesId
+                                    )
+                                }
                             )
                         } else {
                             androidx.compose.foundation.layout.Box(

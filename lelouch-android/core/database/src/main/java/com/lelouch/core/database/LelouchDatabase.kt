@@ -33,7 +33,7 @@ import com.lelouch.core.database.entity.WatchHistoryEntity
         ChannelFtsEntity::class,
         SeriesFtsEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class LelouchDatabase : RoomDatabase() {
