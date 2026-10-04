@@ -2748,12 +2748,38 @@ video::-webkit-media-controls-buffering-indicator {
   background: #00e5ff;
 }
 
-/* Fila individual de categoría */
+/* Fila individual de categoría y acordeón */
+.cat-accordion-group {
+  flex-shrink: 0 !important;
+  width: 100% !important;
+  margin-bottom: 8px !important;
+  border-radius: 12px !important;
+  border: 1px solid rgba(0, 229, 255, 0.22) !important;
+  background: #091524 !important;
+  overflow: hidden !important;
+  transition: all 0.2s ease !important;
+}
+.cat-accordion-group:hover {
+  border-color: rgba(0, 229, 255, 0.5) !important;
+  box-shadow: 0 4px 16px rgba(0, 229, 255, 0.08);
+}
+.cat-accordion-group.is-selected {
+  border-color: rgba(0, 229, 255, 0.75) !important;
+  background: rgba(0, 229, 255, 0.06) !important;
+  box-shadow: 0 0 18px rgba(0, 229, 255, 0.15) !important;
+}
+.cat-accordion-group.is-expanded {
+  border-color: rgba(0, 229, 255, 0.55) !important;
+  background: #0b1a2d !important;
+}
+
 .cat-checkbox-row {
+  flex-shrink: 0 !important;
+  min-height: 48px !important;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.55rem 0.85rem;
+  padding: 0.65rem 1rem;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 0.6rem;

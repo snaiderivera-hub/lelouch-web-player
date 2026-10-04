@@ -3579,6 +3579,15 @@ export async function openPlaylistImportModal(preferredSourceId = null) {
 }
 window.openPlaylistImportModal = openPlaylistImportModal;
 
+function normalizeCategoryItem(c) {
+  if (!c) return { id: 'general', name: 'General', count: 0, items: null };
+  const id = String(c.id ?? c.category_id ?? c.categoryId ?? '').trim();
+  const name = String(c.name ?? c.category_name ?? c.categoryName ?? c.title ?? c.group ?? 'General').trim() || 'General';
+  const count = Number(c.count ?? c.itemCount ?? c.total ?? (Array.isArray(c.items) ? c.items.length : 0));
+  const items = Array.isArray(c.items) ? c.items : null;
+  return { id: id || name, name, count, items };
+}
+
 async function refreshImportModalData() {
   const select = $('import-modal-source-select');
   const sourceId = select?.value;
@@ -3588,8 +3597,8 @@ async function refreshImportModalData() {
   if (!listContainer) return;
 
   listContainer.innerHTML = `
-    <div style="color:var(--text-muted); text-align:center; padding:2.5rem; font-size:0.9rem;">
-      <span style="font-size:1.8rem; display:block; margin-bottom:8px;">⏳</span>
+    <div style="color:var(--text-muted); text-align:center; padding:3rem; font-size:1rem;">
+      <span style="font-size:2.2rem; display:block; margin-bottom:10px;">⏳</span>
       Cargando catálogo y categorías del proveedor...
     </div>
   `;
@@ -3610,7 +3619,7 @@ async function refreshImportModalData() {
   }
 
   if (!provider) {
-    listContainer.innerHTML = `<div style="color:#ef4444; text-align:center; padding:2rem;">No se encontró la cuenta proveedora.</div>`;
+    listContainer.innerHTML = `<div style="color:#ef4444; text-align:center; padding:2.5rem; font-size:1rem;">No se encontró la cuenta proveedora.</div>`;
     return;
   }
 
@@ -3641,14 +3650,14 @@ async function refreshImportModalData() {
       if (items.length > 0) {
         const catMap = new Map();
         items.forEach(it => {
-          const cName = it.categoryName || 'General';
-          const cId = it.categoryId || cName;
+          const cName = String(it.categoryName ?? it.category_name ?? it.group ?? it.category ?? 'General').trim() || 'General';
+          const cId = String(it.categoryId ?? it.category_id ?? cName);
           if (!catMap.has(cName)) catMap.set(cName, { id: cId, name: cName, count: 0, items: [] });
           const entry = catMap.get(cName);
           entry.count++;
           entry.items.push(it);
         });
-        categories = [...catMap.values()].sort((a, b) => b.count - a.count);
+        categories = [...catMap.values()].map(normalizeCategoryItem).sort((a, b) => b.count - a.count);
       }
     }
 
@@ -3661,25 +3670,20 @@ async function refreshImportModalData() {
       if (cachedItems && cachedItems.length > 0) {
         const catMap = new Map();
         cachedItems.forEach(it => {
-          const cName = it.categoryName || 'General';
-          const cId = it.categoryId || cName;
+          const cName = String(it.categoryName ?? it.category_name ?? it.group ?? it.category ?? 'General').trim() || 'General';
+          const cId = String(it.categoryId ?? it.category_id ?? cName);
           if (!catMap.has(cName)) catMap.set(cName, { id: cId, name: cName, count: 0, items: [] });
           const entry = catMap.get(cName);
           entry.count++;
           entry.items.push(it);
         });
-        categories = [...catMap.values()].sort((a, b) => b.count - a.count);
+        categories = [...catMap.values()].map(normalizeCategoryItem).sort((a, b) => b.count - a.count);
       } else {
         const cachedCats = await cacheService.get(`${prefix}categories`);
         if (cachedCats) {
           const targetCats = type === 'movies' ? cachedCats.vod : (type === 'series' ? cachedCats.series : cachedCats.live);
-          if (targetCats && targetCats.length > 0) {
-            categories = targetCats.map(c => ({
-              id: c.id,
-              name: c.name,
-              count: c.itemCount || 0,
-              items: null
-            }));
+          if (Array.isArray(targetCats) && targetCats.length > 0) {
+            categories = targetCats.map(normalizeCategoryItem);
           }
         }
       }
@@ -3697,13 +3701,8 @@ async function refreshImportModalData() {
         });
         const allCats = await adapter.getCategories();
         const targetCats = type === 'movies' ? allCats.vod : (type === 'series' ? allCats.series : allCats.live);
-        if (targetCats && targetCats.length > 0) {
-          categories = targetCats.map(c => ({
-            id: c.id,
-            name: c.name,
-            count: c.itemCount || 0,
-            items: null
-          }));
+        if (Array.isArray(targetCats) && targetCats.length > 0) {
+          categories = targetCats.map(normalizeCategoryItem);
         }
       }
     }
@@ -3717,14 +3716,15 @@ async function refreshImportModalData() {
 }
 
 async function loadCategoryItemsForModal(cat) {
-  const catKey = String(cat.id || cat.name);
+  const normCat = normalizeCategoryItem(cat);
+  const catKey = String(normCat.id || normCat.name);
   if (_importModalState.categoryItemsCache.has(catKey)) {
     return _importModalState.categoryItemsCache.get(catKey);
   }
 
-  if (Array.isArray(cat.items) && cat.items.length > 0) {
-    _importModalState.categoryItemsCache.set(catKey, cat.items);
-    return cat.items;
+  if (Array.isArray(normCat.items) && normCat.items.length > 0) {
+    _importModalState.categoryItemsCache.set(catKey, normCat.items);
+    return normCat.items;
   }
 
   const provider = _importModalState.sourcePlaylistObj;
@@ -3736,10 +3736,14 @@ async function loadCategoryItemsForModal(cat) {
     const prefix = `cat_${btoa(unescape(encodeURIComponent(creds.base))).slice(0, 12)}_`;
     const cached = await cacheService.get(`${prefix}${type}`);
     if (Array.isArray(cached) && cached.length > 0) {
-      const matching = cached.filter(it => it.categoryName === cat.name || String(it.categoryId) === String(cat.id));
+      const matching = cached.filter(it => {
+        const itName = it.categoryName || it.category_name;
+        const itId = String(it.categoryId || it.category_id || '');
+        return (itName && itName.toLowerCase() === normCat.name.toLowerCase()) || (normCat.id && itId === String(normCat.id));
+      });
       if (matching.length > 0) {
         const mapped = matching.map(it => {
-          const sid = String(it.id || it.streamId || '');
+          const sid = String(it.id || it.streamId || it.stream_id || '');
           let url = it.streamUrl || it.url;
           if (!url && creds.base && creds.user && creds.pass) {
             url = type === 'series'
@@ -3752,10 +3756,10 @@ async function loadCategoryItemsForModal(cat) {
             id: sid,
             streamId: sid,
             name: it.name || it.title || 'Sin título',
-            categoryName: cat.name,
-            categoryId: cat.id,
-            logo: it.logo || it.streamIcon || it.cover || '',
-            containerExtension: it.containerExtension || (type === 'live' ? 'm3u8' : 'mp4'),
+            categoryName: normCat.name,
+            categoryId: normCat.id,
+            logo: it.logo || it.streamIcon || it.stream_icon || it.cover || '',
+            containerExtension: it.containerExtension || it.container_extension || (type === 'live' ? 'm3u8' : 'mp4'),
             streamUrl: url
           };
         });
@@ -3775,8 +3779,8 @@ async function loadCategoryItemsForModal(cat) {
         _password: creds.pass
       });
       const action = type === 'movies'
-        ? `get_vod_streams&category_id=${cat.id}`
-        : (type === 'series' ? `get_series&category_id=${cat.id}` : `get_live_streams&category_id=${cat.id}`);
+        ? `get_vod_streams&category_id=${normCat.id}`
+        : (type === 'series' ? `get_series&category_id=${normCat.id}` : `get_live_streams&category_id=${normCat.id}`);
       const rawStreams = await adapter._fetchAction(action);
       if (Array.isArray(rawStreams)) {
         const mapped = rawStreams.map(s => {
@@ -3791,8 +3795,8 @@ async function loadCategoryItemsForModal(cat) {
             id: sid,
             streamId: sid,
             name: s.name || s.title || 'Sin título',
-            categoryName: cat.name,
-            categoryId: cat.id,
+            categoryName: normCat.name,
+            categoryId: normCat.id,
             logo: s.stream_icon || s.cover || s.poster || '',
             containerExtension: ext,
             streamUrl: streamUrl
@@ -3802,7 +3806,7 @@ async function loadCategoryItemsForModal(cat) {
         return mapped;
       }
     } catch (e) {
-      console.warn(`[ImportModal] Error cargando items Xtream para ${cat.name}:`, e);
+      console.warn(`[ImportModal] Error cargando items Xtream para ${normCat.name}:`, e);
     }
   }
 
@@ -3885,15 +3889,18 @@ function renderImportModalCategoryList() {
 
   const query = (searchInput?.value || '').trim().toLowerCase();
   const filtered = query
-    ? _importModalState.categories.filter(c => c.name.toLowerCase().includes(query))
+    ? _importModalState.categories.filter(c => (c.name || '').toLowerCase().includes(query))
     : _importModalState.categories;
 
   if (filtered.length === 0) {
     listContainer.innerHTML = `
-      <div class="empty-state" style="padding:2.5rem; text-align:center;">
-        <div class="empty-icon" style="font-size:2rem;">🔍</div>
-        <div class="empty-title" style="color:var(--text-secondary); font-size:1rem; margin-top:0.5rem;">
-          ${query ? 'No hay categorías que coincidan con la búsqueda.' : 'No se encontraron categorías en esta sección para este proveedor.'}
+      <div class="empty-state" style="padding:3.5rem; text-align:center;">
+        <div class="empty-icon" style="font-size:2.8rem; margin-bottom:10px;">🔍</div>
+        <div class="empty-title" style="color:#ffffff; font-size:1.15rem; font-weight:700;">
+          ${query ? `No hay categorías que coincidan con "${escHtml(query)}"` : 'No se encontraron categorías en esta sección para este proveedor.'}
+        </div>
+        <div style="color:var(--text-secondary); font-size:0.9rem; margin-top:6px;">
+          Verifica que la cuenta proveedora tenga contenido activo en la sección seleccionada.
         </div>
       </div>
     `;
@@ -3905,20 +3912,25 @@ function renderImportModalCategoryList() {
 
   listContainer.innerHTML = '';
   filtered.forEach(c => {
-    const catKey = String(c.id || c.name);
-    const isCatChecked = _importModalState.selectedCatNames.has(c.name);
+    const norm = normalizeCategoryItem(c);
+    const catKey = String(norm.id || norm.name);
+    const isCatChecked = _importModalState.selectedCatNames.has(norm.name);
     const isExpanded = _importModalState.expandedCatIds.has(catKey);
     const isLoadingItems = _importModalState.loadingCatIds.has(catKey);
 
     const groupWrapper = document.createElement('div');
-    groupWrapper.className = 'cat-accordion-group';
+    groupWrapper.className = `cat-accordion-group ${isCatChecked ? 'is-selected' : ''} ${isExpanded ? 'is-expanded' : ''}`;
     groupWrapper.style.cssText = `
+      flex-shrink: 0;
+      width: 100%;
+      min-height: 52px;
       margin-bottom: 8px;
-      border: 1px solid ${isCatChecked ? 'rgba(0,229,255,0.45)' : (isExpanded ? 'rgba(0,229,255,0.3)' : 'rgba(255,255,255,0.06)')};
-      border-radius: 10px;
-      background: ${isCatChecked ? 'rgba(0,229,255,0.06)' : (isExpanded ? 'rgba(15,23,42,0.6)' : 'rgba(255,255,255,0.02)')};
+      border: 1px solid ${isCatChecked ? 'rgba(0,229,255,0.7)' : (isExpanded ? 'rgba(0,229,255,0.45)' : 'rgba(0,229,255,0.2)')};
+      border-radius: 12px;
+      background: ${isCatChecked ? 'rgba(0,229,255,0.08)' : (isExpanded ? '#0c1b2c' : '#081422')};
       overflow: hidden;
-      transition: border-color 0.2s, background 0.2s;
+      box-shadow: ${isCatChecked ? '0 0 16px rgba(0,229,255,0.18)' : '0 2px 8px rgba(0,0,0,0.4)'};
+      transition: all 0.2s ease;
     `;
 
     // Fila Principal de la Categoría
@@ -3928,26 +3940,29 @@ function renderImportModalCategoryList() {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 9px 12px;
-      gap: 10px;
+      padding: 10px 14px;
+      gap: 12px;
+      min-height: 52px;
       user-select: none;
+      cursor: pointer;
     `;
 
     headerRow.innerHTML = `
-      <div class="cat-row-left" style="display:flex; align-items:center; gap:9px; flex:1; min-width:0;">
-        <button type="button" class="btn-toggle-expand" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15); border-radius:6px; color:${isExpanded ? 'var(--accent-cyan)' : '#ffffff'}; cursor:pointer; width:28px; height:28px; display:inline-flex; align-items:center; justify-content:center; font-size:0.75rem; flex-shrink:0; transition:all 0.15s;" title="${isExpanded ? 'Contraer canales' : 'Ver canales individuales de esta categoría'}">
-          ${isExpanded ? '▼' : '▶'}
+      <div class="cat-row-left" style="display:flex; align-items:center; gap:12px; flex:1; min-width:0;">
+        <input type="checkbox" class="cat-row-check import-cat-check" ${isCatChecked ? 'checked' : ''} style="cursor:pointer; width:20px; height:20px; accent-color:#00e5ff; flex-shrink:0;" />
+        <button type="button" class="btn-toggle-expand" style="background:${isExpanded ? 'rgba(0,229,255,0.22)' : 'rgba(0,229,255,0.08)'}; border:1px solid ${isExpanded ? 'rgba(0,229,255,0.7)' : 'rgba(0,229,255,0.3)'}; border-radius:7px; color:#00e5ff; cursor:pointer; padding:5px 12px; display:inline-flex; align-items:center; gap:6px; font-size:0.82rem; font-weight:700; flex-shrink:0; transition:all 0.15s ease;" title="${isExpanded ? 'Ocultar canales individuales' : 'Ver canales individuales de esta categoría'}">
+          ${isExpanded ? '▼ Ocultar' : '▶ Ver Canales'}
         </button>
-        <input type="checkbox" class="cat-row-check import-cat-check" ${isCatChecked ? 'checked' : ''} style="cursor:pointer; width:17px; height:17px; flex-shrink:0;" />
-        <span class="cat-row-name" style="font-weight:600; font-size:0.92rem; color:${isCatChecked ? 'var(--accent-cyan)' : 'var(--text-primary)'}; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer;" title="${escHtml(c.name)}">
-          ${escHtml(c.name)}
+        <span style="font-size:1.15rem; flex-shrink:0;">📁</span>
+        <span class="cat-row-name" style="font-weight:700; font-size:1.02rem; color:${isCatChecked ? '#00e5ff' : '#ffffff'}; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; letter-spacing:0.2px;" title="${escHtml(norm.name)}">
+          ${escHtml(norm.name)}
         </span>
       </div>
-      <div class="cat-row-badges" style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
-        <span class="cat-count-badge" style="font-size:0.75rem; padding:3px 8px; border-radius:12px; background:rgba(255,255,255,0.06); color:var(--text-secondary); white-space:nowrap;">
-          ${c.count ? `${c.count} ${unitLabel}` : unitLabel}
+      <div class="cat-row-badges" style="display:flex; align-items:center; gap:10px; flex-shrink:0;">
+        <span class="cat-count-badge" style="font-size:0.8rem; font-weight:800; padding:4px 12px; border-radius:99px; background:rgba(0,229,255,0.12); border:1px solid rgba(0,229,255,0.3); color:#00e5ff; white-space:nowrap;">
+          ${norm.count ? `${norm.count.toLocaleString()} ${unitLabel}` : unitLabel}
         </span>
-        <button type="button" class="btn btn-secondary btn-sm btn-extract-single-cat" style="font-size:0.75rem; padding:3px 10px; color:var(--accent-cyan); border-color:rgba(0,229,255,0.3); font-weight:700; white-space:nowrap;" title="Añadir toda esta categoría completa">
+        <button type="button" class="btn btn-secondary btn-sm btn-extract-single-cat" style="font-size:0.8rem; padding:6px 14px; color:#02070d; background:linear-gradient(135deg, #00e5ff, #0099ff); border:none; border-radius:8px; font-weight:800; white-space:nowrap; box-shadow:0 2px 10px rgba(0,229,255,0.25); cursor:pointer;" title="Añadir toda esta categoría completa">
           ⚡ Toda la Cat.
         </button>
       </div>
@@ -3960,21 +3975,26 @@ function renderImportModalCategoryList() {
 
     expandBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      window.toggleImportCategoryExpand(c.id, c.name);
+      window.toggleImportCategoryExpand(norm.id, norm.name);
     });
 
     nameSpan.addEventListener('click', (e) => {
       e.stopPropagation();
-      window.toggleImportCategoryExpand(c.id, c.name);
+      window.toggleImportCategoryExpand(norm.id, norm.name);
+    });
+
+    headerRow.addEventListener('click', (e) => {
+      if (e.target.closest('button') || e.target === chk) return;
+      window.toggleImportCategoryExpand(norm.id, norm.name);
     });
 
     const toggleCatCheck = (e) => {
       const willBeChecked = (e.target === chk) ? chk.checked : !chk.checked;
       chk.checked = willBeChecked;
       if (willBeChecked) {
-        _importModalState.selectedCatNames.add(c.name);
+        _importModalState.selectedCatNames.add(norm.name);
       } else {
-        _importModalState.selectedCatNames.delete(c.name);
+        _importModalState.selectedCatNames.delete(norm.name);
       }
       renderImportModalCategoryList();
     };
@@ -3987,11 +4007,11 @@ function renderImportModalCategoryList() {
       const btn = e.currentTarget;
       const origText = btn.innerHTML;
       btn.disabled = true;
-      btn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Añadiendo...';
+      btn.innerHTML = '⏳ Añadiendo...';
       try {
-        await executeCategoryImport([c.name]);
+        await executeCategoryImport([norm.name]);
         btn.innerHTML = '✓ ¡Añadida!';
-        btn.style.color = '#10b981';
+        btn.style.background = '#10b981';
       } catch (err) {
         console.error('Error importando categoría:', err);
         btn.innerHTML = origText;
@@ -4000,7 +4020,7 @@ function renderImportModalCategoryList() {
           if (btn) {
             btn.disabled = false;
             btn.innerHTML = origText;
-            btn.style.color = 'var(--accent-cyan)';
+            btn.style.background = 'linear-gradient(135deg, #00e5ff, #0099ff)';
           }
         }, 3000);
       }
@@ -4013,16 +4033,16 @@ function renderImportModalCategoryList() {
       const drawer = document.createElement('div');
       drawer.className = 'cat-items-drawer';
       drawer.style.cssText = `
-        padding: 10px 14px 14px;
-        background: rgba(0,0,0,0.35);
-        border-top: 1px solid rgba(255,255,255,0.06);
+        padding: 12px 16px 16px;
+        background: rgba(4, 10, 18, 0.9);
+        border-top: 1px solid rgba(0, 229, 255, 0.2);
       `;
 
       if (isLoadingItems) {
         drawer.innerHTML = `
-          <div style="padding: 1.5rem; text-align: center; color: var(--accent-cyan); font-size: 0.85rem;">
-            <i class="ph ph-spinner ph-spin" style="font-size:1.4rem; display:block; margin-bottom:6px;"></i>
-            Cargando títulos individuales de "${escHtml(c.name)}"...
+          <div style="padding: 2rem; text-align: center; color: var(--accent-cyan); font-size: 0.95rem;">
+            <i class="ph ph-spinner ph-spin" style="font-size:1.8rem; display:block; margin-bottom:8px;"></i>
+            Cargando títulos individuales de "${escHtml(norm.name)}"...
           </div>
         `;
       } else {
@@ -4036,22 +4056,22 @@ function renderImportModalCategoryList() {
 
         drawer.innerHTML = `
           <!-- Toolbar interno de la categoría -->
-          <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
-            <div style="flex:1; min-width:180px; position:relative;">
-              <input type="text" class="form-input drawer-item-search" placeholder="Filtrar en ${escHtml(c.name)}..." value="${escHtml(itemFilter)}" style="width:100%; padding:4px 8px; font-size:0.8rem; background:#07111c; border:1px solid rgba(0,229,255,0.25); border-radius:6px; color:#fff;" />
+          <div style="display:flex; gap:10px; align-items:center; margin-bottom:12px; flex-wrap:wrap;">
+            <div style="flex:1; min-width:200px; position:relative;">
+              <input type="text" class="form-input drawer-item-search" placeholder="🔍 Filtrar títulos en ${escHtml(norm.name)}..." value="${escHtml(itemFilter)}" style="width:100%; padding:6px 10px; font-size:0.85rem; background:#07111c; border:1px solid rgba(0,229,255,0.3); border-radius:7px; color:#fff;" />
             </div>
-            <button type="button" class="btn btn-secondary btn-sm btn-select-all-in-cat" style="font-size:0.72rem; padding:3px 8px;" title="Marcar todos los de esta categoría">
+            <button type="button" class="btn btn-secondary btn-sm btn-select-all-in-cat" style="font-size:0.78rem; padding:5px 12px; font-weight:700;" title="Marcar todos los de esta categoría">
               ☑️ Marcar todos (${filteredItems.length})
             </button>
-            <button type="button" class="btn btn-secondary btn-sm btn-deselect-all-in-cat" style="font-size:0.72rem; padding:3px 8px;" title="Desmarcar todos los de esta categoría">
+            <button type="button" class="btn btn-secondary btn-sm btn-deselect-all-in-cat" style="font-size:0.78rem; padding:5px 12px; font-weight:700;" title="Desmarcar todos los de esta categoría">
               ⬜ Desmarcar
             </button>
           </div>
 
           <!-- Lista de canales / títulos -->
-          <div class="drawer-items-list" style="max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding-right: 4px;">
+          <div class="drawer-items-list" style="max-height: 280px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 6px;">
             ${filteredItems.length === 0 ? `
-              <div style="padding:1rem; text-align:center; color:var(--text-muted); font-size:0.82rem;">
+              <div style="padding:1.5rem; text-align:center; color:var(--text-muted); font-size:0.9rem;">
                 ${items.length === 0 ? 'No se encontraron elementos disponibles en el servidor para esta categoría.' : 'Ningún título coincide con el filtro.'}
               </div>
             ` : filteredItems.map(it => {
@@ -4059,15 +4079,15 @@ function renderImportModalCategoryList() {
               const isChecked = _importModalState.selectedItemMap.has(sid);
               const itemEncoded = encodeURIComponent(JSON.stringify(it));
               return `
-                <div class="drawer-item-row" style="display:flex; align-items:center; justify-content:space-between; padding:5px 8px; border-radius:6px; background:${isChecked ? 'rgba(0,229,255,0.12)' : 'rgba(255,255,255,0.03)'}; border:1px solid ${isChecked ? 'rgba(0,229,255,0.35)' : 'rgba(255,255,255,0.04)'}; gap:8px;">
-                  <div style="display:flex; align-items:center; gap:8px; flex:1; min-width:0; cursor:pointer;" onclick="window.toggleImportItem('${sid}', '${itemEncoded}')">
-                    <input type="checkbox" ${isChecked ? 'checked' : ''} style="cursor:pointer; width:15px; height:15px; flex-shrink:0;" onclick="event.stopPropagation(); window.toggleImportItem('${sid}', '${itemEncoded}')" />
-                    <span style="font-size:0.85rem; flex-shrink:0;">${it.logo ? `<img src="${escHtml(it.logo)}" style="width:20px; height:20px; object-fit:contain; border-radius:3px;" onerror="this.style.display='none'" />` : catIcon}</span>
-                    <span style="font-size:0.82rem; font-weight:${isChecked ? '700' : '400'}; color:${isChecked ? 'var(--accent-cyan)' : '#f1f5f9'}; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escHtml(it.name)}">
+                <div class="drawer-item-row" style="display:flex; align-items:center; justify-content:space-between; padding:7px 10px; border-radius:8px; background:${isChecked ? 'rgba(0,229,255,0.12)' : 'rgba(255,255,255,0.03)'}; border:1px solid ${isChecked ? 'rgba(0,229,255,0.45)' : 'rgba(255,255,255,0.05)'}; gap:10px;">
+                  <div style="display:flex; align-items:center; gap:10px; flex:1; min-width:0; cursor:pointer;" onclick="window.toggleImportItem('${sid}', '${itemEncoded}')">
+                    <input type="checkbox" ${isChecked ? 'checked' : ''} style="cursor:pointer; width:17px; height:17px; accent-color:#00e5ff; flex-shrink:0;" onclick="event.stopPropagation(); window.toggleImportItem('${sid}', '${itemEncoded}')" />
+                    <span style="font-size:1rem; flex-shrink:0;">${it.logo ? `<img src="${escHtml(it.logo)}" style="width:24px; height:24px; object-fit:contain; border-radius:4px;" onerror="this.style.display='none'" />` : catIcon}</span>
+                    <span style="font-size:0.88rem; font-weight:${isChecked ? '700' : '500'}; color:${isChecked ? '#00e5ff' : '#f8fafc'}; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escHtml(it.name)}">
                       ${escHtml(it.name)}
                     </span>
                   </div>
-                  <button type="button" class="btn btn-secondary btn-sm" style="font-size:0.7rem; padding:2px 7px; color:var(--accent-cyan); border-color:rgba(0,229,255,0.25); white-space:nowrap; flex-shrink:0;" onclick="window.importSingleItemDirectly('${itemEncoded}')" title="Añadir solo este canal/título">
+                  <button type="button" class="btn btn-secondary btn-sm" style="font-size:0.75rem; padding:4px 10px; color:#00e5ff; border:1px solid rgba(0,229,255,0.35); border-radius:6px; font-weight:700; white-space:nowrap; flex-shrink:0;" onclick="window.importSingleItemDirectly('${itemEncoded}')" title="Añadir solo este canal/título">
                     ⚡ Añadir
                   </button>
                 </div>
@@ -4080,7 +4100,6 @@ function renderImportModalCategoryList() {
         const searchBox = drawer.querySelector('.drawer-item-search');
         searchBox?.addEventListener('input', (e) => {
           _importModalState.categoryItemSearches.set(catKey, e.target.value.toLowerCase());
-          // Actualizar solo los items sin recargar toda la UI
           const targetItems = _importModalState.categoryItemsCache.get(catKey) || [];
           const curVal = (e.target.value || '').trim().toLowerCase();
           const targetFiltered = curVal
@@ -4090,7 +4109,7 @@ function renderImportModalCategoryList() {
           const listEl = drawer.querySelector('.drawer-items-list');
           if (listEl) {
             listEl.innerHTML = targetFiltered.length === 0 ? `
-              <div style="padding:1rem; text-align:center; color:var(--text-muted); font-size:0.82rem;">
+              <div style="padding:1.5rem; text-align:center; color:var(--text-muted); font-size:0.9rem;">
                 Ningún título coincide con "${escHtml(curVal)}".
               </div>
             ` : targetFiltered.map(it => {
@@ -4098,15 +4117,15 @@ function renderImportModalCategoryList() {
               const isChecked = _importModalState.selectedItemMap.has(sid);
               const itemEncoded = encodeURIComponent(JSON.stringify(it));
               return `
-                <div class="drawer-item-row" style="display:flex; align-items:center; justify-content:space-between; padding:5px 8px; border-radius:6px; background:${isChecked ? 'rgba(0,229,255,0.12)' : 'rgba(255,255,255,0.03)'}; border:1px solid ${isChecked ? 'rgba(0,229,255,0.35)' : 'rgba(255,255,255,0.04)'}; gap:8px;">
-                  <div style="display:flex; align-items:center; gap:8px; flex:1; min-width:0; cursor:pointer;" onclick="window.toggleImportItem('${sid}', '${itemEncoded}')">
-                    <input type="checkbox" ${isChecked ? 'checked' : ''} style="cursor:pointer; width:15px; height:15px; flex-shrink:0;" onclick="event.stopPropagation(); window.toggleImportItem('${sid}', '${itemEncoded}')" />
-                    <span style="font-size:0.85rem; flex-shrink:0;">${it.logo ? `<img src="${escHtml(it.logo)}" style="width:20px; height:20px; object-fit:contain; border-radius:3px;" onerror="this.style.display='none'" />` : catIcon}</span>
-                    <span style="font-size:0.82rem; font-weight:${isChecked ? '700' : '400'}; color:${isChecked ? 'var(--accent-cyan)' : '#f1f5f9'}; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escHtml(it.name)}">
+                <div class="drawer-item-row" style="display:flex; align-items:center; justify-content:space-between; padding:7px 10px; border-radius:8px; background:${isChecked ? 'rgba(0,229,255,0.12)' : 'rgba(255,255,255,0.03)'}; border:1px solid ${isChecked ? 'rgba(0,229,255,0.45)' : 'rgba(255,255,255,0.05)'}; gap:10px;">
+                  <div style="display:flex; align-items:center; gap:10px; flex:1; min-width:0; cursor:pointer;" onclick="window.toggleImportItem('${sid}', '${itemEncoded}')">
+                    <input type="checkbox" ${isChecked ? 'checked' : ''} style="cursor:pointer; width:17px; height:17px; accent-color:#00e5ff; flex-shrink:0;" onclick="event.stopPropagation(); window.toggleImportItem('${sid}', '${itemEncoded}')" />
+                    <span style="font-size:1rem; flex-shrink:0;">${it.logo ? `<img src="${escHtml(it.logo)}" style="width:24px; height:24px; object-fit:contain; border-radius:4px;" onerror="this.style.display='none'" />` : catIcon}</span>
+                    <span style="font-size:0.88rem; font-weight:${isChecked ? '700' : '500'}; color:${isChecked ? '#00e5ff' : '#f8fafc'}; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escHtml(it.name)}">
                       ${escHtml(it.name)}
                     </span>
                   </div>
-                  <button type="button" class="btn btn-secondary btn-sm" style="font-size:0.7rem; padding:2px 7px; color:var(--accent-cyan); border-color:rgba(0,229,255,0.25); white-space:nowrap; flex-shrink:0;" onclick="window.importSingleItemDirectly('${itemEncoded}')" title="Añadir solo este canal/título">
+                  <button type="button" class="btn btn-secondary btn-sm" style="font-size:0.75rem; padding:4px 10px; color:#00e5ff; border:1px solid rgba(0,229,255,0.35); border-radius:6px; font-weight:700; white-space:nowrap; flex-shrink:0;" onclick="window.importSingleItemDirectly('${itemEncoded}')" title="Añadir solo este canal/título">
                     ⚡ Añadir
                   </button>
                 </div>
