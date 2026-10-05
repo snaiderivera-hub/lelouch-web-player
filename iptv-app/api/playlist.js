@@ -13,6 +13,7 @@
  */
 
 import crypto from 'node:crypto';
+import zlib from 'node:zlib';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://rotupbdeljgfddywryhk.supabase.co';
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvdHVwYmRlbGpnZmRkeXdyeWhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzNjA2MzksImV4cCI6MjEwNTkzNjYzOX0.zDVgrQo_IU5FhfSMpl0-MbS9Eod43czS21TBi5Z3Lvo';
@@ -28,6 +29,7 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const SERVER_AUTH_KEY = SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY;
 
 export const config = {
+  maxDuration: 60,
   api: {
     responseLimit: false,
   },
@@ -118,6 +120,7 @@ class PlaylistGenerator {
         timeshift: item.catchup?.days ? String(item.catchup.days) : '',
         kodiProps: item.kodiProps || {},
         extraAttributes: item.extraAttributes || {},
+        mediaType: item.mediaType || item.media_type || (item.url?.includes('/series/') ? 'series' : (item.url?.includes('/movie/') ? 'movie' : 'live')),
         line: idx + 1,
         raw: ''
       }))
@@ -174,6 +177,9 @@ class PlaylistGenerator {
 
       const group = it.group?.title || 'General';
       extinf += ` group-title="${this._escapeAttr(group)}"`;
+
+      const itemMediaType = it.mediaType || (streamUrl.includes('/series/') ? 'series' : (streamUrl.includes('/movie/') ? 'movie' : 'live'));
+      extinf += ` tvg-type="${this._escapeAttr(itemMediaType)}" media-type="${this._escapeAttr(itemMediaType)}"`;
 
       if (includeCatchup && it.catchup) {
         const catchupType = it.catchup.type || 'default';
@@ -348,17 +354,8 @@ export default async function handler(req, res) {
       })
     }).catch(err => console.warn('[API Playlist] Error actualizando métricas de token:', redactSensitiveUrl(err?.message || String(err))));
 
-    // 5. Consultar los items resueltos de la vista 'v_resolved_playlist_items' y la playlist
-    const itemsUrl = `${SUPABASE_URL}/rest/v1/v_resolved_playlist_items?playlist_id=eq.${tokenRecord.playlist_id}&enabled=eq.true&order=position.asc`;
-    const [itemsRes, playlistRes] = await Promise.all([
-      fetch(itemsUrl, { headers }),
-      fetch(`${SUPABASE_URL}/rest/v1/custom_playlists?id=eq.${tokenRecord.playlist_id}&select=name,enabled,description,version,updated_at`, { headers })
-    ]);
-
-    if (!itemsRes.ok) {
-      console.error('[API Playlist] Error obteniendo items:', redactSensitiveUrl(await itemsRes.text()));
-      return sendError(500, 'Error cargando items de la lista');
-    }
+    // 5. Consultar metadatos y versión de la playlist
+    const playlistRes = await fetch(`${SUPABASE_URL}/rest/v1/custom_playlists?id=eq.${tokenRecord.playlist_id}&select=name,enabled,description,version,updated_at`, { headers });
 
     let playlistName = 'Mi Lista LELOUCH';
     let playlistVersion = 1;
@@ -409,27 +406,106 @@ export default async function handler(req, res) {
       });
     }
 
-    const items = await itemsRes.json();
+    // 6. Consultar los items resueltos de la vista 'v_resolved_playlist_items' con paginación robusta
+    // Supabase PostgREST tiene un tope estricto de 1000 filas por petición (max-rows = 1000).
+    // Paginamos secuencialmente para evitar agotar el pool de conexiones y timeouts.
+    let allItems = [];
+    const PAGE_SIZE = 1000;
+    const MAX_PAGES = Number(process.env.MAX_PLAYLIST_PAGES) || 60; // Soporta hasta 60,000 elementos
+    let offset = 0;
+    let reachedEnd = false;
+
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const pageUrl = `${SUPABASE_URL}/rest/v1/v_resolved_playlist_items?playlist_id=eq.${tokenRecord.playlist_id}&enabled=eq.true&order=position.asc&select=id,name,direct_name,group,direct_group,logo,direct_logo,resolved_stream_url,direct_url,media_type,tvg_id,tvg_name,position,container_extension&limit=${PAGE_SIZE}&offset=${offset}`;
+
+      let pageRes;
+      try {
+        pageRes = await fetch(pageUrl, { headers });
+      } catch (fetchErr) {
+        console.error(`[API Playlist] Error de red al consultar página ${page} (offset ${offset}):`, redactSensitiveUrl(fetchErr?.message || String(fetchErr)));
+        return sendError(502, `Error de conexión con la base de datos en página ${page} (offset ${offset})`);
+      }
+
+      if (!pageRes.ok) {
+        const errText = await pageRes.text();
+        console.error(`[API Playlist] Error Supabase HTTP ${pageRes.status} en página ${page} (offset ${offset}):`, redactSensitiveUrl(errText));
+        return sendError(502, `Error al cargar página ${page} (offset ${offset}) desde la base de datos`);
+      }
+
+      let pageData;
+      try {
+        pageData = await pageRes.json();
+      } catch (jsonErr) {
+        console.error(`[API Playlist] Error parseando respuesta JSON en página ${page} (offset ${offset}):`, jsonErr);
+        return sendError(500, `Respuesta malformada en página ${page} (offset ${offset})`);
+      }
+
+      if (!Array.isArray(pageData) || pageData.length === 0) {
+        reachedEnd = true;
+        break; // Fin del catálogo alcanzado
+      }
+
+      allItems = allItems.concat(pageData);
+
+      // Si el lote vino con menos de PAGE_SIZE, es la última página
+      if (pageData.length < PAGE_SIZE) {
+        reachedEnd = true;
+        break;
+      }
+
+      offset += PAGE_SIZE;
+    }
+
+    // FASE 31 / P0 #1: Si el catálogo supera MAX_PAGES y no alcanzó el fin natural,
+    // NUNCA devolver una playlist mutilada/parcial como HTTP 200.
+    // Devolver error explícito 413 (Payload Too Large) indicando el límite exacto.
+    if (!reachedEnd) {
+      console.error(`[API Playlist] Playlist excede el límite máximo de ${MAX_PAGES * PAGE_SIZE} elementos`);
+      return sendError(413, `La playlist supera el límite máximo de ${MAX_PAGES * PAGE_SIZE} elementos permitido por el servidor`);
+    }
+
+    const items = allItems;
 
     // Mapear a LelouchMediaItem[] canónico con URLs directas al proveedor (FASE 21 & 27)
     // FASE 27: custom_name y custom_group tienen precedencia sobre los valores por defecto del proveedor
-    const mediaItems = items.map((it, idx) => ({
-      id: it.id,
-      name: it.custom_name || it.name || it.direct_name || 'Canal',
-      streamUrl: unwrapProxyUrl(it.resolved_stream_url || it.direct_url),
-      group: it.custom_group || it.group || it.direct_group || 'General',
-      logo: it.custom_logo || it.logo || it.direct_logo || '',
-      tvgId: it.tvg_id || '',
-      tvgName: it.tvg_name || it.custom_name || it.name || '',
-      mediaType: it.media_type || 'live',
-      sortOrder: it.position ?? idx,
-      isEnabled: it.enabled !== false,
-      itemType: it.item_type || 'catalog',
-      headers: it.metadata?.headers || null,
-      kodiProps: it.metadata?.kodiProps || null,
-      catchup: it.metadata?.catchup || null,
-      extraAttributes: it.metadata?.extraAttributes || null
-    }));
+    const mediaItems = items.map((it, idx) => {
+      const streamUrl = unwrapProxyUrl(it.resolved_stream_url || it.direct_url);
+      const itemName = it.custom_name || it.name || it.direct_name || 'Canal';
+      const itemGroup = it.custom_group || it.group || it.direct_group || 'General';
+      let mediaType = (it.media_type || '').toLowerCase();
+      if (!mediaType || mediaType === 'live') {
+        const lUrl = streamUrl.toLowerCase();
+        const lName = itemName.toLowerCase();
+        const lGrp = itemGroup.toLowerCase();
+        const hasEpisodePattern = /\b(s\d{1,2}|t\d{1,2}|cap\.?\s*\d+|ep\.?\s*\d+|temporada\s*\d+)\b/i.test(lName);
+        const isSeriesGroup = lGrp.includes('serie') || lGrp.includes('temporada') || lGrp.includes('season') || lGrp.includes('dorama') || lGrp.includes('anime') || lGrp.includes('novela');
+        const isMovieGroup = lGrp.includes('película') || lGrp.includes('pelicula') || lGrp.includes('movie') || lGrp.includes('cine') || lGrp.includes('estrenos') || lGrp.includes('vod');
+        if (lUrl.includes('/series/') || isSeriesGroup || hasEpisodePattern) {
+          mediaType = 'series';
+        } else if (lUrl.includes('/movie/') || isMovieGroup || (lUrl.endsWith('.mp4') && !lUrl.includes('.m3u8'))) {
+          mediaType = 'movie';
+        } else {
+          mediaType = mediaType || 'live';
+        }
+      }
+      return {
+        id: it.id,
+        name: itemName,
+        streamUrl,
+        group: itemGroup,
+        logo: it.custom_logo || it.logo || it.direct_logo || '',
+        tvgId: it.tvg_id || '',
+        tvgName: it.tvg_name || it.custom_name || it.name || '',
+        mediaType,
+        sortOrder: it.position ?? idx,
+        isEnabled: it.enabled !== false,
+        itemType: it.item_type || 'catalog',
+        headers: it.metadata?.headers || null,
+        kodiProps: it.metadata?.kodiProps || null,
+        catchup: it.metadata?.catchup || null,
+        extraAttributes: it.metadata?.extraAttributes || null
+      };
+    });
 
     // FASE 17 - CASO B: Entrega nativa de Playlist Manifest JSON (Lelouch TV / Phone / Web)
     // Lelouch TV -> playlist manifest JSON -> Room -> TV UI (sin re-parsear M3U)
@@ -459,6 +535,14 @@ export default async function handler(req, res) {
         return res.status(200).end();
       }
 
+      const acceptEncoding = (req.headers['accept-encoding'] || '').toLowerCase();
+      if (acceptEncoding.includes('gzip')) {
+        const compressed = zlib.gzipSync(Buffer.from(jsonBody, 'utf8'));
+        res.setHeader('Content-Encoding', 'gzip');
+        res.setHeader('Content-Length', String(compressed.length));
+        return res.status(200).send(compressed);
+      }
+
       return res.status(200).send(jsonBody);
     }
 
@@ -471,7 +555,6 @@ export default async function handler(req, res) {
     const contentLength = Buffer.byteLength(m3uContent, 'utf8');
 
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
-    res.setHeader('Content-Length', String(contentLength));
     res.setHeader('Cache-Control', 'no-store, max-age=0');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Playlist-Version', String(playlistVersion));
@@ -479,9 +562,19 @@ export default async function handler(req, res) {
     res.setHeader('Content-Disposition', `inline; filename="${safeFilename}.m3u"`);
 
     if (req.method === 'HEAD') {
+      res.setHeader('Content-Length', String(contentLength));
       return res.status(200).end();
     }
 
+    const acceptEncoding = (req.headers['accept-encoding'] || '').toLowerCase();
+    if (acceptEncoding.includes('gzip')) {
+      const compressed = zlib.gzipSync(Buffer.from(m3uContent, 'utf8'));
+      res.setHeader('Content-Encoding', 'gzip');
+      res.setHeader('Content-Length', String(compressed.length));
+      return res.status(200).send(compressed);
+    }
+
+    res.setHeader('Content-Length', String(contentLength));
     return res.status(200).send(m3uContent);
 
   } catch (error) {

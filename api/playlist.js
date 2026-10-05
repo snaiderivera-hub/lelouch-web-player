@@ -29,6 +29,7 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const SERVER_AUTH_KEY = SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY;
 
 export const config = {
+  maxDuration: 60,
   api: {
     responseLimit: false,
   },
@@ -405,42 +406,62 @@ export default async function handler(req, res) {
       });
     }
 
-    // 6. Consultar los items resueltos de la vista 'v_resolved_playlist_items' con paginación
-    // Supabase PostgREST tiene un tope estricto de 1000 filas por petición. Paginamos por lotes.
+    // 6. Consultar los items resueltos de la vista 'v_resolved_playlist_items' con paginación robusta
+    // Supabase PostgREST tiene un tope estricto de 1000 filas por petición (max-rows = 1000).
+    // Paginamos secuencialmente para evitar agotar el pool de conexiones y timeouts.
     let allItems = [];
     const PAGE_SIZE = 1000;
-    const page0Url = `${SUPABASE_URL}/rest/v1/v_resolved_playlist_items?playlist_id=eq.${tokenRecord.playlist_id}&enabled=eq.true&order=position.asc&select=id,name,direct_name,group,direct_group,logo,direct_logo,resolved_stream_url,direct_url,media_type,tvg_id,tvg_name,position,container_extension&limit=${PAGE_SIZE}&offset=0`;
-    const res0 = await fetch(page0Url, { headers });
+    const MAX_PAGES = Number(process.env.MAX_PLAYLIST_PAGES) || 60; // Soporta hasta 60,000 elementos
+    let offset = 0;
+    let reachedEnd = false;
 
-    if (!res0.ok) {
-      console.error('[API Playlist] Error obteniendo items:', redactSensitiveUrl(await res0.text()));
-      return sendError(500, 'Error cargando items de la lista');
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const pageUrl = `${SUPABASE_URL}/rest/v1/v_resolved_playlist_items?playlist_id=eq.${tokenRecord.playlist_id}&enabled=eq.true&order=position.asc&select=id,name,direct_name,group,direct_group,logo,direct_logo,resolved_stream_url,direct_url,media_type,tvg_id,tvg_name,position,container_extension&limit=${PAGE_SIZE}&offset=${offset}`;
+
+      let pageRes;
+      try {
+        pageRes = await fetch(pageUrl, { headers });
+      } catch (fetchErr) {
+        console.error(`[API Playlist] Error de red al consultar página ${page} (offset ${offset}):`, redactSensitiveUrl(fetchErr?.message || String(fetchErr)));
+        return sendError(502, `Error de conexión con la base de datos en página ${page} (offset ${offset})`);
+      }
+
+      if (!pageRes.ok) {
+        const errText = await pageRes.text();
+        console.error(`[API Playlist] Error Supabase HTTP ${pageRes.status} en página ${page} (offset ${offset}):`, redactSensitiveUrl(errText));
+        return sendError(502, `Error al cargar página ${page} (offset ${offset}) desde la base de datos`);
+      }
+
+      let pageData;
+      try {
+        pageData = await pageRes.json();
+      } catch (jsonErr) {
+        console.error(`[API Playlist] Error parseando respuesta JSON en página ${page} (offset ${offset}):`, jsonErr);
+        return sendError(500, `Respuesta malformada en página ${page} (offset ${offset})`);
+      }
+
+      if (!Array.isArray(pageData) || pageData.length === 0) {
+        reachedEnd = true;
+        break; // Fin del catálogo alcanzado
+      }
+
+      allItems = allItems.concat(pageData);
+
+      // Si el lote vino con menos de PAGE_SIZE, es la última página
+      if (pageData.length < PAGE_SIZE) {
+        reachedEnd = true;
+        break;
+      }
+
+      offset += PAGE_SIZE;
     }
 
-    const data0 = await res0.json();
-    allItems = Array.isArray(data0) ? data0 : [];
-
-    // Si la primera página vino llena (1000 items), consultar páginas restantes en paralelo
-    if (allItems.length === PAGE_SIZE) {
-      const remainingOffsets = [];
-      for (let offset = 1000; offset < 35000; offset += 1000) {
-        remainingOffsets.push(offset);
-      }
-      const pagePromises = remainingOffsets.map(async (offset) => {
-        const pUrl = `${SUPABASE_URL}/rest/v1/v_resolved_playlist_items?playlist_id=eq.${tokenRecord.playlist_id}&enabled=eq.true&order=position.asc&select=id,name,direct_name,group,direct_group,logo,direct_logo,resolved_stream_url,direct_url,media_type,tvg_id,tvg_name,position,container_extension&limit=${PAGE_SIZE}&offset=${offset}`;
-        try {
-          const r = await fetch(pUrl, { headers });
-          return r.ok ? await r.json() : [];
-        } catch {
-          return [];
-        }
-      });
-      const results = await Promise.all(pagePromises);
-      for (const batch of results) {
-        if (Array.isArray(batch) && batch.length > 0) {
-          allItems = allItems.concat(batch);
-        }
-      }
+    // FASE 31 / P0 #1: Si el catálogo supera MAX_PAGES y no alcanzó el fin natural,
+    // NUNCA devolver una playlist mutilada/parcial como HTTP 200.
+    // Devolver error explícito 413 (Payload Too Large) indicando el límite exacto.
+    if (!reachedEnd) {
+      console.error(`[API Playlist] Playlist excede el límite máximo de ${MAX_PAGES * PAGE_SIZE} elementos`);
+      return sendError(413, `La playlist supera el límite máximo de ${MAX_PAGES * PAGE_SIZE} elementos permitido por el servidor`);
     }
 
     const items = allItems;
