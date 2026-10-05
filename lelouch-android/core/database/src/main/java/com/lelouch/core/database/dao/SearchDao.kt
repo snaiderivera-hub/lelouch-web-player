@@ -56,15 +56,22 @@ interface SearchDao {
     @Query("""
         SELECT channels.* FROM channels
         WHERE channels.sourceId = :sourceId
+          AND (:hideAdult = 0 OR channels.isAdult = 0)
           AND channels.rowid IN (SELECT docid FROM channels_fts WHERE channels_fts MATCH :ftsQuery)
         ORDER BY channels.num ASC, channels.name ASC, channels.id ASC
         LIMIT :limit
     """)
-    suspend fun searchChannelsFts(sourceId: String, ftsQuery: String, limit: Int = 20): List<ChannelEntity>
+    suspend fun searchChannelsFts(
+        sourceId: String,
+        ftsQuery: String,
+        hideAdult: Boolean = false,
+        limit: Int = 20
+    ): List<ChannelEntity>
 
     @Query("""
         SELECT channels.* FROM channels
         WHERE channels.sourceId = :sourceId
+          AND (:hideAdult = 0 OR channels.isAdult = 0)
           AND channels.categoryId NOT IN (:hiddenCategoryIds)
           AND channels.rowid IN (SELECT docid FROM channels_fts WHERE channels_fts MATCH :ftsQuery)
         ORDER BY channels.num ASC, channels.name ASC, channels.id ASC
@@ -74,12 +81,14 @@ interface SearchDao {
         sourceId: String,
         ftsQuery: String,
         hiddenCategoryIds: List<String>,
+        hideAdult: Boolean = false,
         limit: Int = 20
     ): List<ChannelEntity>
 
     @Query("""
         SELECT * FROM channels
         WHERE sourceId = :sourceId
+          AND (:hideAdult = 0 OR isAdult = 0)
           AND (name LIKE '%' || :query || '%' OR name LIKE '%' || :strippedQuery || '%')
         ORDER BY num ASC, name ASC, id ASC
         LIMIT :limit
@@ -88,12 +97,14 @@ interface SearchDao {
         sourceId: String,
         query: String,
         strippedQuery: String,
+        hideAdult: Boolean = false,
         limit: Int = 20
     ): List<ChannelEntity>
 
     @Query("""
         SELECT * FROM channels
         WHERE sourceId = :sourceId
+          AND (:hideAdult = 0 OR isAdult = 0)
           AND categoryId NOT IN (:hiddenCategoryIds)
           AND (name LIKE '%' || :query || '%' OR name LIKE '%' || :strippedQuery || '%')
         ORDER BY num ASC, name ASC, id ASC
@@ -104,24 +115,28 @@ interface SearchDao {
         query: String,
         strippedQuery: String,
         hiddenCategoryIds: List<String>,
+        hideAdult: Boolean = false,
         limit: Int = 20
     ): List<ChannelEntity>
 
     @Query("""
         SELECT * FROM channels
         WHERE sourceId = :sourceId
+          AND (:hideAdult = 0 OR isAdult = 0)
           AND (name LIKE '%' || :query || '%' OR name LIKE '%' || :strippedQuery || '%')
         ORDER BY num ASC, name ASC, id ASC
     """)
     fun searchChannelsPaging(
         sourceId: String,
         query: String,
-        strippedQuery: String
+        strippedQuery: String,
+        hideAdult: Boolean = false
     ): PagingSource<Int, ChannelEntity>
 
     @Query("""
         SELECT * FROM channels
         WHERE sourceId = :sourceId
+          AND (:hideAdult = 0 OR isAdult = 0)
           AND categoryId NOT IN (:hiddenCategoryIds)
           AND (name LIKE '%' || :query || '%' OR name LIKE '%' || :strippedQuery || '%')
         ORDER BY num ASC, name ASC, id ASC
@@ -130,7 +145,8 @@ interface SearchDao {
         sourceId: String,
         query: String,
         strippedQuery: String,
-        hiddenCategoryIds: List<String>
+        hiddenCategoryIds: List<String>,
+        hideAdult: Boolean = false
     ): PagingSource<Int, ChannelEntity>
 
     // --- 2. MOVIES ---

@@ -100,6 +100,7 @@ class ChannelRepositoryImpl(
         sourceId: String,
         query: String,
         hiddenCategoryIds: List<String>,
+        hideAdult: Boolean,
         limit: Int
     ): List<LiveStream> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val normalized = com.lelouch.core.domain.search.SearchQueryNormalizer.normalize(query)
@@ -110,9 +111,9 @@ class ChannelRepositoryImpl(
             val ftsResults = if (ftsQuery.isNotBlank()) {
                 try {
                     if (hiddenCategoryIds.isNotEmpty()) {
-                        searchDao.searchChannelsFtsExcludingCategories(sourceId, ftsQuery, hiddenCategoryIds, limit)
+                        searchDao.searchChannelsFtsExcludingCategories(sourceId, ftsQuery, hiddenCategoryIds, hideAdult, limit)
                     } else {
-                        searchDao.searchChannelsFts(sourceId, ftsQuery, limit)
+                        searchDao.searchChannelsFts(sourceId, ftsQuery, hideAdult, limit)
                     }
                 } catch (e: Exception) {
                     emptyList()
@@ -125,9 +126,9 @@ class ChannelRepositoryImpl(
 
             val stripped = com.lelouch.core.domain.search.SearchQueryNormalizer.stripAccents(normalized)
             val likeResults = if (hiddenCategoryIds.isNotEmpty()) {
-                searchDao.searchChannelsLikeExcludingCategories(sourceId, normalized, stripped, hiddenCategoryIds, limit)
+                searchDao.searchChannelsLikeExcludingCategories(sourceId, normalized, stripped, hiddenCategoryIds, hideAdult, limit)
             } else {
-                searchDao.searchChannelsLike(sourceId, normalized, stripped, limit)
+                searchDao.searchChannelsLike(sourceId, normalized, stripped, hideAdult, limit)
             }
             likeResults.map { it.toDomain() }
         } else {

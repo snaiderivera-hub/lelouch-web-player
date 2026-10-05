@@ -72,6 +72,7 @@ fun TvSearchContent(
     hiddenLiveCategories: Set<String>,
     hiddenMovieCategories: Set<String>,
     hiddenSeriesCategories: Set<String>,
+    hideAdult: Boolean = false,
     popularMovies: List<VodMovie>,
     onSelectChannel: (ChannelUiModel) -> Unit,
     onSelectMovie: (VodMovie) -> Unit,
@@ -89,7 +90,7 @@ fun TvSearchContent(
 
     val isSearching = searchQuery.trim().length >= 2
 
-    LaunchedEffect(activeSourceId, hiddenLiveCategories, hiddenMovieCategories, hiddenSeriesCategories) {
+    LaunchedEffect(activeSourceId, hideAdult, hiddenLiveCategories, hiddenMovieCategories, hiddenSeriesCategories) {
         snapshotFlow { searchQuery }
             .map { it.trim() }
             .distinctUntilChanged()
@@ -105,6 +106,7 @@ fun TvSearchContent(
                             sourceId = activeSourceId,
                             query = query,
                             hiddenCategoryIds = hiddenLiveCategories.toList(),
+                            hideAdult = hideAdult,
                             limit = 20
                         )
                     }

@@ -23,6 +23,7 @@ interface ChannelRepository {
         sourceId: String,
         query: String,
         hiddenCategoryIds: List<String> = emptyList(),
+        hideAdult: Boolean = false,
         limit: Int = 20
     ): List<LiveStream>
     suspend fun syncChannels(sourceId: String, serverUrl: String, user: String, pass: String): Result<Unit>
