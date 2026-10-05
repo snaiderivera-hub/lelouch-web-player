@@ -74,13 +74,22 @@ import kotlinx.coroutines.launch
 import androidx.paging.PagingData
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.compose.itemKey
+import androidx.paging.compose.itemContentType
+import androidx.paging.map
+import androidx.paging.cachedIn
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flatMapLatest
+import androidx.compose.runtime.snapshotFlow
+import com.lelouch.core.domain.repository.ChannelRepository
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.common.util.UnstableApi
 import com.lelouch.core.database.entity.ChannelEntity
 
 data class ChannelUiModel(
+    val id: String = "",
     val streamId: Int,
     val name: String,
     val num: Int,
@@ -89,16 +98,19 @@ data class ChannelUiModel(
     val streamIcon: String? = null,
     val currentProgram: String = "Transmisión en Directo",
     val nextProgram: String = "Continuación de Programación",
-    val streamUrl: String = ""
+    val streamUrl: String = "",
+    val isFavorite: Boolean = false,
+    val sourceId: String = ""
 )
 
-@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class, UnstableApi::class)
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class, UnstableApi::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @Composable
 fun TvHomeScreen(
     activeSource: SourceConfig? = null,
     allSources: List<SourceConfig> = emptyList(),
     liveChannels: List<LiveStream> = emptyList(),
     liveChannelsPaging: Flow<PagingData<ChannelEntity>> = emptyFlow(),
+    channelRepository: ChannelRepository? = null,
     liveCategories: List<Category> = emptyList(),
     movies: List<VodMovie> = emptyList(),
     vodCategories: List<Category> = emptyList(),
@@ -122,9 +134,6 @@ fun TvHomeScreen(
     val playerEngine = rememberLelouchPlayer()
     val playbackState by playerEngine.playbackState.collectAsStateWithLifecycle()
     val videoInfo by playerEngine.videoTrackInfo.collectAsStateWithLifecycle()
-
-    // Flujo Paging 3 para canales en vivo (Miles de canales sin OOM)
-    val pagedChannels = liveChannelsPaging.collectAsLazyPagingItems()
 
     // Mapas de categorías para resolver nombres de categorías faltantes en Xtream Codes
     val liveCatMap = remember(liveCategories) {
@@ -435,9 +444,8 @@ fun TvHomeScreen(
     }
 
     var focusedChannelIndex by remember { mutableIntStateOf(0) }
-    val focusedChannel = remember(visibleChannels, focusedChannelIndex) {
-        visibleChannels.getOrNull(focusedChannelIndex) ?: visibleChannels.firstOrNull()
-    }
+    var focusedChannelId by remember { mutableStateOf<String?>(null) }
+    var focusedChannel by remember { mutableStateOf<ChannelUiModel?>(null) }
 
     // Elementos destacados en el Spotlight Hero
     var focusedHeroMovie by remember(visibleMovies) { mutableStateOf<VodMovie?>(visibleMovies.firstOrNull()) }
@@ -479,16 +487,10 @@ fun TvHomeScreen(
 
     var lastFullscreenEntryTime by remember { mutableLongStateOf(0L) }
 
-    // Modelos para el gestor de visibilidad con conteo exacto de elementos
-    val liveCategoryItemModels = remember(liveCategories, displayChannels) {
-        val countsById = displayChannels.groupingBy { it.categoryId }.eachCount()
-        val countsByName = displayChannels.groupingBy { it.categoryName }.eachCount()
-
+    // Modelos para el gestor de visibilidad con conteo exacto de elementos (Paso 9: Sin iterar catálogo Live)
+    val liveCategoryItemModels = remember(liveCategories) {
         if (liveCategories.isNotEmpty()) {
             liveCategories.map { cat ->
-                val count = countsById[cat.categoryId]
-                    ?: countsByName[cat.categoryName]
-                    ?: 0
                 val isAdult = cat.isAdult ||
                         cat.categoryName.contains("+18", ignoreCase = true) ||
                         cat.categoryName.contains("XXX", ignoreCase = true) ||
@@ -496,22 +498,15 @@ fun TvHomeScreen(
                 CategoryItemUiModel(
                     id = cat.categoryId,
                     name = cat.categoryName,
-                    itemCount = count,
+                    itemCount = cat.itemCount,
                     isAdult = isAdult
                 )
             }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
         } else {
-            displayChannels.groupBy { it.categoryName }
-                .map { (catName, chList) ->
-                    CategoryItemUiModel(
-                        id = chList.firstOrNull()?.categoryId ?: catName,
-                        name = catName,
-                        itemCount = chList.size,
-                        isAdult = catName.contains("+18", ignoreCase = true) || catName.contains("XXX", ignoreCase = true)
-                    )
-                }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+            emptyList()
         }
     }
+
 
     val movieCategoryItemModels = remember(vodCategories, displayMovies) {
         val countsById = displayMovies.groupingBy { it.categoryId }.eachCount()
@@ -590,16 +585,90 @@ fun TvHomeScreen(
     val activeChannelCatName = remember(channelCategoryList, selectedChannelCategoryId) {
         channelCategoryList.find { it.id == selectedChannelCategoryId }?.name ?: "Todos"
     }
-    val filteredChannels = remember(visibleChannels, selectedChannelCategoryId, activeChannelCatName) {
-        if (selectedChannelCategoryId == "all") {
-            visibleChannels
+    val liveChannelsPagingFlow = remember(
+        channelRepository,
+        activeSource?.id,
+        hiddenLiveCategories,
+        liveCatMap
+    ) {
+        val srcId = activeSource?.id.orEmpty()
+        if (channelRepository != null && srcId.isNotBlank()) {
+            snapshotFlow { selectedChannelCategoryId }
+                .flatMapLatest { catId ->
+                    channelRepository.getLiveChannelsPaging(
+                        sourceId = srcId,
+                        categoryId = catId.takeIf { it != "all" },
+                        hiddenCategoryIds = hiddenLiveCategories.toList()
+                    )
+                }.map { pagingData ->
+                    pagingData.map { channel ->
+                        val resolvedCategoryName = liveCatMap[channel.categoryId]
+                            ?: channel.categoryName.takeIf { it.isNotBlank() }
+                            ?: "General"
+                        val streamUrl = StreamUrlResolver.resolve(
+                            directUrl = channel.streamUrl,
+                            source = activeSource,
+                            streamId = channel.streamId,
+                            kind = StreamUrlResolver.Kind.LIVE,
+                            extension = channel.containerExtension.ifBlank { "m3u8" }
+                        )
+                        ChannelUiModel(
+                            id = channel.id,
+                            streamId = channel.streamId,
+                            name = channel.name,
+                            num = channel.num,
+                            categoryName = resolvedCategoryName,
+                            categoryId = channel.categoryId,
+                            streamIcon = channel.streamIcon,
+                            currentProgram = channel.epgChannelId ?: "En Directo",
+                            streamUrl = streamUrl,
+                            isFavorite = channel.isFavorite,
+                            sourceId = channel.sourceId
+                        )
+                    }
+                }.cachedIn(coroutineScope)
         } else {
-            visibleChannels.filter {
-                it.categoryId == selectedChannelCategoryId ||
-                it.categoryName.equals(activeChannelCatName, ignoreCase = true)
+            liveChannelsPaging.map { pagingData ->
+                pagingData.map { channel ->
+                    val resolvedCategoryName = liveCatMap[channel.categoryId]
+                        ?: channel.categoryName.takeIf { it.isNotBlank() }
+                        ?: "General"
+                    val streamUrl = StreamUrlResolver.resolve(
+                        directUrl = channel.streamUrl,
+                        source = activeSource,
+                        streamId = channel.streamId,
+                        kind = StreamUrlResolver.Kind.LIVE,
+                        extension = channel.containerExtension.ifBlank { "m3u8" }
+                    )
+                    ChannelUiModel(
+                        id = channel.id,
+                        streamId = channel.streamId,
+                        name = channel.name,
+                        num = channel.num,
+                        categoryName = resolvedCategoryName,
+                        categoryId = channel.categoryId,
+                        streamIcon = channel.streamIcon,
+                        currentProgram = channel.epgChannelId ?: "En Directo",
+                        streamUrl = streamUrl,
+                        isFavorite = channel.isFavorite,
+                        sourceId = channel.sourceId
+                    )
+                }
+            }.cachedIn(coroutineScope)
+        }
+    }
+    val pagedChannels = liveChannelsPagingFlow.collectAsLazyPagingItems()
+
+    LaunchedEffect(pagedChannels.itemCount) {
+        if (focusedChannel == null && pagedChannels.itemCount > 0) {
+            val first = pagedChannels[0]
+            if (first != null) {
+                focusedChannel = first
+                focusedChannelId = first.id
             }
         }
     }
+
     LaunchedEffect(hiddenLiveCategories) {
         if (selectedChannelCategoryId != "all" &&
             (selectedChannelCategoryId in hiddenLiveCategories || activeChannelCatName in hiddenLiveCategories)
@@ -945,7 +1014,7 @@ fun TvHomeScreen(
         // CAPA 1: Video de Fondo o Portada Cinemática de Alta Calidad (EveryCine Style)
         Box(modifier = Modifier.fillMaxSize()) {
             // Reproductor de video nativo para canales en vivo (Inicio y En Vivo) o cuando está en pantalla completa
-            val canShowLivePlayer = (selectedTopTab == 1 || selectedTopTab == 2) && visibleChannels.isNotEmpty()
+            val canShowLivePlayer = (selectedTopTab == 1 || selectedTopTab == 2) && (pagedChannels.itemCount > 0 || visibleChannels.isNotEmpty())
             if (canShowLivePlayer || isFullscreen) {
                 LelouchVideoPlayer(
                     playerEngine = playerEngine,
@@ -1066,18 +1135,20 @@ fun TvHomeScreen(
                                 contentPadding = PaddingValues(top = 16.dp, bottom = 48.dp)
                             ) {
                                 item {
-                                    val sportsCount = remember(visibleChannels) {
-                                        visibleChannels.count { ch ->
-                                            val cat = ch.categoryName.lowercase()
-                                            val name = ch.name.lowercase()
-                                            cat.contains("deporte") || cat.contains("sport") || cat.contains("espn") || cat.contains("fox sport") || cat.contains("dazn") ||
-                                            name.contains("espn") || name.contains("fox sport") || name.contains("tudn") || name.contains("dazn")
-                                        }
+                                    val sportsCount = remember(liveCategories) {
+                                        liveCategories.filter { cat ->
+                                            val name = cat.categoryName.lowercase()
+                                            name.contains("deporte") || name.contains("sport") || name.contains("espn") || name.contains("fox sport") || name.contains("dazn")
+                                        }.sumOf { it.itemCount }
+                                    }
+                                    val totalLiveChannelsCount = remember(liveCategories, visibleChannels) {
+                                        val catCount = liveCategories.sumOf { it.itemCount }
+                                        if (catCount > 0) catCount else visibleChannels.size
                                     }
 
                                     TvPortalDashboard(
                                         activeSource = activeSource,
-                                        liveChannelsCount = visibleChannels.size,
+                                        liveChannelsCount = totalLiveChannelsCount,
                                         moviesCount = visibleMovies.size,
                                         seriesCount = visibleSeries.size,
                                         sportsCount = sportsCount,
@@ -1105,7 +1176,50 @@ fun TvHomeScreen(
                                     )
                                 }
 
-                                if (visibleChannels.isNotEmpty()) {
+                                if (pagedChannels.itemCount > 0) {
+                                    item {
+                                        ContentSectionTitle("🔴 Canales en Directo")
+                                        TvLazyRow(
+                                            contentPadding = PaddingValues(horizontal = 32.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                                        ) {
+                                            val previewCount = pagedChannels.itemCount.coerceAtMost(30)
+                                            items(
+                                                count = previewCount,
+                                                key = pagedChannels.itemKey { it.id },
+                                                contentType = pagedChannels.itemContentType { "channel" }
+                                            ) { idx ->
+                                                val ch = pagedChannels[idx] ?: return@items
+                                                val isSelected = (ch.id == focusedChannelId || (focusedChannelId == null && idx == 0))
+                                                TvChannelCard(
+                                                    channel = ch,
+                                                    isSelected = isSelected,
+                                                    onFocused = {
+                                                        focusedChannelId = ch.id
+                                                        focusedChannel = ch
+                                                        focusedChannelIndex = idx
+                                                        focusedHeroMovie = null
+                                                    },
+                                                    onClick = { 
+                                                        focusedChannelId = ch.id
+                                                        focusedChannel = ch
+                                                        focusedChannelIndex = idx
+                                                        isPlayingLive = true
+                                                        playerEngine.playStream(ch.streamUrl, isLive = true)
+                                                        isFullscreen = true 
+                                                    },
+                                                    onToggleFavorite = {
+                                                        onToggleFavoriteChannel(ch.streamId, !ch.isFavorite)
+                                                    },
+                                                    isFavorite = ch.isFavorite,
+                                                    cardWidth = 215.dp,
+                                                    modifier = if (idx == 0) Modifier.focusProperties { left = sidebarRequesters[1] } else Modifier
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(28.dp))
+                                    }
+                                } else if (visibleChannels.isNotEmpty()) {
                                     item {
                                         ContentSectionTitle("🔴 Canales en Directo")
                                         TvLazyRow(
@@ -1210,8 +1324,16 @@ fun TvHomeScreen(
                                             fontWeight = FontWeight.Black,
                                             letterSpacing = 1.sp
                                         )
+                                        val displayCount = remember(selectedChannelCategoryId, liveCategoryItemModels, liveCategories) {
+                                            if (selectedChannelCategoryId == "all") {
+                                                val total = liveCategories.sumOf { it.itemCount }
+                                                if (total > 0) total else pagedChannels.itemCount
+                                            } else {
+                                                liveCategoryItemModels.find { it.id == selectedChannelCategoryId }?.itemCount ?: pagedChannels.itemCount
+                                            }
+                                        }
                                         Text(
-                                            text = "${filteredChannels.size} señales en directo • Categoría: $activeChannelCatName",
+                                            text = if (displayCount > 0) "$displayCount señales en directo • Categoría: $activeChannelCatName" else "${pagedChannels.itemCount} señales cargadas • Categoría: $activeChannelCatName",
                                             color = LelouchTextSecondary,
                                             fontSize = 13.sp
                                         )
@@ -1234,7 +1356,7 @@ fun TvHomeScreen(
                                     modifier = Modifier.padding(bottom = 12.dp)
                                 )
 
-                                if (filteredChannels.isEmpty()) {
+                                if (pagedChannels.itemCount == 0 && pagedChannels.loadState.refresh !is androidx.paging.LoadState.Loading) {
                                     Box(
                                         modifier = Modifier
                                             .fillMaxSize()
@@ -1264,7 +1386,7 @@ fun TvHomeScreen(
                                                 )
                                                 Spacer(modifier = Modifier.height(8.dp))
                                                 Text(
-                                                    text = if (visibleChannels.isEmpty()) "No hay canales visibles activados" else "No hay canales en '$activeChannelCatName'",
+                                                    text = "No hay canales en '$activeChannelCatName'",
                                                     color = Color.White,
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 18.sp
@@ -1286,7 +1408,13 @@ fun TvHomeScreen(
                                         contentPadding = PaddingValues(bottom = 64.dp),
                                         modifier = Modifier.fillMaxSize()
                                     ) {
-                                        itemsIndexed(filteredChannels, key = { idx, ch -> "grid_live_ch_${ch.streamId}_$idx" }) { index, ch ->
+                                        items(
+                                            count = pagedChannels.itemCount,
+                                            key = pagedChannels.itemKey { it.id },
+                                            contentType = pagedChannels.itemContentType { "channel" }
+                                        ) { index ->
+                                            val ch = pagedChannels[index] ?: return@items
+                                            val isSelected = (ch.id == focusedChannelId || (focusedChannelId == null && index == 0))
                                             val cardModifier = if (index == 0) {
                                                 Modifier
                                                     .fillMaxWidth()
@@ -1297,23 +1425,24 @@ fun TvHomeScreen(
 
                                             TvChannelCard(
                                                 channel = ch,
-                                                isSelected = (index == focusedChannelIndex),
+                                                isSelected = isSelected,
                                                 onFocused = {
+                                                    focusedChannelId = ch.id
+                                                    focusedChannel = ch
                                                     focusedChannelIndex = index
                                                 },
                                                 onClick = {
-                                                    // Fijar la lista activa de reproduccion a la categoria actual (fix mezcla de categorias)
-                                                    activePlaybackChannels = filteredChannels
-                                                    activePlaybackChannelIndex = index
+                                                    focusedChannelId = ch.id
+                                                    focusedChannel = ch
+                                                    focusedChannelIndex = index
                                                     isPlayingLive = true
                                                     playerEngine.playStream(ch.streamUrl, isLive = true)
                                                     isFullscreen = true
                                                 },
                                                 onToggleFavorite = {
-                                                    val isFav = favoriteChannels.any { it.streamId == ch.streamId }
-                                                    onToggleFavoriteChannel(ch.streamId, !isFav)
+                                                    onToggleFavoriteChannel(ch.streamId, !ch.isFavorite)
                                                 },
-                                                isFavorite = favoriteChannels.any { it.streamId == ch.streamId },
+                                                isFavorite = ch.isFavorite,
                                                 modifier = cardModifier
                                             )
                                         }

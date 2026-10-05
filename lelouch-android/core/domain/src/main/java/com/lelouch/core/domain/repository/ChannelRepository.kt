@@ -13,6 +13,12 @@ interface ChannelRepository {
     fun getFeaturedChannels(limit: Int = 30): Flow<List<LiveStream>>
     fun getAllChannels(sourceId: String? = null): Flow<List<LiveStream>>
     fun getAllChannelsPaging(sourceId: String? = null): Flow<PagingData<ChannelEntity>>
+    fun getLiveChannelsPaging(
+        sourceId: String,
+        categoryId: String? = null,
+        hiddenCategoryIds: List<String> = emptyList()
+    ): Flow<PagingData<ChannelEntity>>
     suspend fun toggleFavorite(streamId: Int, isFavorite: Boolean)
+    suspend fun toggleFavorite(sourceId: String, streamId: Int, isFavorite: Boolean)
     suspend fun syncChannels(sourceId: String, serverUrl: String, user: String, pass: String): Result<Unit>
 }

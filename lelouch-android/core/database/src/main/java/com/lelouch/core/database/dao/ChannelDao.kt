@@ -29,13 +29,22 @@ interface ChannelDao {
     @Query("SELECT * FROM channels WHERE sourceId = :sourceId ORDER BY num ASC, name ASC")
     fun getAllChannelsBySource(sourceId: String): Flow<List<ChannelEntity>>
 
-    @Query("SELECT * FROM channels WHERE sourceId = :sourceId ORDER BY num ASC, name ASC")
+    @Query("SELECT * FROM channels WHERE sourceId = :sourceId ORDER BY num ASC, name ASC, id ASC")
     fun getAllChannelsBySourcePaging(sourceId: String): PagingSource<Int, ChannelEntity>
+
+    @Query("SELECT * FROM channels WHERE sourceId = :sourceId ORDER BY num ASC, name ASC, id ASC")
+    fun getPagingChannelsBySource(sourceId: String): PagingSource<Int, ChannelEntity>
+
+    @Query("SELECT * FROM channels WHERE sourceId = :sourceId AND categoryId = :categoryId ORDER BY num ASC, name ASC, id ASC")
+    fun getPagingChannelsBySourceAndCategory(sourceId: String, categoryId: String): PagingSource<Int, ChannelEntity>
+
+    @Query("SELECT * FROM channels WHERE sourceId = :sourceId AND categoryId NOT IN (:hiddenCategoryIds) ORDER BY num ASC, name ASC, id ASC")
+    fun getPagingChannelsExcludingCategories(sourceId: String, hiddenCategoryIds: List<String>): PagingSource<Int, ChannelEntity>
 
     @Query("SELECT * FROM channels ORDER BY num ASC, name ASC")
     fun getAllChannels(): Flow<List<ChannelEntity>>
 
-    @Query("SELECT * FROM channels ORDER BY num ASC, name ASC")
+    @Query("SELECT * FROM channels ORDER BY num ASC, name ASC, id ASC")
     fun getAllChannelsPaging(): PagingSource<Int, ChannelEntity>
 
 

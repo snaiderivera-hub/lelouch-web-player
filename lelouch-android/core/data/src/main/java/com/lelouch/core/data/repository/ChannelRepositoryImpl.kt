@@ -66,7 +66,7 @@ class ChannelRepositoryImpl(
 
     override fun getAllChannelsPaging(sourceId: String?): Flow<PagingData<ChannelEntity>> {
         return Pager(
-            config = PagingConfig(pageSize = 50, enablePlaceholders = false)
+            config = com.lelouch.core.domain.paging.PagingConfigs.liveChannels
         ) {
             if (sourceId != null) {
                 channelDao.getAllChannelsBySourcePaging(sourceId)
@@ -76,8 +76,34 @@ class ChannelRepositoryImpl(
         }.flow
     }
 
+    override fun getLiveChannelsPaging(
+        sourceId: String,
+        categoryId: String?,
+        hiddenCategoryIds: List<String>
+    ): Flow<PagingData<ChannelEntity>> {
+        return Pager(
+            config = com.lelouch.core.domain.paging.PagingConfigs.liveChannels
+        ) {
+            when {
+                !categoryId.isNullOrBlank() && categoryId != "all" -> {
+                    channelDao.getPagingChannelsBySourceAndCategory(sourceId, categoryId)
+                }
+                hiddenCategoryIds.isNotEmpty() -> {
+                    channelDao.getPagingChannelsExcludingCategories(sourceId, hiddenCategoryIds)
+                }
+                else -> {
+                    channelDao.getPagingChannelsBySource(sourceId)
+                }
+            }
+        }.flow
+    }
+
     override suspend fun toggleFavorite(streamId: Int, isFavorite: Boolean) {
         channelDao.updateFavoriteStatus(streamId, isFavorite)
+    }
+
+    override suspend fun toggleFavorite(sourceId: String, streamId: Int, isFavorite: Boolean) {
+        channelDao.updateFavoriteStatus(sourceId, streamId, isFavorite)
     }
 
     override suspend fun syncChannels(

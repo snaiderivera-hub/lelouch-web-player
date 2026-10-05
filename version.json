@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.20",
-  "versionCode": 1000020,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.20/app-debug.apk",
-  "changelog": "• Control de Frescura y Arranque Inmediato (P0 #5): Room es ahora la primera fuente de verdad. El catálogo local se muestra al instante sin bloquear la interfaz.\n• Detección Inteligente de Cambios: Consulta ultraligera de versión/ETag para listas Lelouch/Supabase (evita re-descargas completas si la versión es idéntica).\n• Caché TTL para Xtream Directo (24h) y M3U condicional con If-None-Match.\n• Botón Recargar Catálogo realiza actualización manual forzada en cualquier momento."
+  "versionName": "1.0.21",
+  "versionCode": 1000021,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.21/app-debug.apk",
+  "changelog": "• Paging 3 Real End-to-End para Live TV (P1 #2A): Conexión directa Room -> PagingSource -> Pager -> Flow<PagingData<ChannelUiModel>> -> LazyVerticalGrid.\n• Eliminada la recolección de listas completas (Flow<List<ChannelEntity>>) en Android TV, liberando memoria RAM masiva.\n• Cambio instantáneo de categorías vía flatMapLatest con consultas SQL deterministas e indexadas.\n• Identidad canónica v4 (source-aware) y orden determinista sin duplicados en virtualización."
 }

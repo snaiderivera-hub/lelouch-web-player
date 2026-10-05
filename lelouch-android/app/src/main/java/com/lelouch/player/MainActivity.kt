@@ -162,8 +162,8 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            val liveChannels by (if (effectiveActiveSource != null) app.channelRepository.getAllChannels(effectiveActiveSource.id) else kotlinx.coroutines.flow.emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
-            val liveChannelsPaging = if (effectiveActiveSource != null) app.channelRepository.getAllChannelsPaging(effectiveActiveSource.id) else app.channelRepository.getAllChannelsPaging("__empty__")
+            // FASE P1 #2A: En Android TV la lista completa NO se colecta en memoria (Paging 3 directo a Room)
+            val liveChannels by (if (!isTv && effectiveActiveSource != null) app.channelRepository.getAllChannels(effectiveActiveSource.id) else kotlinx.coroutines.flow.emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
             
             val movies by (if (effectiveActiveSource != null) app.vodRepository.getAllMovies(effectiveActiveSource.id) else kotlinx.coroutines.flow.emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
             val seriesList by (if (effectiveActiveSource != null) app.seriesRepository.getAllSeries(effectiveActiveSource.id) else kotlinx.coroutines.flow.emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
@@ -183,8 +183,8 @@ class MainActivity : ComponentActivity() {
                             TvHomeScreen(
                                 activeSource = effectiveActiveSource,
                                 allSources = allSources,
-                                liveChannels = liveChannels,
-                                liveChannelsPaging = liveChannelsPaging,
+                                liveChannels = emptyList(),
+                                channelRepository = app.channelRepository,
                                 liveCategories = liveCategories,
                                 movies = movies,
                                 vodCategories = vodCategories,
