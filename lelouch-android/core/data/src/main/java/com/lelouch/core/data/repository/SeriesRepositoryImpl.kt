@@ -62,6 +62,29 @@ class SeriesRepositoryImpl(
         }
     }
 
+    override fun getSeriesPaging(
+        sourceId: String,
+        categoryId: String?,
+        hiddenCategoryIds: List<String>
+    ): Flow<androidx.paging.PagingData<SeriesEntity>> {
+        return androidx.paging.Pager(
+            config = com.lelouch.core.domain.paging.PagingConfigs.series,
+            pagingSourceFactory = {
+                when {
+                    categoryId != null && categoryId != "all" -> {
+                        seriesDao.getPagingSeriesBySourceAndCategory(sourceId, categoryId)
+                    }
+                    hiddenCategoryIds.isNotEmpty() -> {
+                        seriesDao.getPagingSeriesExcludingCategories(sourceId, hiddenCategoryIds)
+                    }
+                    else -> {
+                        seriesDao.getPagingSeriesBySource(sourceId)
+                    }
+                }
+            }
+        ).flow
+    }
+
     override suspend fun getSeriesDetail(seriesId: Int): Series? {
         return seriesDao.getSeriesById(seriesId)?.toDomain()
     }

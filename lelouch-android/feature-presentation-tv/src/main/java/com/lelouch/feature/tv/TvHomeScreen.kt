@@ -87,6 +87,7 @@ import com.lelouch.core.domain.repository.ChannelRepository
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.common.util.UnstableApi
 import com.lelouch.core.database.entity.ChannelEntity
+import com.lelouch.core.database.entity.SeriesEntity
 
 data class ChannelUiModel(
     val id: String = "",
@@ -120,6 +121,23 @@ data class MovieUiModel(
     val genre: String? = null
 )
 
+data class SeriesUiModel(
+    val id: String = "",
+    val seriesId: Int = 0,
+    val name: String = "",
+    val categoryName: String = "",
+    val categoryId: String = "",
+    val cover: String? = null,
+    val backdropPath: String? = null,
+    val rating: Double = 0.0,
+    val releaseDate: String? = null,
+    val seasonsCount: Int = 0,
+    val plot: String? = null,
+    val genre: String? = null,
+    val isFavorite: Boolean = false,
+    val sourceId: String = ""
+)
+
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class, UnstableApi::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @Composable
 fun TvHomeScreen(
@@ -129,9 +147,11 @@ fun TvHomeScreen(
     liveChannelsPaging: Flow<PagingData<ChannelEntity>> = emptyFlow(),
     channelRepository: ChannelRepository? = null,
     vodRepository: com.lelouch.core.domain.repository.VodRepository? = null,
+    seriesRepository: com.lelouch.core.domain.repository.SeriesRepository? = null,
     liveCategories: List<Category> = emptyList(),
     movies: List<VodMovie> = emptyList(),
     recentMovies: List<VodMovie> = emptyList(),
+    featuredSeries: List<Series> = emptyList(),
     vodCategories: List<Category> = emptyList(),
     seriesList: List<Series> = emptyList(),
     seriesCategories: List<Category> = emptyList(),
@@ -344,10 +364,11 @@ fun TvHomeScreen(
         displayMovies.sortedByDescending { it.rating ?: 0.0 }
     }
 
-    // Catálogo de series (incluye Demon Slayer de EveryCine como primera opción)
-    val displaySeries = remember(seriesList, seriesCatMap) {
-        if (seriesList.isNotEmpty()) {
-            seriesList.map { ser ->
+    // Catálogo de series para spotlight hero / carrusel de inicio (utiliza featuredSeries si está disponible)
+    val displaySeries = remember(seriesList, featuredSeries, seriesCatMap) {
+        val srcSeries = if (featuredSeries.isNotEmpty()) featuredSeries else seriesList
+        if (srcSeries.isNotEmpty()) {
+            srcSeries.map { ser ->
                 val resolvedName = seriesCatMap[ser.categoryId] ?: ser.categoryName.takeIf { it.isNotBlank() } ?: "General"
                 ser.copy(categoryName = resolvedName)
             }
@@ -547,15 +568,9 @@ fun TvHomeScreen(
         }
     }
 
-    val seriesCategoryItemModels = remember(seriesCategories, displaySeries) {
-        val countsById = displaySeries.groupingBy { it.categoryId }.eachCount()
-        val countsByName = displaySeries.groupingBy { it.categoryName }.eachCount()
-
+    val seriesCategoryItemModels = remember(seriesCategories) {
         if (seriesCategories.isNotEmpty()) {
             seriesCategories.map { cat ->
-                val count = countsById[cat.categoryId]
-                    ?: countsByName[cat.categoryName]
-                    ?: 0
                 val isAdult = cat.isAdult ||
                         cat.categoryName.contains("+18", ignoreCase = true) ||
                         cat.categoryName.contains("XXX", ignoreCase = true) ||
@@ -563,20 +578,12 @@ fun TvHomeScreen(
                 CategoryItemUiModel(
                     id = cat.categoryId,
                     name = cat.categoryName,
-                    itemCount = count,
+                    itemCount = cat.itemCount,
                     isAdult = isAdult
                 )
             }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
         } else {
-            displaySeries.groupBy { it.categoryName }
-                .map { (catName, sList) ->
-                    CategoryItemUiModel(
-                        id = sList.firstOrNull()?.categoryId ?: catName,
-                        name = catName,
-                        itemCount = sList.size,
-                        isAdult = catName.contains("+18", ignoreCase = true) || catName.contains("XXX", ignoreCase = true)
-                    )
-                }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+            emptyList()
         }
     }
 
@@ -775,16 +782,63 @@ fun TvHomeScreen(
     val activeSeriesCatName = remember(seriesCategoryList, selectedSeriesCategoryId) {
         seriesCategoryList.find { it.id == selectedSeriesCategoryId }?.name ?: "Todas"
     }
-    val filteredSeries = remember(visibleSeries, selectedSeriesCategoryId, activeSeriesCatName) {
-        if (selectedSeriesCategoryId == "all") {
-            visibleSeries
+    val liveSeriesPagingFlow = remember(
+        seriesRepository,
+        activeSource?.id,
+        hiddenSeriesCategories,
+        seriesCatMap
+    ) {
+        val srcId = activeSource?.id.orEmpty()
+        if (seriesRepository != null && srcId.isNotBlank()) {
+            snapshotFlow { selectedSeriesCategoryId }
+                .flatMapLatest { catId ->
+                    seriesRepository.getSeriesPaging(
+                        sourceId = srcId,
+                        categoryId = catId.takeIf { it != "all" },
+                        hiddenCategoryIds = hiddenSeriesCategories.toList()
+                    )
+                }.map { pagingData ->
+                    pagingData.map { series ->
+                        val resolvedCategoryName = seriesCatMap[series.categoryId]
+                            ?: series.categoryName.takeIf { it.isNotBlank() }
+                            ?: "General"
+                        SeriesUiModel(
+                            id = series.id,
+                            seriesId = series.seriesId,
+                            name = series.name,
+                            categoryName = resolvedCategoryName,
+                            categoryId = series.categoryId,
+                            cover = series.cover,
+                            backdropPath = series.backdropPath,
+                            rating = series.rating ?: 0.0,
+                            releaseDate = series.releaseDate,
+                            seasonsCount = 0,
+                            plot = series.plot,
+                            genre = series.genre,
+                            isFavorite = series.isFavorite,
+                            sourceId = series.sourceId
+                        )
+                    }
+                }.cachedIn(coroutineScope)
         } else {
-            visibleSeries.filter {
-                it.categoryId == selectedSeriesCategoryId ||
-                it.categoryName.equals(activeSeriesCatName, ignoreCase = true)
+            emptyFlow()
+        }
+    }
+    val pagedSeries = liveSeriesPagingFlow.collectAsLazyPagingItems()
+
+    var focusedSeriesId by remember { mutableStateOf<String?>(null) }
+    var focusedHeroSeriesModel by remember { mutableStateOf<SeriesUiModel?>(null) }
+
+    LaunchedEffect(pagedSeries.itemCount) {
+        if (focusedHeroSeriesModel == null && pagedSeries.itemCount > 0) {
+            val first = pagedSeries[0]
+            if (first != null) {
+                focusedHeroSeriesModel = first
+                focusedSeriesId = first.id
             }
         }
     }
+
     LaunchedEffect(hiddenSeriesCategories) {
         if (selectedSeriesCategoryId != "all" &&
             (selectedSeriesCategoryId in hiddenSeriesCategories || activeSeriesCatName in hiddenSeriesCategories)
@@ -885,7 +939,42 @@ fun TvHomeScreen(
             backdropUrl = series.backdropPath,
             rating = series.rating ?: 0.0,
             year = series.releaseDate?.take(4),
-            synopsis = series.plot ?: "Serie completa en catÃ¡logo de streaming.",
+            synopsis = series.plot ?: "Serie completa en catálogo de streaming.",
+            genre = series.genre,
+            isSeries = true,
+            isFavorite = series.isFavorite,
+            seasons = (1..(series.seasonsCount.takeIf { it > 0 } ?: 3)).toList(),
+            episodes = emptyList()
+        )
+
+        if (onFetchSeriesDetails != null) {
+            coroutineScope.launch {
+                try {
+                    val (seasons, episodes) = onFetchSeriesDetails(series.seriesId)
+                    if (activeDetailMedia?.id == series.seriesId) {
+                        activeDetailMedia = activeDetailMedia?.copy(
+                            seasons = if (seasons.isNotEmpty()) seasons else listOf(1),
+                            episodes = episodes
+                        )
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("TvHomeScreen", "Error cargando episodios de serie: ${e.message}")
+                }
+            }
+        }
+    }
+
+    fun openSeriesDetails(series: SeriesUiModel) {
+        focusedSeriesId = series.id
+        focusedHeroSeriesModel = series
+        activeDetailMedia = MediaDetailUiModel(
+            id = series.seriesId,
+            title = series.name,
+            posterUrl = series.cover,
+            backdropUrl = series.backdropPath,
+            rating = series.rating,
+            year = series.releaseDate?.take(4),
+            synopsis = series.plot ?: "Serie completa en catálogo de streaming.",
             genre = series.genre,
             isSeries = true,
             isFavorite = series.isFavorite,
@@ -911,13 +1000,15 @@ fun TvHomeScreen(
     }
 
     // Backdrop cinemático dinámico para la portada (EveryCine Style)
-    val currentBackdropUrl = remember(selectedTopTab, focusedHeroMovie, focusedHeroSeries, focusedChannel) {
+    val currentBackdropUrl = remember(selectedTopTab, focusedHeroMovie, focusedHeroSeries, focusedHeroSeriesModel, focusedChannel) {
         when (selectedTopTab) {
             3 -> focusedHeroMovie?.backdropPath ?: focusedHeroMovie?.streamIcon
-            4 -> focusedHeroSeries?.backdropPath ?: focusedHeroSeries?.cover
+            4 -> focusedHeroSeriesModel?.backdropPath ?: focusedHeroSeriesModel?.cover ?: focusedHeroSeries?.backdropPath ?: focusedHeroSeries?.cover
             else -> {
                 if (focusedHeroMovie != null && selectedTopTab == 1) {
                     focusedHeroMovie?.backdropPath ?: focusedHeroMovie?.streamIcon
+                } else if (focusedHeroSeriesModel != null && selectedTopTab == 1) {
+                    focusedHeroSeriesModel?.backdropPath ?: focusedHeroSeriesModel?.cover
                 } else if (focusedHeroSeries != null && selectedTopTab == 1) {
                     focusedHeroSeries?.backdropPath ?: focusedHeroSeries?.cover
                 } else {
@@ -1227,12 +1318,16 @@ fun TvHomeScreen(
                                         val catCount = vodCategories.sumOf { it.itemCount }
                                         if (catCount > 0) catCount else visibleMovies.size
                                     }
+                                    val totalSeriesCount = remember(seriesCategories, visibleSeries) {
+                                        val catCount = seriesCategories.sumOf { it.itemCount }
+                                        if (catCount > 0) catCount else visibleSeries.size
+                                    }
 
                                     TvPortalDashboard(
                                         activeSource = activeSource,
                                         liveChannelsCount = totalLiveChannelsCount,
                                         moviesCount = totalMoviesCount,
-                                        seriesCount = visibleSeries.size,
+                                        seriesCount = totalSeriesCount,
                                         sportsCount = sportsCount,
                                         onNavigateToLive = { selectedTopTab = 2 },
                                         onNavigateToMovies = { selectedTopTab = 3 },
@@ -1673,6 +1768,13 @@ fun TvHomeScreen(
                                     .fillMaxSize()
                                     .padding(start = 32.dp, end = 32.dp, top = 16.dp)
                             ) {
+                                val activeSeriesCatCount = remember(selectedSeriesCategoryId, seriesCategoryItemModels, seriesCategories) {
+                                    if (selectedSeriesCategoryId == "all") {
+                                        seriesCategories.sumOf { it.itemCount }
+                                    } else {
+                                        seriesCategoryItemModels.find { it.id == selectedSeriesCategoryId }?.itemCount ?: 0
+                                    }
+                                }
                                 Row(
                                     modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -1687,7 +1789,7 @@ fun TvHomeScreen(
                                             letterSpacing = 1.sp
                                         )
                                         Text(
-                                            text = "${filteredSeries.size} series completas • Categoría: $activeSeriesCatName",
+                                            text = "$activeSeriesCatCount series completas • Categoría: $activeSeriesCatName",
                                             color = LelouchTextSecondary,
                                             fontSize = 13.sp
                                         )
@@ -1710,7 +1812,7 @@ fun TvHomeScreen(
                                     modifier = Modifier.padding(bottom = 12.dp)
                                 )
 
-                                if (filteredSeries.isEmpty()) {
+                                if (pagedSeries.itemCount == 0 && pagedSeries.loadState.refresh !is androidx.paging.LoadState.Loading) {
                                     Box(
                                         modifier = Modifier
                                             .fillMaxSize()
@@ -1737,7 +1839,7 @@ fun TvHomeScreen(
                                                 Text(text = "📺", fontSize = 36.sp)
                                                 Spacer(modifier = Modifier.height(8.dp))
                                                 Text(
-                                                    text = if (visibleSeries.isEmpty()) "No hay series visibles activadas" else "No hay series en '$activeSeriesCatName'",
+                                                    text = if (seriesCategoryList.size <= 1) "No hay series visibles activadas" else "No hay series en '$activeSeriesCatName'",
                                                     color = Color.White,
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 18.sp
@@ -1759,7 +1861,12 @@ fun TvHomeScreen(
                                         contentPadding = PaddingValues(bottom = 48.dp),
                                         modifier = Modifier.fillMaxSize()
                                     ) {
-                                        itemsIndexed(filteredSeries, key = { idx, series -> "grid_series_${series.seriesId}_$idx" }) { idx, series ->
+                                        items(
+                                            count = pagedSeries.itemCount,
+                                            key = pagedSeries.itemKey { it.id },
+                                            contentType = pagedSeries.itemContentType { "series" }
+                                        ) { idx ->
+                                            val series = pagedSeries[idx] ?: return@items
                                             val cardModifier = if (idx == 0) {
                                                 Modifier.focusProperties { left = sidebarRequesters[4] }
                                             } else {
@@ -1769,9 +1876,12 @@ fun TvHomeScreen(
                                             TvPosterCard(
                                                 title = series.name,
                                                 posterUrl = series.cover,
-                                                rating = series.rating ?: 0.0,
+                                                rating = series.rating,
                                                 year = series.releaseDate?.take(4),
-                                                onFocused = { focusedHeroSeries = series },
+                                                onFocused = {
+                                                    focusedHeroSeriesModel = series
+                                                    focusedSeriesId = series.id
+                                                },
                                                 onClick = { openSeriesDetails(series) },
                                                 modifier = cardModifier
                                             )
@@ -1959,7 +2069,7 @@ fun TvHomeScreen(
                                         activeSource = activeSource,
                                         liveCount = liveChannels.size,
                                         movieCount = movies.size,
-                                        seriesCount = seriesList.size,
+                                        seriesCount = seriesCategories.sumOf { it.itemCount }.takeIf { it > 0 } ?: seriesList.size,
                                         blankUrlCount = liveChannels.count { it.streamUrl.isBlank() },
                                         resolvedUrl = focusedChannel?.let { ch ->
                                             StreamUrlResolver.resolveLive(ch.streamUrl, activeSource, ch.streamId)

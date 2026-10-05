@@ -162,11 +162,12 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            // FASE P1 #2A & P1 #2B: En Android TV las listas completas de Canales y Películas NO se colectan en memoria (Paging 3 directo a Room)
+            // FASE P1 #2A, #2B & #2C: En Android TV las listas completas de Canales, Películas y Series NO se colectan en memoria (Paging 3 directo a Room)
             val liveChannels by (if (!isTv && effectiveActiveSource != null) app.channelRepository.getAllChannels(effectiveActiveSource.id) else kotlinx.coroutines.flow.emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
             val movies by (if (!isTv && effectiveActiveSource != null) app.vodRepository.getAllMovies(effectiveActiveSource.id) else kotlinx.coroutines.flow.emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
             val recentMovies by (if (isTv && effectiveActiveSource != null) app.vodRepository.getRecentlyAddedMovies(20) else emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
-            val seriesList by (if (effectiveActiveSource != null) app.seriesRepository.getAllSeries(effectiveActiveSource.id) else kotlinx.coroutines.flow.emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
+            val seriesList by (if (!isTv && effectiveActiveSource != null) app.seriesRepository.getAllSeries(effectiveActiveSource.id) else kotlinx.coroutines.flow.emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
+            val featuredSeries by (if (isTv && effectiveActiveSource != null) app.seriesRepository.getFeaturedSeries(20) else emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
             val liveCategories by (if (effectiveActiveSource != null) app.channelRepository.getCategories(effectiveActiveSource.id) else emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
             val vodCategories by (if (effectiveActiveSource != null) app.vodRepository.getCategories(effectiveActiveSource.id) else emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
             val seriesCategories by (if (effectiveActiveSource != null) app.seriesRepository.getCategories(effectiveActiveSource.id) else emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
@@ -190,7 +191,9 @@ class MainActivity : ComponentActivity() {
                                 vodRepository = app.vodRepository,
                                 recentMovies = recentMovies,
                                 vodCategories = vodCategories,
-                                seriesList = seriesList,
+                                seriesList = emptyList(),
+                                seriesRepository = app.seriesRepository,
+                                featuredSeries = featuredSeries,
                                 seriesCategories = seriesCategories,
                                 favoriteChannels = favoriteChannels,
                                 favoriteMovies = favoriteMovies,

@@ -1,5 +1,7 @@
 package com.lelouch.core.domain.repository
 
+import androidx.paging.PagingData
+import com.lelouch.core.database.entity.SeriesEntity
 import com.lelouch.core.model.Category
 import com.lelouch.core.model.Episode
 import com.lelouch.core.model.Series
@@ -11,6 +13,11 @@ interface SeriesRepository {
     fun getFeaturedSeries(limit: Int = 30): Flow<List<Series>>
     fun getFavoriteSeries(): Flow<List<Series>>
     fun getAllSeries(sourceId: String? = null): Flow<List<Series>>
+    fun getSeriesPaging(
+        sourceId: String,
+        categoryId: String? = null,
+        hiddenCategoryIds: List<String> = emptyList()
+    ): Flow<PagingData<SeriesEntity>>
 
     suspend fun getSeriesDetail(seriesId: Int): Series?
     suspend fun getEpisodes(seriesId: Int, seasonNumber: Int): List<Episode>
