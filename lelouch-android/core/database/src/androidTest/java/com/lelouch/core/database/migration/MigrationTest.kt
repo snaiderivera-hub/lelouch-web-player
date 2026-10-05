@@ -8,6 +8,7 @@ import com.lelouch.core.database.LelouchDatabase
 import com.lelouch.core.database.migrations.MIGRATION_1_2
 import com.lelouch.core.database.migrations.MIGRATION_2_3
 import com.lelouch.core.database.migrations.MIGRATION_3_4
+import com.lelouch.core.database.migrations.MIGRATION_4_5
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -356,6 +357,104 @@ class MigrationTest {
         // Validar que existen las tablas de staging
         val tables = listOf("channels_staging", "movies_staging", "series_staging", "categories_staging")
         for (table in tables) {
+            val cur = db.query("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='$table'")
+            assertTrue(cur.moveToFirst())
+            assertEquals(1, cur.getInt(0))
+            cur.close()
+        }
+
+        db.close()
+    }
+
+    @Test
+    fun migrate4To5_rebuildsFtsWithUnicode61() {
+        var db = helper.createDatabase(TEST_DB, 4).apply {
+            execSQL("""
+                INSERT INTO channels (id, streamId, num, name, streamType, streamIcon, categoryId, categoryName, epgChannelId, isAdult, isFavorite, streamUrl, containerExtension, sourceId)
+                VALUES ('src-1_live_1', 101, 1, 'Película Nacional HD', 'live', null, 'cat-1', 'Cine', null, 0, 0, 'http://stream', 'ts', 'src-1')
+            """.trimIndent())
+            execSQL("""
+                INSERT INTO movies (id, streamId, num, name, title, year, streamIcon, backdropPath, rating, rating5based, added, categoryId, categoryName, containerExtension, plot, cast, director, genre, durationSecs, streamUrl, isFavorite, sourceId)
+                VALUES ('src-1_vod_1', 201, 1, 'Canción Latina', 'Canción Latina', '2023', null, null, 8.0, 4.0, '2023', 'cat-2', 'Musica', 'mp4', null, null, null, 'Musica', 7200, 'http://vod', 0, 'src-1')
+            """.trimIndent())
+            execSQL("""
+                INSERT INTO series (id, seriesId, num, name, title, cover, backdropPath, plot, cast, director, genre, releaseDate, rating, rating5based, categoryId, categoryName, isFavorite, sourceId)
+                VALUES ('src-1_ser_1', 301, 1, 'Niñez Feliz', 'Niñez Feliz', null, null, null, null, null, 'Drama', '2023', 8.5, 4.25, 'cat-3', 'Drama', 0, 'src-1')
+            """.trimIndent())
+            close()
+        }
+
+        db = helper.runMigrationsAndValidate(TEST_DB, 5, true, MIGRATION_4_5)
+
+        val integrityCursor = db.query("PRAGMA integrity_check")
+        assertTrue(integrityCursor.moveToFirst())
+        assertEquals("ok", integrityCursor.getString(0))
+        integrityCursor.close()
+
+        val fkCursor = db.query("PRAGMA foreign_key_check")
+        assertEquals(0, fkCursor.count)
+        fkCursor.close()
+
+        // Validar que los registros históricos quedaron indexados de inmediato en FTS4 unicode61
+        val chFtsCursor = db.query("SELECT COUNT(*) FROM channels_fts WHERE channels_fts MATCH 'pelicula*'")
+        assertTrue(chFtsCursor.moveToFirst())
+        assertEquals("FTS rebuild debe encontrar 'Película' buscando 'pelicula'", 1, chFtsCursor.getInt(0))
+        chFtsCursor.close()
+
+        val movFtsCursor = db.query("SELECT COUNT(*) FROM movies_fts WHERE movies_fts MATCH 'cancion*'")
+        assertTrue(movFtsCursor.moveToFirst())
+        assertEquals("FTS rebuild debe encontrar 'Canción' buscando 'cancion'", 1, movFtsCursor.getInt(0))
+        movFtsCursor.close()
+
+        val serFtsCursor = db.query("SELECT COUNT(*) FROM series_fts WHERE series_fts MATCH 'ninez*'")
+        assertTrue(serFtsCursor.moveToFirst())
+        assertEquals("FTS rebuild debe encontrar 'Niñez' buscando 'ninez'", 1, serFtsCursor.getInt(0))
+        serFtsCursor.close()
+
+        db.close()
+    }
+
+    @Test
+    fun migrate1To2To3To4To5_fullChain() {
+        var db = helper.createDatabase(TEST_DB, 1).apply {
+            execSQL("""
+                INSERT INTO channels (id, streamId, num, name, streamType, streamIcon, categoryId, categoryName, epgChannelId, isAdult, isFavorite, streamUrl, containerExtension, sourceId)
+                VALUES ('ch-chain', 101, 1, 'Corazón Salvaje TV', 'live', null, 'cat-1', 'Novelas', null, 0, 0, 'http://stream', 'ts', 'src-1')
+            """.trimIndent())
+            close()
+        }
+
+        db = helper.runMigrationsAndValidate(TEST_DB, 5, true, MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+
+        val integrityCursor = db.query("PRAGMA integrity_check")
+        assertTrue(integrityCursor.moveToFirst())
+        assertEquals("ok", integrityCursor.getString(0))
+        integrityCursor.close()
+
+        // Validar búsqueda desacentuada en FTS
+        val ftsCur = db.query("SELECT COUNT(*) FROM channels_fts WHERE channels_fts MATCH 'corazon*'")
+        assertTrue(ftsCur.moveToFirst())
+        assertEquals(1, ftsCur.getInt(0))
+        ftsCur.close()
+
+        db.close()
+    }
+
+    @Test
+    fun freshInstall_version5() {
+        val db = helper.createDatabase(TEST_DB, 5)
+
+        val integrityCursor = db.query("PRAGMA integrity_check")
+        assertTrue(integrityCursor.moveToFirst())
+        assertEquals("ok", integrityCursor.getString(0))
+        integrityCursor.close()
+
+        val fkCursor = db.query("PRAGMA foreign_key_check")
+        assertEquals(0, fkCursor.count)
+        fkCursor.close()
+
+        val ftsTables = listOf("channels_fts", "movies_fts", "series_fts")
+        for (table in ftsTables) {
             val cur = db.query("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='$table'")
             assertTrue(cur.moveToFirst())
             assertEquals(1, cur.getInt(0))

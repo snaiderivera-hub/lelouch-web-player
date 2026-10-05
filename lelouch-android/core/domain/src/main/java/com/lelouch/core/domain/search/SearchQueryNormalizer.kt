@@ -41,13 +41,6 @@ object SearchQueryNormalizer {
         val tokens = cleaned.split(" ").filter { it.length >= 2 }
         if (tokens.isEmpty()) return ""
 
-        return tokens.joinToString(" AND ") { token ->
-            val stripped = stripAccents(token)
-            if (stripped.equals(token, ignoreCase = true)) {
-                "$token*"
-            } else {
-                "($token* OR $stripped*)"
-            }
-        }
+        return tokens.joinToString(" AND ") { "$it*" }
     }
 }

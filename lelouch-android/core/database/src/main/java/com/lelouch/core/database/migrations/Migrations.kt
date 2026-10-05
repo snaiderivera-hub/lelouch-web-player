@@ -192,3 +192,101 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_categories_sourceId_type` ON `categories` (`sourceId`, `type`)")
     }
 }
+
+/**
+ * Migración de base de datos v4 a v5 (FASE P1 #3.2: FTS Accent-Insensitive Bidireccional).
+ *
+ * Configura tablas virtuales FTS4 con tokenizer unicode61 y remove_diacritics=1:
+ * - `channels_fts`
+ * - `movies_fts`
+ * - `series_fts`
+ *
+ * Reconstruye de inmediato los índices FTS desde las tablas base (channels, movies, series)
+ * y recrea los triggers automáticos de sincronización (INSERT, UPDATE, DELETE).
+ * Preserva 100% de los datos existentes en tablas principales, staging, favoritos e historial.
+ */
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // 1. Eliminar tablas FTS4 anteriores y sus triggers si existen
+        db.execSQL("DROP TABLE IF EXISTS `channels_fts`")
+        db.execSQL("DROP TABLE IF EXISTS `movies_fts`")
+        db.execSQL("DROP TABLE IF EXISTS `series_fts`")
+
+        // 2. Crear tablas virtuales FTS4 con tokenizer unicode61 y remove_diacritics=1
+        db.execSQL("CREATE VIRTUAL TABLE IF NOT EXISTS `channels_fts` USING FTS4(`name` TEXT NOT NULL, `categoryName` TEXT NOT NULL, tokenize=unicode61 `remove_diacritics=1`, content=`channels`)")
+        db.execSQL("CREATE VIRTUAL TABLE IF NOT EXISTS `movies_fts` USING FTS4(`name` TEXT NOT NULL, `title` TEXT NOT NULL, `genre` TEXT, `cast` TEXT, `director` TEXT, `plot` TEXT, tokenize=unicode61 `remove_diacritics=1`, content=`movies`)")
+        db.execSQL("CREATE VIRTUAL TABLE IF NOT EXISTS `series_fts` USING FTS4(`name` TEXT NOT NULL, `title` TEXT NOT NULL, `genre` TEXT, `cast` TEXT, `plot` TEXT, tokenize=unicode61 `remove_diacritics=1`, content=`series`)")
+
+        // 3. Crear triggers de sincronización Room (BEFORE UPDATE, AFTER UPDATE, BEFORE DELETE, AFTER INSERT)
+        // 3.1 CHANNELS TRIGGERS
+        db.execSQL("""
+            CREATE TRIGGER IF NOT EXISTS `room_fts_content_sync_channels_fts_BEFORE_UPDATE` BEFORE UPDATE ON `channels` BEGIN
+                DELETE FROM `channels_fts` WHERE `docid` = OLD.`rowid`;
+            END
+        """.trimIndent())
+        db.execSQL("""
+            CREATE TRIGGER IF NOT EXISTS `room_fts_content_sync_channels_fts_AFTER_UPDATE` AFTER UPDATE ON `channels` BEGIN
+                INSERT INTO `channels_fts`(`docid`, `name`, `categoryName`) VALUES (NEW.`rowid`, NEW.`name`, NEW.`categoryName`);
+            END
+        """.trimIndent())
+        db.execSQL("""
+            CREATE TRIGGER IF NOT EXISTS `room_fts_content_sync_channels_fts_BEFORE_DELETE` BEFORE DELETE ON `channels` BEGIN
+                DELETE FROM `channels_fts` WHERE `docid` = OLD.`rowid`;
+            END
+        """.trimIndent())
+        db.execSQL("""
+            CREATE TRIGGER IF NOT EXISTS `room_fts_content_sync_channels_fts_AFTER_INSERT` AFTER INSERT ON `channels` BEGIN
+                INSERT INTO `channels_fts`(`docid`, `name`, `categoryName`) VALUES (NEW.`rowid`, NEW.`name`, NEW.`categoryName`);
+            END
+        """.trimIndent())
+
+        // 3.2 MOVIES TRIGGERS
+        db.execSQL("""
+            CREATE TRIGGER IF NOT EXISTS `room_fts_content_sync_movies_fts_BEFORE_UPDATE` BEFORE UPDATE ON `movies` BEGIN
+                DELETE FROM `movies_fts` WHERE `docid` = OLD.`rowid`;
+            END
+        """.trimIndent())
+        db.execSQL("""
+            CREATE TRIGGER IF NOT EXISTS `room_fts_content_sync_movies_fts_AFTER_UPDATE` AFTER UPDATE ON `movies` BEGIN
+                INSERT INTO `movies_fts`(`docid`, `name`, `title`, `genre`, `cast`, `director`, `plot`) VALUES (NEW.`rowid`, NEW.`name`, NEW.`title`, NEW.`genre`, NEW.`cast`, NEW.`director`, NEW.`plot`);
+            END
+        """.trimIndent())
+        db.execSQL("""
+            CREATE TRIGGER IF NOT EXISTS `room_fts_content_sync_movies_fts_BEFORE_DELETE` BEFORE DELETE ON `movies` BEGIN
+                DELETE FROM `movies_fts` WHERE `docid` = OLD.`rowid`;
+            END
+        """.trimIndent())
+        db.execSQL("""
+            CREATE TRIGGER IF NOT EXISTS `room_fts_content_sync_movies_fts_AFTER_INSERT` AFTER INSERT ON `movies` BEGIN
+                INSERT INTO `movies_fts`(`docid`, `name`, `title`, `genre`, `cast`, `director`, `plot`) VALUES (NEW.`rowid`, NEW.`name`, NEW.`title`, NEW.`genre`, NEW.`cast`, NEW.`director`, NEW.`plot`);
+            END
+        """.trimIndent())
+
+        // 3.3 SERIES TRIGGERS
+        db.execSQL("""
+            CREATE TRIGGER IF NOT EXISTS `room_fts_content_sync_series_fts_BEFORE_UPDATE` BEFORE UPDATE ON `series` BEGIN
+                DELETE FROM `series_fts` WHERE `docid` = OLD.`rowid`;
+            END
+        """.trimIndent())
+        db.execSQL("""
+            CREATE TRIGGER IF NOT EXISTS `room_fts_content_sync_series_fts_AFTER_UPDATE` AFTER UPDATE ON `series` BEGIN
+                INSERT INTO `series_fts`(`docid`, `name`, `title`, `genre`, `cast`, `plot`) VALUES (NEW.`rowid`, NEW.`name`, NEW.`title`, NEW.`genre`, NEW.`cast`, NEW.`plot`);
+            END
+        """.trimIndent())
+        db.execSQL("""
+            CREATE TRIGGER IF NOT EXISTS `room_fts_content_sync_series_fts_BEFORE_DELETE` BEFORE DELETE ON `series` BEGIN
+                DELETE FROM `series_fts` WHERE `docid` = OLD.`rowid`;
+            END
+        """.trimIndent())
+        db.execSQL("""
+            CREATE TRIGGER IF NOT EXISTS `room_fts_content_sync_series_fts_AFTER_INSERT` AFTER INSERT ON `series` BEGIN
+                INSERT INTO `series_fts`(`docid`, `name`, `title`, `genre`, `cast`, `plot`) VALUES (NEW.`rowid`, NEW.`name`, NEW.`title`, NEW.`genre`, NEW.`cast`, NEW.`plot`);
+            END
+        """.trimIndent())
+
+        // 4. Rebuild inicial inmediato de los índices FTS desde las tablas base existentes
+        db.execSQL("INSERT INTO `channels_fts`(`docid`, `name`, `categoryName`) SELECT `rowid`, `name`, `categoryName` FROM `channels`")
+        db.execSQL("INSERT INTO `movies_fts`(`docid`, `name`, `title`, `genre`, `cast`, `director`, `plot`) SELECT `rowid`, `name`, `title`, `genre`, `cast`, `director`, `plot` FROM `movies`")
+        db.execSQL("INSERT INTO `series_fts`(`docid`, `name`, `title`, `genre`, `cast`, `plot`) SELECT `rowid`, `name`, `title`, `genre`, `cast`, `plot` FROM `series`")
+    }
+}
