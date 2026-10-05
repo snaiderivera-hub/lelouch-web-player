@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.27",
-  "versionCode": 1000027,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.27/app-debug.apk",
-  "changelog": "• RC Blocker Fix #1: Desacoplada sincronización de fuentes. Fallos o ausencia de tabla legacy playlists no impiden cargar custom_playlists en arranque limpio.\n• Manejo determinista de errores: diferenciación explícita entre SUCCESS_EMPTY y ERROR_LOADING_SOURCES.\n• Preservación estricta de caché local ante fallos de red.\n• Validación segura de tokens de acceso y revocaciones."
+  "versionName": "1.0.28",
+  "versionCode": 1000028,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.28/app-debug.apk",
+  "changelog": "• RC Blocker Fix #2: Implementado SourceBootstrapState con 5 estados deterministas (Loading, Ready, Empty, ErrorNoSource, UsingLocalCache).\n• Eliminado spinner infinito cuando no hay fuentes utilizables o la red falla.\n• Pantalla de recuperación interactiva D-Pad con botones [Reintentar] y [Configurar fuente].\n• Acceso directo a TvAdminPanelModal para ingreso manual de cuentas o reintentos.\n• Protección contra múltiples requests de retry concurrentes y recomposiciones."
 }

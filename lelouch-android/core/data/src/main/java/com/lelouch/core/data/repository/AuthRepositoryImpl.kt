@@ -26,6 +26,9 @@ class AuthRepositoryImpl(
     private val supabaseBaseUrl: String = "https://rotupbdeljgfddywryhk.supabase.co"
 ) : AuthRepository {
 
+    override var isLastSyncFromCache: Boolean = false
+        private set
+
     private val json = Json { ignoreUnknownKeys = true }
 
     override fun getActiveSource(): Flow<SourceConfig?> {
@@ -310,6 +313,7 @@ class AuthRepositoryImpl(
 
         // ── 3. Manejo de Errores vs Lista Vacía vs Éxito ──
         if (!atLeastOneEndpointSuccessful) {
+            isLastSyncFromCache = true
             if (currentSources.isNotEmpty()) {
                 // TEST G: ya existe source local, red falla -> conservar source local usable
                 android.util.Log.w("AuthRepository", "SOURCE_SYNC_USING_LOCAL_CACHE: Error de conexión a la nube; preservando caché local (${currentSources.size} fuentes)")
@@ -320,6 +324,7 @@ class AuthRepositoryImpl(
                 throw java.io.IOException("ERROR_LOADING_SOURCES: Fallo de red al conectar con fuentes en la nube")
             }
         }
+        isLastSyncFromCache = false
 
         if (cloudSources.isEmpty()) {
             // TEST C: la nube respondió correctamente pero 0 fuentes -> SUCCESS_EMPTY

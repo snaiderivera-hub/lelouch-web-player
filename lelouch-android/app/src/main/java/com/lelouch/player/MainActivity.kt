@@ -9,13 +9,14 @@ import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.height
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.lelouch.core.data.sync.SyncState
-import androidx.compose.foundation.layout.height
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lelouch.core.designsystem.LelouchBackground
@@ -26,6 +27,10 @@ import com.lelouch.feature.mobile.MobileHomeScreen
 import com.lelouch.feature.mobile.MobileLoginScreen
 import com.lelouch.feature.tv.TvHomeScreen
 import com.lelouch.feature.tv.TvLoginScreen
+import com.lelouch.player.bootstrap.SourceBootstrapState
+import com.lelouch.player.bootstrap.SourceBootstrapViewModel
+import com.lelouch.feature.tv.components.TvBootstrapRecoveryScreen
+import com.lelouch.feature.tv.components.TvAdminPanelModal
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 
@@ -38,28 +43,27 @@ class MainActivity : ComponentActivity() {
         val isTv = isAndroidTvDevice()
 
         setContent {
+            val bootstrapViewModel = remember { SourceBootstrapViewModel(app.authRepository) }
+            val bootstrapState by bootstrapViewModel.bootstrapState.collectAsStateWithLifecycle()
             val activeSource by app.authRepository.getActiveSource().collectAsStateWithLifecycle(initialValue = null)
             val syncState by app.syncManager.syncState.collectAsStateWithLifecycle()
 
             var errorMessage by remember { mutableStateOf<String?>(null) }
-            val isLoading = syncState is SyncState.Authenticating ||
-                    syncState is SyncState.SyncingCategories ||
-                    syncState is SyncState.SyncingLive ||
-                    syncState is SyncState.SyncingMovies ||
-                    syncState is SyncState.SyncingSeries
+            var isManualAdminModalVisible by remember { mutableStateOf(false) }
 
-            val syncStatusText = when (val state = syncState) {
-                is SyncState.Checking -> "Comprobando actualizaciones..."
-                is SyncState.UpToDate -> state.message
-                is SyncState.TtlFresh -> state.message
-                is SyncState.OfflineUsingCache -> state.message
-                is SyncState.Authenticating -> "Validando credenciales con el servidor..."
-                is SyncState.SyncingCategories -> state.step
-                is SyncState.SyncingLive -> "Sincronizando canales en vivo (${state.count} importados)..."
-                is SyncState.SyncingMovies -> "Sincronizando películas VOD (${state.count} importadas)..."
-                is SyncState.SyncingSeries -> "Sincronizando series (${state.count} importadas)..."
-                is SyncState.Completed -> "¡Catálogo sincronizado con éxito!"
-                is SyncState.Error -> state.message
+            val syncStatusText = when {
+                bootstrapState is SourceBootstrapState.UsingLocalCache -> (bootstrapState as SourceBootstrapState.UsingLocalCache).warning
+                syncState is SyncState.Checking -> "Comprobando actualizaciones..."
+                syncState is SyncState.UpToDate -> (syncState as SyncState.UpToDate).message
+                syncState is SyncState.TtlFresh -> (syncState as SyncState.TtlFresh).message
+                syncState is SyncState.OfflineUsingCache -> (syncState as SyncState.OfflineUsingCache).message
+                syncState is SyncState.Authenticating -> "Validando credenciales con el servidor..."
+                syncState is SyncState.SyncingCategories -> (syncState as SyncState.SyncingCategories).step
+                syncState is SyncState.SyncingLive -> "Sincronizando canales en vivo (${(syncState as SyncState.SyncingLive).count} importados)..."
+                syncState is SyncState.SyncingMovies -> "Sincronizando películas VOD (${(syncState as SyncState.SyncingMovies).count} importadas)..."
+                syncState is SyncState.SyncingSeries -> "Sincronizando series (${(syncState as SyncState.SyncingSeries).count} importadas)..."
+                syncState is SyncState.Completed -> "¡Catálogo sincronizado con éxito!"
+                syncState is SyncState.Error -> (syncState as SyncState.Error).message
                 else -> ""
             }
 
@@ -69,17 +73,13 @@ class MainActivity : ComponentActivity() {
 
             val allSources by app.authRepository.getAllSources().collectAsStateWithLifecycle(initialValue = emptyList())
 
-            LaunchedEffect(Unit) {
-                app.authRepository.syncCloudSources()
-            }
-
             fun onLogin(serverUrl: String, user: String, pass: String) {
                 errorMessage = null
                 lifecycleScope.launch {
                     val authResult = app.authRepository.validateXtream(serverUrl, user, pass)
                     authResult.onSuccess { source ->
-                        // Sincronizar catálogo tras login exitoso
                         app.syncManager.syncAll(source.id, serverUrl, user, pass)
+                        bootstrapViewModel.retry()
                     }.onFailure { error ->
                         errorMessage = error.localizedMessage ?: "Error al conectar con el servidor IPTV"
                     }
@@ -97,6 +97,7 @@ class MainActivity : ComponentActivity() {
                             pass = activated.password,
                             sourceType = activated.type
                         )
+                        bootstrapViewModel.retry()
                     }
                 }
             }
@@ -104,6 +105,7 @@ class MainActivity : ComponentActivity() {
             fun onDeleteSource(sourceId: String) {
                 lifecycleScope.launch {
                     app.authRepository.removeSource(sourceId)
+                    bootstrapViewModel.retry()
                 }
             }
 
@@ -112,6 +114,7 @@ class MainActivity : ComponentActivity() {
                     val authResult = app.authRepository.validateXtream(serverUrl, user, pass, name)
                     authResult.onSuccess { source ->
                         app.syncManager.syncAll(source.id, source.serverUrl, source.username, source.password)
+                        bootstrapViewModel.retry()
                     }.onFailure { error ->
                         errorMessage = error.localizedMessage ?: "Error al conectar"
                     }
@@ -120,11 +123,18 @@ class MainActivity : ComponentActivity() {
 
             fun onSyncCloud() {
                 lifecycleScope.launch {
-                    app.authRepository.syncCloudSources()
+                    bootstrapViewModel.retry()
                 }
             }
 
-            val effectiveActiveSource = activeSource ?: allSources.firstOrNull()
+            val effectiveActiveSource = when (val bs = bootstrapState) {
+                is SourceBootstrapState.Ready -> bs.source
+                is SourceBootstrapState.UsingLocalCache -> bs.source
+                else -> activeSource ?: allSources.firstOrNull()
+            }
+
+            val isHomeVisible = effectiveActiveSource != null &&
+                    (bootstrapState is SourceBootstrapState.Ready || bootstrapState is SourceBootstrapState.UsingLocalCache)
 
             fun onForceSync() {
                 val src = effectiveActiveSource ?: return
@@ -143,6 +153,7 @@ class MainActivity : ComponentActivity() {
             fun onLogout() {
                 lifecycleScope.launch {
                     app.authRepository.logout()
+                    bootstrapViewModel.retry()
                 }
             }
 
@@ -150,7 +161,6 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(effectiveActiveSource?.id) {
                 val src = effectiveActiveSource ?: return@LaunchedEffect
                 if (activeSource == null) {
-                    // Fija el id activo en DataStore si aún no está fijado.
                     app.authRepository.activateSource(src.id)
                 }
                 app.syncManager.syncIfNeeded(
@@ -162,7 +172,6 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            // FASE P1 #2A, #2B & #2C: En Android TV las listas completas de Canales, Películas y Series NO se colectan en memoria (Paging 3 directo a Room)
             val liveChannels by (if (!isTv && effectiveActiveSource != null) app.channelRepository.getAllChannels(effectiveActiveSource.id) else kotlinx.coroutines.flow.emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
             val movies by (if (!isTv && effectiveActiveSource != null) app.vodRepository.getAllMovies(effectiveActiveSource.id) else kotlinx.coroutines.flow.emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
             val recentMovies by (if (isTv && effectiveActiveSource != null) app.vodRepository.getRecentlyAddedMovies(20) else emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
@@ -180,7 +189,7 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxSize(),
                         color = LelouchBackground
                     ) {
-                        if (effectiveActiveSource != null) {
+                        if (isHomeVisible && effectiveActiveSource != null) {
                             TvHomeScreen(
                                 activeSource = effectiveActiveSource,
                                 allSources = allSources,
@@ -220,28 +229,84 @@ class MainActivity : ComponentActivity() {
                                 }
                             )
                         } else {
-                            androidx.compose.foundation.layout.Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = androidx.compose.ui.Alignment.Center
-                            ) {
-                                androidx.compose.foundation.layout.Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
-                                    androidx.compose.material3.Text(
-                                        text = "REPRODUCTOR LELOUCH",
-                                        color = androidx.compose.ui.graphics.Color.White,
-                                        fontSize = 28.sp,
-                                        fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
-                                        letterSpacing = 2.sp
+                            when (val bs = bootstrapState) {
+                                is SourceBootstrapState.Loading -> {
+                                    androidx.compose.foundation.layout.Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = androidx.compose.ui.Alignment.Center
+                                    ) {
+                                        androidx.compose.foundation.layout.Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+                                            androidx.compose.material3.Text(
+                                                text = "REPRODUCTOR LELOUCH",
+                                                color = androidx.compose.ui.graphics.Color.White,
+                                                fontSize = 28.sp,
+                                                fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+                                                letterSpacing = 2.sp
+                                            )
+                                            androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(10.dp))
+                                            androidx.compose.material3.Text(
+                                                text = "Sincronizando listas desde Supabase Cloud...",
+                                                color = LelouchCyanAccent,
+                                                fontSize = 13.sp
+                                            )
+                                            androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(24.dp))
+                                            androidx.compose.material3.CircularProgressIndicator(color = LelouchCyanAccent)
+                                        }
+                                    }
+                                }
+                                is SourceBootstrapState.Empty -> {
+                                    TvBootstrapRecoveryScreen(
+                                        subtitle = "No hay listas configuradas",
+                                        message = "No se encontraron listas disponibles en tu cuenta de Supabase Cloud.",
+                                        retryable = true,
+                                        onRetry = { bootstrapViewModel.retry() },
+                                        onOpenSettings = { isManualAdminModalVisible = true }
                                     )
-                                    androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(10.dp))
-                                    androidx.compose.material3.Text(
-                                        text = "Sincronizando listas desde Supabase Cloud...",
-                                        color = LelouchCyanAccent,
-                                        fontSize = 13.sp
+                                }
+                                is SourceBootstrapState.ErrorNoSource -> {
+                                    TvBootstrapRecoveryScreen(
+                                        subtitle = "No fue posible cargar tus listas",
+                                        message = bs.message,
+                                        retryable = bs.retryable,
+                                        onRetry = { bootstrapViewModel.retry() },
+                                        onOpenSettings = { isManualAdminModalVisible = true }
                                     )
-                                    androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(24.dp))
-                                    androidx.compose.material3.CircularProgressIndicator(color = LelouchCyanAccent)
+                                }
+                                else -> {
+                                    TvBootstrapRecoveryScreen(
+                                        subtitle = "Sin listas activas",
+                                        message = "Configura una cuenta IPTV o reintenta la conexión.",
+                                        retryable = true,
+                                        onRetry = { bootstrapViewModel.retry() },
+                                        onOpenSettings = { isManualAdminModalVisible = true }
+                                    )
                                 }
                             }
+                        }
+
+                        if (isManualAdminModalVisible) {
+                            TvAdminPanelModal(
+                                activeSource = effectiveActiveSource,
+                                allSources = allSources,
+                                onActivateSource = { id ->
+                                    onActivateSource(id)
+                                    bootstrapViewModel.retry()
+                                    isManualAdminModalVisible = false
+                                },
+                                onDeleteSource = ::onDeleteSource,
+                                onAddSource = { url, user, pass, name ->
+                                    onAddSource(url, user, pass, name)
+                                    bootstrapViewModel.retry()
+                                    isManualAdminModalVisible = false
+                                },
+                                onSyncCloudSources = {
+                                    onSyncCloud()
+                                    bootstrapViewModel.retry()
+                                },
+                                onForceSync = ::onForceSync,
+                                onLogout = ::onLogout,
+                                onDismiss = { isManualAdminModalVisible = false }
+                            )
                         }
                     }
                 }
@@ -251,7 +316,7 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxSize(),
                         color = LelouchBackground
                     ) {
-                        if (effectiveActiveSource != null) {
+                        if (isHomeVisible && effectiveActiveSource != null) {
                             MobileHomeScreen(
                                 activeSource = effectiveActiveSource,
                                 allSources = allSources,
@@ -285,26 +350,69 @@ class MainActivity : ComponentActivity() {
                                 }
                             )
                         } else {
-                            androidx.compose.foundation.layout.Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = androidx.compose.ui.Alignment.Center
-                            ) {
-                                androidx.compose.foundation.layout.Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
-                                    androidx.compose.material3.Text(
-                                        text = "REPRODUCTOR LELOUCH",
-                                        color = androidx.compose.ui.graphics.Color.White,
-                                        fontSize = 22.sp,
-                                        fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
-                                        letterSpacing = 1.5.sp
-                                    )
-                                    androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(10.dp))
-                                    androidx.compose.material3.Text(
-                                        text = "Sincronizando listas desde Supabase Cloud...",
-                                        color = LelouchCyanAccent,
-                                        fontSize = 12.sp
-                                    )
-                                    androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(20.dp))
-                                    androidx.compose.material3.CircularProgressIndicator(color = LelouchCyanAccent)
+                            when (val bs = bootstrapState) {
+                                is SourceBootstrapState.Loading -> {
+                                    androidx.compose.foundation.layout.Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = androidx.compose.ui.Alignment.Center
+                                    ) {
+                                        androidx.compose.foundation.layout.Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+                                            androidx.compose.material3.Text(
+                                                text = "REPRODUCTOR LELOUCH",
+                                                color = androidx.compose.ui.graphics.Color.White,
+                                                fontSize = 22.sp,
+                                                fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+                                                letterSpacing = 1.5.sp
+                                            )
+                                            androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(10.dp))
+                                            androidx.compose.material3.Text(
+                                                text = "Sincronizando listas desde Supabase Cloud...",
+                                                color = LelouchCyanAccent,
+                                                fontSize = 12.sp
+                                            )
+                                            androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(20.dp))
+                                            androidx.compose.material3.CircularProgressIndicator(color = LelouchCyanAccent)
+                                        }
+                                    }
+                                }
+                                else -> {
+                                    val title = if (bs is SourceBootstrapState.Empty) "No hay listas configuradas" else "No fue posible cargar tus listas"
+                                    val msg = if (bs is SourceBootstrapState.ErrorNoSource) bs.message else "Verifica tu conexión a internet o configura una cuenta IPTV."
+                                    androidx.compose.foundation.layout.Box(
+                                        modifier = Modifier.fillMaxSize().padding(24.dp),
+                                        contentAlignment = androidx.compose.ui.Alignment.Center
+                                    ) {
+                                        androidx.compose.foundation.layout.Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+                                            androidx.compose.material3.Text(
+                                                text = "REPRODUCTOR LELOUCH",
+                                                color = androidx.compose.ui.graphics.Color.White,
+                                                fontSize = 22.sp,
+                                                fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+                                                letterSpacing = 1.5.sp
+                                            )
+                                            androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(10.dp))
+                                            androidx.compose.material3.Text(
+                                                text = title,
+                                                color = LelouchCyanAccent,
+                                                fontSize = 14.sp,
+                                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                            )
+                                            androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(6.dp))
+                                            androidx.compose.material3.Text(
+                                                text = msg,
+                                                color = androidx.compose.ui.graphics.Color.Gray,
+                                                fontSize = 12.sp,
+                                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                            )
+                                            androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(24.dp))
+                                            androidx.compose.material3.Button(
+                                                onClick = { bootstrapViewModel.retry() },
+                                                colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = LelouchCyanAccent)
+                                            ) {
+                                                androidx.compose.material3.Text("Reintentar", color = androidx.compose.ui.graphics.Color.Black, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }

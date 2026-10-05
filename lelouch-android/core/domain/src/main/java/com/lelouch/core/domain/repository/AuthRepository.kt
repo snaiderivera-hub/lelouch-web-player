@@ -12,4 +12,5 @@ interface AuthRepository {
     suspend fun validateXtream(serverUrl: String, user: String, pass: String, customName: String? = null): Result<SourceConfig>
     suspend fun syncCloudSources(): List<SourceConfig>
     suspend fun logout()
+    val isLastSyncFromCache: Boolean get() = false
 }
