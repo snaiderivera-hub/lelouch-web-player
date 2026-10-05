@@ -6,6 +6,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.lelouch.core.database.LelouchDatabase
 import com.lelouch.core.database.migrations.MIGRATION_1_2
+import com.lelouch.core.database.migrations.MIGRATION_2_3
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -29,7 +30,6 @@ class MigrationTest {
     fun migrate1To2_preservesAllDataAndConvertsIndices() {
         // 1. Crear base de datos en versión 1
         var db = helper.createDatabase(TEST_DB, 1).apply {
-            // Insertar fixture representativo en v1
             execSQL("""
                 INSERT INTO channels (id, streamId, num, name, streamType, streamIcon, categoryId, categoryName, epgChannelId, isAdult, isFavorite, streamUrl, containerExtension, sourceId)
                 VALUES ('ch-1', 101, 1, 'Canal Test 1', 'live', 'http://logo1.png', 'cat-1', 'Noticias', 'epg-1', 0, 1, 'http://stream1.m3u8', 'ts', 'source-1')
@@ -117,6 +117,142 @@ class MigrationTest {
         assertTrue(chCount2.moveToFirst())
         assertEquals(2, chCount2.getInt(0))
         chCount2.close()
+
+        db.close()
+    }
+
+    @Test
+    fun migrate2To3_createsStagingTablesAndPreservesAllData() {
+        // 1. Crear base de datos en versión 2
+        var db = helper.createDatabase(TEST_DB, 2).apply {
+            execSQL("""
+                INSERT INTO channels (id, streamId, num, name, streamType, streamIcon, categoryId, categoryName, epgChannelId, isAdult, isFavorite, streamUrl, containerExtension, sourceId)
+                VALUES ('ch-100', 1001, 1, 'Canal v2', 'live', 'http://logo.png', 'cat-1', 'General', 'epg-1', 0, 1, 'http://stream.m3u8', 'ts', 'source-a')
+            """.trimIndent())
+
+            execSQL("""
+                INSERT INTO movies (id, streamId, num, name, title, year, streamIcon, backdropPath, rating, rating5based, added, categoryId, categoryName, containerExtension, plot, cast, director, genre, durationSecs, streamUrl, isFavorite, sourceId)
+                VALUES ('mov-100', 2001, 1, 'Pelicula v2', 'Pelicula v2', '2024', null, null, 7.0, 3.5, '1700000000', 'cat-2', 'Cine', 'mp4', null, null, null, null, 5400, 'http://film.mp4', 1, 'source-a')
+            """.trimIndent())
+
+            execSQL("""
+                INSERT INTO series (id, seriesId, num, name, title, cover, backdropPath, plot, cast, director, genre, releaseDate, rating, rating5based, categoryId, categoryName, isFavorite, sourceId)
+                VALUES ('ser-100', 3001, 1, 'Serie v2', 'Serie v2', null, null, null, null, null, null, '2024', 8.0, 4.0, 'cat-3', 'Series', 0, 'source-a')
+            """.trimIndent())
+
+            execSQL("""
+                INSERT INTO categories (id, categoryId, categoryName, parentId, type, itemCount, isAdult, sourceId)
+                VALUES ('source-a-LIVE-cat-1', 'cat-1', 'General', 0, 'LIVE', 1, 0, 'source-a')
+            """.trimIndent())
+
+            execSQL("""
+                INSERT INTO favorites (id, contentId, title, posterUrl, contentType, categoryId, addedAt, sourceId)
+                VALUES ('source-a-LIVE-ch-100', 'ch-100', 'Canal v2', 'http://logo.png', 'LIVE', 'cat-1', 1700000000000, 'source-a')
+            """.trimIndent())
+
+            execSQL("""
+                INSERT INTO watch_history (id, contentId, title, posterUrl, backdropUrl, contentType, positionMs, durationMs, seasonNumber, episodeNumber, lastWatchedTimestamp, sourceId)
+                VALUES ('source-a-mov-100', 'mov-100', 'Pelicula v2', null, null, 'VOD', 120000, 5400000, null, null, 1700000000000, 'source-a')
+            """.trimIndent())
+
+            close()
+        }
+
+        // 2. Ejecutar migración v2 -> v3
+        db = helper.runMigrationsAndValidate(TEST_DB, 3, true, MIGRATION_2_3)
+
+        // 3. Validar integridad de SQLite
+        val integrityCursor = db.query("PRAGMA integrity_check")
+        assertTrue(integrityCursor.moveToFirst())
+        assertEquals("ok", integrityCursor.getString(0))
+        integrityCursor.close()
+
+        // 4. Validar preservación de datos existentes
+        val chCursor = db.query("SELECT COUNT(*) FROM channels WHERE sourceId = 'source-a'")
+        assertTrue(chCursor.moveToFirst())
+        assertEquals(1, chCursor.getInt(0))
+        chCursor.close()
+
+        val movCursor = db.query("SELECT COUNT(*) FROM movies WHERE sourceId = 'source-a'")
+        assertTrue(movCursor.moveToFirst())
+        assertEquals(1, movCursor.getInt(0))
+        movCursor.close()
+
+        val serCursor = db.query("SELECT COUNT(*) FROM series WHERE sourceId = 'source-a'")
+        assertTrue(serCursor.moveToFirst())
+        assertEquals(1, serCursor.getInt(0))
+        serCursor.close()
+
+        val favCursor = db.query("SELECT COUNT(*) FROM favorites WHERE sourceId = 'source-a'")
+        assertTrue(favCursor.moveToFirst())
+        assertEquals(1, favCursor.getInt(0))
+        favCursor.close()
+
+        val histCursor = db.query("SELECT COUNT(*) FROM watch_history WHERE sourceId = 'source-a'")
+        assertTrue(histCursor.moveToFirst())
+        assertEquals(1, histCursor.getInt(0))
+        histCursor.close()
+
+        // 5. Validar que las 4 tablas de staging existen y aceptan inserciones
+        db.execSQL("""
+            INSERT INTO channels_staging (syncId, id, streamId, num, name, streamType, streamIcon, categoryId, categoryName, epgChannelId, isAdult, isFavorite, streamUrl, containerExtension, sourceId)
+            VALUES ('sync-test', 'ch-stg-1', 999, 1, 'Canal Staging', 'live', null, 'cat-stg', 'Test', null, 0, 0, 'http://stg.m3u8', 'ts', 'source-a')
+        """.trimIndent())
+
+        val stgCursor = db.query("SELECT COUNT(*) FROM channels_staging WHERE syncId = 'sync-test'")
+        assertTrue(stgCursor.moveToFirst())
+        assertEquals(1, stgCursor.getInt(0))
+        stgCursor.close()
+
+        db.close()
+    }
+
+    @Test
+    fun migrate1To2To3_fullChain() {
+        // 1. Crear v1
+        var db = helper.createDatabase(TEST_DB, 1).apply {
+            execSQL("""
+                INSERT INTO channels (id, streamId, num, name, streamType, streamIcon, categoryId, categoryName, epgChannelId, isAdult, isFavorite, streamUrl, containerExtension, sourceId)
+                VALUES ('ch-chain', 555, 1, 'Canal Chain', 'live', null, 'cat-1', 'News', null, 0, 1, 'http://chain.m3u8', 'ts', 'src-1')
+            """.trimIndent())
+            close()
+        }
+
+        // 2. Migrar de v1 hasta v3 pasando por MIGRATION_1_2 y MIGRATION_2_3
+        db = helper.runMigrationsAndValidate(TEST_DB, 3, true, MIGRATION_1_2, MIGRATION_2_3)
+
+        // 3. Validar integridad
+        val integrityCursor = db.query("PRAGMA integrity_check")
+        assertTrue(integrityCursor.moveToFirst())
+        assertEquals("ok", integrityCursor.getString(0))
+        integrityCursor.close()
+
+        val countCursor = db.query("SELECT COUNT(*) FROM channels WHERE id = 'ch-chain'")
+        assertTrue(countCursor.moveToFirst())
+        assertEquals(1, countCursor.getInt(0))
+        countCursor.close()
+
+        db.close()
+    }
+
+    @Test
+    fun freshInstall_version3() {
+        // Crear directamente v3 (instalación limpia)
+        val db = helper.createDatabase(TEST_DB, 3)
+
+        val integrityCursor = db.query("PRAGMA integrity_check")
+        assertTrue(integrityCursor.moveToFirst())
+        assertEquals("ok", integrityCursor.getString(0))
+        integrityCursor.close()
+
+        // Validar que existen las tablas de staging
+        val tables = listOf("channels_staging", "movies_staging", "series_staging", "categories_staging")
+        for (table in tables) {
+            val cur = db.query("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='$table'")
+            assertTrue(cur.moveToFirst())
+            assertEquals(1, cur.getInt(0))
+            cur.close()
+        }
 
         db.close()
     }

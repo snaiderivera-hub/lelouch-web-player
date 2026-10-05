@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.18",
-  "versionCode": 1000018,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.18/app-debug.apk",
-  "changelog": "• Cambio de Canales por Gestos Touch: En teléfono ahora puedes deslizar el dedo (swipe) hacia arriba/izquierda para canal siguiente o hacia abajo/derecha para canal anterior.\n• OSD Flotante Neón: Indicador visual en pantalla con nombre de canal, número y animación suave.\n• Compatible tanto en pantalla completa como en el mini reproductor."
+  "versionName": "1.0.19",
+  "versionCode": 1000019,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.19/app-debug.apk",
+  "changelog": "• Sincronización Room Atómica (P0 #4): Descargas y parseos dirigidos exclusivamente a tablas de staging aisladas (channels_staging, movies_staging, series_staging, categories_staging).\n• Swap atómico ultra-rápido en SQLite con preservación de favoritos y rollback automático ante cualquier fallo.\n• Cero invalidaciones en cascada sobre los Flow visibles de la interfaz durante sincronizaciones intermedias."
 }
