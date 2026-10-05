@@ -19,5 +19,11 @@ interface ChannelRepository {
     ): Flow<PagingData<ChannelEntity>>
     suspend fun toggleFavorite(streamId: Int, isFavorite: Boolean)
     suspend fun toggleFavorite(sourceId: String, streamId: Int, isFavorite: Boolean)
+    suspend fun searchChannels(
+        sourceId: String,
+        query: String,
+        hiddenCategoryIds: List<String> = emptyList(),
+        limit: Int = 20
+    ): List<LiveStream>
     suspend fun syncChannels(sourceId: String, serverUrl: String, user: String, pass: String): Result<Unit>
 }

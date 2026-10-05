@@ -17,7 +17,8 @@ import androidx.paging.PagingData
 class ChannelRepositoryImpl(
     private val channelDao: ChannelDao,
     private val categoryDao: CategoryDao,
-    private val syncManager: XtreamCatalogSyncManager
+    private val syncManager: XtreamCatalogSyncManager,
+    private val searchDao: com.lelouch.core.database.dao.SearchDao? = null
 ) : ChannelRepository {
 
     override fun getCategories(sourceId: String): Flow<List<Category>> {
@@ -93,6 +94,45 @@ class ChannelRepositoryImpl(
 
     override suspend fun toggleFavorite(sourceId: String, streamId: Int, isFavorite: Boolean) {
         channelDao.updateFavoriteStatus(sourceId, streamId, isFavorite)
+    }
+
+    override suspend fun searchChannels(
+        sourceId: String,
+        query: String,
+        hiddenCategoryIds: List<String>,
+        limit: Int
+    ): List<LiveStream> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val normalized = com.lelouch.core.domain.search.SearchQueryNormalizer.normalize(query)
+        if (normalized.length < 2) return@withContext emptyList()
+
+        if (searchDao != null) {
+            val ftsQuery = com.lelouch.core.domain.search.SearchQueryNormalizer.buildFtsQuery(normalized)
+            val ftsResults = if (ftsQuery.isNotBlank()) {
+                try {
+                    if (hiddenCategoryIds.isNotEmpty()) {
+                        searchDao.searchChannelsFtsExcludingCategories(sourceId, ftsQuery, hiddenCategoryIds, limit)
+                    } else {
+                        searchDao.searchChannelsFts(sourceId, ftsQuery, limit)
+                    }
+                } catch (e: Exception) {
+                    emptyList()
+                }
+            } else emptyList()
+
+            if (ftsResults.isNotEmpty()) {
+                return@withContext ftsResults.map { it.toDomain() }
+            }
+
+            val stripped = com.lelouch.core.domain.search.SearchQueryNormalizer.stripAccents(normalized)
+            val likeResults = if (hiddenCategoryIds.isNotEmpty()) {
+                searchDao.searchChannelsLikeExcludingCategories(sourceId, normalized, stripped, hiddenCategoryIds, limit)
+            } else {
+                searchDao.searchChannelsLike(sourceId, normalized, stripped, limit)
+            }
+            likeResults.map { it.toDomain() }
+        } else {
+            emptyList()
+        }
     }
 
     override suspend fun syncChannels(

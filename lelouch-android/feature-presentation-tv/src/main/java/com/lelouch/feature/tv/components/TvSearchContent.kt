@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,22 +39,40 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Surface
 import com.lelouch.core.designsystem.*
 import com.lelouch.core.designsystem.components.releasesFocusVertically
+import com.lelouch.core.domain.repository.ChannelRepository
+import com.lelouch.core.domain.repository.SeriesRepository
+import com.lelouch.core.domain.repository.VodRepository
 import com.lelouch.core.model.LiveStream
 import com.lelouch.core.model.Series
 import com.lelouch.core.model.VodMovie
 import com.lelouch.feature.tv.ChannelUiModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 
 /**
- * Clean, fast, and easy-to-type search screen for Android TV.
- * Uses native IME text input so Android TV remote, voice typing, and Gboard work seamlessly
- * without custom keyboard traps or navigation freezes.
+ * Clean, fast, and scalable search screen for Android TV.
+ * FASE CONTROLADA — P1 #3:
+ * - Uses native IME text input (compatible with remote, Gboard, and voice input).
+ * - Debounces user typing (250ms) and cancels outdated queries automatically with collectLatest.
+ * - Queries Room directly via repositories with source isolation and hidden category filtering.
+ * - NEVER materializes whole catalogs (50k + 30k + 10k) into RAM.
+ * - Bounded results per domain (20 items max per section).
  */
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, kotlinx.coroutines.FlowPreview::class)
 @Composable
 fun TvSearchContent(
-    channels: List<ChannelUiModel>,
-    movies: List<VodMovie>,
-    seriesList: List<Series>,
+    activeSourceId: String?,
+    channelRepository: ChannelRepository?,
+    vodRepository: VodRepository?,
+    seriesRepository: SeriesRepository?,
+    hiddenLiveCategories: Set<String>,
+    hiddenMovieCategories: Set<String>,
+    hiddenSeriesCategories: Set<String>,
+    popularMovies: List<VodMovie>,
     onSelectChannel: (ChannelUiModel) -> Unit,
     onSelectMovie: (VodMovie) -> Unit,
     onSelectSeries: (Series) -> Unit,
@@ -61,26 +80,72 @@ fun TvSearchContent(
     sidebarRequester: FocusRequester? = null,
     modifier: Modifier = Modifier
 ) {
-    var searchQuery by remember { mutableStateOf("") }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
     var isInputFocused by remember { mutableStateOf(false) }
 
-    val filteredChannels = remember(searchQuery, channels) {
-        if (searchQuery.length < 2) emptyList()
-        else channels.filter { it.name.contains(searchQuery, ignoreCase = true) }.take(10)
+    var searchChannelsResults by remember { mutableStateOf<List<ChannelUiModel>>(emptyList()) }
+    var searchMoviesResults by remember { mutableStateOf<List<VodMovie>>(emptyList()) }
+    var searchSeriesResults by remember { mutableStateOf<List<Series>>(emptyList()) }
+
+    val isSearching = searchQuery.trim().length >= 2
+
+    LaunchedEffect(activeSourceId, hiddenLiveCategories, hiddenMovieCategories, hiddenSeriesCategories) {
+        snapshotFlow { searchQuery }
+            .map { it.trim() }
+            .distinctUntilChanged()
+            .debounce(250)
+            .collectLatest { query ->
+                if (query.length < 2 || activeSourceId.isNullOrBlank() || channelRepository == null || vodRepository == null || seriesRepository == null) {
+                    searchChannelsResults = emptyList()
+                    searchMoviesResults = emptyList()
+                    searchSeriesResults = emptyList()
+                } else {
+                    val channelsDeferred = async(Dispatchers.IO) {
+                        channelRepository.searchChannels(
+                            sourceId = activeSourceId,
+                            query = query,
+                            hiddenCategoryIds = hiddenLiveCategories.toList(),
+                            limit = 20
+                        )
+                    }
+                    val moviesDeferred = async(Dispatchers.IO) {
+                        vodRepository.searchMovies(
+                            sourceId = activeSourceId,
+                            query = query,
+                            hiddenCategoryIds = hiddenMovieCategories.toList(),
+                            limit = 20
+                        )
+                    }
+                    val seriesDeferred = async(Dispatchers.IO) {
+                        seriesRepository.searchSeries(
+                            sourceId = activeSourceId,
+                            query = query,
+                            hiddenCategoryIds = hiddenSeriesCategories.toList(),
+                            limit = 20
+                        )
+                    }
+
+                    searchChannelsResults = channelsDeferred.await().map { ch ->
+                        ChannelUiModel(
+                            id = ch.id,
+                            streamId = ch.streamId,
+                            name = ch.name,
+                            num = ch.num,
+                            categoryName = ch.categoryName,
+                            categoryId = ch.categoryId,
+                            streamIcon = ch.streamIcon,
+                            streamUrl = ch.streamUrl,
+                            isFavorite = ch.isFavorite,
+                            sourceId = activeSourceId
+                        )
+                    }
+                    searchMoviesResults = moviesDeferred.await()
+                    searchSeriesResults = seriesDeferred.await()
+                }
+            }
     }
 
-    val filteredMovies = remember(searchQuery, movies) {
-        if (searchQuery.length < 2) emptyList()
-        else movies.filter { it.name.contains(searchQuery, ignoreCase = true) }.take(20)
-    }
-
-    val filteredSeries = remember(searchQuery, seriesList) {
-        if (searchQuery.length < 2) emptyList()
-        else seriesList.filter { it.name.contains(searchQuery, ignoreCase = true) }.take(20)
-    }
-
-    val isSearching = searchQuery.length >= 2
-    val totalResults = filteredChannels.size + filteredMovies.size + filteredSeries.size
+    val totalResults = searchChannelsResults.size + searchMoviesResults.size + searchSeriesResults.size
 
     Column(
         modifier = modifier
@@ -199,7 +264,7 @@ fun TvSearchContent(
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     contentPadding = PaddingValues(end = 36.dp)
                 ) {
-                    itemsIndexed(movies.take(10)) { _, movie ->
+                    itemsIndexed(popularMovies.take(10)) { _, movie ->
                         TvPosterCard(
                             title = movie.name,
                             posterUrl = movie.streamIcon,
@@ -220,7 +285,7 @@ fun TvSearchContent(
                 modifier = Modifier.fillMaxSize()
             ) {
                 // Channels
-                items(filteredChannels, key = { "search_ch_${it.streamId}" }) { channel ->
+                items(searchChannelsResults, key = { "search_ch_${it.id.ifEmpty { it.streamId.toString() }}" }) { channel ->
                     var isCardFocused by remember { mutableStateOf(false) }
                     Surface(
                         onClick = { onSelectChannel(channel) },
@@ -270,7 +335,7 @@ fun TvSearchContent(
                 }
 
                 // Movies
-                items(filteredMovies, key = { "search_mov_${it.streamId}" }) { movie ->
+                items(searchMoviesResults, key = { "search_mov_${it.id.ifEmpty { it.streamId.toString() }}" }) { movie ->
                     TvPosterCard(
                         title = movie.name,
                         posterUrl = movie.streamIcon,
@@ -281,7 +346,7 @@ fun TvSearchContent(
                 }
 
                 // Series
-                items(filteredSeries, key = { "search_ser_${it.seriesId}" }) { series ->
+                items(searchSeriesResults, key = { "search_ser_${it.id.ifEmpty { it.seriesId.toString() }}" }) { series ->
                     TvPosterCard(
                         title = series.name,
                         posterUrl = series.cover,

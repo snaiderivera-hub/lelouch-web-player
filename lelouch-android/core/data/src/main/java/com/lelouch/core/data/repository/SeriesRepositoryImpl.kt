@@ -19,7 +19,8 @@ import org.json.JSONObject
 class SeriesRepositoryImpl(
     private val seriesDao: SeriesDao,
     private val categoryDao: CategoryDao,
-    private val syncManager: XtreamCatalogSyncManager
+    private val syncManager: XtreamCatalogSyncManager,
+    private val searchDao: com.lelouch.core.database.dao.SearchDao? = null
 ) : SeriesRepository {
 
     override fun getCategories(sourceId: String): Flow<List<Category>> {
@@ -212,6 +213,45 @@ class SeriesRepositoryImpl(
 
     override suspend fun toggleFavorite(seriesId: Int, isFavorite: Boolean) {
         seriesDao.updateFavoriteStatus(seriesId, isFavorite)
+    }
+
+    override suspend fun searchSeries(
+        sourceId: String,
+        query: String,
+        hiddenCategoryIds: List<String>,
+        limit: Int
+    ): List<Series> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val normalized = com.lelouch.core.domain.search.SearchQueryNormalizer.normalize(query)
+        if (normalized.length < 2) return@withContext emptyList()
+
+        if (searchDao != null) {
+            val ftsQuery = com.lelouch.core.domain.search.SearchQueryNormalizer.buildFtsQuery(normalized)
+            val ftsResults = if (ftsQuery.isNotBlank()) {
+                try {
+                    if (hiddenCategoryIds.isNotEmpty()) {
+                        searchDao.searchSeriesFtsExcludingCategories(sourceId, ftsQuery, hiddenCategoryIds, limit)
+                    } else {
+                        searchDao.searchSeriesFts(sourceId, ftsQuery, limit)
+                    }
+                } catch (e: Exception) {
+                    emptyList()
+                }
+            } else emptyList()
+
+            if (ftsResults.isNotEmpty()) {
+                return@withContext ftsResults.map { it.toDomain() }
+            }
+
+            val stripped = com.lelouch.core.domain.search.SearchQueryNormalizer.stripAccents(normalized)
+            val likeResults = if (hiddenCategoryIds.isNotEmpty()) {
+                searchDao.searchSeriesLikeExcludingCategories(sourceId, normalized, stripped, hiddenCategoryIds, limit)
+            } else {
+                searchDao.searchSeriesLike(sourceId, normalized, stripped, limit)
+            }
+            likeResults.map { it.toDomain() }
+        } else {
+            emptyList()
+        }
     }
 
     override suspend fun syncSeries(

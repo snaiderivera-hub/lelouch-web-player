@@ -1237,9 +1237,14 @@ fun TvHomeScreen(
                         0 -> {
                             // 🔍 BUSCADOR NATIVO FLUIDO (Sin teclado virtual bloqueante, compatible con voz y control remoto)
                             TvSearchContent(
-                                channels = visibleChannels,
-                                movies = visibleMovies,
-                                seriesList = visibleSeries,
+                                activeSourceId = activeSource?.id,
+                                channelRepository = channelRepository,
+                                vodRepository = vodRepository,
+                                seriesRepository = seriesRepository,
+                                hiddenLiveCategories = hiddenLiveCategories,
+                                hiddenMovieCategories = hiddenMovieCategories,
+                                hiddenSeriesCategories = hiddenSeriesCategories,
+                                popularMovies = visibleMovies.ifEmpty { recentMovies }.take(10),
                                 onSelectChannel = { ch ->
                                     val idx = visibleChannels.indexOfFirst { it.streamId == ch.streamId }
                                     if (idx >= 0) focusedChannelIndex = idx

@@ -45,9 +45,9 @@ class LelouchApplication : Application() {
         syncManager = XtreamCatalogSyncManager(database, preferencesDataSource)
 
         authRepository = AuthRepositoryImpl(preferencesDataSource)
-        channelRepository = ChannelRepositoryImpl(database.channelDao(), database.categoryDao(), syncManager)
-        vodRepository = VodRepositoryImpl(database.movieDao(), database.categoryDao(), syncManager)
-        seriesRepository = SeriesRepositoryImpl(database.seriesDao(), database.categoryDao(), syncManager)
+        channelRepository = ChannelRepositoryImpl(database.channelDao(), database.categoryDao(), syncManager, database.searchDao())
+        vodRepository = VodRepositoryImpl(database.movieDao(), database.categoryDao(), syncManager, database.searchDao())
+        seriesRepository = SeriesRepositoryImpl(database.seriesDao(), database.categoryDao(), syncManager, database.searchDao())
     }
 
     companion object {

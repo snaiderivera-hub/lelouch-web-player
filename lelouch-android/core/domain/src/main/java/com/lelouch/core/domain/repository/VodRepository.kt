@@ -19,5 +19,11 @@ interface VodRepository {
     ): Flow<PagingData<MovieEntity>>
     suspend fun getMovieDetail(streamId: Int): VodMovie?
     suspend fun toggleFavorite(streamId: Int, isFavorite: Boolean)
+    suspend fun searchMovies(
+        sourceId: String,
+        query: String,
+        hiddenCategoryIds: List<String> = emptyList(),
+        limit: Int = 20
+    ): List<VodMovie>
     suspend fun syncMovies(sourceId: String, serverUrl: String, user: String, pass: String): Result<Unit>
 }

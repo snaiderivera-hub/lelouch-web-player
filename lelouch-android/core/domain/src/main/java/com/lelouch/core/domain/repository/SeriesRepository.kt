@@ -28,5 +28,11 @@ interface SeriesRepository {
         seriesId: Int
     ): Pair<List<Int>, List<Episode>>
     suspend fun toggleFavorite(seriesId: Int, isFavorite: Boolean)
+    suspend fun searchSeries(
+        sourceId: String,
+        query: String,
+        hiddenCategoryIds: List<String> = emptyList(),
+        limit: Int = 20
+    ): List<Series>
     suspend fun syncSeries(sourceId: String, serverUrl: String, user: String, pass: String): Result<Unit>
 }

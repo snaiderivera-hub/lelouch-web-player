@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.24",
-  "versionCode": 1000024,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.24/app-debug.apk",
-  "changelog": "• Auditoría Post-Paging (P1 #2D): Eliminación de código muerto de paginación previa en ChannelRepository y TvHomeScreen.\n• Eliminadas búsquedas lineales redundantes (.any) en favor de lookups directos O(1) de isFavorite.\n• Validado fixture de 90,000 elementos simultáneos (50k canales, 30k películas, 10k series) con cero materialización masiva en cambios de pestañas y fuentes."
+  "versionName": "1.0.25",
+  "versionCode": 1000025,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.25/app-debug.apk",
+  "changelog": "• Búsqueda y FTS Escalable en Android TV (P1 #3): Eliminada la materialización masiva de catálogos en RAM.\n• Pipeline de búsqueda con debounce (250ms), cancelación automática de consultas obsoletas (collectLatest) y consultas acotadas directamente sobre Room.\n• Soporte dual FTS4 subquery + SQL LIKE indexado con normalización de acentos y caracteres especiales.\n• Aislamiento estricto por sourceId y exclusión de categorías ocultas y adultas."
 }

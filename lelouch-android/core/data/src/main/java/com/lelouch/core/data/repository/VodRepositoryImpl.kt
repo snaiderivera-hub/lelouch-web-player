@@ -14,7 +14,8 @@ import kotlinx.coroutines.flow.map
 class VodRepositoryImpl(
     private val movieDao: MovieDao,
     private val categoryDao: CategoryDao,
-    private val syncManager: XtreamCatalogSyncManager
+    private val syncManager: XtreamCatalogSyncManager,
+    private val searchDao: com.lelouch.core.database.dao.SearchDao? = null
 ) : VodRepository {
 
     override fun getCategories(sourceId: String): Flow<List<Category>> {
@@ -86,6 +87,45 @@ class VodRepositoryImpl(
 
     override suspend fun toggleFavorite(streamId: Int, isFavorite: Boolean) {
         movieDao.updateFavoriteStatus(streamId, isFavorite)
+    }
+
+    override suspend fun searchMovies(
+        sourceId: String,
+        query: String,
+        hiddenCategoryIds: List<String>,
+        limit: Int
+    ): List<VodMovie> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val normalized = com.lelouch.core.domain.search.SearchQueryNormalizer.normalize(query)
+        if (normalized.length < 2) return@withContext emptyList()
+
+        if (searchDao != null) {
+            val ftsQuery = com.lelouch.core.domain.search.SearchQueryNormalizer.buildFtsQuery(normalized)
+            val ftsResults = if (ftsQuery.isNotBlank()) {
+                try {
+                    if (hiddenCategoryIds.isNotEmpty()) {
+                        searchDao.searchMoviesFtsExcludingCategories(sourceId, ftsQuery, hiddenCategoryIds, limit)
+                    } else {
+                        searchDao.searchMoviesFts(sourceId, ftsQuery, limit)
+                    }
+                } catch (e: Exception) {
+                    emptyList()
+                }
+            } else emptyList()
+
+            if (ftsResults.isNotEmpty()) {
+                return@withContext ftsResults.map { it.toDomain() }
+            }
+
+            val stripped = com.lelouch.core.domain.search.SearchQueryNormalizer.stripAccents(normalized)
+            val likeResults = if (hiddenCategoryIds.isNotEmpty()) {
+                searchDao.searchMoviesLikeExcludingCategories(sourceId, normalized, stripped, hiddenCategoryIds, limit)
+            } else {
+                searchDao.searchMoviesLike(sourceId, normalized, stripped, limit)
+            }
+            likeResults.map { it.toDomain() }
+        } else {
+            emptyList()
+        }
     }
 
     override suspend fun syncMovies(
