@@ -144,7 +144,6 @@ fun TvHomeScreen(
     activeSource: SourceConfig? = null,
     allSources: List<SourceConfig> = emptyList(),
     liveChannels: List<LiveStream> = emptyList(),
-    liveChannelsPaging: Flow<PagingData<ChannelEntity>> = emptyFlow(),
     channelRepository: ChannelRepository? = null,
     vodRepository: com.lelouch.core.domain.repository.VodRepository? = null,
     seriesRepository: com.lelouch.core.domain.repository.SeriesRepository? = null,
@@ -641,33 +640,7 @@ fun TvHomeScreen(
                     }
                 }.cachedIn(coroutineScope)
         } else {
-            liveChannelsPaging.map { pagingData ->
-                pagingData.map { channel ->
-                    val resolvedCategoryName = liveCatMap[channel.categoryId]
-                        ?: channel.categoryName.takeIf { it.isNotBlank() }
-                        ?: "General"
-                    val streamUrl = StreamUrlResolver.resolve(
-                        directUrl = channel.streamUrl,
-                        source = activeSource,
-                        streamId = channel.streamId,
-                        kind = StreamUrlResolver.Kind.LIVE,
-                        extension = channel.containerExtension.ifBlank { "m3u8" }
-                    )
-                    ChannelUiModel(
-                        id = channel.id,
-                        streamId = channel.streamId,
-                        name = channel.name,
-                        num = channel.num,
-                        categoryName = resolvedCategoryName,
-                        categoryId = channel.categoryId,
-                        streamIcon = channel.streamIcon,
-                        currentProgram = channel.epgChannelId ?: "En Directo",
-                        streamUrl = streamUrl,
-                        isFavorite = channel.isFavorite,
-                        sourceId = channel.sourceId
-                    )
-                }
-            }.cachedIn(coroutineScope)
+            emptyFlow()
         }
     }
     val pagedChannels = liveChannelsPagingFlow.collectAsLazyPagingItems()
@@ -1157,7 +1130,7 @@ fun TvHomeScreen(
                             KeyEvent.KEYCODE_STAR -> {
                                 // Tecla Amarilla / Menú / Info / Y / *: toggle Favorito del canal en reproducción actual
                                 if (isLiveStream && focusedChannel != null) {
-                                    val isFav = favoriteChannels.any { it.streamId == focusedChannel!!.streamId }
+                                    val isFav = focusedChannel?.isFavorite == true
                                     onToggleFavoriteChannel(focusedChannel!!.streamId, !isFav)
                                     seekFeedbackText = if (!isFav) "⭐ Agregado a Favoritos" else "✖ Quitado de Favoritos"
                                 }
@@ -1418,10 +1391,9 @@ fun TvHomeScreen(
                                                         isFullscreen = true 
                                                     },
                                                     onToggleFavorite = {
-                                                        val isFav = favoriteChannels.any { it.streamId == ch.streamId }
-                                                        onToggleFavoriteChannel(ch.streamId, !isFav)
+                                                        onToggleFavoriteChannel(ch.streamId, !ch.isFavorite)
                                                     },
-                                                    isFavorite = favoriteChannels.any { it.streamId == ch.streamId },
+                                                    isFavorite = ch.isFavorite,
                                                     cardWidth = 215.dp,
                                                     modifier = if (idx == 0) Modifier.focusProperties { left = sidebarRequesters[1] } else Modifier
                                                 )

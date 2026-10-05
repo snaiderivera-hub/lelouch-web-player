@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.23",
-  "versionCode": 1000023,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.23/app-debug.apk",
-  "changelog": "• Paging 3 Real End-to-End para Catálogo de Series (P1 #2C): Conexión directa Room -> PagingSource -> Pager -> Flow<PagingData<SeriesUiModel>> -> LazyVerticalGrid.\n• Eliminada la recolección de listas completas de series (Flow<List<SeriesEntity>>) en Android TV, reduciendo consumo de RAM a cero listas en memoria.\n• Cambio instantáneo de categorías vía flatMapLatest con consultas SQL deterministas e indexadas.\n• Identidad canónica v4 (source-aware) y orden determinista (name ASC, id ASC) sin duplicados en virtualización."
+  "versionName": "1.0.24",
+  "versionCode": 1000024,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.24/app-debug.apk",
+  "changelog": "• Auditoría Post-Paging (P1 #2D): Eliminación de código muerto de paginación previa en ChannelRepository y TvHomeScreen.\n• Eliminadas búsquedas lineales redundantes (.any) en favor de lookups directos O(1) de isFavorite.\n• Validado fixture de 90,000 elementos simultáneos (50k canales, 30k películas, 10k series) con cero materialización masiva en cambios de pestañas y fuentes."
 }

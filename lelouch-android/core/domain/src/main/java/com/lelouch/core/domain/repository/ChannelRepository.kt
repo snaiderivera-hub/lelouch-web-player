@@ -12,7 +12,6 @@ interface ChannelRepository {
     fun getFavoriteChannels(): Flow<List<LiveStream>>
     fun getFeaturedChannels(limit: Int = 30): Flow<List<LiveStream>>
     fun getAllChannels(sourceId: String? = null): Flow<List<LiveStream>>
-    fun getAllChannelsPaging(sourceId: String? = null): Flow<PagingData<ChannelEntity>>
     fun getLiveChannelsPaging(
         sourceId: String,
         categoryId: String? = null,

@@ -64,17 +64,6 @@ class ChannelRepositoryImpl(
         }
     }
 
-    override fun getAllChannelsPaging(sourceId: String?): Flow<PagingData<ChannelEntity>> {
-        return Pager(
-            config = com.lelouch.core.domain.paging.PagingConfigs.liveChannels
-        ) {
-            if (sourceId != null) {
-                channelDao.getAllChannelsBySourcePaging(sourceId)
-            } else {
-                channelDao.getAllChannelsPaging()
-            }
-        }.flow
-    }
 
     override fun getLiveChannelsPaging(
         sourceId: String,
