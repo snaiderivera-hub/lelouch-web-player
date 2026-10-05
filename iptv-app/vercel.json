@@ -12,11 +12,8 @@
     }
   ],
   "rewrites": [
-    { "source": "/", "destination": "/iptv-app/index.html" },
-    { "source": "/src/(.*)", "destination": "/iptv-app/src/$1" },
     { "source": "/api/playlist/manifest/:token", "destination": "/api/playlist?token=:token&format=json" },
     { "source": "/api/playlist/version/:token", "destination": "/api/playlist?token=:token&format=version" },
-    { "source": "/api/playlist/:token", "destination": "/api/playlist?token=:token" },
-    { "source": "/((?!api/).*)", "destination": "/iptv-app/$1" }
+    { "source": "/api/playlist/:token", "destination": "/api/playlist?token=:token" }
   ]
 }
