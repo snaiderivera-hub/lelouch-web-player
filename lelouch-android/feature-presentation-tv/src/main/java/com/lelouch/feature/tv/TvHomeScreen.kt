@@ -53,6 +53,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.text.BasicTextField
 import coil.compose.AsyncImage
 import com.lelouch.core.designsystem.*
@@ -504,10 +505,12 @@ fun TvHomeScreen(
     val sidebarRequesters = remember { List(8) { FocusRequester() } }
     val contentFocusRequester = remember { FocusRequester() }
     val searchFocusRequester = remember { FocusRequester() }
+    val liveGridState = rememberLazyGridState()
+    val moviesGridState = rememberLazyGridState()
+    val seriesGridState = rememberLazyGridState()
     val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
-        delay(350)
         try {
             contentFocusRequester.requestFocus()
         } catch (_: Exception) {}
@@ -1027,7 +1030,7 @@ fun TvHomeScreen(
             selectedTopTab != 1 -> {
                 selectedTopTab = 1
                 try {
-                    contentFocusRequester.requestFocus()
+                    sidebarRequesters[1].requestFocus()
                 } catch (_: Exception) {}
             }
         }
@@ -1115,15 +1118,33 @@ fun TvHomeScreen(
                             }
                             KeyEvent.KEYCODE_DPAD_CENTER,
                             KeyEvent.KEYCODE_ENTER,
-                            KeyEvent.KEYCODE_NUMPAD_ENTER,
-                            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
+                            KeyEvent.KEYCODE_NUMPAD_ENTER -> {
                                 if (System.currentTimeMillis() - lastFullscreenEntryTime < 600L) {
                                     true
                                 } else {
-                                    if (playbackState is PlaybackState.Playing) playerEngine.pause()
-                                    else playerEngine.resume()
+                                    if (!isHudVisible && !isQuickZappingOpen) {
+                                        // Contexto Player con controles ocultos: CENTER muestra controles
+                                        isHudVisible = true
+                                    } else {
+                                        // Contexto Player con controles visibles: toggle play/pause
+                                        if (playbackState is PlaybackState.Playing) playerEngine.pause()
+                                        else playerEngine.resume()
+                                    }
                                     true
                                 }
+                            }
+                            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
+                                if (playbackState is PlaybackState.Playing) playerEngine.pause()
+                                else playerEngine.resume()
+                                true
+                            }
+                            KeyEvent.KEYCODE_MEDIA_PLAY -> {
+                                playerEngine.resume()
+                                true
+                            }
+                            KeyEvent.KEYCODE_MEDIA_PAUSE -> {
+                                playerEngine.pause()
+                                true
                             }
                             KeyEvent.KEYCODE_PROG_YELLOW,
                             KeyEvent.KEYCODE_MENU,
@@ -1231,11 +1252,29 @@ fun TvHomeScreen(
             enter = fadeIn(tween(200)),
             exit = fadeOut(tween(200))
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
+            Row(
+                modifier = Modifier.fillMaxSize()
             ) {
-                when (selectedTopTab) {
+                // Barra Lateral de Navegación Vertical
+                TvNavigationSidebar(
+                    selectedTab = selectedTopTab,
+                    onSelectTab = { newTab ->
+                        selectedTopTab = newTab
+                    },
+                    sidebarRequesters = sidebarRequesters,
+                    onNavigateContent = {
+                        try {
+                            contentFocusRequester.requestFocus()
+                        } catch (_: Exception) {}
+                    }
+                )
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                ) {
+                    when (selectedTopTab) {
                         0 -> {
                             // 🔍 BUSCADOR NATIVO FLUIDO (Sin teclado virtual bloqueante, compatible con voz y control remoto)
                             TvSearchContent(
@@ -1305,6 +1344,8 @@ fun TvHomeScreen(
 
                                     TvPortalDashboard(
                                         activeSource = activeSource,
+                                        sidebarRequester = sidebarRequesters[1],
+                                        firstItemRequester = contentFocusRequester,
                                         liveChannelsCount = totalLiveChannelsCount,
                                         moviesCount = totalMoviesCount,
                                         seriesCount = totalSeriesCount,
@@ -1561,7 +1602,8 @@ fun TvHomeScreen(
                                     }
                                 } else {
                                     LazyVerticalGrid(
-                                        columns = GridCells.Adaptive(minSize = 205.dp),
+                                        state = liveGridState,
+                                        columns = GridCells.Fixed(4),
                                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                                         verticalArrangement = Arrangement.spacedBy(16.dp),
                                         contentPadding = PaddingValues(bottom = 64.dp),
@@ -1574,7 +1616,8 @@ fun TvHomeScreen(
                                         ) { index ->
                                             val ch = pagedChannels[index] ?: return@items
                                             val isSelected = (ch.id == focusedChannelId || (focusedChannelId == null && index == 0))
-                                            val cardModifier = if (index == 0) {
+                                            val isFirstColumn = (index % 4 == 0)
+                                            val cardModifier = if (isFirstColumn) {
                                                 Modifier
                                                     .fillMaxWidth()
                                                     .focusProperties { left = sidebarRequesters[2] }
@@ -1705,7 +1748,8 @@ fun TvHomeScreen(
                                     }
                                 } else {
                                     LazyVerticalGrid(
-                                        columns = GridCells.Adaptive(minSize = 145.dp),
+                                        state = moviesGridState,
+                                        columns = GridCells.Fixed(6),
                                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                                         verticalArrangement = Arrangement.spacedBy(20.dp),
                                         contentPadding = PaddingValues(bottom = 48.dp),
@@ -1717,7 +1761,8 @@ fun TvHomeScreen(
                                             contentType = pagedMovies.itemContentType { "movie" }
                                         ) { idx ->
                                             val movie = pagedMovies[idx] ?: return@items
-                                            val cardModifier = if (idx == 0) {
+                                            val isFirstColumn = (idx % 6 == 0)
+                                            val cardModifier = if (isFirstColumn) {
                                                 Modifier.focusProperties { left = sidebarRequesters[3] }
                                             } else {
                                                 Modifier
@@ -1837,7 +1882,8 @@ fun TvHomeScreen(
                                     }
                                 } else {
                                     LazyVerticalGrid(
-                                        columns = GridCells.Adaptive(minSize = 145.dp),
+                                        state = seriesGridState,
+                                        columns = GridCells.Fixed(6),
                                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                                         verticalArrangement = Arrangement.spacedBy(20.dp),
                                         contentPadding = PaddingValues(bottom = 48.dp),
@@ -1849,7 +1895,8 @@ fun TvHomeScreen(
                                             contentType = pagedSeries.itemContentType { "series" }
                                         ) { idx ->
                                             val series = pagedSeries[idx] ?: return@items
-                                            val cardModifier = if (idx == 0) {
+                                            val isFirstColumn = (idx % 6 == 0)
+                                            val cardModifier = if (isFirstColumn) {
                                                 Modifier.focusProperties { left = sidebarRequesters[4] }
                                             } else {
                                                 Modifier
@@ -2153,6 +2200,7 @@ fun TvHomeScreen(
                     }
                 }
             }
+        }
 
 
         // CAPA 5: Mini-Guía Carrusel HUD en Pantalla Completa (con iconos de canales)

@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -149,6 +151,17 @@ fun TvSearchContent(
 
     val totalResults = searchChannelsResults.size + searchMoviesResults.size + searchSeriesResults.size
 
+    val searchGridState = rememberLazyGridState()
+
+    // Si los resultados cambian o desaparecen durante la búsqueda, asegurar retorno seguro a la barra de búsqueda
+    LaunchedEffect(totalResults) {
+        if (totalResults == 0 && isSearching) {
+            try {
+                searchFocusRequester.requestFocus()
+            } catch (_: Exception) {}
+        }
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -266,13 +279,17 @@ fun TvSearchContent(
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     contentPadding = PaddingValues(end = 36.dp)
                 ) {
-                    itemsIndexed(popularMovies.take(10)) { _, movie ->
+                    itemsIndexed(popularMovies.take(10)) { idx, movie ->
+                        val itemMod = if (idx == 0 && sidebarRequester != null) {
+                            Modifier.focusProperties { left = sidebarRequester }
+                        } else Modifier
                         TvPosterCard(
                             title = movie.name,
                             posterUrl = movie.streamIcon,
                             rating = movie.rating ?: 0.0,
                             year = movie.year,
-                            onClick = { onSelectMovie(movie) }
+                            onClick = { onSelectMovie(movie) },
+                            modifier = itemMod
                         )
                     }
                 }
@@ -280,20 +297,25 @@ fun TvSearchContent(
         } else {
             // Search Results
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 150.dp),
+                state = searchGridState,
+                columns = GridCells.Fixed(5),
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 contentPadding = PaddingValues(bottom = 36.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
                 // Channels
-                items(searchChannelsResults, key = { "search_ch_${it.id.ifEmpty { it.streamId.toString() }}" }) { channel ->
+                itemsIndexed(searchChannelsResults, key = { idx, it -> "search_ch_${it.id.ifEmpty { it.streamId.toString() }}_$idx" }) { idx, channel ->
                     var isCardFocused by remember { mutableStateOf(false) }
+                    val itemMod = if (idx % 5 == 0 && sidebarRequester != null) {
+                        Modifier.focusProperties { left = sidebarRequester }
+                    } else Modifier
                     Surface(
                         onClick = { onSelectChannel(channel) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(110.dp)
+                            .then(itemMod)
                             .onFocusChanged { isCardFocused = it.isFocused },
                         shape = ClickableSurfaceDefaults.shape(
                             shape = RoundedCornerShape(12.dp),
@@ -337,24 +359,34 @@ fun TvSearchContent(
                 }
 
                 // Movies
-                items(searchMoviesResults, key = { "search_mov_${it.id.ifEmpty { it.streamId.toString() }}" }) { movie ->
+                itemsIndexed(searchMoviesResults, key = { idx, it -> "search_mov_${it.id.ifEmpty { it.streamId.toString() }}_$idx" }) { idx, movie ->
+                    val globalIdx = searchChannelsResults.size + idx
+                    val itemMod = if (globalIdx % 5 == 0 && sidebarRequester != null) {
+                        Modifier.focusProperties { left = sidebarRequester }
+                    } else Modifier
                     TvPosterCard(
                         title = movie.name,
                         posterUrl = movie.streamIcon,
                         rating = movie.rating ?: 0.0,
                         year = movie.year,
-                        onClick = { onSelectMovie(movie) }
+                        onClick = { onSelectMovie(movie) },
+                        modifier = itemMod
                     )
                 }
 
                 // Series
-                items(searchSeriesResults, key = { "search_ser_${it.id.ifEmpty { it.seriesId.toString() }}" }) { series ->
+                itemsIndexed(searchSeriesResults, key = { idx, it -> "search_ser_${it.id.ifEmpty { it.seriesId.toString() }}_$idx" }) { idx, series ->
+                    val globalIdx = searchChannelsResults.size + searchMoviesResults.size + idx
+                    val itemMod = if (globalIdx % 5 == 0 && sidebarRequester != null) {
+                        Modifier.focusProperties { left = sidebarRequester }
+                    } else Modifier
                     TvPosterCard(
                         title = series.name,
                         posterUrl = series.cover,
                         rating = series.rating ?: 0.0,
                         year = series.releaseDate?.take(4),
-                        onClick = { onSelectSeries(series) }
+                        onClick = { onSelectSeries(series) },
+                        modifier = itemMod
                     )
                 }
             }

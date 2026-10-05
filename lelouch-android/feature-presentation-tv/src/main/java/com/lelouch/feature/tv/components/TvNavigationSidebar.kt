@@ -190,8 +190,10 @@ private fun TvSidebarIconItem(
             .scale(scale)
             .focusRequester(requester)
             .focusProperties {
-                // Cancelar escape hacia la izquierda fuera de la pantalla
+                // Cancelar escape hacia la izquierda, arriba o abajo fuera de la pantalla
                 left = FocusRequester.Cancel
+                if (item.index == 0) up = FocusRequester.Cancel
+                if (item.index == 6) down = FocusRequester.Cancel
             }
             .onFocusChanged { focusState ->
                 isFocused = focusState.isFocused

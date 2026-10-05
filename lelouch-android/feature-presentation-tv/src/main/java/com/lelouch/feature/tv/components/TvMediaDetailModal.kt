@@ -79,7 +79,6 @@ fun TvMediaDetailModal(
 
     val playFocusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) {
-        delay(80)
         try {
             playFocusRequester.requestFocus()
         } catch (_: Exception) {}

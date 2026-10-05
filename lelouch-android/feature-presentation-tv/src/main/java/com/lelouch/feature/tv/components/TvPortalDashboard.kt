@@ -38,7 +38,7 @@ import com.lelouch.core.model.SourceConfig
  * - 4 Tarjetas Gigantes Hero: TV EN VIVO, PELÍCULAS, SERIES, DEPORTES con badges numéricos.
  * - Fila inferior de acciones rápidas: Descargar M3U, Recargar Catálogo, Ajustes y Listas, Diagnóstico.
  */
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun TvPortalDashboard(
     activeSource: SourceConfig?,
@@ -57,9 +57,12 @@ fun TvPortalDashboard(
     onNavigateToSearch: () -> Unit = {},
     onNavigateToFavorites: () -> Unit = {},
     modifier: Modifier = Modifier,
-    sidebarRequester: FocusRequester? = null
+    sidebarRequester: FocusRequester? = null,
+    firstItemRequester: FocusRequester? = null
 ) {
-    val cardFocusRequesters = remember { List(4) { FocusRequester() } }
+    val cardFocusRequesters = remember(firstItemRequester) {
+        List(4) { idx -> if (idx == 0 && firstItemRequester != null) firstItemRequester else FocusRequester() }
+    }
     val actionFocusRequesters = remember { List(4) { FocusRequester() } }
     val reloadBtnRequester = remember { FocusRequester() }
     val searchBtnRequester = remember { FocusRequester() }
@@ -291,7 +294,7 @@ fun TvPortalDashboard(
                 modifier = Modifier
                     .weight(1f)
                     .focusProperties {
-                        left = cardFocusRequesters[0]
+                        left = sidebarRequester ?: FocusRequester.Cancel
                         right = cardFocusRequesters[1]
                         up = reloadBtnRequester
                         down = actionFocusRequesters[0]
@@ -372,7 +375,7 @@ fun TvPortalDashboard(
                 modifier = Modifier
                     .weight(1f)
                     .focusProperties {
-                        left = actionFocusRequesters[0]
+                        left = sidebarRequester ?: FocusRequester.Cancel
                         right = actionFocusRequesters[1]
                         up = cardFocusRequesters[0]
                     }
