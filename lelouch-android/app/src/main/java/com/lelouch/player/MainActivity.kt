@@ -51,6 +51,8 @@ class MainActivity : ComponentActivity() {
             val syncStatusText = when (val state = syncState) {
                 is SyncState.Checking -> "Comprobando actualizaciones..."
                 is SyncState.UpToDate -> state.message
+                is SyncState.TtlFresh -> state.message
+                is SyncState.OfflineUsingCache -> state.message
                 is SyncState.Authenticating -> "Validando credenciales con el servidor..."
                 is SyncState.SyncingCategories -> state.step
                 is SyncState.SyncingLive -> "Sincronizando canales en vivo (${state.count} importados)..."

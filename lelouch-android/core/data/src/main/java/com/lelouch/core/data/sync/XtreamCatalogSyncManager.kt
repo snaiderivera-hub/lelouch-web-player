@@ -35,7 +35,9 @@ import kotlinx.serialization.json.jsonPrimitive
 sealed interface SyncState {
     data object Idle : SyncState
     data class Checking(val sourceId: String) : SyncState
-    data class UpToDate(val sourceId: String, val message: String = "Catálogo actualizado") : SyncState
+    data class UpToDate(val sourceId: String, val message: String = "Catálogo al día (comprobado)") : SyncState
+    data class TtlFresh(val sourceId: String, val message: String = "Catálogo dentro de TTL") : SyncState
+    data class OfflineUsingCache(val sourceId: String, val message: String = "Modo sin conexión - Catálogo local disponible") : SyncState
     data object Authenticating : SyncState
     data class SyncingCategories(val step: String) : SyncState
     data class SyncingLive(val count: Int) : SyncState
@@ -47,15 +49,49 @@ sealed interface SyncState {
 
 sealed interface FreshnessResult {
     data class Unchanged(val version: String, val etag: String = "") : FreshnessResult
+    data class TtlFresh(val lastSyncAt: Long, val ttlMs: Long) : FreshnessResult
     data class Changed(val newVersion: String, val newEtag: String = "") : FreshnessResult
     data class CheckFailed(val reason: String) : FreshnessResult
 }
 
-class XtreamCatalogSyncManager(
-    private val database: LelouchDatabase,
-    private val preferencesDataSource: UserPreferencesDataSource? = null
+class XtreamCatalogSyncManager private constructor(
+    database: LelouchDatabase?,
+    private val preferencesDataSource: UserPreferencesDataSource?,
+    private val httpClient: OkHttpClient
 ) {
+    constructor(
+        database: LelouchDatabase,
+        preferencesDataSource: UserPreferencesDataSource? = null
+    ) : this(
+        database = database,
+        preferencesDataSource = preferencesDataSource,
+        httpClient = defaultHttpClient
+    )
+
+    constructor(
+        httpClient: OkHttpClient
+    ) : this(
+        database = null,
+        preferencesDataSource = null,
+        httpClient = httpClient
+    )
+
+    constructor() : this(
+        database = null,
+        preferencesDataSource = null,
+        httpClient = defaultHttpClient
+    )
+
+    private val database: LelouchDatabase by lazy {
+        database ?: error("LelouchDatabase is required for database operations")
+    }
     companion object {
+        val defaultHttpClient: OkHttpClient by lazy {
+            OkHttpClient.Builder()
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(15, TimeUnit.SECONDS)
+                .build()
+        }
         const val XTREAM_DEFAULT_TTL_MS: Long = 24 * 60 * 60 * 1000L // 24 horas para Xtream
         const val M3U_DEFAULT_TTL_MS: Long = 24 * 60 * 60 * 1000L // 24 horas para M3U genérico
         private const val SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvdHVwYmRlbGpnZmRkeXdyeWhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzNjA2MzksImV4cCI6MjEwNTkzNjYzOX0.zDVgrQo_IU5FhfSMpl0-MbS9Eod43czS21TBi5Z3Lvo"
@@ -66,11 +102,6 @@ class XtreamCatalogSyncManager(
 
     // PASO 5: Mutex por sourceId para evitar múltiples syncs concurrentes de la misma fuente
     private val sourceSyncMutexes = ConcurrentHashMap<String, Mutex>()
-
-    private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
-        .build()
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -224,13 +255,19 @@ class XtreamCatalogSyncManager(
 
                 when (freshness) {
                     is FreshnessResult.Unchanged -> {
-                        android.util.Log.i("XtreamCatalogSync", "SYNC_SKIPPED_UNCHANGED: source $sourceId al día (versión=${freshness.version})")
-                        _syncState.value = SyncState.UpToDate(sourceId, "Catálogo al día")
+                        android.util.Log.i("XtreamCatalogSync", "SYNC_SKIPPED_UNCHANGED: source $sourceId al día comprobado (versión=${freshness.version})")
+                        _syncState.value = SyncState.UpToDate(sourceId, "Catálogo al día (comprobado)")
+                        return@withContext Result.success(Unit)
+                    }
+                    is FreshnessResult.TtlFresh -> {
+                        val hoursRemaining = ((freshness.ttlMs - (System.currentTimeMillis() - freshness.lastSyncAt)) / 3600000).coerceAtLeast(0)
+                        android.util.Log.i("XtreamCatalogSync", "SYNC_SKIPPED_TTL_FRESH: source $sourceId dentro de período TTL (~${hoursRemaining}h restantes). Sync omitido.")
+                        _syncState.value = SyncState.TtlFresh(sourceId, "Catálogo dentro de TTL (~${hoursRemaining}h restantes)")
                         return@withContext Result.success(Unit)
                     }
                     is FreshnessResult.CheckFailed -> {
                         android.util.Log.w("XtreamCatalogSync", "FRESHNESS_CHECK_FAILED: ${freshness.reason}. Se preserva catálogo local de Room.")
-                        _syncState.value = SyncState.UpToDate(sourceId, "Modo sin conexión - Catálogo local disponible")
+                        _syncState.value = SyncState.OfflineUsingCache(sourceId, "Modo sin conexión - Catálogo local disponible")
                         return@withContext Result.success(Unit)
                     }
                     is FreshnessResult.Changed -> {
@@ -391,7 +428,7 @@ class XtreamCatalogSyncManager(
         }
         val age = System.currentTimeMillis() - metadata.lastSuccessfulSyncAt
         return if (age < XTREAM_DEFAULT_TTL_MS) {
-            FreshnessResult.Unchanged(version = metadata.lastSuccessfulVersion)
+            FreshnessResult.TtlFresh(lastSyncAt = metadata.lastSuccessfulSyncAt, ttlMs = XTREAM_DEFAULT_TTL_MS)
         } else {
             FreshnessResult.Changed(newVersion = "ttl_expired_${System.currentTimeMillis()}")
         }
@@ -408,28 +445,61 @@ class XtreamCatalogSyncManager(
         if (metadata == null || metadata.lastSuccessfulSyncAt == 0L) {
             return@withContext FreshnessResult.Changed(newVersion = "initial")
         }
-        if (metadata.lastEtag.isNotBlank()) {
-            try {
-                val headReq = Request.Builder()
-                    .url(serverUrl)
-                    .head()
-                    .addHeader("If-None-Match", metadata.lastEtag)
-                    .build()
-                val resp = httpClient.newCall(headReq).execute()
-                if (resp.code == 304) {
-                    return@withContext FreshnessResult.Unchanged(metadata.lastSuccessfulVersion, metadata.lastEtag)
-                }
-                val newEtag = resp.header("ETag")?.trim('"')
-                if (resp.isSuccessful && !newEtag.isNullOrBlank() && newEtag == metadata.lastEtag) {
-                    return@withContext FreshnessResult.Unchanged(metadata.lastSuccessfulVersion, metadata.lastEtag)
-                }
-            } catch (_: Exception) {}
-        }
         val age = System.currentTimeMillis() - metadata.lastSuccessfulSyncAt
-        if (age < M3U_DEFAULT_TTL_MS) {
-            FreshnessResult.Unchanged(version = metadata.lastSuccessfulVersion, etag = metadata.lastEtag)
-        } else {
-            FreshnessResult.Changed(newVersion = "ttl_expired")
+
+        try {
+            val headReq = Request.Builder()
+                .url(serverUrl)
+                .head()
+
+            if (metadata.lastEtag.isNotBlank()) {
+                val formattedEtag = if (metadata.lastEtag.startsWith("\"")) metadata.lastEtag else "\"${metadata.lastEtag}\""
+                headReq.addHeader("If-None-Match", formattedEtag)
+            }
+
+            val resp = httpClient.newCall(headReq.build()).execute()
+            resp.use { response ->
+                when (response.code) {
+                    304 -> {
+                        // Confirmado sin cambios por el servidor vía 304 Not Modified
+                        FreshnessResult.Unchanged(metadata.lastSuccessfulVersion, metadata.lastEtag)
+                    }
+                    405, 501 -> {
+                        // Servidor IPTV no implementa o rechaza HEAD (Method Not Allowed / Not Implemented)
+                        // Fallback seguro a TTL: NO considerar que cambió ni forzar descarga innecesaria
+                        android.util.Log.w("XtreamCatalogSync", "HEAD no soportado (HTTP ${response.code}) por $serverUrl. Aplicando fallback seguro a TTL.")
+                        if (age < M3U_DEFAULT_TTL_MS) {
+                            FreshnessResult.TtlFresh(lastSyncAt = metadata.lastSuccessfulSyncAt, ttlMs = M3U_DEFAULT_TTL_MS)
+                        } else {
+                            FreshnessResult.Changed(newVersion = "ttl_expired_${System.currentTimeMillis()}")
+                        }
+                    }
+                    in 200..299 -> {
+                        val newEtag = response.header("ETag")?.trim('"')
+                        if (!newEtag.isNullOrBlank()) {
+                            val cleanLocalEtag = metadata.lastEtag.trim('"')
+                            if (newEtag == cleanLocalEtag) {
+                                FreshnessResult.Unchanged(metadata.lastSuccessfulVersion, metadata.lastEtag)
+                            } else {
+                                FreshnessResult.Changed(newVersion = newEtag, newEtag = newEtag)
+                            }
+                        } else {
+                            // 200 sin ETag ni Last-Modified comprobables -> fallback a TTL
+                            if (age < M3U_DEFAULT_TTL_MS) {
+                                FreshnessResult.TtlFresh(lastSyncAt = metadata.lastSuccessfulSyncAt, ttlMs = M3U_DEFAULT_TTL_MS)
+                            } else {
+                                FreshnessResult.Changed(newVersion = "ttl_expired_${System.currentTimeMillis()}")
+                            }
+                        }
+                    }
+                    else -> {
+                        FreshnessResult.CheckFailed("HTTP ${response.code}")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("XtreamCatalogSync", "Error en HEAD request a $serverUrl: ${e.message}")
+            FreshnessResult.CheckFailed(e.message ?: e.javaClass.simpleName)
         }
     }
 

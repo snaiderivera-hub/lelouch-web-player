@@ -19,7 +19,17 @@ import kotlinx.serialization.json.Json
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "lelouch_user_prefs")
 
-class UserPreferencesDataSource(private val context: Context) {
+class UserPreferencesDataSource private constructor(
+    private val context: Context?,
+    private val customDataStore: DataStore<Preferences>?
+) {
+    constructor(context: Context) : this(context = context, customDataStore = null)
+
+    constructor(customDataStore: DataStore<Preferences>) : this(context = null, customDataStore = customDataStore)
+
+    private val dataStore: DataStore<Preferences>
+        get() = customDataStore ?: context?.dataStore ?: error("Neither Context nor DataStore provided")
+
 
     private val json = Json { 
         ignoreUnknownKeys = true 
@@ -122,7 +132,7 @@ class UserPreferencesDataSource(private val context: Context) {
         }
     }
 
-    val allSources: Flow<List<SourceConfig>> = context.dataStore.data.map { preferences ->
+    val allSources: Flow<List<SourceConfig>> = dataStore.data.map { preferences ->
         val activeId = preferences[PreferencesKeys.ACTIVE_SOURCE_ID] ?: preferences[PreferencesKeys.SOURCE_ID]
         deduplicatedSources(preferences[PreferencesKeys.SAVED_SOURCES_JSON], activeId)
     }
@@ -138,14 +148,14 @@ class UserPreferencesDataSource(private val context: Context) {
      * Derivarla de [allSources] garantiza que el id que ve la UI, el que se usa para
      * consultar Room y el que se pasa a syncAll sean siempre el mismo.
      */
-    val activeSource: Flow<SourceConfig?> = context.dataStore.data.map { preferences ->
+    val activeSource: Flow<SourceConfig?> = dataStore.data.map { preferences ->
         val activeId = preferences[PreferencesKeys.ACTIVE_SOURCE_ID] ?: preferences[PreferencesKeys.SOURCE_ID]
         val list = deduplicatedSources(preferences[PreferencesKeys.SAVED_SOURCES_JSON], activeId)
         if (list.isEmpty()) null else (list.firstOrNull { it.id == activeId } ?: list.firstOrNull())
     }
 
     suspend fun saveActiveSource(source: SourceConfig) {
-        context.dataStore.edit { preferences ->
+        dataStore.edit { preferences ->
             preferences[PreferencesKeys.SOURCE_ID] = source.id
             preferences[PreferencesKeys.SOURCE_NAME] = source.name
             preferences[PreferencesKeys.SERVER_URL] = source.serverUrl
@@ -174,7 +184,7 @@ class UserPreferencesDataSource(private val context: Context) {
 
     suspend fun setActiveSource(sourceId: String): SourceConfig? {
         var active: SourceConfig? = null
-        context.dataStore.edit { preferences ->
+        dataStore.edit { preferences ->
             val rawJson = preferences[PreferencesKeys.SAVED_SOURCES_JSON]
             val currentList = deduplicatedSources(rawJson, sourceId)
 
@@ -199,7 +209,7 @@ class UserPreferencesDataSource(private val context: Context) {
     }
 
     suspend fun removeSource(sourceId: String) {
-        context.dataStore.edit { preferences ->
+        dataStore.edit { preferences ->
             val rawJson = preferences[PreferencesKeys.SAVED_SOURCES_JSON]
             val currentList = if (!rawJson.isNullOrBlank()) {
                 try { json.decodeFromString<List<SourceConfig>>(rawJson) } catch (e: Exception) { emptyList() }
@@ -226,20 +236,20 @@ class UserPreferencesDataSource(private val context: Context) {
     }
 
     suspend fun saveAllSources(sources: List<SourceConfig>) {
-        context.dataStore.edit { preferences ->
+        dataStore.edit { preferences ->
             preferences[PreferencesKeys.SAVED_SOURCES_JSON] = json.encodeToString(sources)
         }
     }
 
     suspend fun clearSession() {
-        context.dataStore.edit { preferences ->
+        dataStore.edit { preferences ->
             preferences[PreferencesKeys.IS_LOGGED_IN] = false
             preferences.remove(PreferencesKeys.ACTIVE_SOURCE_ID)
         }
     }
 
     suspend fun getSyncMetadata(sourceId: String): SourceSyncMetadata? {
-        val prefs = context.dataStore.data.first()
+        val prefs = dataStore.data.first()
         val rawJson = prefs[PreferencesKeys.SYNC_METADATA_JSON] ?: return null
         return try {
             val map = json.decodeFromString<Map<String, SourceSyncMetadata>>(rawJson)
@@ -250,7 +260,7 @@ class UserPreferencesDataSource(private val context: Context) {
     }
 
     suspend fun saveSyncMetadata(metadata: SourceSyncMetadata) {
-        context.dataStore.edit { preferences ->
+        dataStore.edit { preferences ->
             val rawJson = preferences[PreferencesKeys.SYNC_METADATA_JSON]
             val map = if (!rawJson.isNullOrBlank()) {
                 try {
