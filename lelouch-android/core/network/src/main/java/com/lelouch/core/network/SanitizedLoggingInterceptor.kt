@@ -11,7 +11,7 @@ class SanitizedLoggingInterceptor(
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
         val originalUrl = request.url.toString()
-        val sanitizedUrl = sanitizeUrl(originalUrl)
+        val sanitizedUrl = UrlSanitizer.sanitizeUrl(originalUrl)
 
         Log.d(tag, "--> ${request.method} $sanitizedUrl")
         val startNs = System.nanoTime()
@@ -27,13 +27,5 @@ class SanitizedLoggingInterceptor(
         Log.d(tag, "<-- ${response.code} ${response.message} ($tookMs ms) $sanitizedUrl")
 
         return response
-    }
-
-    private fun sanitizeUrl(url: String): String {
-        // Enmascara credenciales de consultas (password=xxxx -> password=******)
-        var result = url.replace(Regex("(password=)([^&]+)", RegexOption.IGNORE_CASE), "$1******")
-        // Enmascara rutas de stream directo tipo /live/username/password/id.ts
-        result = result.replace(Regex("/(live|movie|series)/([^/]+)/([^/]+)/"), "/$1/$2/******/")
-        return result
     }
 }

@@ -1,6 +1,9 @@
 package com.lelouch.player
 
 import android.app.Application
+import coil.ImageLoader
+import coil.ImageLoaderFactory
+import com.lelouch.player.image.LelouchImageLoader
 import com.lelouch.core.data.preferences.UserPreferencesDataSource
 import com.lelouch.core.data.repository.AuthRepositoryImpl
 import com.lelouch.core.data.repository.ChannelRepositoryImpl
@@ -13,7 +16,11 @@ import com.lelouch.core.domain.repository.ChannelRepository
 import com.lelouch.core.domain.repository.SeriesRepository
 import com.lelouch.core.domain.repository.VodRepository
 
-class LelouchApplication : Application() {
+class LelouchApplication : Application(), ImageLoaderFactory {
+
+    override fun newImageLoader(): ImageLoader {
+        return LelouchImageLoader.create(this)
+    }
 
     lateinit var database: LelouchDatabase
         private set

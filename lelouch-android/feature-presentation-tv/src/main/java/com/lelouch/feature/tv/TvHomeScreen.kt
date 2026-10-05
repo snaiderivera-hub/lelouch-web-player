@@ -2898,15 +2898,8 @@ fun TvChannelCard(
                     contentAlignment = Alignment.Center
                 ) {
                     if (!channel.streamIcon.isNullOrBlank()) {
-                        // Tamaño fijo 124x76px: evita cargar imágenes gigantes en RAM del TV Box
                         AsyncImage(
-                            model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
-                                .data(channel.streamIcon)
-                                .size(124, 76)
-                                .crossfade(true)
-                                .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
-                                .diskCachePolicy(coil.request.CachePolicy.ENABLED)
-                                .build(),
+                            model = channel.streamIcon,
                             contentDescription = channel.name,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Fit
@@ -3023,15 +3016,7 @@ fun TvChannelCard(
 
 /** Oculta credenciales de rutas Xtream (`/live/USER/PASS/`) y parámetros sensibles. */
 private fun redactUrl(url: String?): String {
-    if (url.isNullOrBlank()) return "— (vacía)"
-    var out = url
-    out = Regex("/(live|movie|series)/[^/]+/[^/]+/")
-        .replace(out) { "/${it.groupValues[1]}/***/***/" }
-    out = Regex("([?&](?:password|pass|pwd|username)=)[^&]+")
-        .replace(out) { "${it.groupValues[1]}***" }
-    out = Regex("([?&]token=)([a-zA-Z0-9_-]{8})[a-zA-Z0-9_-]*")
-        .replace(out) { "${it.groupValues[1]}${it.groupValues[2]}…" }
-    return out
+    return com.lelouch.core.network.UrlSanitizer.sanitizeUrl(url)
 }
 
 @Composable
