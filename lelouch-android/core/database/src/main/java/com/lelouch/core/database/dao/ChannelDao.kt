@@ -39,8 +39,14 @@ interface ChannelDao {
     fun getAllChannelsPaging(): PagingSource<Int, ChannelEntity>
 
 
+    @Query("SELECT * FROM channels WHERE sourceId = :sourceId AND streamId = :streamId LIMIT 1")
+    suspend fun getChannelByStreamId(sourceId: String, streamId: Int): ChannelEntity?
+
     @Query("SELECT * FROM channels WHERE streamId = :streamId LIMIT 1")
     suspend fun getChannelByStreamId(streamId: Int): ChannelEntity?
+
+    @Query("UPDATE channels SET isFavorite = :isFavorite WHERE sourceId = :sourceId AND streamId = :streamId")
+    suspend fun updateFavoriteStatus(sourceId: String, streamId: Int, isFavorite: Boolean)
 
     @Query("UPDATE channels SET isFavorite = :isFavorite WHERE streamId = :streamId")
     suspend fun updateFavoriteStatus(streamId: Int, isFavorite: Boolean)

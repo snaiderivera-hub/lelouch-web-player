@@ -154,7 +154,7 @@ object XtreamStreamingParser {
         val isAdultContent = name.contains("+18", ignoreCase = true) || name.contains("XXX", ignoreCase = true)
 
         return ChannelEntity(
-            id = "live_$streamId",
+            id = "${sourceId}_live_$streamId",
             streamId = streamId,
             num = num,
             name = name,
@@ -198,7 +198,7 @@ object XtreamStreamingParser {
         if (streamId == 0 || name.isBlank()) return null
         
         return MovieEntity(
-            id = "vod_$streamId",
+            id = "${sourceId}_vod_$streamId",
             streamId = streamId,
             num = num,
             name = name,
@@ -239,7 +239,7 @@ object XtreamStreamingParser {
         if (seriesId == 0 || name.isBlank()) return null
         
         return SeriesEntity(
-            id = "series_$seriesId",
+            id = "${sourceId}_series_$seriesId",
             seriesId = seriesId,
             num = num,
             name = name,

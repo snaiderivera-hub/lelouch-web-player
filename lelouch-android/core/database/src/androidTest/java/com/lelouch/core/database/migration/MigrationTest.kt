@@ -7,6 +7,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.lelouch.core.database.LelouchDatabase
 import com.lelouch.core.database.migrations.MIGRATION_1_2
 import com.lelouch.core.database.migrations.MIGRATION_2_3
+import com.lelouch.core.database.migrations.MIGRATION_3_4
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -208,18 +209,88 @@ class MigrationTest {
     }
 
     @Test
-    fun migrate1To2To3_fullChain() {
+    fun migrate3To4_replacesSeriesUniqueIndexAndAddsQueryIndexes() {
+        // 1. Crear base de datos en versión 3
+        var db = helper.createDatabase(TEST_DB, 3).apply {
+            execSQL("""
+                INSERT INTO channels (id, streamId, num, name, streamType, streamIcon, categoryId, categoryName, epgChannelId, isAdult, isFavorite, streamUrl, containerExtension, sourceId)
+                VALUES ('live_10', 10, 1, 'Canal A', 'live', null, 'cat_1', 'Cat A', null, 0, 0, 'http://ch10.m3u8', 'ts', 'source_a')
+            """.trimIndent())
+
+            execSQL("""
+                INSERT INTO movies (id, streamId, num, name, title, year, streamIcon, backdropPath, rating, rating5based, added, categoryId, categoryName, containerExtension, plot, cast, director, genre, durationSecs, streamUrl, isFavorite, sourceId)
+                VALUES ('vod_20', 20, 1, 'Movie A', 'Movie A', '2024', null, null, 8.0, 4.0, null, 'cat_2', 'Cat B', 'mp4', null, null, null, null, 7200, 'http://m20.mp4', 0, 'source_a')
+            """.trimIndent())
+
+            execSQL("""
+                INSERT INTO series (id, seriesId, num, name, title, cover, backdropPath, plot, cast, director, genre, releaseDate, rating, rating5based, categoryId, categoryName, isFavorite, sourceId)
+                VALUES ('series_30', 30, 1, 'Serie A', 'Serie A', null, null, null, null, null, null, '2024', 9.0, 4.5, 'cat_3', 'Cat C', 0, 'source_a')
+            """.trimIndent())
+
+            execSQL("""
+                INSERT INTO categories (id, categoryId, categoryName, parentId, type, itemCount, isAdult, sourceId)
+                VALUES ('source_a-LIVE-cat_1', 'cat_1', 'Cat A', 0, 'LIVE', 1, 0, 'source_a')
+            """.trimIndent())
+
+            close()
+        }
+
+        // 2. Ejecutar migración v3 -> v4
+        db = helper.runMigrationsAndValidate(TEST_DB, 4, true, MIGRATION_3_4)
+
+        // 3. Validar integridad SQLite
+        val integrityCursor = db.query("PRAGMA integrity_check")
+        assertTrue(integrityCursor.moveToFirst())
+        assertEquals("ok", integrityCursor.getString(0))
+        integrityCursor.close()
+
+        val fkCursor = db.query("PRAGMA foreign_key_check")
+        assertEquals(0, fkCursor.count)
+        fkCursor.close()
+
+        // 4. Validar normalización de IDs con sourceId
+        val chCursor = db.query("SELECT id FROM channels WHERE streamId = 10")
+        assertTrue(chCursor.moveToFirst())
+        assertEquals("source_a_live_10", chCursor.getString(0))
+        chCursor.close()
+
+        val movCursor = db.query("SELECT id FROM movies WHERE streamId = 20")
+        assertTrue(movCursor.moveToFirst())
+        assertEquals("source_a_vod_20", movCursor.getString(0))
+        movCursor.close()
+
+        val serCursor = db.query("SELECT id FROM series WHERE seriesId = 30")
+        assertTrue(serCursor.moveToFirst())
+        assertEquals("source_a_series_30", serCursor.getString(0))
+        serCursor.close()
+
+        // 5. Validar que Source B puede insertar el MISMO seriesId = 30 sin colisión UNIQUE
+        db.execSQL("""
+            INSERT INTO series (id, seriesId, num, name, title, cover, backdropPath, plot, cast, director, genre, releaseDate, rating, rating5based, categoryId, categoryName, isFavorite, sourceId)
+            VALUES ('source_b_series_30', 30, 1, 'Serie B', 'Serie B', null, null, null, null, null, null, '2024', 7.5, 3.75, 'cat_3', 'Cat C', 0, 'source_b')
+        """.trimIndent())
+
+        val totalSeries = db.query("SELECT COUNT(*) FROM series WHERE seriesId = 30")
+        assertTrue(totalSeries.moveToFirst())
+        assertEquals(2, totalSeries.getInt(0))
+        totalSeries.close()
+
+        db.close()
+    }
+
+    @Test
+    fun migrate1To2To3To4_fullChain() {
         // 1. Crear v1
         var db = helper.createDatabase(TEST_DB, 1).apply {
             execSQL("""
                 INSERT INTO channels (id, streamId, num, name, streamType, streamIcon, categoryId, categoryName, epgChannelId, isAdult, isFavorite, streamUrl, containerExtension, sourceId)
-                VALUES ('ch-chain', 555, 1, 'Canal Chain', 'live', null, 'cat-1', 'News', null, 0, 1, 'http://chain.m3u8', 'ts', 'src-1')
+                VALUES ('live_555', 555, 1, 'Canal Chain', 'live', null, 'cat-1', 'News', null, 0, 1, 'http://chain.m3u8', 'ts', 'src-1')
             """.trimIndent())
             close()
         }
 
-        // 2. Migrar de v1 hasta v3 pasando por MIGRATION_1_2 y MIGRATION_2_3
-        db = helper.runMigrationsAndValidate(TEST_DB, 3, true, MIGRATION_1_2, MIGRATION_2_3)
+        // 2. Migrar de v1 hasta v4 pasando por MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4
+        db = helper.runMigrationsAndValidate(TEST_DB, 4, true, MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
 
         // 3. Validar integridad
         val integrityCursor = db.query("PRAGMA integrity_check")
@@ -227,7 +298,11 @@ class MigrationTest {
         assertEquals("ok", integrityCursor.getString(0))
         integrityCursor.close()
 
-        val countCursor = db.query("SELECT COUNT(*) FROM channels WHERE id = 'ch-chain'")
+        val fkCursor = db.query("PRAGMA foreign_key_check")
+        assertEquals(0, fkCursor.count)
+        fkCursor.close()
+
+        val countCursor = db.query("SELECT COUNT(*) FROM channels WHERE streamId = 555 AND sourceId = 'src-1'")
         assertTrue(countCursor.moveToFirst())
         assertEquals(1, countCursor.getInt(0))
         countCursor.close()
@@ -236,14 +311,47 @@ class MigrationTest {
     }
 
     @Test
-    fun freshInstall_version3() {
-        // Crear directamente v3 (instalación limpia)
-        val db = helper.createDatabase(TEST_DB, 3)
+    fun migrate2To3To4_chain() {
+        var db = helper.createDatabase(TEST_DB, 2).apply {
+            execSQL("""
+                INSERT INTO series (id, seriesId, num, name, title, cover, backdropPath, plot, cast, director, genre, releaseDate, rating, rating5based, categoryId, categoryName, isFavorite, sourceId)
+                VALUES ('ser_v2', 777, 1, 'Serie v2 Chain', 'Serie v2 Chain', null, null, null, null, null, null, '2024', 8.5, 4.25, 'cat-1', 'Drama', 0, 'src-2')
+            """.trimIndent())
+            close()
+        }
+
+        db = helper.runMigrationsAndValidate(TEST_DB, 4, true, MIGRATION_2_3, MIGRATION_3_4)
 
         val integrityCursor = db.query("PRAGMA integrity_check")
         assertTrue(integrityCursor.moveToFirst())
         assertEquals("ok", integrityCursor.getString(0))
         integrityCursor.close()
+
+        val fkCursor = db.query("PRAGMA foreign_key_check")
+        assertEquals(0, fkCursor.count)
+        fkCursor.close()
+
+        val serCursor = db.query("SELECT COUNT(*) FROM series WHERE seriesId = 777")
+        assertTrue(serCursor.moveToFirst())
+        assertEquals(1, serCursor.getInt(0))
+        serCursor.close()
+
+        db.close()
+    }
+
+    @Test
+    fun freshInstall_version4() {
+        // Crear directamente v4 (instalación limpia)
+        val db = helper.createDatabase(TEST_DB, 4)
+
+        val integrityCursor = db.query("PRAGMA integrity_check")
+        assertTrue(integrityCursor.moveToFirst())
+        assertEquals("ok", integrityCursor.getString(0))
+        integrityCursor.close()
+
+        val fkCursor = db.query("PRAGMA foreign_key_check")
+        assertEquals(0, fkCursor.count)
+        fkCursor.close()
 
         // Validar que existen las tablas de staging
         val tables = listOf("channels_staging", "movies_staging", "series_staging", "categories_staging")

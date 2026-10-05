@@ -29,8 +29,14 @@ interface MovieDao {
     @Query("SELECT * FROM movies WHERE isFavorite = 1 ORDER BY added DESC")
     fun getFavoriteMovies(): Flow<List<MovieEntity>>
 
+    @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND streamId = :streamId LIMIT 1")
+    suspend fun getMovieByStreamId(sourceId: String, streamId: Int): MovieEntity?
+
     @Query("SELECT * FROM movies WHERE streamId = :streamId LIMIT 1")
     suspend fun getMovieByStreamId(streamId: Int): MovieEntity?
+
+    @Query("UPDATE movies SET isFavorite = :isFavorite WHERE sourceId = :sourceId AND streamId = :streamId")
+    suspend fun updateFavoriteStatus(sourceId: String, streamId: Int, isFavorite: Boolean)
 
     @Query("UPDATE movies SET isFavorite = :isFavorite WHERE streamId = :streamId")
     suspend fun updateFavoriteStatus(streamId: Int, isFavorite: Boolean)

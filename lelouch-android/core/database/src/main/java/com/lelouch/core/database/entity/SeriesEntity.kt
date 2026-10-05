@@ -7,7 +7,8 @@ import androidx.room.PrimaryKey
 @Entity(
     tableName = "series",
     indices = [
-        Index(value = ["seriesId"], unique = true),
+        Index(value = ["sourceId", "seriesId"], unique = true),
+        Index(value = ["sourceId", "categoryId"]),
         Index(value = ["categoryId"]),
         Index(value = ["name"]),
         Index(value = ["isFavorite"])

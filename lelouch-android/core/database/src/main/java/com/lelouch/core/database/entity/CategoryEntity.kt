@@ -8,6 +8,7 @@ import androidx.room.PrimaryKey
     tableName = "categories",
     indices = [
         Index(value = ["categoryId", "type", "sourceId"], unique = true),
+        Index(value = ["sourceId", "type"]),
         Index(value = ["type"])
     ]
 )

@@ -27,8 +27,14 @@ interface SeriesDao {
     fun getFeaturedSeries(limit: Int = 30): Flow<List<SeriesEntity>>
 
 
+    @Query("SELECT * FROM series WHERE sourceId = :sourceId AND seriesId = :seriesId LIMIT 1")
+    suspend fun getSeriesById(sourceId: String, seriesId: Int): SeriesEntity?
+
     @Query("SELECT * FROM series WHERE seriesId = :seriesId LIMIT 1")
     suspend fun getSeriesById(seriesId: Int): SeriesEntity?
+
+    @Query("UPDATE series SET isFavorite = :isFavorite WHERE sourceId = :sourceId AND seriesId = :seriesId")
+    suspend fun updateFavoriteStatus(sourceId: String, seriesId: Int, isFavorite: Boolean)
 
     @Query("UPDATE series SET isFavorite = :isFavorite WHERE seriesId = :seriesId")
     suspend fun updateFavoriteStatus(seriesId: Int, isFavorite: Boolean)

@@ -148,3 +148,47 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_categories_staging_categoryId_type_sourceId` ON `categories_staging` (`categoryId`, `type`, `sourceId`)")
     }
 }
+
+/**
+ * Migración de base de datos v3 a v4 (FASE P1 #1: Identidad Multi-Proveedor + Índices Room).
+ *
+ * En versión 3:
+ * - `series` tenía un índice UNIQUE global en `seriesId`: `index_series_seriesId`.
+ *   Esto causaba colisiones destructivas si dos proveedores IPTV compartían el mismo `seriesId`.
+ * - `channels`, `movies` y `series` carecían de índices compuestos por `sourceId` y `(sourceId, categoryId)`.
+ * - `categories` carecía de índice compuesto por `(sourceId, type)`.
+ *
+ * En versión 4:
+ * 1. Se reemplaza `index_series_seriesId` (UNIQUE global) por `index_series_sourceId_seriesId` (UNIQUE compuesto).
+ * 2. Se normalizan IDs de Xtream previo ('live_%', 'vod_%', 'series_%') incorporando prefijo `sourceId`.
+ * 3. Se agregan los índices optimizados para consultas reales:
+ *    - `index_channels_sourceId` y `index_channels_sourceId_categoryId`
+ *    - `index_movies_sourceId` y `index_movies_sourceId_categoryId`
+ *    - `index_series_sourceId_categoryId`
+ *    - `index_categories_sourceId_type`
+ *
+ * Esta migración preserva el 100% de los datos sin reconstrucción destructiva.
+ */
+val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // 1. Eliminar índice UNIQUE global de series y crear índice UNIQUE compuesto por sourceId
+        db.execSQL("DROP INDEX IF EXISTS `index_series_seriesId`")
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_series_sourceId_seriesId` ON `series` (`sourceId`, `seriesId`)")
+
+        // 2. Normalizar IDs huérfanos o sin sourceId de Xtream previo
+        db.execSQL("UPDATE `channels` SET `id` = `sourceId` || '_' || `id` WHERE `sourceId` != '' AND `id` LIKE 'live_%'")
+        db.execSQL("UPDATE `movies` SET `id` = `sourceId` || '_' || `id` WHERE `sourceId` != '' AND `id` LIKE 'vod_%'")
+        db.execSQL("UPDATE `series` SET `id` = `sourceId` || '_' || `id` WHERE `sourceId` != '' AND `id` LIKE 'series_%'")
+
+        // 3. Crear índices de consulta reales
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_channels_sourceId` ON `channels` (`sourceId`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_channels_sourceId_categoryId` ON `channels` (`sourceId`, `categoryId`)")
+
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_movies_sourceId` ON `movies` (`sourceId`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_movies_sourceId_categoryId` ON `movies` (`sourceId`, `categoryId`)")
+
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_series_sourceId_categoryId` ON `series` (`sourceId`, `categoryId`)")
+
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_categories_sourceId_type` ON `categories` (`sourceId`, `type`)")
+    }
+}

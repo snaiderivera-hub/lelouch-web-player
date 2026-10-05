@@ -42,7 +42,7 @@ import com.lelouch.core.database.entity.WatchHistoryEntity
         SeriesStagingEntity::class,
         CategoryStagingEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = true
 )
 abstract class LelouchDatabase : RoomDatabase() {
@@ -71,7 +71,8 @@ abstract class LelouchDatabase : RoomDatabase() {
                 )
                     .addMigrations(
                         com.lelouch.core.database.migrations.MIGRATION_1_2,
-                        com.lelouch.core.database.migrations.MIGRATION_2_3
+                        com.lelouch.core.database.migrations.MIGRATION_2_3,
+                        com.lelouch.core.database.migrations.MIGRATION_3_4
                     )
                     .build()
                 INSTANCE = instance
