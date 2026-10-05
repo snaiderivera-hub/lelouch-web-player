@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.26",
-  "versionCode": 1000026,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.26/app-debug.apk",
-  "changelog": "• D-Pad y Focus Hardening en Android TV (P1 #6): Navegación determinista sobre Sidebar + Grids con Paging + Detalle + Player.\n• Eliminados delays arbitrarios en adquisición de foco.\n• Sidebar con límites estrictos y retorno fluido a columnas fijas de contenido.\n• Separación semántica estricta de tecla CENTER (Browse vs Player con HUD visible/oculto)."
+  "versionName": "1.0.27",
+  "versionCode": 1000027,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.27/app-debug.apk",
+  "changelog": "• RC Blocker Fix #1: Desacoplada sincronización de fuentes. Fallos o ausencia de tabla legacy playlists no impiden cargar custom_playlists en arranque limpio.\n• Manejo determinista de errores: diferenciación explícita entre SUCCESS_EMPTY y ERROR_LOADING_SOURCES.\n• Preservación estricta de caché local ante fallos de red.\n• Validación segura de tokens de acceso y revocaciones."
 }

@@ -112,7 +112,7 @@ class UserPreferencesDataSource private constructor(
                     username = "",
                     password = "",
                     type = SourceType.M3U,
-                    isActive = customItems.any { it.id == activeId || it.id == "custom_lelouch" || it.isActive },
+                    isActive = customItems.any { it.id == activeId || it.isActive },
                     accessToken = token
                 )
             )
@@ -128,7 +128,12 @@ class UserPreferencesDataSource private constructor(
         }
 
         return deduplicated.map { source ->
-            source.copy(isActive = (source.id == activeId || (activeId == null && source.id == deduplicated.firstOrNull()?.id)))
+            val isCurrentActive = if (activeId != null) {
+                source.id == activeId
+            } else {
+                source.isActive
+            }
+            source.copy(isActive = isCurrentActive)
         }
     }
 
@@ -151,7 +156,7 @@ class UserPreferencesDataSource private constructor(
     val activeSource: Flow<SourceConfig?> = dataStore.data.map { preferences ->
         val activeId = preferences[PreferencesKeys.ACTIVE_SOURCE_ID] ?: preferences[PreferencesKeys.SOURCE_ID]
         val list = deduplicatedSources(preferences[PreferencesKeys.SAVED_SOURCES_JSON], activeId)
-        if (list.isEmpty()) null else (list.firstOrNull { it.id == activeId } ?: list.firstOrNull())
+        if (list.isEmpty()) null else (list.firstOrNull { it.id == activeId } ?: list.firstOrNull { it.isActive })
     }
 
     suspend fun saveActiveSource(source: SourceConfig) {
