@@ -119,14 +119,91 @@ class LelouchPlayerEngine(
         }
     }
 
+    private fun extractAttemptId(eventTime: AnalyticsListener.EventTime): Long? {
+        val mediaId = if (!eventTime.timeline.isEmpty && eventTime.windowIndex in 0 until eventTime.timeline.windowCount) {
+            val window = androidx.media3.common.Timeline.Window()
+            eventTime.timeline.getWindow(eventTime.windowIndex, window).mediaItem.mediaId
+        } else if (!eventTime.currentTimeline.isEmpty && eventTime.currentWindowIndex in 0 until eventTime.currentTimeline.windowCount) {
+            val window = androidx.media3.common.Timeline.Window()
+            eventTime.currentTimeline.getWindow(eventTime.currentWindowIndex, window).mediaItem.mediaId
+        } else null
+
+        return if (mediaId != null && mediaId.startsWith("attempt_")) {
+            mediaId.removePrefix("attempt_").toLongOrNull()
+        } else null
+    }
+
     private val analyticsListener = object : AnalyticsListener {
+        override fun onRenderedFirstFrame(
+            eventTime: AnalyticsListener.EventTime,
+            output: Any,
+            renderTimeMs: Long
+        ) {
+            val eventAttemptId = extractAttemptId(eventTime)
+            if (eventAttemptId != null && eventAttemptId != currentAttemptId) {
+                android.util.Log.d(
+                    "LelouchTTFF",
+                    "[STALE_CALLBACK_DROPPED] onRenderedFirstFrame dropped for stale attempt=$eventAttemptId (active=$currentAttemptId)"
+                )
+                return
+            }
+            playbackTracker.onRenderedFirstFrame(eventAttemptId ?: currentAttemptId)
+        }
+
+        override fun onPlaybackStateChanged(
+            eventTime: AnalyticsListener.EventTime,
+            state: Int
+        ) {
+            val eventAttemptId = extractAttemptId(eventTime)
+            if (eventAttemptId != null && eventAttemptId != currentAttemptId) {
+                android.util.Log.d(
+                    "LelouchTTFF",
+                    "[STALE_CALLBACK_DROPPED] onPlaybackStateChanged($state) dropped for stale attempt=$eventAttemptId (active=$currentAttemptId)"
+                )
+                return
+            }
+            val targetId = eventAttemptId ?: currentAttemptId
+            when (state) {
+                Player.STATE_BUFFERING -> playbackTracker.onBuffering(targetId)
+                Player.STATE_READY -> {
+                    playbackTracker.onReady(targetId)
+                    if (exoPlayer.videoFormat == null && exoPlayer.currentTracks.isTypeSupported(C.TRACK_TYPE_AUDIO)) {
+                        playbackTracker.onAudioOnlySuccess(targetId)
+                    }
+                }
+            }
+        }
+
+        override fun onPlayerError(
+            eventTime: AnalyticsListener.EventTime,
+            error: PlaybackException
+        ) {
+            val eventAttemptId = extractAttemptId(eventTime)
+            if (eventAttemptId != null && eventAttemptId != currentAttemptId) {
+                android.util.Log.d(
+                    "LelouchTTFF",
+                    "[STALE_CALLBACK_DROPPED] onPlayerError dropped for stale attempt=$eventAttemptId (active=$currentAttemptId)"
+                )
+                return
+            }
+            playbackTracker.onPlayerError(eventAttemptId ?: currentAttemptId, error.errorCode, error.message)
+        }
+
         override fun onVideoDecoderInitialized(
             eventTime: AnalyticsListener.EventTime,
             decoderName: String,
             initializedTimestampMs: Long,
             initializationDurationMs: Long
         ) {
-            playbackTracker.onVideoDecoderInitialized(currentAttemptId, initializationDurationMs)
+            val eventAttemptId = extractAttemptId(eventTime)
+            if (eventAttemptId != null && eventAttemptId != currentAttemptId) {
+                android.util.Log.d(
+                    "LelouchTTFF",
+                    "[STALE_CALLBACK_DROPPED] onVideoDecoderInitialized dropped for stale attempt=$eventAttemptId (active=$currentAttemptId)"
+                )
+                return
+            }
+            playbackTracker.onVideoDecoderInitialized(eventAttemptId ?: currentAttemptId, initializationDurationMs)
         }
 
         override fun onAudioDecoderInitialized(
@@ -135,7 +212,15 @@ class LelouchPlayerEngine(
             initializedTimestampMs: Long,
             initializationDurationMs: Long
         ) {
-            playbackTracker.onAudioDecoderInitialized(currentAttemptId, initializationDurationMs)
+            val eventAttemptId = extractAttemptId(eventTime)
+            if (eventAttemptId != null && eventAttemptId != currentAttemptId) {
+                android.util.Log.d(
+                    "LelouchTTFF",
+                    "[STALE_CALLBACK_DROPPED] onAudioDecoderInitialized dropped for stale attempt=$eventAttemptId (active=$currentAttemptId)"
+                )
+                return
+            }
+            playbackTracker.onAudioDecoderInitialized(eventAttemptId ?: currentAttemptId, initializationDurationMs)
         }
 
         override fun onLoadCompleted(
@@ -143,10 +228,19 @@ class LelouchPlayerEngine(
             loadEventInfo: LoadEventInfo,
             mediaLoadData: MediaLoadData
         ) {
+            val eventAttemptId = extractAttemptId(eventTime)
+            if (eventAttemptId != null && eventAttemptId != currentAttemptId) {
+                android.util.Log.d(
+                    "LelouchTTFF",
+                    "[STALE_CALLBACK_DROPPED] onLoadCompleted dropped for stale attempt=$eventAttemptId (active=$currentAttemptId)"
+                )
+                return
+            }
+            val targetId = eventAttemptId ?: currentAttemptId
             if (mediaLoadData.dataType == C.DATA_TYPE_MANIFEST) {
-                playbackTracker.onManifestLoaded(currentAttemptId, loadEventInfo.loadDurationMs)
+                playbackTracker.onManifestLoaded(targetId, loadEventInfo.loadDurationMs)
             } else if (mediaLoadData.dataType == C.DATA_TYPE_MEDIA) {
-                playbackTracker.onFirstSegmentLoaded(currentAttemptId, loadEventInfo.loadDurationMs)
+                playbackTracker.onFirstSegmentLoaded(targetId, loadEventInfo.loadDurationMs)
             }
         }
     }
@@ -241,12 +335,10 @@ class LelouchPlayerEngine(
                     stopProgressTracking()
                 }
                 Player.STATE_BUFFERING -> {
-                    playbackTracker.onBuffering(currentAttemptId)
                     _playbackState.value = PlaybackState.Buffering
                     startBufferingWatchdog()
                 }
                 Player.STATE_READY -> {
-                    playbackTracker.onReady(currentAttemptId)
                     stopBufferingWatchdog()
                     autoRetryAttemptsLeft = config.autoRetryCount
                     val isPlaying = exoPlayer.playWhenReady
@@ -255,9 +347,6 @@ class LelouchPlayerEngine(
                         startProgressTracking()
                     } else {
                         stopProgressTracking()
-                    }
-                    if (exoPlayer.videoFormat == null && exoPlayer.currentTracks.isTypeSupported(C.TRACK_TYPE_AUDIO)) {
-                        playbackTracker.onAudioOnlySuccess(currentAttemptId)
                     }
                 }
                 Player.STATE_ENDED -> {
@@ -269,7 +358,7 @@ class LelouchPlayerEngine(
         }
 
         override fun onRenderedFirstFrame() {
-            playbackTracker.onRenderedFirstFrame(currentAttemptId)
+            // Handled exclusively by analyticsListener with verified attemptId
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -287,7 +376,7 @@ class LelouchPlayerEngine(
         }
 
         override fun onPlayerError(error: PlaybackException) {
-            playbackTracker.onPlayerError(currentAttemptId, error.errorCode, error.message)
+            // Error telemetry is handled exclusively by analyticsListener with verified attemptId
             stopBufferingWatchdog()
             stopProgressTracking()
             // Auto-recuperación silenciosa para errores de red y timeout:
@@ -394,7 +483,7 @@ class LelouchPlayerEngine(
             )
         } catch (_: Exception) {}
 
-        val mediaSource = buildMediaSource(url)
+        val mediaSource = buildMediaSource(url, currentAttemptId)
         exoPlayer.setMediaSource(mediaSource)
         playbackTracker.onMediaItemSet(currentAttemptId)
         exoPlayer.prepare()
@@ -402,7 +491,7 @@ class LelouchPlayerEngine(
         exoPlayer.playWhenReady = true
     }
 
-    private fun buildMediaSource(url: String): MediaSource {
+    private fun buildMediaSource(url: String, attemptId: Long): MediaSource {
         val uri = Uri.parse(url)
         val cleanUrl = url.lowercase()
         val isHls = cleanUrl.contains(".m3u8") || cleanUrl.contains("/hls/") || cleanUrl.contains("m3u8")
@@ -414,14 +503,25 @@ class LelouchPlayerEngine(
             HlsMediaSource.Factory(httpDataSourceFactory)
                 .setAllowChunklessPreparation(config.allowChunklessPreparation)
                 .setLoadErrorHandlingPolicy(retryPolicy)
-                .createMediaSource(MediaItem.Builder().setUri(uri).setMimeType(MimeTypes.APPLICATION_M3U8).build())
+                .createMediaSource(
+                    MediaItem.Builder()
+                        .setUri(uri)
+                        .setMediaId("attempt_$attemptId")
+                        .setMimeType(MimeTypes.APPLICATION_M3U8)
+                        .build()
+                )
         } else {
             val extractorsFactory = androidx.media3.extractor.DefaultExtractorsFactory().apply {
                 setConstantBitrateSeekingEnabled(true)
             }
             ProgressiveMediaSource.Factory(httpDataSourceFactory, extractorsFactory)
                 .setLoadErrorHandlingPolicy(retryPolicy)
-                .createMediaSource(MediaItem.fromUri(uri))
+                .createMediaSource(
+                    MediaItem.Builder()
+                        .setUri(uri)
+                        .setMediaId("attempt_$attemptId")
+                        .build()
+                )
         }
     }
 
@@ -469,9 +569,14 @@ class LelouchPlayerEngine(
         val isLive = isCurrentStreamLive
         autoRetryAttemptsLeft = config.autoRetryCount
         _playbackState.value = PlaybackState.Buffering
-        val mediaSource = buildMediaSource(url)
+        val mediaType = if (isLive) PlaybackMediaType.LIVE_CHANNEL else PlaybackMediaType.MOVIE
+        val attempt = playbackTracker.startAttempt(url, mediaType, PlayerStartType.WARM_SWITCH)
+        currentAttemptId = attempt.attemptId
+        val mediaSource = buildMediaSource(url, currentAttemptId)
         exoPlayer.setMediaSource(mediaSource)
+        playbackTracker.onMediaItemSet(currentAttemptId)
         exoPlayer.prepare()
+        playbackTracker.onPrepareCalled(currentAttemptId)
         exoPlayer.playWhenReady = true
         isCurrentStreamLive = isLive
     }

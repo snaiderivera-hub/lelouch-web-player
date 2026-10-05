@@ -307,4 +307,69 @@ class PlaybackTrackerTest {
         assertTrue(medianBufReady in 450..850)
         assertTrue(medianReadyFrame in 40..85)
     }
+
+    @Test
+    fun `testStaleCallbacksFromPriorAttemptDoNotPolluteActiveAttempt`() {
+        var clockTime = 10_000L
+        val tracker = PlaybackTracker(clock = { clockTime })
+
+        // Attempt 100 = Canal A
+        val attemptA = tracker.startAttempt("http://server/live/CanalA.ts", PlaybackMediaType.LIVE_CHANNEL, PlayerStartType.WARM_SWITCH)
+        val idA = attemptA.attemptId
+        assertEquals(1L, idA) // First in this test instance
+
+        clockTime = 10_050L
+        tracker.onPrepareCalled(idA)
+
+        // User switches to Canal B before A renders -> Attempt 101 = Canal B
+        clockTime = 10_100L
+        val attemptB = tracker.startAttempt("http://server/live/CanalB.ts", PlaybackMediaType.LIVE_CHANNEL, PlayerStartType.WARM_SWITCH)
+        val idB = attemptB.attemptId
+        assertEquals(2L, idB)
+
+        // Attempt A is sealed as CHANNEL_CHANGED_BEFORE_READY
+        assertEquals(PlaybackAttemptResult.CHANNEL_CHANGED_BEFORE_READY, attemptA.result)
+        assertNull(attemptB.result)
+        assertNull(attemptB.t4FirstBuffering)
+        assertNull(attemptB.t5FirstReady)
+        assertNull(attemptB.t6FirstFrame)
+
+        // Late callbacks arrive belonging to A:
+        clockTime = 10_200L
+        tracker.onBuffering(idA)          // Late T4 from A
+        clockTime = 10_300L
+        tracker.onReady(idA)              // Late T5 from A
+        clockTime = 10_350L
+        tracker.onRenderedFirstFrame(idA) // Late T6 from A
+        clockTime = 10_400L
+        tracker.onPlayerError(idA, 500, "Late error from Canal A") // Late ERROR from A
+
+        // VERIFY: Attempt B receives NONE of these events from A!
+        assertNull("Attempt B must NOT receive T4 from A", attemptB.t4FirstBuffering)
+        assertNull("Attempt B must NOT receive T5 from A", attemptB.t5FirstReady)
+        assertNull("Attempt B must NOT receive T6 from A", attemptB.t6FirstFrame)
+        assertNull("Attempt B must NOT receive result from A", attemptB.result)
+        assertNull("Attempt B must NOT receive error from A", attemptB.errorCode)
+
+        // VERIFY: Attempt A was not revived or corrupted by late callbacks
+        assertEquals(PlaybackAttemptResult.CHANNEL_CHANGED_BEFORE_READY, attemptA.result)
+        assertNull("Attempt A must not have T6 overwritten", attemptA.t6FirstFrame)
+
+        // Now Attempt B's own callbacks arrive legitimately:
+        clockTime = 10_450L
+        tracker.onPrepareCalled(idB)
+        clockTime = 10_480L
+        tracker.onBuffering(idB)
+        clockTime = 10_800L
+        tracker.onReady(idB)
+        clockTime = 10_850L
+        tracker.onRenderedFirstFrame(idB)
+
+        // VERIFY: Attempt B finishes with its own genuine timings
+        assertEquals(PlaybackAttemptResult.SUCCESS_FIRST_FRAME, attemptB.result)
+        assertEquals(10_480L, attemptB.t4FirstBuffering)
+        assertEquals(10_800L, attemptB.t5FirstReady)
+        assertEquals(10_850L, attemptB.t6FirstFrame)
+        assertEquals(750L, attemptB.ttffMs) // 10850 - 10100 = 750ms
+    }
 }

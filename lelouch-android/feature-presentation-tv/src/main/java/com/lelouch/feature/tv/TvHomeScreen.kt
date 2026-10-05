@@ -1053,13 +1053,14 @@ fun TvHomeScreen(
                             KeyEvent.KEYCODE_CHANNEL_UP,
                             KeyEvent.KEYCODE_PAGE_UP -> {
                                 if (isLiveStream && activePlaybackChannels.isNotEmpty()) {
+                                    val userT0 = android.os.SystemClock.elapsedRealtime()
                                     val nextIndex = if (activePlaybackChannelIndex < activePlaybackChannels.lastIndex) activePlaybackChannelIndex + 1 else 0
                                     activePlaybackChannelIndex = nextIndex
                                     val ch = activePlaybackChannels[nextIndex]
                                     // Actualizar focusedChannelIndex en la lista global para coherencia visual
                                     focusedChannelIndex = visibleChannels.indexOfFirst { it.streamId == ch.streamId }.coerceAtLeast(0)
                                     isPlayingLive = true
-                                    playerEngine.playStream(ch.streamUrl, isLive = true)
+                                    playerEngine.playStream(ch.streamUrl, isLive = true, userT0 = userT0)
                                     isHudVisible = true
                                     true
                                 } else {
@@ -1071,12 +1072,13 @@ fun TvHomeScreen(
                             KeyEvent.KEYCODE_CHANNEL_DOWN,
                             KeyEvent.KEYCODE_PAGE_DOWN -> {
                                 if (isLiveStream && activePlaybackChannels.isNotEmpty()) {
+                                    val userT0 = android.os.SystemClock.elapsedRealtime()
                                     val prevIndex = if (activePlaybackChannelIndex > 0) activePlaybackChannelIndex - 1 else activePlaybackChannels.lastIndex
                                     activePlaybackChannelIndex = prevIndex
                                     val ch = activePlaybackChannels[prevIndex]
                                     focusedChannelIndex = visibleChannels.indexOfFirst { it.streamId == ch.streamId }.coerceAtLeast(0)
                                     isPlayingLive = true
-                                    playerEngine.playStream(ch.streamUrl, isLive = true)
+                                    playerEngine.playStream(ch.streamUrl, isLive = true, userT0 = userT0)
                                     isHudVisible = true
                                     true
                                 } else {
@@ -1356,11 +1358,12 @@ fun TvHomeScreen(
                                                         focusedHeroMovie = null
                                                     },
                                                     onClick = { 
+                                                        val userT0 = android.os.SystemClock.elapsedRealtime()
                                                         focusedChannelId = ch.id
                                                         focusedChannel = ch
                                                         focusedChannelIndex = idx
                                                         isPlayingLive = true
-                                                        playerEngine.playStream(ch.streamUrl, isLive = true)
+                                                        playerEngine.playStream(ch.streamUrl, isLive = true, userT0 = userT0)
                                                         isFullscreen = true 
                                                     },
                                                     onToggleFavorite = {
@@ -1390,9 +1393,10 @@ fun TvHomeScreen(
                                                         focusedHeroMovie = null
                                                     },
                                                     onClick = { 
+                                                        val userT0 = android.os.SystemClock.elapsedRealtime()
                                                         focusedChannelIndex = idx
                                                         isPlayingLive = true
-                                                        playerEngine.playStream(ch.streamUrl, isLive = true)
+                                                        playerEngine.playStream(ch.streamUrl, isLive = true, userT0 = userT0)
                                                         isFullscreen = true 
                                                     },
                                                     onToggleFavorite = {
@@ -1587,11 +1591,12 @@ fun TvHomeScreen(
                                                     focusedChannelIndex = index
                                                 },
                                                 onClick = {
+                                                    val userT0 = android.os.SystemClock.elapsedRealtime()
                                                     focusedChannelId = ch.id
                                                     focusedChannel = ch
                                                     focusedChannelIndex = index
                                                     isPlayingLive = true
-                                                    playerEngine.playStream(ch.streamUrl, isLive = true)
+                                                    playerEngine.playStream(ch.streamUrl, isLive = true, userT0 = userT0)
                                                     isFullscreen = true
                                                 },
                                                 onToggleFavorite = {
@@ -1909,7 +1914,8 @@ fun TvHomeScreen(
                                                     isSelected = false,
                                                     onFocused = {},
                                                     onClick = {
-                                                        playerEngine.playStream(ch.streamUrl, isLive = true)
+                                                        val userT0 = android.os.SystemClock.elapsedRealtime()
+                                                        playerEngine.playStream(ch.streamUrl, isLive = true, userT0 = userT0)
                                                         isFullscreen = true
                                                     },
                                                     onToggleFavorite = {
@@ -2266,9 +2272,10 @@ fun TvHomeScreen(
 
                                             if (isCenterKey) {
                                                 if (keyEvent.type == KeyEventType.KeyDown && keyEvent.nativeKeyEvent.repeatCount == 0) {
+                                                    val userT0 = android.os.SystemClock.elapsedRealtime()
                                                     focusedChannelIndex = index
                                                     isPlayingLive = true
-                                                    playerEngine.playStream(channel.streamUrl, isLive = true)
+                                                    playerEngine.playStream(channel.streamUrl, isLive = true, userT0 = userT0)
                                                     true
                                                 } else if (keyEvent.type == KeyEventType.KeyUp) {
                                                     true
@@ -2283,9 +2290,10 @@ fun TvHomeScreen(
                                             interactionSource = hudCardInteractionSource,
                                             indication = null
                                         ) {
+                                            val userT0 = android.os.SystemClock.elapsedRealtime()
                                             focusedChannelIndex = index
                                             isPlayingLive = true
-                                            playerEngine.playStream(channel.streamUrl, isLive = true)
+                                            playerEngine.playStream(channel.streamUrl, isLive = true, userT0 = userT0)
                                         }
                                         .padding(8.dp)
                                 ) {
@@ -2709,9 +2717,10 @@ fun TvHomeScreen(
                                         shape = RoundedCornerShape(8.dp)
                                     )
                                     .clickable {
+                                        val userT0 = android.os.SystemClock.elapsedRealtime()
                                         activePlaybackChannelIndex = idx
                                         focusedChannelIndex = visibleChannels.indexOfFirst { it.streamId == ch.streamId }.coerceAtLeast(0)
-                                        playerEngine.playStream(ch.streamUrl, isLive = true)
+                                        playerEngine.playStream(ch.streamUrl, isLive = true, userT0 = userT0)
                                         isQuickZappingOpen = false
                                         isHudVisible = true
                                     }
