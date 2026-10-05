@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.19",
-  "versionCode": 1000019,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.19/app-debug.apk",
-  "changelog": "• Sincronización Room Atómica (P0 #4): Descargas y parseos dirigidos exclusivamente a tablas de staging aisladas (channels_staging, movies_staging, series_staging, categories_staging).\n• Swap atómico ultra-rápido en SQLite con preservación de favoritos y rollback automático ante cualquier fallo.\n• Cero invalidaciones en cascada sobre los Flow visibles de la interfaz durante sincronizaciones intermedias."
+  "versionName": "1.0.20",
+  "versionCode": 1000020,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.20/app-debug.apk",
+  "changelog": "• Control de Frescura y Arranque Inmediato (P0 #5): Room es ahora la primera fuente de verdad. El catálogo local se muestra al instante sin bloquear la interfaz.\n• Detección Inteligente de Cambios: Consulta ultraligera de versión/ETag para listas Lelouch/Supabase (evita re-descargas completas si la versión es idéntica).\n• Caché TTL para Xtream Directo (24h) y M3U condicional con If-None-Match.\n• Botón Recargar Catálogo realiza actualización manual forzada en cualquier momento."
 }

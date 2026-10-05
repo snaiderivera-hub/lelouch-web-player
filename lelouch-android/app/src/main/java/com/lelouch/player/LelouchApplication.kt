@@ -42,7 +42,7 @@ class LelouchApplication : Application() {
 
         database = LelouchDatabase.getInstance(this)
         preferencesDataSource = UserPreferencesDataSource(this)
-        syncManager = XtreamCatalogSyncManager(database)
+        syncManager = XtreamCatalogSyncManager(database, preferencesDataSource)
 
         authRepository = AuthRepositoryImpl(preferencesDataSource)
         channelRepository = ChannelRepositoryImpl(database.channelDao(), database.categoryDao(), syncManager)

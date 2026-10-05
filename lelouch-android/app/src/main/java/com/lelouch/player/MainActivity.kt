@@ -49,6 +49,8 @@ class MainActivity : ComponentActivity() {
                     syncState is SyncState.SyncingSeries
 
             val syncStatusText = when (val state = syncState) {
+                is SyncState.Checking -> "Comprobando actualizaciones..."
+                is SyncState.UpToDate -> state.message
                 is SyncState.Authenticating -> "Validando credenciales con el servidor..."
                 is SyncState.SyncingCategories -> state.step
                 is SyncState.SyncingLive -> "Sincronizando canales en vivo (${state.count} importados)..."
@@ -86,7 +88,7 @@ class MainActivity : ComponentActivity() {
                 lifecycleScope.launch {
                     val activated = app.authRepository.activateSource(sourceId)
                     if (activated != null) {
-                        app.syncManager.syncAll(
+                        app.syncManager.syncIfNeeded(
                             sourceId = activated.id,
                             serverUrl = activated.serverUrl,
                             user = activated.username,
@@ -130,7 +132,8 @@ class MainActivity : ComponentActivity() {
                         serverUrl = src.serverUrl,
                         user = src.username,
                         pass = src.password,
-                        sourceType = src.type
+                        sourceType = src.type,
+                        force = true
                     )
                 }
             }
@@ -141,18 +144,14 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // ── FASE 33: sincronizar Room en CADA arranque, no solo si no hay fuente activa ──
-            // Antes la condición era `if (activeSource == null)`, así que si existía una fuente
-            // guardada de una sesión previa, syncAll nunca se ejecutaba, Room quedaba vacío o
-            // desactualizado y la pantalla mostraba 0 canales sin ningún error visible.
-            // Se activa solo cuando cambia el id de la fuente, para no repetir en cada recomposición.
+            // ── FASE P0 #5: Arranque inteligente — catálogo local Room primero, sync solo si cambió ──
             LaunchedEffect(effectiveActiveSource?.id) {
                 val src = effectiveActiveSource ?: return@LaunchedEffect
                 if (activeSource == null) {
                     // Fija el id activo en DataStore si aún no está fijado.
                     app.authRepository.activateSource(src.id)
                 }
-                app.syncManager.syncAll(
+                app.syncManager.syncIfNeeded(
                     sourceId = src.id,
                     serverUrl = src.serverUrl,
                     user = src.username,

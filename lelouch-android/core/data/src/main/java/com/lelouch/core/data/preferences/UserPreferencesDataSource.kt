@@ -12,6 +12,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.lelouch.core.model.SourceConfig
 import com.lelouch.core.model.SourceType
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -43,6 +44,9 @@ class UserPreferencesDataSource(private val context: Context) {
         // Multi-lista persistente
         val SAVED_SOURCES_JSON = stringPreferencesKey("saved_sources_json")
         val ACTIVE_SOURCE_ID = stringPreferencesKey("active_source_id")
+
+        // Metadatos de sincronización atómica y frescura (P0 #5)
+        val SYNC_METADATA_JSON = stringPreferencesKey("sync_metadata_json")
     }
 
     val defaultInitialSources = emptyList<SourceConfig>()
@@ -231,6 +235,34 @@ class UserPreferencesDataSource(private val context: Context) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.IS_LOGGED_IN] = false
             preferences.remove(PreferencesKeys.ACTIVE_SOURCE_ID)
+        }
+    }
+
+    suspend fun getSyncMetadata(sourceId: String): SourceSyncMetadata? {
+        val prefs = context.dataStore.data.first()
+        val rawJson = prefs[PreferencesKeys.SYNC_METADATA_JSON] ?: return null
+        return try {
+            val map = json.decodeFromString<Map<String, SourceSyncMetadata>>(rawJson)
+            map[sourceId]
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    suspend fun saveSyncMetadata(metadata: SourceSyncMetadata) {
+        context.dataStore.edit { preferences ->
+            val rawJson = preferences[PreferencesKeys.SYNC_METADATA_JSON]
+            val map = if (!rawJson.isNullOrBlank()) {
+                try {
+                    json.decodeFromString<Map<String, SourceSyncMetadata>>(rawJson).toMutableMap()
+                } catch (_: Exception) {
+                    mutableMapOf()
+                }
+            } else {
+                mutableMapOf()
+            }
+            map[metadata.sourceId] = metadata
+            preferences[PreferencesKeys.SYNC_METADATA_JSON] = json.encodeToString(map)
         }
     }
 }

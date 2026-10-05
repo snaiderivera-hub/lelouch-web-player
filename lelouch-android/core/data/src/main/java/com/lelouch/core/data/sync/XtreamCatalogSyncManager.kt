@@ -1,6 +1,8 @@
 package com.lelouch.core.data.sync
 
 import androidx.room.withTransaction
+import com.lelouch.core.data.preferences.SourceSyncMetadata
+import com.lelouch.core.data.preferences.UserPreferencesDataSource
 import com.lelouch.core.database.LelouchDatabase
 import com.lelouch.core.database.entity.CategoryEntity
 import com.lelouch.core.database.entity.CategoryStagingEntity
@@ -15,6 +17,7 @@ import com.lelouch.core.network.StreamUrlResolver
 import com.lelouch.core.network.XtreamStreamingParser
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
@@ -31,6 +34,8 @@ import kotlinx.serialization.json.jsonPrimitive
 
 sealed interface SyncState {
     data object Idle : SyncState
+    data class Checking(val sourceId: String) : SyncState
+    data class UpToDate(val sourceId: String, val message: String = "Catálogo actualizado") : SyncState
     data object Authenticating : SyncState
     data class SyncingCategories(val step: String) : SyncState
     data class SyncingLive(val count: Int) : SyncState
@@ -40,9 +45,22 @@ sealed interface SyncState {
     data class Error(val message: String) : SyncState
 }
 
+sealed interface FreshnessResult {
+    data class Unchanged(val version: String, val etag: String = "") : FreshnessResult
+    data class Changed(val newVersion: String, val newEtag: String = "") : FreshnessResult
+    data class CheckFailed(val reason: String) : FreshnessResult
+}
+
 class XtreamCatalogSyncManager(
-    private val database: LelouchDatabase
+    private val database: LelouchDatabase,
+    private val preferencesDataSource: UserPreferencesDataSource? = null
 ) {
+    companion object {
+        const val XTREAM_DEFAULT_TTL_MS: Long = 24 * 60 * 60 * 1000L // 24 horas para Xtream
+        const val M3U_DEFAULT_TTL_MS: Long = 24 * 60 * 60 * 1000L // 24 horas para M3U genérico
+        private const val SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvdHVwYmRlbGpnZmRkeXdyeWhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzNjA2MzksImV4cCI6MjEwNTkzNjYzOX0.zDVgrQo_IU5FhfSMpl0-MbS9Eod43czS21TBi5Z3Lvo"
+    }
+
     private val _syncState = MutableStateFlow<SyncState>(SyncState.Idle)
     val syncState: StateFlow<SyncState> = _syncState.asStateFlow()
 
@@ -53,6 +71,8 @@ class XtreamCatalogSyncManager(
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
+
+    private val json = Json { ignoreUnknownKeys = true }
 
     private fun detectMediaType(mediaType: String?, name: String, group: String, url: String): String {
         val mt = mediaType?.lowercase()?.trim().orEmpty()
@@ -97,12 +117,12 @@ class XtreamCatalogSyncManager(
 
     private suspend fun performAtomicSwap(syncId: String, sourceId: String) {
         database.withTransaction {
-            // PASO 10: Preservar favoritos del usuario antes del swap
+            // PASO 10 (P0 #4): Preservar favoritos del usuario antes del swap
             database.catalogStagingDao().preserveChannelFavorites(syncId, sourceId)
             database.catalogStagingDao().preserveMovieFavorites(syncId, sourceId)
             database.catalogStagingDao().preserveSeriesFavorites(syncId, sourceId)
 
-            // PASO 8: Eliminar catálogo ACTIVO únicamente para este sourceId
+            // PASO 8 (P0 #4): Eliminar catálogo ACTIVO únicamente para este sourceId
             database.channelDao().deleteChannelsBySource(sourceId)
             database.movieDao().deleteMoviesBySource(sourceId)
             database.seriesDao().deleteSeriesBySource(sourceId)
@@ -122,12 +142,32 @@ class XtreamCatalogSyncManager(
         }
     }
 
-    suspend fun syncAll(
+    /**
+     * Sincronización inteligente de arranque (P0 #5).
+     * Muestra Room inmediatamente y solo descarga de la red si el catálogo ha cambiado.
+     */
+    suspend fun syncIfNeeded(
         sourceId: String,
         serverUrl: String,
         user: String,
         pass: String,
         sourceType: com.lelouch.core.model.SourceType = com.lelouch.core.model.SourceType.XTREAM
+    ): Result<Unit> = syncAll(
+        sourceId = sourceId,
+        serverUrl = serverUrl,
+        user = user,
+        pass = pass,
+        sourceType = sourceType,
+        force = false
+    )
+
+    suspend fun syncAll(
+        sourceId: String,
+        serverUrl: String,
+        user: String,
+        pass: String,
+        sourceType: com.lelouch.core.model.SourceType = com.lelouch.core.model.SourceType.XTREAM,
+        force: Boolean = true
     ): Result<Unit> = withContext(Dispatchers.IO) {
         // PASO 5: Prevenir dos syncs simultáneos de la misma fuente
         val mutex = sourceSyncMutexes.computeIfAbsent(sourceId) { Mutex() }
@@ -137,20 +177,7 @@ class XtreamCatalogSyncManager(
             return@withContext Result.failure(IllegalStateException(busyMsg))
         }
 
-        // PASO 4: Generar syncId único para aislar completamente esta ejecución en staging
-        val syncId = UUID.randomUUID().toString()
-
         try {
-            // PASO 13: Limpiar staging huérfano abandonado por crash previo para este sourceId
-            try {
-                database.catalogStagingDao().cleanupOrphanChannelsStaging(sourceId, syncId)
-                database.catalogStagingDao().cleanupOrphanMoviesStaging(sourceId, syncId)
-                database.catalogStagingDao().cleanupOrphanSeriesStaging(sourceId, syncId)
-                database.catalogStagingDao().cleanupOrphanCategoriesStaging(sourceId, syncId)
-            } catch (e: Exception) {
-                android.util.Log.w("XtreamCatalogSync", "Limpieza de huérfanos omitida: ${e.message}")
-            }
-
             // ── FASE 33: Autodetección de M3U ────────────────────────────────────
             val effectiveType = if (
                 sourceType == com.lelouch.core.model.SourceType.XTREAM &&
@@ -161,16 +188,81 @@ class XtreamCatalogSyncManager(
                 sourceType
             }
 
+            // PASO 10: Verificar si Room ya contiene catálogo activo para este sourceId
+            val chCount = database.channelDao().getChannelCount(sourceId)
+            val movCount = database.movieDao().getMovieCount(sourceId)
+            val serCount = database.seriesDao().getSeriesCount(sourceId)
+            val totalLocal = chCount + movCount + serCount
+            val isRoomEmpty = (totalLocal == 0)
+
+            // PASO 2, 5, 6: Si no es forzado y Room tiene datos, comprobar frescura
+            var remoteVersionToSave = ""
+            var remoteEtagToSave = ""
+
+            if (!force && !isRoomEmpty) {
+                _syncState.value = SyncState.Checking(sourceId)
+                val metadata = preferencesDataSource?.getSyncMetadata(sourceId)
+
+                val freshness = when {
+                    // Tipo A: Lelouch / Supabase
+                    effectiveType == com.lelouch.core.model.SourceType.M3U && isLelouchOrSupabase(serverUrl, sourceId) -> {
+                        checkLelouchRemoteVersion(sourceId, serverUrl, metadata)
+                    }
+                    // Tipo B: Xtream Directo
+                    effectiveType == com.lelouch.core.model.SourceType.XTREAM -> {
+                        checkXtreamFreshness(sourceId, metadata)
+                    }
+                    // Tipo D: M3U Local
+                    effectiveType == com.lelouch.core.model.SourceType.M3U && isLocalFile(serverUrl) -> {
+                        checkLocalM3uFreshness(sourceId, serverUrl, metadata)
+                    }
+                    // Tipo C: M3U Remoto Genérico
+                    else -> {
+                        checkGenericM3uFreshness(sourceId, serverUrl, metadata)
+                    }
+                }
+
+                when (freshness) {
+                    is FreshnessResult.Unchanged -> {
+                        android.util.Log.i("XtreamCatalogSync", "SYNC_SKIPPED_UNCHANGED: source $sourceId al día (versión=${freshness.version})")
+                        _syncState.value = SyncState.UpToDate(sourceId, "Catálogo al día")
+                        return@withContext Result.success(Unit)
+                    }
+                    is FreshnessResult.CheckFailed -> {
+                        android.util.Log.w("XtreamCatalogSync", "FRESHNESS_CHECK_FAILED: ${freshness.reason}. Se preserva catálogo local de Room.")
+                        _syncState.value = SyncState.UpToDate(sourceId, "Modo sin conexión - Catálogo local disponible")
+                        return@withContext Result.success(Unit)
+                    }
+                    is FreshnessResult.Changed -> {
+                        android.util.Log.i("XtreamCatalogSync", "Cambio detectado para $sourceId (nueva versión=${freshness.newVersion}). Iniciando sync hacia staging.")
+                        remoteVersionToSave = freshness.newVersion
+                        remoteEtagToSave = freshness.newEtag
+                    }
+                }
+            }
+
+            // PASO 4 (P0 #4): Generar syncId único para aislar completamente esta ejecución en staging
+            val syncId = UUID.randomUUID().toString()
+
+            // PASO 13 (P0 #4): Limpiar staging huérfano abandonado por crash previo para este sourceId
+            try {
+                database.catalogStagingDao().cleanupOrphanChannelsStaging(sourceId, syncId)
+                database.catalogStagingDao().cleanupOrphanMoviesStaging(sourceId, syncId)
+                database.catalogStagingDao().cleanupOrphanSeriesStaging(sourceId, syncId)
+                database.catalogStagingDao().cleanupOrphanCategoriesStaging(sourceId, syncId)
+            } catch (e: Exception) {
+                android.util.Log.w("XtreamCatalogSync", "Limpieza de huérfanos omitida: ${e.message}")
+            }
+
             // ── FASE 32: Listas M3U/Custom resueltas en Supabase / Vercel ──────────
             if (effectiveType == com.lelouch.core.model.SourceType.M3U) {
-                return@withContext syncM3uToStaging(sourceId, syncId, serverUrl)
+                return@withContext syncM3uToStaging(sourceId, syncId, serverUrl, remoteVersionToSave, remoteEtagToSave)
             }
 
             // ── RAMA XTREAM CODES CON STAGING ────────────────────────────────────
             return@withContext syncXtreamToStaging(sourceId, syncId, serverUrl, user, pass)
 
         } catch (e: Exception) {
-            cleanupStaging(syncId)
             val errorMsg = e.localizedMessage ?: "Error de sincronización con el servidor IPTV"
             _syncState.value = SyncState.Error(errorMsg)
             Result.failure(e)
@@ -179,10 +271,200 @@ class XtreamCatalogSyncManager(
         }
     }
 
+    private fun isLelouchOrSupabase(serverUrl: String, sourceId: String): Boolean {
+        return serverUrl.contains("rotupbdeljgfddywryhk.supabase.co") ||
+                serverUrl.contains("/api/playlist") ||
+                serverUrl.contains("token=") ||
+                sourceId == "custom_lelouch" ||
+                sourceId.startsWith("custom_")
+    }
+
+    private fun isLocalFile(serverUrl: String): Boolean {
+        return serverUrl.startsWith("file://") || serverUrl.startsWith("/") || serverUrl.contains("content://")
+    }
+
+    /**
+     * PASO 2: Verificación de frescura para listas Lelouch/Supabase vía endpoint de version o Supabase.
+     */
+    suspend fun checkLelouchRemoteVersion(
+        sourceId: String,
+        serverUrl: String,
+        metadata: SourceSyncMetadata?
+    ): FreshnessResult = withContext(Dispatchers.IO) {
+        try {
+            val tokenFromUrl = when {
+                serverUrl.contains("/api/playlist/version/") -> serverUrl.substringAfter("/api/playlist/version/").substringBefore("?").trim()
+                serverUrl.contains("/api/playlist/") -> serverUrl.substringAfter("/api/playlist/").substringBefore("?").trim()
+                serverUrl.contains("token=") -> serverUrl.substringAfter("token=").substringBefore("&").trim()
+                else -> ""
+            }
+
+            val localVer = metadata?.lastSuccessfulVersion.orEmpty()
+
+            // 1. Intentar endpoint de versión de Vercel (/api/playlist/version/<token>)
+            if (tokenFromUrl.isNotBlank()) {
+                val verUrl = "https://lelouch-web-player.vercel.app/api/playlist/version/$tokenFromUrl"
+                val reqBuilder = Request.Builder().url(verUrl)
+                if (localVer.isNotBlank()) {
+                    reqBuilder.addHeader("x-local-version", localVer)
+                    reqBuilder.addHeader("If-None-Match", "\"v$localVer\"")
+                }
+                val res = httpClient.newCall(reqBuilder.build()).execute()
+                if (res.code == 304) {
+                    return@withContext FreshnessResult.Unchanged(version = localVer)
+                }
+                if (res.isSuccessful) {
+                    val body = res.body?.string() ?: ""
+                    val obj = json.parseToJsonElement(body).jsonObject
+                    val ver = obj["version"]?.jsonPrimitive?.content ?: obj["updatedAt"]?.jsonPrimitive?.content ?: ""
+                    val etag = res.header("ETag")?.trim('"') ?: ""
+                    if (ver.isNotBlank() && ver == localVer) {
+                        return@withContext FreshnessResult.Unchanged(version = ver, etag = etag)
+                    } else if (ver.isNotBlank()) {
+                        return@withContext FreshnessResult.Changed(newVersion = ver, newEtag = etag)
+                    }
+                }
+            }
+
+            // 2. Consulta directa a Supabase (custom_playlists version y updated_at)
+            val cleanPlaylistId = if (sourceId == "custom_lelouch" || sourceId.startsWith("custom_")) {
+                val cpReq = Request.Builder()
+                    .url("https://rotupbdeljgfddywryhk.supabase.co/rest/v1/custom_playlists?select=id,version,updated_at&order=updated_at.desc&limit=1")
+                    .addHeader("apikey", SUPABASE_ANON_KEY)
+                    .addHeader("Authorization", "Bearer $SUPABASE_ANON_KEY")
+                    .build()
+                val cpRes = httpClient.newCall(cpReq).execute()
+                if (cpRes.isSuccessful) {
+                    val body = cpRes.body?.string() ?: ""
+                    val arr = json.parseToJsonElement(body).jsonArray
+                    val first = arr.firstOrNull()?.jsonObject
+                    val ver = first?.get("version")?.jsonPrimitive?.content ?: first?.get("updated_at")?.jsonPrimitive?.content ?: ""
+                    if (ver.isNotBlank() && ver == localVer) {
+                        return@withContext FreshnessResult.Unchanged(version = ver)
+                    } else if (ver.isNotBlank()) {
+                        return@withContext FreshnessResult.Changed(newVersion = ver)
+                    }
+                    first?.get("id")?.jsonPrimitive?.content ?: "c9da4a22-534c-41f9-af70-42ee9f6682df"
+                } else {
+                    "c9da4a22-534c-41f9-af70-42ee9f6682df"
+                }
+            } else {
+                sourceId.removePrefix("custom_")
+            }
+
+            val cpUrl = "https://rotupbdeljgfddywryhk.supabase.co/rest/v1/custom_playlists?select=version,updated_at&id=eq.$cleanPlaylistId"
+            val req = Request.Builder()
+                .url(cpUrl)
+                .addHeader("apikey", SUPABASE_ANON_KEY)
+                .addHeader("Authorization", "Bearer $SUPABASE_ANON_KEY")
+                .build()
+            val res = httpClient.newCall(req).execute()
+            if (res.isSuccessful) {
+                val body = res.body?.string() ?: ""
+                val arr = json.parseToJsonElement(body).jsonArray
+                val first = arr.firstOrNull()?.jsonObject
+                val ver = first?.get("version")?.jsonPrimitive?.content ?: first?.get("updated_at")?.jsonPrimitive?.content ?: ""
+                if (ver.isNotBlank() && ver == localVer) {
+                    FreshnessResult.Unchanged(version = ver)
+                } else if (ver.isNotBlank()) {
+                    FreshnessResult.Changed(newVersion = ver)
+                } else {
+                    FreshnessResult.Changed(newVersion = System.currentTimeMillis().toString())
+                }
+            } else {
+                FreshnessResult.CheckFailed("HTTP ${res.code}")
+            }
+        } catch (e: Exception) {
+            FreshnessResult.CheckFailed(e.message ?: e.javaClass.simpleName)
+        }
+    }
+
+    /**
+     * PASO 5: Verificación de frescura para Xtream Directo mediante TTL.
+     */
+    fun checkXtreamFreshness(
+        sourceId: String,
+        metadata: SourceSyncMetadata?
+    ): FreshnessResult {
+        if (metadata == null || metadata.lastSuccessfulSyncAt == 0L) {
+            return FreshnessResult.Changed(newVersion = "initial")
+        }
+        val age = System.currentTimeMillis() - metadata.lastSuccessfulSyncAt
+        return if (age < XTREAM_DEFAULT_TTL_MS) {
+            FreshnessResult.Unchanged(version = metadata.lastSuccessfulVersion)
+        } else {
+            FreshnessResult.Changed(newVersion = "ttl_expired_${System.currentTimeMillis()}")
+        }
+    }
+
+    /**
+     * PASO 6: Verificación de frescura para M3U Remoto genérico vía HEAD o TTL.
+     */
+    suspend fun checkGenericM3uFreshness(
+        sourceId: String,
+        serverUrl: String,
+        metadata: SourceSyncMetadata?
+    ): FreshnessResult = withContext(Dispatchers.IO) {
+        if (metadata == null || metadata.lastSuccessfulSyncAt == 0L) {
+            return@withContext FreshnessResult.Changed(newVersion = "initial")
+        }
+        if (metadata.lastEtag.isNotBlank()) {
+            try {
+                val headReq = Request.Builder()
+                    .url(serverUrl)
+                    .head()
+                    .addHeader("If-None-Match", metadata.lastEtag)
+                    .build()
+                val resp = httpClient.newCall(headReq).execute()
+                if (resp.code == 304) {
+                    return@withContext FreshnessResult.Unchanged(metadata.lastSuccessfulVersion, metadata.lastEtag)
+                }
+                val newEtag = resp.header("ETag")?.trim('"')
+                if (resp.isSuccessful && !newEtag.isNullOrBlank() && newEtag == metadata.lastEtag) {
+                    return@withContext FreshnessResult.Unchanged(metadata.lastSuccessfulVersion, metadata.lastEtag)
+                }
+            } catch (_: Exception) {}
+        }
+        val age = System.currentTimeMillis() - metadata.lastSuccessfulSyncAt
+        if (age < M3U_DEFAULT_TTL_MS) {
+            FreshnessResult.Unchanged(version = metadata.lastSuccessfulVersion, etag = metadata.lastEtag)
+        } else {
+            FreshnessResult.Changed(newVersion = "ttl_expired")
+        }
+    }
+
+    /**
+     * PASO 7: Verificación de frescura para M3U Local mediante huella de archivo.
+     */
+    fun checkLocalM3uFreshness(
+        sourceId: String,
+        serverUrl: String,
+        metadata: SourceSyncMetadata?
+    ): FreshnessResult {
+        if (metadata == null || metadata.lastSuccessfulSyncAt == 0L) {
+            return FreshnessResult.Changed(newVersion = "initial")
+        }
+        try {
+            val path = if (serverUrl.startsWith("file://")) serverUrl.removePrefix("file://") else serverUrl
+            val file = File(path)
+            if (file.exists()) {
+                val fileFingerprint = "${file.length()}_${file.lastModified()}"
+                return if (fileFingerprint == metadata.lastSuccessfulVersion) {
+                    FreshnessResult.Unchanged(version = fileFingerprint)
+                } else {
+                    FreshnessResult.Changed(newVersion = fileFingerprint)
+                }
+            }
+        } catch (_: Exception) {}
+        return FreshnessResult.Changed(newVersion = "unknown")
+    }
+
     private suspend fun syncM3uToStaging(
         sourceId: String,
         syncId: String,
-        serverUrl: String
+        serverUrl: String,
+        remoteVersion: String = "",
+        remoteEtag: String = ""
     ): Result<Unit> {
         try {
             _syncState.value = SyncState.SyncingLive(0)
@@ -194,24 +476,18 @@ class XtreamCatalogSyncManager(
             val vodCategories = mutableSetOf<String>()
             val seriesCategories = mutableSetOf<String>()
 
-            val json = Json { ignoreUnknownKeys = true }
             val strategyErrors = mutableListOf<String>()
-            val supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvdHVwYmRlbGpnZmRkeXdyeWhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzNjA2MzksImV4cCI6MjEwNTkzNjYzOX0.zDVgrQo_IU5FhfSMpl0-MbS9Eod43czS21TBi5Z3Lvo"
 
             // ── ESTRATEGIA 1: Consulta DIRECTA a Supabase v_resolved_playlist_items ──
-            val isSupabasePlaylist = serverUrl.contains("rotupbdeljgfddywryhk.supabase.co") ||
-                    serverUrl.contains("/api/playlist") ||
-                    serverUrl.contains("token=") ||
-                    sourceId == "custom_lelouch" ||
-                    sourceId.startsWith("custom_")
+            val isSupabasePlaylist = isLelouchOrSupabase(serverUrl, sourceId)
 
             if (isSupabasePlaylist) {
                 try {
                     val cleanPlaylistId = if (sourceId == "custom_lelouch" || sourceId.startsWith("custom_")) {
                         val cpReq = Request.Builder()
                             .url("https://rotupbdeljgfddywryhk.supabase.co/rest/v1/custom_playlists?select=id&order=updated_at.desc&limit=1")
-                            .addHeader("apikey", supabaseKey)
-                            .addHeader("Authorization", "Bearer $supabaseKey")
+                            .addHeader("apikey", SUPABASE_ANON_KEY)
+                            .addHeader("Authorization", "Bearer $SUPABASE_ANON_KEY")
                             .build()
                         val cpRes = httpClient.newCall(cpReq).execute()
                         val cpBody = if (cpRes.isSuccessful) cpRes.body?.string() ?: "" else ""
@@ -235,8 +511,8 @@ class XtreamCatalogSyncManager(
                         val itemsUrl = "https://rotupbdeljgfddywryhk.supabase.co/rest/v1/v_resolved_playlist_items?playlist_id=eq.$cleanPlaylistId&enabled=eq.true&order=position.asc&limit=$pageSize&offset=$offset"
                         val req = Request.Builder()
                             .url(itemsUrl)
-                            .addHeader("apikey", supabaseKey)
-                            .addHeader("Authorization", "Bearer $supabaseKey")
+                            .addHeader("apikey", SUPABASE_ANON_KEY)
+                            .addHeader("Authorization", "Bearer $SUPABASE_ANON_KEY")
                             .build()
                         val res = httpClient.newCall(req).execute()
                         if (res.isSuccessful) {
@@ -363,7 +639,7 @@ class XtreamCatalogSyncManager(
                 database.catalogStagingDao().getStagingMovieCount(syncId) +
                 database.catalogStagingDao().getStagingSeriesCount(syncId)
 
-            if (totalInStaging == 0 && serverUrl.startsWith("http")) {
+            if (totalInStaging == 0 && (serverUrl.startsWith("http") || isLocalFile(serverUrl))) {
                 try {
                     val m3uUrl = if (serverUrl.contains("/api/playlist/") && !serverUrl.contains("?token=")) {
                         val tok = serverUrl.substringAfterLast("/").substringBefore("?").trim()
@@ -522,7 +798,7 @@ class XtreamCatalogSyncManager(
                 database.catalogStagingDao().insertCategoriesStaging(allStagingCategories)
             }
 
-            // PASO 7: Validar staging antes del swap
+            // PASO 7 (P0 #4): Validar staging antes del swap
             val stagingChannels = database.catalogStagingDao().getStagingChannelCount(syncId)
             val stagingMovies = database.catalogStagingDao().getStagingMovieCount(syncId)
             val stagingSeries = database.catalogStagingDao().getStagingSeriesCount(syncId)
@@ -554,8 +830,23 @@ class XtreamCatalogSyncManager(
                 return Result.failure(IllegalStateException(errorMsg))
             }
 
-            // PASO 8: Swap atómico corto en base de datos Room
+            // PASO 8 (P0 #4): Swap atómico corto en base de datos Room
             performAtomicSwap(syncId, sourceId)
+
+            // PASO 3 (P0 #5): Guardar metadata de sincronización exitosa SOLO tras swap exitoso
+            val versionToSave = remoteVersion.ifBlank { System.currentTimeMillis().toString() }
+            preferencesDataSource?.saveSyncMetadata(
+                SourceSyncMetadata(
+                    sourceId = sourceId,
+                    lastSuccessfulSyncAt = System.currentTimeMillis(),
+                    lastSuccessfulVersion = versionToSave,
+                    lastEtag = remoteEtag,
+                    lastSyncResult = "SUCCESS",
+                    channelCount = stagingChannels,
+                    movieCount = stagingMovies,
+                    seriesCount = stagingSeries
+                )
+            )
 
             _syncState.value = SyncState.Completed(
                 channelsCount = stagingChannels,
@@ -711,7 +1002,7 @@ class XtreamCatalogSyncManager(
                 }
             }
 
-            // PASO 7: Validar staging antes del swap
+            // PASO 7 (P0 #4): Validar staging antes del swap
             val stagingChannels = database.catalogStagingDao().getStagingChannelCount(syncId)
             val stagingMovies = database.catalogStagingDao().getStagingMovieCount(syncId)
             val stagingSeries = database.catalogStagingDao().getStagingSeriesCount(syncId)
@@ -738,8 +1029,22 @@ class XtreamCatalogSyncManager(
                 return Result.failure(IllegalStateException(errorMsg))
             }
 
-            // PASO 8: Swap atómico corto en base de datos Room
+            // PASO 8 (P0 #4): Swap atómico corto en base de datos Room
             performAtomicSwap(syncId, sourceId)
+
+            // PASO 3 (P0 #5): Guardar metadata de sincronización exitosa para Xtream
+            preferencesDataSource?.saveSyncMetadata(
+                SourceSyncMetadata(
+                    sourceId = sourceId,
+                    lastSuccessfulSyncAt = System.currentTimeMillis(),
+                    lastSuccessfulVersion = System.currentTimeMillis().toString(),
+                    lastEtag = "",
+                    lastSyncResult = "SUCCESS",
+                    channelCount = stagingChannels,
+                    movieCount = stagingMovies,
+                    seriesCount = stagingSeries
+                )
+            )
 
             _syncState.value = SyncState.Completed(
                 channelsCount = stagingChannels,
