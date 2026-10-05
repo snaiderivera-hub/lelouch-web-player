@@ -25,10 +25,15 @@ android {
     buildFeatures {
         compose = true
     }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 dependencies {
     implementation(project(":core:model"))
+    implementation(project(":core:network"))
     implementation(project(":core:designsystem"))
 
     implementation(libs.androidx.media3.exoplayer)
@@ -43,5 +48,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.core.ktx)
+
+    testImplementation(libs.junit)
 }
 

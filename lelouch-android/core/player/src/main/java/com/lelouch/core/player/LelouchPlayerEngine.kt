@@ -3,6 +3,7 @@ package com.lelouch.core.player
 import android.content.Context
 import android.net.Uri
 import androidx.annotation.OptIn
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
@@ -13,12 +14,21 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.hls.HlsMediaSource
+import androidx.media3.exoplayer.source.LoadEventInfo
+import androidx.media3.exoplayer.source.MediaLoadData
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
+import com.lelouch.core.player.telemetry.PlaybackAttemptMetrics
+import com.lelouch.core.player.telemetry.PlaybackAttemptResult
+import com.lelouch.core.player.telemetry.PlaybackMediaType
+import com.lelouch.core.player.telemetry.PlaybackTracker
+import com.lelouch.core.player.telemetry.PlayerStartType
+import com.lelouch.core.player.telemetry.WatchdogEventType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -36,8 +46,11 @@ import kotlinx.coroutines.launch
 @OptIn(UnstableApi::class)
 class LelouchPlayerEngine(
     private val context: Context,
-    private val config: PlayerConfig = PlayerConfig()
+    private val config: PlayerConfig = PlayerConfig(),
+    val playbackTracker: PlaybackTracker = PlaybackTracker()
 ) {
+    private var currentAttemptId: Long = 0L
+    private var isFirstPlayback: Boolean = true
     private val scope = CoroutineScope(Dispatchers.Main + Job())
     private var progressTrackingJob: Job? = null
 
@@ -106,6 +119,38 @@ class LelouchPlayerEngine(
         }
     }
 
+    private val analyticsListener = object : AnalyticsListener {
+        override fun onVideoDecoderInitialized(
+            eventTime: AnalyticsListener.EventTime,
+            decoderName: String,
+            initializedTimestampMs: Long,
+            initializationDurationMs: Long
+        ) {
+            playbackTracker.onVideoDecoderInitialized(currentAttemptId, initializationDurationMs)
+        }
+
+        override fun onAudioDecoderInitialized(
+            eventTime: AnalyticsListener.EventTime,
+            decoderName: String,
+            initializedTimestampMs: Long,
+            initializationDurationMs: Long
+        ) {
+            playbackTracker.onAudioDecoderInitialized(currentAttemptId, initializationDurationMs)
+        }
+
+        override fun onLoadCompleted(
+            eventTime: AnalyticsListener.EventTime,
+            loadEventInfo: LoadEventInfo,
+            mediaLoadData: MediaLoadData
+        ) {
+            if (mediaLoadData.dataType == C.DATA_TYPE_MANIFEST) {
+                playbackTracker.onManifestLoaded(currentAttemptId, loadEventInfo.loadDurationMs)
+            } else if (mediaLoadData.dataType == C.DATA_TYPE_MEDIA) {
+                playbackTracker.onFirstSegmentLoaded(currentAttemptId, loadEventInfo.loadDurationMs)
+            }
+        }
+    }
+
     val exoPlayer: ExoPlayer by lazy {
         ExoPlayer.Builder(context)
             .setRenderersFactory(renderersFactory)
@@ -114,6 +159,7 @@ class LelouchPlayerEngine(
             .build().apply {
                 playWhenReady = true
                 addListener(playerListener)
+                addAnalyticsListener(analyticsListener)
             }
     }
 
@@ -126,12 +172,15 @@ class LelouchPlayerEngine(
     private fun startBufferingWatchdog() {
         stopBufferingWatchdog()
         if (!isCurrentStreamLive) return
+        val watchdogAttemptId = currentAttemptId
+        playbackTracker.onWatchdogEvent(watchdogAttemptId, WatchdogEventType.WATCHDOG_STARTED)
         bufferingWatchdogJob = scope.launch {
             // FASE 1 (3 segundos de buffering):
             // Reducir temporalmente la calidad de video al bitrate más bajo (720p/480p) para salvar la transmisión sin cortar.
             delay(3_000L)
             if (!isActive || !isCurrentStreamLive) return@launch
 
+            playbackTracker.onWatchdogEvent(watchdogAttemptId, WatchdogEventType.WATCHDOG_BITRATE_REDUCTION, "Bitrate -> 1.5Mbps")
             android.util.Log.w("LelouchPlayer", "Buffer en riesgo (>3s). Reduciendo calidad de video (ABR) para evitar corte...")
             try {
                 trackSelector.setParameters(
@@ -146,15 +195,18 @@ class LelouchPlayerEngine(
 
             if (autoRetryAttemptsLeft > 0) {
                 autoRetryAttemptsLeft--
+                playbackTracker.onWatchdogEvent(watchdogAttemptId, WatchdogEventType.WATCHDOG_RETRY, "Reconnect attempt")
                 android.util.Log.w("LelouchPlayer", "Stream congelado >7s. Intentando reconectar señal...")
                 exoPlayer.prepare()
                 exoPlayer.playWhenReady = true
                 delay(5_000L)
                 if (exoPlayer.playbackState == Player.STATE_BUFFERING && isActive && isCurrentStreamLive) {
+                    playbackTracker.onWatchdogEvent(watchdogAttemptId, WatchdogEventType.WATCHDOG_SKIP, "Canal sin señal tras reconexión")
                     android.util.Log.e("LelouchPlayer", "Canal sin señal tras reconexión. Saltando al siguiente canal...")
                     triggerChannelUnavailable("Señal caída (stream congelado). Saltando al siguiente canal...")
                 }
             } else {
+                playbackTracker.onWatchdogEvent(watchdogAttemptId, WatchdogEventType.WATCHDOG_SKIP, "Canal congelado >7s")
                 android.util.Log.e("LelouchPlayer", "Señal IPTV caída (>7s congelado). Saltando al siguiente canal...")
                 triggerChannelUnavailable("Señal caída (stream congelado). Saltando al siguiente canal...")
             }
@@ -162,6 +214,9 @@ class LelouchPlayerEngine(
     }
 
     private fun stopBufferingWatchdog() {
+        if (bufferingWatchdogJob != null) {
+            playbackTracker.onWatchdogEvent(currentAttemptId, WatchdogEventType.WATCHDOG_CANCELLED)
+        }
         bufferingWatchdogJob?.cancel()
         bufferingWatchdogJob = null
     }
@@ -186,10 +241,12 @@ class LelouchPlayerEngine(
                     stopProgressTracking()
                 }
                 Player.STATE_BUFFERING -> {
+                    playbackTracker.onBuffering(currentAttemptId)
                     _playbackState.value = PlaybackState.Buffering
                     startBufferingWatchdog()
                 }
                 Player.STATE_READY -> {
+                    playbackTracker.onReady(currentAttemptId)
                     stopBufferingWatchdog()
                     autoRetryAttemptsLeft = config.autoRetryCount
                     val isPlaying = exoPlayer.playWhenReady
@@ -199,6 +256,9 @@ class LelouchPlayerEngine(
                     } else {
                         stopProgressTracking()
                     }
+                    if (exoPlayer.videoFormat == null && exoPlayer.currentTracks.isTypeSupported(C.TRACK_TYPE_AUDIO)) {
+                        playbackTracker.onAudioOnlySuccess(currentAttemptId)
+                    }
                 }
                 Player.STATE_ENDED -> {
                     stopBufferingWatchdog()
@@ -206,6 +266,10 @@ class LelouchPlayerEngine(
                     stopProgressTracking()
                 }
             }
+        }
+
+        override fun onRenderedFirstFrame() {
+            playbackTracker.onRenderedFirstFrame(currentAttemptId)
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -223,6 +287,7 @@ class LelouchPlayerEngine(
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            playbackTracker.onPlayerError(currentAttemptId, error.errorCode, error.message)
             stopBufferingWatchdog()
             stopProgressTracking()
             // Auto-recuperación silenciosa para errores de red y timeout:
@@ -279,11 +344,19 @@ class LelouchPlayerEngine(
     /**
      * Sintoniza y reproduce una URL de transmisión IPTV en vivo o VOD bajo demanda.
      */
-    fun playStream(url: String, isLive: Boolean = false) {
+    fun playStream(url: String, isLive: Boolean = false, userT0: Long? = null) {
+        val mediaType = if (isLive) PlaybackMediaType.LIVE_CHANNEL else PlaybackMediaType.MOVIE
+        val startType = if (isFirstPlayback) PlayerStartType.COLD_START else PlayerStartType.WARM_SWITCH
+        isFirstPlayback = false
+
+        val attempt = playbackTracker.startAttempt(url, mediaType, startType, userT0)
+        currentAttemptId = attempt.attemptId
+
         // GUARDIA (FASE 33): nunca preparar ExoPlayer con una URL vacía o malformada.
         if (url.isBlank()) {
             _currentUrl.value = null
             autoRetryAttemptsLeft = config.autoRetryCount
+            playbackTracker.onPlayerError(currentAttemptId, PlaybackException.ERROR_CODE_BAD_VALUE, "URL vacía")
             _playbackState.value = PlaybackState.Error(
                 errorMessage = "Este elemento no tiene enlace de reproducción.",
                 errorCode = PlaybackException.ERROR_CODE_BAD_VALUE,
@@ -323,7 +396,9 @@ class LelouchPlayerEngine(
 
         val mediaSource = buildMediaSource(url)
         exoPlayer.setMediaSource(mediaSource)
+        playbackTracker.onMediaItemSet(currentAttemptId)
         exoPlayer.prepare()
+        playbackTracker.onPrepareCalled(currentAttemptId)
         exoPlayer.playWhenReady = true
     }
 
@@ -447,6 +522,7 @@ class LelouchPlayerEngine(
 
 
     fun stop() {
+        playbackTracker.onUserCancel(currentAttemptId)
         stopBufferingWatchdog()
         exoPlayer.stop()
         stopProgressTracking()
@@ -454,6 +530,7 @@ class LelouchPlayerEngine(
     }
 
     fun release() {
+        playbackTracker.onUserCancel(currentAttemptId)
         stopBufferingWatchdog()
         stopProgressTracking()
         exoPlayer.removeListener(playerListener)
