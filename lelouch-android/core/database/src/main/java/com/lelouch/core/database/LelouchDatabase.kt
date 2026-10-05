@@ -34,7 +34,7 @@ import com.lelouch.core.database.entity.WatchHistoryEntity
         SeriesFtsEntity::class
     ],
     version = 2,
-    exportSchema = false
+    exportSchema = true
 )
 abstract class LelouchDatabase : RoomDatabase() {
 
@@ -59,7 +59,7 @@ abstract class LelouchDatabase : RoomDatabase() {
                     LelouchDatabase::class.java,
                     DATABASE_NAME
                 )
-                    .fallbackToDestructiveMigration()
+                    .addMigrations(com.lelouch.core.database.migrations.MIGRATION_1_2)
                     .build()
                 INSTANCE = instance
                 instance

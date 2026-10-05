@@ -10,6 +10,7 @@ android {
 
     defaultConfig {
         minSdk = 24
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
         
         ksp {
@@ -17,6 +18,11 @@ android {
             arg("room.incremental", "true")
             arg("room.expandProjection", "true")
         }
+    }
+
+    sourceSets {
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
+        getByName("test").assets.srcDir("$projectDir/schemas")
     }
 
     compileOptions {
@@ -39,4 +45,10 @@ dependencies {
 
     implementation(libs.androidx.paging.runtime)
     implementation(libs.kotlinx.coroutines.core)
+
+    testImplementation(libs.junit)
+    androidTestImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.room.testing)
 }
