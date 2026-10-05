@@ -162,10 +162,10 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            // FASE P1 #2A: En Android TV la lista completa NO se colecta en memoria (Paging 3 directo a Room)
+            // FASE P1 #2A & P1 #2B: En Android TV las listas completas de Canales y Películas NO se colectan en memoria (Paging 3 directo a Room)
             val liveChannels by (if (!isTv && effectiveActiveSource != null) app.channelRepository.getAllChannels(effectiveActiveSource.id) else kotlinx.coroutines.flow.emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
-            
-            val movies by (if (effectiveActiveSource != null) app.vodRepository.getAllMovies(effectiveActiveSource.id) else kotlinx.coroutines.flow.emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
+            val movies by (if (!isTv && effectiveActiveSource != null) app.vodRepository.getAllMovies(effectiveActiveSource.id) else kotlinx.coroutines.flow.emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
+            val recentMovies by (if (isTv && effectiveActiveSource != null) app.vodRepository.getRecentlyAddedMovies(20) else emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
             val seriesList by (if (effectiveActiveSource != null) app.seriesRepository.getAllSeries(effectiveActiveSource.id) else kotlinx.coroutines.flow.emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
             val liveCategories by (if (effectiveActiveSource != null) app.channelRepository.getCategories(effectiveActiveSource.id) else emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
             val vodCategories by (if (effectiveActiveSource != null) app.vodRepository.getCategories(effectiveActiveSource.id) else emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
@@ -186,7 +186,9 @@ class MainActivity : ComponentActivity() {
                                 liveChannels = emptyList(),
                                 channelRepository = app.channelRepository,
                                 liveCategories = liveCategories,
-                                movies = movies,
+                                movies = emptyList(),
+                                vodRepository = app.vodRepository,
+                                recentMovies = recentMovies,
                                 vodCategories = vodCategories,
                                 seriesList = seriesList,
                                 seriesCategories = seriesCategories,

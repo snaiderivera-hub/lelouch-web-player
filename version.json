@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.21",
-  "versionCode": 1000021,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.21/app-debug.apk",
-  "changelog": "• Paging 3 Real End-to-End para Live TV (P1 #2A): Conexión directa Room -> PagingSource -> Pager -> Flow<PagingData<ChannelUiModel>> -> LazyVerticalGrid.\n• Eliminada la recolección de listas completas (Flow<List<ChannelEntity>>) en Android TV, liberando memoria RAM masiva.\n• Cambio instantáneo de categorías vía flatMapLatest con consultas SQL deterministas e indexadas.\n• Identidad canónica v4 (source-aware) y orden determinista sin duplicados en virtualización."
+  "versionName": "1.0.22",
+  "versionCode": 1000022,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.22/app-debug.apk",
+  "changelog": "• Paging 3 Real End-to-End para Películas / VOD (P1 #2B): Conexión directa Room -> PagingSource -> Pager -> Flow<PagingData<MovieUiModel>> -> LazyVerticalGrid.\n• Eliminada la recolección de listas completas de películas (Flow<List<MovieEntity>>) en Android TV, liberando memoria RAM masiva.\n• Cambio instantáneo de categorías vía flatMapLatest con consultas SQL deterministas e indexadas.\n• Identidad canónica v4 (source-aware) y orden determinista (name ASC, id ASC) sin duplicados en virtualización."
 }

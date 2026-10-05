@@ -57,6 +57,29 @@ class VodRepositoryImpl(
         }
     }
 
+    override fun getMoviesPaging(
+        sourceId: String,
+        categoryId: String?,
+        hiddenCategoryIds: List<String>
+    ): Flow<androidx.paging.PagingData<MovieEntity>> {
+        return androidx.paging.Pager(
+            config = com.lelouch.core.domain.paging.PagingConfigs.movies,
+            pagingSourceFactory = {
+                when {
+                    categoryId != null && categoryId != "all" -> {
+                        movieDao.getPagingMoviesBySourceAndCategory(sourceId, categoryId)
+                    }
+                    hiddenCategoryIds.isNotEmpty() -> {
+                        movieDao.getPagingMoviesExcludingCategories(sourceId, hiddenCategoryIds)
+                    }
+                    else -> {
+                        movieDao.getPagingMoviesBySource(sourceId)
+                    }
+                }
+            }
+        ).flow
+    }
+
     override suspend fun getMovieDetail(streamId: Int): VodMovie? {
         return movieDao.getMovieByStreamId(streamId)?.toDomain()
     }

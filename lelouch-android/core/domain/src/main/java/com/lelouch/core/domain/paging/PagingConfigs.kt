@@ -13,4 +13,11 @@ object PagingConfigs {
         prefetchDistance = 20,
         enablePlaceholders = false
     )
+
+    val movies = PagingConfig(
+        pageSize = 50,
+        initialLoadSize = 100,
+        prefetchDistance = 20,
+        enablePlaceholders = false
+    )
 }
