@@ -197,6 +197,10 @@ class PlaylistService {
     if (target && target.url) {
       supabaseService.deletePlaylist(target.url).catch(() => {});
     }
+    // FASE 33: También intentar borrar si es una custom_playlist
+    if (supabaseService.deleteCustomPlaylist) {
+      supabaseService.deleteCustomPlaylist(id).catch(() => {});
+    }
     const currentActiveId = (typeof localStorage !== 'undefined') ? localStorage.getItem('iptv_active_playlist_id') : null;
     if (currentActiveId === id && typeof localStorage !== 'undefined') {
       localStorage.removeItem('iptv_active_playlist_id');

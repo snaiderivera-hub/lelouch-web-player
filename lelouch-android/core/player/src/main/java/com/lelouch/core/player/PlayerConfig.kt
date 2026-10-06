@@ -3,20 +3,19 @@ package com.lelouch.core.player
 /**
  * Configuration parameters for the Lelouch IPTV Media3 Video Player.
  *
- * Los valores de buffer están inspirados en el repositorio Killua (IPTV-by-Killua),
- * probados contra servidores IPTV reales para evitar congelamiento por "hambre de paquetes":
- * - minBufferMs: colchón mínimo de 8s para absorber picos de latencia sin congelar
- * - maxBufferMs: acumulación máxima de 35s para tener reserva ante caídas prolongadas
- * - bufferForPlaybackMs: 1.5s antes de iniciar reproducción (evita inicio prematuro)
- * - bufferForPlaybackAfterRebufferMs: 2.5s antes de reanudar tras corte (estabiliza el stream)
- * - autoRetryCount: reintentos automáticos transparentes ante fallos de red o fragmentos perdidos
+ * Los valores de buffer han sido ajustados para **Fast Zapping** (inicio de reproducción rápido):
+ * - minBufferMs: colchón mínimo de 2s para absorber latencia sin retrasar el inicio
+ * - maxBufferMs: acumulación máxima de 35s
+ * - bufferForPlaybackMs: 0.5s antes de iniciar reproducción (para zapping casi instantáneo)
+ * - bufferForPlaybackAfterRebufferMs: 1.0s antes de reanudar tras corte
+ * - autoRetryCount: reintentos automáticos
  */
 data class PlayerConfig(
     val userAgent: String = "IPTVSmartersPlayer",
-    val minBufferMs: Int = 8_000,
+    val minBufferMs: Int = 2_000,
     val maxBufferMs: Int = 35_000,
-    val bufferForPlaybackMs: Int = 1_500,
-    val bufferForPlaybackAfterRebufferMs: Int = 2_500,
+    val bufferForPlaybackMs: Int = 500,
+    val bufferForPlaybackAfterRebufferMs: Int = 1_000,
     val connectTimeoutMs: Int = 10_000,
     val readTimeoutMs: Int = 10_000,
     val enableHardwareAcceleration: Boolean = true,

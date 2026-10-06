@@ -165,6 +165,11 @@ class XtreamCatalogSyncManager private constructor(
             database.catalogStagingDao().copySeriesFromStaging(syncId, sourceId)
             database.catalogStagingDao().copyCategoriesFromStaging(syncId, sourceId)
 
+            // Actualizar contadores reales para que la UI muestre los totales verdaderos (no solo de LIMIT 20)
+            database.categoryDao().updateLiveCategoryCounts(sourceId)
+            database.categoryDao().updateMovieCategoryCounts(sourceId)
+            database.categoryDao().updateSeriesCategoryCounts(sourceId)
+
             // Eliminar staging consumido
             database.catalogStagingDao().deleteStagingChannels(syncId)
             database.catalogStagingDao().deleteStagingMovies(syncId)

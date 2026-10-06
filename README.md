@@ -39,6 +39,7 @@ Flexibilidad total para disfrutar tu lista personalizada según el dispositivo o
 ### 4. 📱 App Nativa Android TV & Mobile (`lelouch-android`)
 - Diseñada con **Jetpack Compose Multiplatform** y **Material 3**.
 - Optimización de foco mediante control remoto D-Pad para Xiaomi TV Stick, Chromecast con Google TV y Smart TVs.
+- **Interfaz "EveryCine" (FASE 32):** Dashboard unificado con fondo personalizado (Estilo Tecnológico Neón), tarjetas hero interactivas y reloj regional automático.
 - **Actualizaciones OTA (Over-The-Air) por Wi-Fi:** Notifica e instala automáticamente nuevas versiones del APK sin requerir cables ni formateos.
 
 ### 5. 💾 Modo Portable USB

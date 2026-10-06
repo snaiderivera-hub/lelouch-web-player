@@ -9,10 +9,13 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.foundation.Image
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -30,6 +33,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Surface
 import com.lelouch.core.designsystem.*
 import com.lelouch.core.model.SourceConfig
+import com.lelouch.feature.tv.R
 
 /**
  * FASE 32: Portal Dashboard Canónico para Android TV (TV Box)
@@ -68,13 +72,46 @@ fun TvPortalDashboard(
     val searchBtnRequester = remember { FocusRequester() }
     val favBtnRequester = remember { FocusRequester() }
 
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .wrapContentHeight()
-            .padding(horizontal = 36.dp, vertical = 20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
+    Box(modifier = modifier.fillMaxSize()) {
+        Image(
+            painter = painterResource(id = R.drawable.bg_category_card),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.65f))
+        )
+
+        var currentTime by remember { mutableStateOf("") }
+        LaunchedEffect(Unit) {
+            val sdf = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault())
+            sdf.timeZone = java.util.TimeZone.getTimeZone("America/Guatemala")
+            while (true) {
+                currentTime = sdf.format(java.util.Date())
+                kotlinx.coroutines.delay(1000L)
+            }
+        }
+
+        Text(
+            text = currentTime,
+            color = Color.White.copy(alpha = 0.85f),
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 24.dp, end = 48.dp)
+        )
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .wrapContentHeight()
+                .padding(horizontal = 36.dp, vertical = 20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
         // ══════════════════════════════════════════════════════════════════════
         // 1. CABECERA CENTRAL DE MARCA Y ESTADO
         // ══════════════════════════════════════════════════════════════════════
@@ -139,7 +176,7 @@ fun TvPortalDashboard(
                     modifier = Modifier
                         .focusRequester(reloadBtnRequester)
                         .focusProperties {
-                            right = searchBtnRequester
+                            right = FocusRequester.Cancel
                             down = cardFocusRequesters[0]
                         }
                         .onFocusChanged { isReloadFocused = it.isFocused },
@@ -170,9 +207,9 @@ fun TvPortalDashboard(
                     }
                 }
 
-                Spacer(modifier = Modifier.width(10.dp))
+                Spacer(modifier = Modifier.width(12.dp))
 
-                // Botón BUSCAR (Focusable con D-Pad)
+                /* BUSCAR/FAVORITOS retirados del Home TV (vista minimalista).
                 var isSearchFocused by remember { mutableStateOf(false) }
                 Surface(
                     onClick = onNavigateToSearch,
@@ -250,8 +287,7 @@ fun TvPortalDashboard(
                         )
                     }
                 }
-
-                Spacer(modifier = Modifier.width(12.dp))
+                */
 
                 // Indicador de Vencimiento
                 val expiryText = activeSource?.expireDate ?: "13/10/2026"
@@ -314,7 +350,7 @@ fun TvPortalDashboard(
                     .focusProperties {
                         left = cardFocusRequesters[0]
                         right = cardFocusRequesters[2]
-                        up = searchBtnRequester
+                        up = reloadBtnRequester
                         down = actionFocusRequesters[1]
                     }
             )
@@ -332,7 +368,7 @@ fun TvPortalDashboard(
                     .focusProperties {
                         left = cardFocusRequesters[1]
                         right = cardFocusRequesters[3]
-                        up = favBtnRequester
+                        up = reloadBtnRequester
                         down = actionFocusRequesters[2]
                     }
             )
@@ -350,7 +386,7 @@ fun TvPortalDashboard(
                     .focusProperties {
                         left = cardFocusRequesters[2]
                         right = cardFocusRequesters[3]
-                        up = favBtnRequester
+                        up = reloadBtnRequester
                         down = actionFocusRequesters[3]
                     }
             )
@@ -427,6 +463,7 @@ fun TvPortalDashboard(
             )
         }
     }
+}
 }
 
 /**

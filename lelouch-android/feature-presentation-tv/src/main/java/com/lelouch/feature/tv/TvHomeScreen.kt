@@ -63,6 +63,8 @@ import com.lelouch.core.model.Series
 import com.lelouch.core.model.SourceConfig
 import com.lelouch.core.model.Episode
 import com.lelouch.core.model.VodMovie
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import com.lelouch.core.network.StreamUrlResolver
 import com.lelouch.core.player.LelouchVideoPlayer
 import com.lelouch.core.player.PlaybackState
@@ -188,253 +190,7 @@ fun TvHomeScreen(
     // FASE 33: Regex defensivo para evitar que episodios de series se cuelen en TV en Vivo
     val seriesLeakRegex = remember { Regex("(?i)\\b(s\\d{1,2}|t\\d{1,2}|cap\\.?\\s*\\d+|ep\\.?\\s*\\d+)\\b") }
 
-    // Canales mapeados o canales de demostración con logos reales de alta resolución
-    val displayChannels = remember(liveChannels, activeSource, liveCatMap) {
-        val cleanChannels = liveChannels.filter { stream ->
-            (stream.streamType.isBlank() || stream.streamType.equals("live", ignoreCase = true)) &&
-            !seriesLeakRegex.containsMatchIn(stream.name)
-        }.distinctBy { ch -> ch.streamUrl.ifBlank { ch.name } }
-        if (cleanChannels.isNotEmpty()) {
-            cleanChannels.mapIndexed { index, stream ->
-                // FASE 33: el resolvedor único evita reconstruir URLs sobre Vercel (404).
-                // Si no hay URL directa ni fuente Xtream legítima, queda vacío y la UI lo indica.
-                val streamUrl = StreamUrlResolver.resolve(
-                    directUrl = stream.streamUrl,
-                    source = activeSource,
-                    streamId = stream.streamId,
-                    kind = StreamUrlResolver.Kind.LIVE,
-                    extension = "m3u8"
-                )
-
-                val resolvedCategoryName = liveCatMap[stream.categoryId]
-                    ?: stream.categoryName.takeIf { it.isNotBlank() }
-                    ?: "General"
-
-                ChannelUiModel(
-                    streamId = stream.streamId,
-                    name = stream.name,
-                    num = stream.num.takeIf { it > 0 } ?: (index + 1),
-                    categoryName = resolvedCategoryName,
-                    categoryId = stream.categoryId,
-                    streamIcon = stream.streamIcon,
-                    currentProgram = stream.epgChannelId ?: "En Directo",
-                    streamUrl = streamUrl
-                )
-            }
-        } else {
-            listOf(
-                ChannelUiModel(
-                    streamId = 101,
-                    name = "ESPN HD",
-                    num = 101,
-                    categoryName = "Deportes",
-                    categoryId = "deportes",
-                    streamIcon = "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/ESPN_wordmark.svg/512px-ESPN_wordmark.svg.png",
-                    currentProgram = "UEFA Champions League: En Directo",
-                    nextProgram = "SportsCenter en Vivo",
-                    streamUrl = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
-                ),
-                ChannelUiModel(
-                    streamId = 102,
-                    name = "Fox Sports",
-                    num = 102,
-                    categoryName = "Deportes",
-                    categoryId = "deportes",
-                    streamIcon = "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Fox_Sports_logo.svg/512px-Fox_Sports_logo.svg.png",
-                    currentProgram = "Fórmula 1: Gran Premio en Directo",
-                    nextProgram = "Fox Sports Radio",
-                    streamUrl = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
-                ),
-                ChannelUiModel(
-                    streamId = 103,
-                    name = "TyC Sports HD",
-                    num = 103,
-                    categoryName = "Deportes",
-                    categoryId = "deportes",
-                    streamIcon = "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4c/TyC_Sports_Logo_2019.svg/512px-TyC_Sports_Logo_2019.svg.png",
-                    currentProgram = "Fútbol de Primera en Directo",
-                    nextProgram = "Líbero",
-                    streamUrl = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
-                ),
-                ChannelUiModel(
-                    streamId = 104,
-                    name = "DirecTV Sports",
-                    num = 104,
-                    categoryName = "Deportes",
-                    categoryId = "deportes",
-                    streamIcon = "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/DSports_logo_2022.svg/512px-DSports_logo_2022.svg.png",
-                    currentProgram = "Copa Libertadores: Partido de Ida",
-                    nextProgram = "De Fútbol Se Habla Así",
-                    streamUrl = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
-                ),
-                ChannelUiModel(
-                    streamId = 105,
-                    name = "HBO Max HD",
-                    num = 105,
-                    categoryName = "Cine & Series",
-                    categoryId = "cine",
-                    streamIcon = "https://upload.wikimedia.org/wikipedia/commons/thumb/d/de/HBO_logo.svg/512px-HBO_logo.svg.png",
-                    currentProgram = "Duna: Parte Dos (Estreno 4K)",
-                    nextProgram = "House of the Dragon",
-                    streamUrl = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
-                ),
-                ChannelUiModel(
-                    streamId = 106,
-                    name = "Star Channel",
-                    num = 106,
-                    categoryName = "Entretenimiento",
-                    categoryId = "entretenimiento",
-                    streamIcon = "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fa/Star_Channel_2021.svg/512px-Star_Channel_2021.svg.png",
-                    currentProgram = "Los Simpson: Maratón Especial",
-                    nextProgram = "Futurama",
-                    streamUrl = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
-                )
-            )
-        }
-    }
-
-    // Catálogo de películas (real o demo enriquecido con carátulas y fondos HD)
-    val displayMovies = remember(recentMovies, movies, vodCatMap) {
-        val srcMovies = if (recentMovies.isNotEmpty()) recentMovies else movies
-        if (srcMovies.isNotEmpty()) {
-            srcMovies.map { mov ->
-                val resolvedName = vodCatMap[mov.categoryId] ?: mov.categoryName.takeIf { it.isNotBlank() } ?: "General"
-                mov.copy(categoryName = resolvedName)
-            }
-        } else listOf(
-            VodMovie(
-                id = "1",
-                streamId = 1,
-                name = "Duna: Parte Dos",
-                streamIcon = "https://image.tmdb.org/t/p/w500/8b8R8l88Qje9dn9OE8PY05Nx2zx.jpg",
-                backdropPath = "https://image.tmdb.org/t/p/original/xOMo8BRK7PfcJv9JCnx7s520DRq.jpg",
-                rating = 8.6,
-                year = "2024",
-                categoryId = "1",
-                plot = "Paul Atreides se une a Chani y a los Fremen mientras busca venganza contra los conspiradores que destruyeron a su familia."
-            ),
-            VodMovie(
-                id = "2",
-                streamId = 2,
-                name = "Oppenheimer",
-                streamIcon = "https://image.tmdb.org/t/p/w500/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg",
-                backdropPath = "https://image.tmdb.org/t/p/original/fm6KqXpk3M2HVveHwCrBSSBaO0V.jpg",
-                rating = 8.9,
-                year = "2023",
-                categoryId = "1",
-                plot = "La historia del físico J. Robert Oppenheimer y su liderazgo en el Proyecto Manhattan durante la Segunda Guerra Mundial."
-            ),
-            VodMovie(
-                id = "3",
-                streamId = 3,
-                name = "Spider-Man: A Través del Spider-Verso",
-                streamIcon = "https://image.tmdb.org/t/p/w500/8Vt6mWEReuy4Of61Lnj5Xj704m8.jpg",
-                backdropPath = "https://image.tmdb.org/t/p/original/4HodYYKEIsGOdinkGi2Ucz6X9i0.jpg",
-                rating = 8.7,
-                year = "2023",
-                categoryId = "1",
-                plot = "Miles Morales es catapultado a través del Multiverso, donde se encuentra con un equipo de Spider-People."
-            ),
-            VodMovie(
-                id = "4",
-                streamId = 4,
-                name = "Interstellar",
-                streamIcon = "https://image.tmdb.org/t/p/w500/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg",
-                backdropPath = "https://image.tmdb.org/t/p/original/rAiYTsqBkRefBXweC1Nq4qg49Hq.jpg",
-                rating = 8.7,
-                year = "2014",
-                categoryId = "1",
-                plot = "Un grupo de exploradores espaciales viaja a través de un agujero de gusano en busca de un nuevo hogar para la humanidad."
-            ),
-            VodMovie(
-                id = "5",
-                streamId = 5,
-                name = "The Batman",
-                streamIcon = "https://image.tmdb.org/t/p/w500/74xTEgt7R36Fpooo50r9T25onhq.jpg",
-                backdropPath = "https://image.tmdb.org/t/p/original/b0PlSFdDwbyK0cf5RxwDpaOJQvQ.jpg",
-                rating = 7.8,
-                year = "2022",
-                categoryId = "1",
-                plot = "En su segundo año luchando contra el crimen, Batman explora la corrupción en Ciudad Gótica y el vínculo con su familia."
-            )
-        )
-    }
-
-    val topRatedMovies = remember(displayMovies) {
-        displayMovies.sortedByDescending { it.rating ?: 0.0 }
-    }
-
-    // Catálogo de series para spotlight hero / carrusel de inicio (utiliza featuredSeries si está disponible)
-    val displaySeries = remember(seriesList, featuredSeries, seriesCatMap) {
-        val srcSeries = if (featuredSeries.isNotEmpty()) featuredSeries else seriesList
-        if (srcSeries.isNotEmpty()) {
-            srcSeries.map { ser ->
-                val resolvedName = seriesCatMap[ser.categoryId] ?: ser.categoryName.takeIf { it.isNotBlank() } ?: "General"
-                ser.copy(categoryName = resolvedName)
-            }
-        } else listOf(
-            Series(
-                id = "1",
-                seriesId = 1,
-                name = "Demon Slayer: Kimetsu no Yaiba",
-                cover = "https://image.tmdb.org/t/p/w500/xUfRZu2mi8jH6SzQEJGP6tjBuYj.jpg",
-                backdropPath = "https://image.tmdb.org/t/p/original/nTvM4mhqZlHIvUkIvd4MVooSl6m.jpg",
-                rating = 8.9,
-                releaseDate = "2024",
-                categoryId = "1",
-                seasonsCount = 4,
-                plot = "Tanjiro Kamado lucha como cazador de demonios para devolverle la humanidad a su hermana Nezuko en una aventura épica."
-            ),
-            Series(
-                id = "2",
-                seriesId = 2,
-                name = "The Last of Us",
-                cover = "https://image.tmdb.org/t/p/w500/uKvVjK19ySNtTUrNX7j59tTtkif.jpg",
-                backdropPath = "https://image.tmdb.org/t/p/original/uDgy6hyPd82kOHh6I95FLtLnj6p.jpg",
-                rating = 8.8,
-                releaseDate = "2023",
-                categoryId = "1",
-                seasonsCount = 1,
-                plot = "Veinte años después de que una plaga destruyera la civilización, un superviviente cínico debe escoltar a una joven inmune."
-            ),
-            Series(
-                id = "3",
-                seriesId = 3,
-                name = "Stranger Things",
-                cover = "https://image.tmdb.org/t/p/w500/49WJfeN0moxb9IPfGn8AIqMGskD.jpg",
-                backdropPath = "https://image.tmdb.org/t/p/original/56v2KjBlU4XaOv9rVYEQypROD7P.jpg",
-                rating = 8.7,
-                releaseDate = "2022",
-                categoryId = "1",
-                seasonsCount = 4,
-                plot = "La desaparición de un niño desencadena una serie de eventos misteriosos que involucran experimentos secretos y fuerzas siniestras."
-            ),
-            Series(
-                id = "4",
-                seriesId = 4,
-                name = "Breaking Bad",
-                cover = "https://image.tmdb.org/t/p/w500/ztkUQFLlC19CCMYHW9o1zWhJRNq.jpg",
-                backdropPath = "https://image.tmdb.org/t/p/original/tsRy63Mu5cu8etL1X7ZLyf7UP1M.jpg",
-                rating = 9.5,
-                releaseDate = "2008",
-                categoryId = "1",
-                seasonsCount = 5,
-                plot = "Un profesor de química recurre a la fabricación de metanfetamina para asegurar el futuro económico de su familia."
-            ),
-            Series(
-                id = "5",
-                seriesId = 5,
-                name = "Shōgun",
-                cover = "https://image.tmdb.org/t/p/w500/7O4iVfOMQmdCSxhOg1WNzG1AgYT.jpg",
-                backdropPath = "https://image.tmdb.org/t/p/original/y4F4yR3L01v9NfP4e5k0l2fGjW6.jpg",
-                rating = 8.9,
-                releaseDate = "2024",
-                categoryId = "1",
-                seasonsCount = 1,
-                plot = "En el Japón feudal de 1600, el señor Toranaga lucha por su supervivencia frente a sus rivales en el Consejo de Regentes."
-            )
-        )
-    }
+    // (Eliminados los canales y películas hardcoded de demostración para usar exclusivamente Paging3)
 
     var isSearchModalVisible by remember { mutableStateOf(false) }
     var isEpgModalVisible by remember { mutableStateOf(false) }
@@ -468,34 +224,17 @@ fun TvHomeScreen(
         hiddenPrefs.edit().putStringSet("series", newSet).apply()
     }
 
-    val visibleChannels = remember(displayChannels, hiddenLiveCategories) {
-        displayChannels.filter { ch ->
-            ch.categoryId !in hiddenLiveCategories && ch.categoryName !in hiddenLiveCategories
-        }
-    }
-    val visibleMovies = remember(displayMovies, hiddenMovieCategories) {
-        displayMovies.filter { mov ->
-            mov.categoryId !in hiddenMovieCategories && mov.categoryName !in hiddenMovieCategories
-        }
-    }
-    val visibleSeries = remember(displaySeries, hiddenSeriesCategories) {
-        displaySeries.filter { ser ->
-            ser.categoryId !in hiddenSeriesCategories && ser.categoryName !in hiddenSeriesCategories
-        }
-    }
+    // (Eliminados los canales y películas hardcoded de demostración para usar exclusivamente Paging3)
 
     var focusedChannelIndex by remember { mutableIntStateOf(0) }
     var focusedChannelId by remember { mutableStateOf<String?>(null) }
     var focusedChannel by remember { mutableStateOf<ChannelUiModel?>(null) }
 
-    // Elementos destacados en el Spotlight Hero
-    var focusedHeroMovie by remember(visibleMovies) { mutableStateOf<VodMovie?>(visibleMovies.firstOrNull()) }
-    var focusedHeroSeries by remember(visibleSeries) { mutableStateOf<Series?>(visibleSeries.firstOrNull()) }
     var activeDetailMedia by remember { mutableStateOf<MediaDetailUiModel?>(null) }
 
     var isFullscreen by remember { mutableStateOf(false) }
     var isHudVisible by remember { mutableStateOf(false) }
-    var isQuickZappingOpen by remember { mutableStateOf(false) }
+
     var isPlayingLive by remember { mutableStateOf(true) }
     var currentPlayingTitle by remember { mutableStateOf<String?>(null) }
     var seekFeedbackText by remember { mutableStateOf<String?>(null) }
@@ -505,6 +244,7 @@ fun TvHomeScreen(
     val sidebarRequesters = remember { List(8) { FocusRequester() } }
     val contentFocusRequester = remember { FocusRequester() }
     val searchFocusRequester = remember { FocusRequester() }
+    val hudListState = rememberTvLazyListState()
     val liveGridState = rememberLazyGridState()
     val moviesGridState = rememberLazyGridState()
     val seriesGridState = rememberLazyGridState()
@@ -526,6 +266,9 @@ fun TvHomeScreen(
             5 -> "FAVORITES"
             else -> "ADMIN"
         }
+        // Sin sidebar: entregar el foco al contenido de la pestaña recién mostrada.
+        delay(150)
+        try { contentFocusRequester.requestFocus() } catch (_: Exception) {}
     }
 
     var lastFullscreenEntryTime by remember { mutableLongStateOf(0L) }
@@ -613,7 +356,11 @@ fun TvHomeScreen(
                     channelRepository.getLiveChannelsPaging(
                         sourceId = srcId,
                         categoryId = catId.takeIf { it != "all" },
-                        hiddenCategoryIds = hiddenLiveCategories.toList()
+                        hiddenCategoryIds = if (catId == "all") {
+                            (hiddenLiveCategories + liveCategoryItemModels.filter { it.isAdult }.map { it.id }).toList()
+                        } else {
+                            hiddenLiveCategories.toList()
+                        }
                     )
                 }.map { pagingData ->
                     pagingData.map { channel ->
@@ -689,7 +436,11 @@ fun TvHomeScreen(
                     vodRepository.getMoviesPaging(
                         sourceId = srcId,
                         categoryId = catId.takeIf { it != "all" },
-                        hiddenCategoryIds = hiddenMovieCategories.toList()
+                        hiddenCategoryIds = if (catId == "all") {
+                            (hiddenMovieCategories + movieCategoryItemModels.filter { it.isAdult }.map { it.id }).toList()
+                        } else {
+                            hiddenMovieCategories.toList()
+                        }
                     )
                 }.map { pagingData ->
                     pagingData.map { movie ->
@@ -771,7 +522,11 @@ fun TvHomeScreen(
                     seriesRepository.getSeriesPaging(
                         sourceId = srcId,
                         categoryId = catId.takeIf { it != "all" },
-                        hiddenCategoryIds = hiddenSeriesCategories.toList()
+                        hiddenCategoryIds = if (catId == "all") {
+                            (hiddenSeriesCategories + seriesCategoryItemModels.filter { it.isAdult }.map { it.id }).toList()
+                        } else {
+                            hiddenSeriesCategories.toList()
+                        }
                     )
                 }.map { pagingData ->
                     pagingData.map { series ->
@@ -802,6 +557,27 @@ fun TvHomeScreen(
     }
     val pagedSeries = liveSeriesPagingFlow.collectAsLazyPagingItems()
 
+    val visibleChannels = remember(pagedChannels.itemSnapshotList, hiddenLiveCategories) {
+        pagedChannels.itemSnapshotList.items.filterNotNull().filter { ch ->
+            ch.categoryId !in hiddenLiveCategories && ch.categoryName !in hiddenLiveCategories
+        }
+    }
+    val visibleMovies = remember(pagedMovies.itemSnapshotList, hiddenMovieCategories) {
+        pagedMovies.itemSnapshotList.items.filterNotNull().filter { mov ->
+            mov.categoryId !in hiddenMovieCategories && mov.categoryName !in hiddenMovieCategories
+        }
+    }
+    val visibleSeriesList = remember(pagedSeries.itemSnapshotList, hiddenSeriesCategories) {
+        pagedSeries.itemSnapshotList.items.filterNotNull().filter { ser ->
+            ser.categoryId !in hiddenSeriesCategories && ser.categoryName !in hiddenSeriesCategories
+        }
+    }
+
+    val topRatedMovies = remember(visibleMovies) {
+        visibleMovies.sortedByDescending { it.rating }
+    }
+
+    var focusedHeroMovie by remember(visibleMovies) { mutableStateOf<MovieUiModel?>(visibleMovies.firstOrNull()) }
     var focusedSeriesId by remember { mutableStateOf<String?>(null) }
     var focusedHeroSeriesModel by remember { mutableStateOf<SeriesUiModel?>(null) }
 
@@ -976,17 +752,15 @@ fun TvHomeScreen(
     }
 
     // Backdrop cinemático dinámico para la portada (EveryCine Style)
-    val currentBackdropUrl = remember(selectedTopTab, focusedHeroMovie, focusedHeroSeries, focusedHeroSeriesModel, focusedChannel) {
+    val currentBackdropUrl = remember(selectedTopTab, focusedHeroMovie, focusedHeroSeriesModel, focusedChannel) {
         when (selectedTopTab) {
             3 -> focusedHeroMovie?.backdropPath ?: focusedHeroMovie?.streamIcon
-            4 -> focusedHeroSeriesModel?.backdropPath ?: focusedHeroSeriesModel?.cover ?: focusedHeroSeries?.backdropPath ?: focusedHeroSeries?.cover
+            4 -> focusedHeroSeriesModel?.backdropPath ?: focusedHeroSeriesModel?.cover
             else -> {
                 if (focusedHeroMovie != null && selectedTopTab == 1) {
                     focusedHeroMovie?.backdropPath ?: focusedHeroMovie?.streamIcon
                 } else if (focusedHeroSeriesModel != null && selectedTopTab == 1) {
                     focusedHeroSeriesModel?.backdropPath ?: focusedHeroSeriesModel?.cover
-                } else if (focusedHeroSeries != null && selectedTopTab == 1) {
-                    focusedHeroSeries?.backdropPath ?: focusedHeroSeries?.cover
                 } else {
                     focusedChannel?.streamIcon
                 }
@@ -994,22 +768,14 @@ fun TvHomeScreen(
         }
     }
 
-    // Live Background Zapping con Debounce de 500ms para no saturar el decodificador de hardware
-    // al navegar rápido por la lista de canales (fix de rendimiento en TV Box).
-    // Si el usuario se mueve rápido por 5 canales, solo sintoniza el último donde se detiene.
-    LaunchedEffect(focusedChannel?.streamUrl, selectedTopTab, visibleChannels.isEmpty()) {
-        if (visibleChannels.isEmpty()) {
+    // Sin reproducción de fondo: el reproductor solo vive en pantalla completa.
+    // Al salir de pantalla completa se detiene por completo (libera red y decodificador).
+    LaunchedEffect(isFullscreen) {
+        if (!isFullscreen) {
             isPlayingLive = false
-            playerEngine.pause()
-        } else if (selectedTopTab == 1 || selectedTopTab == 2) {
-            val streamUrl = focusedChannel?.streamUrl
-            if (!streamUrl.isNullOrEmpty() && !isFullscreen) {
-                delay(500L) // Debounce: esperar 500ms para no iniciar stream en cada canal de paso
-                isPlayingLive = true
-                playerEngine.playStream(streamUrl, isLive = true)
-            }
-        } else if (!isFullscreen) {
-            playerEngine.pause()
+            playerEngine.stop()
+            delay(150)
+            try { contentFocusRequester.requestFocus() } catch (_: Exception) {}
         }
     }
 
@@ -1022,16 +788,12 @@ fun TvHomeScreen(
     }
 
     // Manejo de tecla BACK: regresa a Inicio de forma segura en vez de salir de la app
-    BackHandler(enabled = isFullscreen || isQuickZappingOpen || isHudVisible || selectedTopTab != 1) {
+    BackHandler(enabled = isFullscreen || isHudVisible || selectedTopTab != 1) {
         when {
-            isQuickZappingOpen -> isQuickZappingOpen = false
             isHudVisible -> isHudVisible = false
             isFullscreen -> isFullscreen = false
             selectedTopTab != 1 -> {
                 selectedTopTab = 1
-                try {
-                    sidebarRequesters[1].requestFocus()
-                } catch (_: Exception) {}
             }
         }
     }
@@ -1048,6 +810,36 @@ fun TvHomeScreen(
                     .fillMaxSize()
                     .focusRequester(playerFocusRequester)
                     .focusable()
+                    .pointerInput(Unit) {
+                        detectVerticalDragGestures { change: androidx.compose.ui.input.pointer.PointerInputChange, dragAmount: Float ->
+                            if (!isPlayingLive || activePlaybackChannels.isEmpty()) return@detectVerticalDragGestures
+                            
+                            val threshold = 30f
+                            if (dragAmount < -threshold) {
+                                // Swipe Up -> Next Channel
+                                val userT0 = android.os.SystemClock.elapsedRealtime()
+                                val nextIndex = if (activePlaybackChannelIndex < activePlaybackChannels.lastIndex) activePlaybackChannelIndex + 1 else 0
+                                activePlaybackChannelIndex = nextIndex
+                                val ch = activePlaybackChannels[nextIndex]
+                                focusedChannelIndex = visibleChannels.indexOfFirst { it.streamId == ch.streamId }.coerceAtLeast(0)
+                                focusedChannel = ch
+                                isPlayingLive = true
+                                playerEngine.playStream(ch.streamUrl, isLive = true, userT0 = userT0)
+                                isHudVisible = true
+                            } else if (dragAmount > threshold) {
+                                // Swipe Down -> Prev Channel
+                                val userT0 = android.os.SystemClock.elapsedRealtime()
+                                val prevIndex = if (activePlaybackChannelIndex > 0) activePlaybackChannelIndex - 1 else activePlaybackChannels.lastIndex
+                                activePlaybackChannelIndex = prevIndex
+                                val ch = activePlaybackChannels[prevIndex]
+                                focusedChannelIndex = visibleChannels.indexOfFirst { it.streamId == ch.streamId }.coerceAtLeast(0)
+                                focusedChannel = ch
+                                isPlayingLive = true
+                                playerEngine.playStream(ch.streamUrl, isLive = true, userT0 = userT0)
+                                isHudVisible = true
+                            }
+                        }
+                    }
                     .onKeyEvent { keyEvent ->
                         if (keyEvent.type != KeyEventType.KeyDown) return@onKeyEvent false
                         val isLiveStream = isPlayingLive
@@ -1055,13 +847,16 @@ fun TvHomeScreen(
                             KeyEvent.KEYCODE_DPAD_UP,
                             KeyEvent.KEYCODE_CHANNEL_UP,
                             KeyEvent.KEYCODE_PAGE_UP -> {
+
                                 if (isLiveStream && activePlaybackChannels.isNotEmpty()) {
                                     val userT0 = android.os.SystemClock.elapsedRealtime()
-                                    val nextIndex = if (activePlaybackChannelIndex < activePlaybackChannels.lastIndex) activePlaybackChannelIndex + 1 else 0
-                                    activePlaybackChannelIndex = nextIndex
-                                    val ch = activePlaybackChannels[nextIndex]
+                                    // D-Pad UP va hacia "arriba" en la lista visual (índice anterior)
+                                    val prevIndex = if (activePlaybackChannelIndex > 0) activePlaybackChannelIndex - 1 else activePlaybackChannels.lastIndex
+                                    activePlaybackChannelIndex = prevIndex
+                                    val ch = activePlaybackChannels[prevIndex]
                                     // Actualizar focusedChannelIndex en la lista global para coherencia visual
                                     focusedChannelIndex = visibleChannels.indexOfFirst { it.streamId == ch.streamId }.coerceAtLeast(0)
+                                    focusedChannel = ch
                                     isPlayingLive = true
                                     playerEngine.playStream(ch.streamUrl, isLive = true, userT0 = userT0)
                                     isHudVisible = true
@@ -1074,12 +869,15 @@ fun TvHomeScreen(
                             KeyEvent.KEYCODE_DPAD_DOWN,
                             KeyEvent.KEYCODE_CHANNEL_DOWN,
                             KeyEvent.KEYCODE_PAGE_DOWN -> {
+
                                 if (isLiveStream && activePlaybackChannels.isNotEmpty()) {
                                     val userT0 = android.os.SystemClock.elapsedRealtime()
-                                    val prevIndex = if (activePlaybackChannelIndex > 0) activePlaybackChannelIndex - 1 else activePlaybackChannels.lastIndex
-                                    activePlaybackChannelIndex = prevIndex
-                                    val ch = activePlaybackChannels[prevIndex]
+                                    // D-Pad DOWN va hacia "abajo" en la lista visual (siguiente índice)
+                                    val nextIndex = if (activePlaybackChannelIndex < activePlaybackChannels.lastIndex) activePlaybackChannelIndex + 1 else 0
+                                    activePlaybackChannelIndex = nextIndex
+                                    val ch = activePlaybackChannels[nextIndex]
                                     focusedChannelIndex = visibleChannels.indexOfFirst { it.streamId == ch.streamId }.coerceAtLeast(0)
+                                    focusedChannel = ch
                                     isPlayingLive = true
                                     playerEngine.playStream(ch.streamUrl, isLive = true, userT0 = userT0)
                                     isHudVisible = true
@@ -1092,7 +890,6 @@ fun TvHomeScreen(
                             KeyEvent.KEYCODE_DPAD_LEFT,
                             KeyEvent.KEYCODE_MEDIA_REWIND -> {
                                 if (isLiveStream) {
-                                    isQuickZappingOpen = !isQuickZappingOpen
                                     isHudVisible = true
                                 } else {
                                     val isRewindKey = keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_MEDIA_REWIND
@@ -1122,7 +919,7 @@ fun TvHomeScreen(
                                 if (System.currentTimeMillis() - lastFullscreenEntryTime < 600L) {
                                     true
                                 } else {
-                                    if (!isHudVisible && !isQuickZappingOpen) {
+                                    if (!isHudVisible) {
                                         // Contexto Player con controles ocultos: CENTER muestra controles
                                         isHudVisible = true
                                     } else {
@@ -1160,10 +957,7 @@ fun TvHomeScreen(
                                 true
                             }
                             KeyEvent.KEYCODE_BACK -> {
-                                if (isQuickZappingOpen) {
-                                    isQuickZappingOpen = false
-                                    true
-                                } else if (isHudVisible) {
+                                if (isHudVisible) {
                                     isHudVisible = false
                                     true
                                 } else {
@@ -1176,72 +970,13 @@ fun TvHomeScreen(
                     }
             )
         }
-        // CAPA 1: Video de Fondo o Portada Cinemática de Alta Calidad (EveryCine Style)
+        // CAPA 1: Video en Pantalla Completa
         Box(modifier = Modifier.fillMaxSize()) {
-            // Reproductor de video nativo para canales en vivo (Inicio y En Vivo) o cuando está en pantalla completa
-            val canShowLivePlayer = (selectedTopTab == 1 || selectedTopTab == 2) && (pagedChannels.itemCount > 0 || visibleChannels.isNotEmpty())
-            if (canShowLivePlayer || isFullscreen) {
+            if (isFullscreen) {
                 LelouchVideoPlayer(
                     playerEngine = playerEngine,
                     modifier = Modifier.fillMaxSize(),
                     resizeMode = if (isPlayingLive) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
-                )
-            }
-
-            // Portada Cinemática / Backdrop Artístico HD
-            // Se muestra de fondo si estamos en VOD (Películas/Series) y NO en pantalla completa, o si el video en vivo está cargando/pausado
-            val showBackdrop = !isFullscreen && (selectedTopTab != 1 && selectedTopTab != 2 || playbackState !is PlaybackState.Playing)
-            if (showBackdrop && !currentBackdropUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = currentBackdropUrl,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-            }
-        }
-
-        // CAPA 2: Vignette Scrim Cinemático de Doble Eje (Vertical + Horizontal)
-        AnimatedVisibility(
-            visible = !isFullscreen,
-            enter = fadeIn(tween(250)),
-            exit = fadeOut(tween(250))
-        ) {
-            val verticalScrimBrush = remember {
-                Brush.verticalGradient(
-                    colorStops = arrayOf(
-                        0.0f to LelouchBackground.copy(alpha = 0.90f),
-                        0.18f to LelouchBackground.copy(alpha = 0.40f),
-                        0.45f to Color.Transparent,
-                        0.65f to LelouchBackground.copy(alpha = 0.85f),
-                        0.88f to LelouchBackground,
-                        1.0f to LelouchBackground
-                    )
-                )
-            }
-            val horizontalScrimBrush = remember {
-                Brush.horizontalGradient(
-                    colorStops = arrayOf(
-                        0.0f to LelouchBackground.copy(alpha = 0.95f),
-                        0.35f to LelouchBackground.copy(alpha = 0.70f),
-                        0.65f to Color.Transparent,
-                        1.0f to Color.Transparent
-                    )
-                )
-            }
-
-            Box(modifier = Modifier.fillMaxSize()) {
-                // Scrim Vertical: Protege la barra de pestañas superior y difumina hacia los carruseles inferiores
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(verticalScrimBrush)
-                )
-                // Scrim Horizontal: Oscurece el lateral izquierdo para máxima legibilidad de títulos y sinopsis
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(horizontalScrimBrush)
                 )
             }
         }
@@ -1255,19 +990,19 @@ fun TvHomeScreen(
             Row(
                 modifier = Modifier.fillMaxSize()
             ) {
-                // Barra Lateral de Navegación Vertical
-                TvNavigationSidebar(
-                    selectedTab = selectedTopTab,
-                    onSelectTab = { newTab ->
-                        selectedTopTab = newTab
-                    },
-                    sidebarRequesters = sidebarRequesters,
-                    onNavigateContent = {
-                        try {
-                            contentFocusRequester.requestFocus()
-                        } catch (_: Exception) {}
+                // Barra lateral retirada (Home minimalista). Se mantienen anclas invisibles y
+                // NO enfocables para que las referencias existentes a sidebarRequesters sigan
+                // adjuntas (evita "FocusRequester is not initialized").
+                Box(modifier = Modifier.size(0.dp)) {
+                    sidebarRequesters.forEach { req ->
+                        Box(
+                            modifier = Modifier
+                                .focusRequester(req)
+                                .focusProperties { canFocus = false }
+                                .focusable()
+                        )
                     }
-                )
+                }
 
                 Box(
                     modifier = Modifier
@@ -1285,7 +1020,7 @@ fun TvHomeScreen(
                                 hiddenLiveCategories = hiddenLiveCategories,
                                 hiddenMovieCategories = hiddenMovieCategories,
                                 hiddenSeriesCategories = hiddenSeriesCategories,
-                                popularMovies = visibleMovies.ifEmpty { recentMovies }.take(10),
+                                popularMovies = recentMovies.ifEmpty { movies }.take(10),
                                 onSelectChannel = { ch ->
                                     val idx = visibleChannels.indexOfFirst { it.streamId == ch.streamId }
                                     if (idx >= 0) focusedChannelIndex = idx
@@ -1337,9 +1072,9 @@ fun TvHomeScreen(
                                         val catCount = vodCategories.sumOf { it.itemCount }
                                         if (catCount > 0) catCount else visibleMovies.size
                                     }
-                                    val totalSeriesCount = remember(seriesCategories, visibleSeries) {
+                                    val totalSeriesCount = remember(seriesCategories, visibleSeriesList) {
                                         val catCount = seriesCategories.sumOf { it.itemCount }
-                                        if (catCount > 0) catCount else visibleSeries.size
+                                        if (catCount > 0) catCount else visibleSeriesList.size
                                     }
 
                                     TvPortalDashboard(
@@ -1372,134 +1107,6 @@ fun TvHomeScreen(
                                             .fillMaxWidth()
                                             .padding(bottom = 24.dp)
                                     )
-                                }
-
-                                if (pagedChannels.itemCount > 0) {
-                                    item {
-                                        ContentSectionTitle("🔴 Canales en Directo")
-                                        TvLazyRow(
-                                            contentPadding = PaddingValues(horizontal = 32.dp),
-                                            horizontalArrangement = Arrangement.spacedBy(16.dp)
-                                        ) {
-                                            val previewCount = pagedChannels.itemCount.coerceAtMost(30)
-                                            items(
-                                                count = previewCount,
-                                                key = pagedChannels.itemKey { it.id },
-                                                contentType = pagedChannels.itemContentType { "channel" }
-                                            ) { idx ->
-                                                val ch = pagedChannels[idx] ?: return@items
-                                                val isSelected = (ch.id == focusedChannelId || (focusedChannelId == null && idx == 0))
-                                                TvChannelCard(
-                                                    channel = ch,
-                                                    isSelected = isSelected,
-                                                    onFocused = {
-                                                        focusedChannelId = ch.id
-                                                        focusedChannel = ch
-                                                        focusedChannelIndex = idx
-                                                        focusedHeroMovie = null
-                                                    },
-                                                    onClick = { 
-                                                        val userT0 = android.os.SystemClock.elapsedRealtime()
-                                                        focusedChannelId = ch.id
-                                                        focusedChannel = ch
-                                                        focusedChannelIndex = idx
-                                                        isPlayingLive = true
-                                                        playerEngine.playStream(ch.streamUrl, isLive = true, userT0 = userT0)
-                                                        isFullscreen = true 
-                                                    },
-                                                    onToggleFavorite = {
-                                                        onToggleFavoriteChannel(ch.streamId, !ch.isFavorite)
-                                                    },
-                                                    isFavorite = ch.isFavorite,
-                                                    cardWidth = 215.dp,
-                                                    modifier = if (idx == 0) Modifier.focusProperties { left = sidebarRequesters[1] } else Modifier
-                                                )
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.height(28.dp))
-                                    }
-                                } else if (visibleChannels.isNotEmpty()) {
-                                    item {
-                                        ContentSectionTitle("🔴 Canales en Directo")
-                                        TvLazyRow(
-                                            contentPadding = PaddingValues(horizontal = 32.dp),
-                                            horizontalArrangement = Arrangement.spacedBy(16.dp)
-                                        ) {
-                                            itemsIndexed(visibleChannels, key = { idx, ch -> "home_ch_${ch.streamId}_$idx" }) { idx, ch ->
-                                                TvChannelCard(
-                                                    channel = ch,
-                                                    isSelected = (idx == focusedChannelIndex),
-                                                    onFocused = {
-                                                        focusedChannelIndex = idx
-                                                        focusedHeroMovie = null
-                                                    },
-                                                    onClick = { 
-                                                        val userT0 = android.os.SystemClock.elapsedRealtime()
-                                                        focusedChannelIndex = idx
-                                                        isPlayingLive = true
-                                                        playerEngine.playStream(ch.streamUrl, isLive = true, userT0 = userT0)
-                                                        isFullscreen = true 
-                                                    },
-                                                    onToggleFavorite = {
-                                                        onToggleFavoriteChannel(ch.streamId, !ch.isFavorite)
-                                                    },
-                                                    isFavorite = ch.isFavorite,
-                                                    cardWidth = 215.dp,
-                                                    modifier = if (idx == 0) Modifier.focusProperties { left = sidebarRequesters[1] } else Modifier
-                                                )
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.height(28.dp))
-                                    }
-                                }
-
-                                val homeRailMovies = if (recentMovies.isNotEmpty()) recentMovies else visibleMovies
-                                if (homeRailMovies.isNotEmpty()) {
-                                    item {
-                                        ContentSectionTitle("🎬 Películas Recientemente Añadidas")
-                                        TvLazyRow(
-                                            contentPadding = PaddingValues(horizontal = 32.dp),
-                                            horizontalArrangement = Arrangement.spacedBy(16.dp)
-                                        ) {
-                                            itemsIndexed(homeRailMovies.take(20), key = { idx, mov -> "home_mov_${mov.streamId}_$idx" }) { idx, mov ->
-                                                TvPosterCard(
-                                                    title = mov.name,
-                                                    posterUrl = mov.streamIcon,
-                                                    rating = mov.rating ?: 0.0,
-                                                    year = mov.year,
-                                                    onFocused = { focusedHeroMovie = mov },
-                                                    onClick = {
-                                                        playMovie(mov)
-                                                    },
-                                                    modifier = if (idx == 0) Modifier.focusProperties { left = sidebarRequesters[1] } else Modifier
-                                                )
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.height(28.dp))
-                                    }
-                                }
-
-                                if (visibleSeries.isNotEmpty()) {
-                                    item {
-                                        ContentSectionTitle("📺 Series Populares")
-                                        TvLazyRow(
-                                            contentPadding = PaddingValues(horizontal = 32.dp),
-                                            horizontalArrangement = Arrangement.spacedBy(16.dp)
-                                        ) {
-                                            itemsIndexed(visibleSeries, key = { idx, ser -> "home_ser_${ser.seriesId}_$idx" }) { idx, ser ->
-                                                TvPosterCard(
-                                                    title = ser.name,
-                                                    posterUrl = ser.cover,
-                                                    rating = ser.rating ?: 0.0,
-                                                    year = ser.releaseDate?.take(4),
-                                                    onFocused = { focusedHeroSeries = ser },
-                                                    onClick = { openSeriesDetails(ser) },
-                                                    modifier = if (idx == 0) Modifier.focusProperties { left = sidebarRequesters[1] } else Modifier
-                                                )
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.height(28.dp))
-                                    }
                                 }
                             }
                         }
@@ -1638,6 +1245,7 @@ fun TvHomeScreen(
                                                     focusedChannelId = ch.id
                                                     focusedChannel = ch
                                                     focusedChannelIndex = index
+                                                    activePlaybackChannelIndex = activePlaybackChannels.indexOfFirst { it.id == ch.id }.coerceAtLeast(0)
                                                     isPlayingLive = true
                                                     playerEngine.playStream(ch.streamUrl, isLive = true, userT0 = userT0)
                                                     isFullscreen = true
@@ -2282,7 +1890,14 @@ fun TvHomeScreen(
 
                         Spacer(modifier = Modifier.height(14.dp))
 
+                        LaunchedEffect(focusedChannelIndex, isHudVisible) {
+                            if (isHudVisible && focusedChannelIndex in visibleChannels.indices) {
+                                hudListState.animateScrollToItem(focusedChannelIndex)
+                            }
+                        }
+
                         TvLazyRow(
+                            state = hudListState,
                             modifier = Modifier.focusRestorer(),
                             horizontalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
@@ -2322,6 +1937,7 @@ fun TvHomeScreen(
                                                 if (keyEvent.type == KeyEventType.KeyDown && keyEvent.nativeKeyEvent.repeatCount == 0) {
                                                     val userT0 = android.os.SystemClock.elapsedRealtime()
                                                     focusedChannelIndex = index
+                                                    focusedChannel = channel
                                                     isPlayingLive = true
                                                     playerEngine.playStream(channel.streamUrl, isLive = true, userT0 = userT0)
                                                     true
@@ -2340,6 +1956,7 @@ fun TvHomeScreen(
                                         ) {
                                             val userT0 = android.os.SystemClock.elapsedRealtime()
                                             focusedChannelIndex = index
+                                            focusedChannel = channel
                                             isPlayingLive = true
                                             playerEngine.playStream(channel.streamUrl, isLive = true, userT0 = userT0)
                                         }
@@ -2706,127 +2323,7 @@ fun TvHomeScreen(
             )
         }
 
-        // CAPA 10: Drawer de Zapping Rápido de Canales (para mandos Xiaomi en Pantalla Completa)
-        if (isFullscreen && isQuickZappingOpen) {
-            Box(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .width(360.dp)
-                    .background(LelouchBackground.copy(alpha = 0.94f))
-                    .padding(24.dp)
-            ) {
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "📺 ZAPPING RÁPIDO",
-                            color = LelouchCyanAccent,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                        Text(
-                            text = "BACK: Salir",
-                            color = LelouchTextMuted,
-                            fontSize = 11.sp
-                        )
-                    }
 
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    TvLazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        itemsIndexed(activePlaybackChannels.ifEmpty { visibleChannels }) { idx, ch ->
-                            // El Zapping Drawer usa activePlaybackChannels (la categoria activa),
-                            // no visibleChannels global. Asi si estas en Guatemala, solo ves Guatemala.
-                            var isChFocused by remember { mutableStateOf(false) }
-                            val isCurrentPlaying = (idx == focusedChannelIndex)
-
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .focusable()
-                                    .onFocusChanged { isChFocused = it.isFocused }
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(
-                                        when {
-                                            isChFocused -> LelouchCardFocused
-                                            isCurrentPlaying -> LelouchCyanAccent.copy(alpha = 0.2f)
-                                            else -> LelouchSurface
-                                        }
-                                    )
-                                    .border(
-                                        width = if (isChFocused) 2.dp else if (isCurrentPlaying) 1.dp else 0.dp,
-                                        color = if (isChFocused) LelouchCyanAccent else if (isCurrentPlaying) LelouchCyanAccent.copy(alpha = 0.5f) else Color.Transparent,
-                                        shape = RoundedCornerShape(8.dp)
-                                    )
-                                    .clickable {
-                                        val userT0 = android.os.SystemClock.elapsedRealtime()
-                                        activePlaybackChannelIndex = idx
-                                        focusedChannelIndex = visibleChannels.indexOfFirst { it.streamId == ch.streamId }.coerceAtLeast(0)
-                                        playerEngine.playStream(ch.streamUrl, isLive = true, userT0 = userT0)
-                                        isQuickZappingOpen = false
-                                        isHudVisible = true
-                                    }
-                                    .padding(horizontal = 12.dp, vertical = 10.dp)
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = "${ch.num}",
-                                        color = if (isChFocused || isCurrentPlaying) LelouchCyanAccent else LelouchTextMuted,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.width(36.dp)
-                                    )
-
-                                    if (!ch.streamIcon.isNullOrBlank()) {
-                                        AsyncImage(
-                                            model = ch.streamIcon,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(32.dp, 22.dp),
-                                            contentScale = ContentScale.Fit
-                                        )
-                                        Spacer(modifier = Modifier.width(10.dp))
-                                    }
-
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = ch.name,
-                                            color = if (isChFocused) Color.White else LelouchTextPrimary,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        Text(
-                                            text = ch.currentProgram,
-                                            color = LelouchTextSecondary,
-                                            fontSize = 10.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-
-                                    if (isCurrentPlaying) {
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Box(
-                                            modifier = Modifier
-                                                .size(8.dp)
-                                                .clip(CircleShape)
-                                                .background(LelouchLiveRed)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
 
         // CAPA 11: Feedback Flotante de Búsqueda/Avance (ej: ⏪ -10s o ⏩ +10s para control Xiaomi)
         if (seekFeedbackText != null) {

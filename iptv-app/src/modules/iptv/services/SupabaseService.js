@@ -119,6 +119,24 @@ class SupabaseService {
     }
   }
 
+  /**
+   * Elimina una custom playlist de Supabase por su ID.
+   * @param {string} id
+   */
+  async deleteCustomPlaylist(id) {
+    if (!this.isAvailable || !id) return false;
+    try {
+      const res = await fetch(`${this.url}/rest/v1/custom_playlists?id=eq.${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: this._getHeaders()
+      });
+      return res.ok;
+    } catch (e) {
+      console.warn('[SupabaseService] Error al eliminar custom_playlist de Supabase:', e);
+      return false;
+    }
+  }
+
   // ══════════════════════════════════════════════════════
   // FAVORITOS EN LA NUBE
   // ══════════════════════════════════════════════════════

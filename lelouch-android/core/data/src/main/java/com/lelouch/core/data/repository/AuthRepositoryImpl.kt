@@ -328,14 +328,9 @@ class AuthRepositoryImpl(
 
         if (cloudSources.isEmpty()) {
             // TEST C: la nube respondió correctamente pero 0 fuentes -> SUCCESS_EMPTY
-            android.util.Log.d("AuthRepository", "SOURCE_SYNC_EMPTY: La nube respondió pero no hay fuentes disponibles")
-            if (currentSources.isNotEmpty()) {
-                android.util.Log.d("AuthRepository", "SOURCE_SYNC_USING_LOCAL_CACHE: Conservando fuentes locales existentes")
-                return@withContext currentSources
-            } else {
-                preferencesDataSource.saveAllSources(emptyList())
-                return@withContext emptyList()
-            }
+            android.util.Log.d("AuthRepository", "SOURCE_SYNC_EMPTY: La nube respondió que no hay fuentes disponibles. Borrando caché local para sincronizar con la nube.")
+            preferencesDataSource.saveAllSources(emptyList())
+            return@withContext emptyList()
         }
 
         // ── 4. CONSOLIDACIÓN ESTRICTA (FASE 32) ──
