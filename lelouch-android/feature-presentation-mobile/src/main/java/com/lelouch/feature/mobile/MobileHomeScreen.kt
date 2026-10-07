@@ -98,16 +98,30 @@ fun MobileHomeScreen(
 
     val context = LocalContext.current
     val activity = context as? Activity
+    val hiddenPrefs = remember { context.getSharedPreferences("iptv_hidden_categories", android.content.Context.MODE_PRIVATE) }
+    
+    var hiddenLiveCategories by remember { mutableStateOf(hiddenPrefs.getStringSet("live", emptySet())?.toSet() ?: emptySet()) }
+    var hiddenMovieCategories by remember { mutableStateOf(hiddenPrefs.getStringSet("movies", emptySet())?.toSet() ?: emptySet()) }
+    var hiddenSeriesCategories by remember { mutableStateOf(hiddenPrefs.getStringSet("series", emptySet())?.toSet() ?: emptySet()) }
 
-    // Rotar automaticamente a horizontal (Landscape) al agrandar y restaurar a vertical (Portrait) al salir
-    DisposableEffect(isPlayerFullscreen) {
-        if (isPlayerFullscreen) {
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        } else {
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-        }
+    fun saveHiddenLive(newSet: Set<String>) {
+        hiddenLiveCategories = newSet
+        hiddenPrefs.edit().putStringSet("live", newSet).apply()
+    }
+    fun saveHiddenMovies(newSet: Set<String>) {
+        hiddenMovieCategories = newSet
+        hiddenPrefs.edit().putStringSet("movies", newSet).apply()
+    }
+    fun saveHiddenSeries(newSet: Set<String>) {
+        hiddenSeriesCategories = newSet
+        hiddenPrefs.edit().putStringSet("series", newSet).apply()
+    }
+
+    // FASE 32: Permitir rotación libre en el teléfono móvil
+    DisposableEffect(Unit) {
+        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         onDispose {
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
     }
 
@@ -117,31 +131,51 @@ fun MobileHomeScreen(
 
     // FASE 33: Regex defensivo para filtrar episodios de series en pantalla de canales en vivo
     val seriesLeakRegex = remember { Regex("(?i)\\b(s\\d{1,2}|t\\d{1,2}|cap\\.?\\s*\\d+|ep\\.?\\s*\\d+)\\b") }
-    val cleanLiveChannels = remember(liveChannels) {
+    val cleanLiveChannels = remember(liveChannels, hiddenLiveCategories) {
         liveChannels.filter { stream ->
             (stream.streamType.isBlank() || stream.streamType.equals("live", ignoreCase = true)) &&
-            !seriesLeakRegex.containsMatchIn(stream.name)
+            !seriesLeakRegex.containsMatchIn(stream.name) &&
+            stream.categoryId !in hiddenLiveCategories && stream.categoryName !in hiddenLiveCategories
         }.distinctBy { ch -> ch.streamUrl.ifBlank { ch.name } }
+    }
+
+    val playbackState by playerEngine.playbackState.collectAsState()
+    var consecutiveAutoSkips by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(playbackState) {
+        if (playbackState is com.lelouch.core.player.PlaybackState.Playing) {
+            consecutiveAutoSkips = 0
+        }
     }
 
     // FASE 33: Anticaídas de señal y Omisión Automática de canales caídos o vacíos
     DisposableEffect(playerEngine, cleanLiveChannels, activeStreamUrl, isLivePlayback) {
         playerEngine.onChannelUnavailable = {
             if (isLivePlayback && cleanLiveChannels.isNotEmpty()) {
-                val currentIndex = cleanLiveChannels.indexOfFirst { it.streamUrl == activeStreamUrl || it.name == activeChannelName }
-                val nextIndex = if (currentIndex in 0 until cleanLiveChannels.size - 1) currentIndex + 1 else 0
-                val nextChannel = cleanLiveChannels[nextIndex]
-                android.widget.Toast.makeText(
-                    context,
-                    "⚠️ Señal caída. Saltando a: ${nextChannel.name}",
-                    android.widget.Toast.LENGTH_SHORT
-                ).show()
-                activeChannelName = nextChannel.name
-                val targetUrl = nextChannel.streamUrl
-                if (targetUrl == activeStreamUrl) {
-                    playerEngine.playStream(targetUrl, isLive = true)
+                if (consecutiveAutoSkips < 5) {
+                    consecutiveAutoSkips++
+                    val currentIndex = cleanLiveChannels.indexOfFirst { it.streamUrl == activeStreamUrl || it.name == activeChannelName }
+                    val nextIndex = if (currentIndex in 0 until cleanLiveChannels.size - 1) currentIndex + 1 else 0
+                    val nextChannel = cleanLiveChannels[nextIndex]
+                    android.widget.Toast.makeText(
+                        context,
+                        "⚠️ Señal caída. Saltando a: ${nextChannel.name}",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                    activeChannelName = nextChannel.name
+                    val targetUrl = nextChannel.streamUrl
+                    if (targetUrl == activeStreamUrl) {
+                        playerEngine.playStream(targetUrl, isLive = true)
+                    } else {
+                        activeStreamUrl = targetUrl
+                    }
                 } else {
-                    activeStreamUrl = targetUrl
+                    android.widget.Toast.makeText(
+                        context,
+                        "Demasiados canales caídos. Deteniendo salto automático.",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                    consecutiveAutoSkips = 0
                 }
             }
         }
@@ -150,11 +184,14 @@ fun MobileHomeScreen(
         }
     }
 
+
     // FASE 34: Gestos táctiles de cambio de canal y OSD flotante
     var channelOsdText by remember { mutableStateOf<String?>(null) }
     var channelOsdSubtext by remember { mutableStateOf<String?>(null) }
     var channelOsdDirection by remember { mutableStateOf<String?>(null) }
     var channelOsdVersion by remember { mutableIntStateOf(0) }
+    var showPinDialog by remember { mutableStateOf(false) }
+    var pinInput by remember { mutableStateOf("") }
 
     LaunchedEffect(channelOsdVersion) {
         if (channelOsdVersion > 0) {
@@ -169,28 +206,41 @@ fun MobileHomeScreen(
         { delta: Int ->
             if (cleanLiveChannels.isNotEmpty()) {
                 val currentIndex = cleanLiveChannels.indexOfFirst { it.streamUrl == activeStreamUrl || it.name == activeChannelName }
-                val newIndex = when {
+                var newIndex = when {
                     currentIndex == -1 -> 0
                     delta > 0 -> if (currentIndex < cleanLiveChannels.size - 1) currentIndex + 1 else 0
                     else -> if (currentIndex > 0) currentIndex - 1 else cleanLiveChannels.size - 1
                 }
-                val targetChannel = cleanLiveChannels[newIndex]
-                activeChannelName = targetChannel.name
-                val targetUrl = targetChannel.streamUrl
-                if (targetUrl == activeStreamUrl) {
-                    playerEngine.playStream(targetUrl, isLive = true)
-                } else {
-                    activeStreamUrl = targetUrl
+                
+                var attempts = 0
+                while (cleanLiveChannels[newIndex].streamUrl.isBlank() && attempts < cleanLiveChannels.size) {
+                    newIndex = if (delta > 0) {
+                        if (newIndex < cleanLiveChannels.size - 1) newIndex + 1 else 0
+                    } else {
+                        if (newIndex > 0) newIndex - 1 else cleanLiveChannels.size - 1
+                    }
+                    attempts++
                 }
-                channelOsdText = targetChannel.name
-                channelOsdSubtext = "Canal ${newIndex + 1} de ${cleanLiveChannels.size}"
-                channelOsdDirection = if (delta > 0) "▲ Siguiente Canal" else "▼ Canal Anterior"
-                channelOsdVersion++
+
+                if (attempts < cleanLiveChannels.size) {
+                    val targetChannel = cleanLiveChannels[newIndex]
+                    activeChannelName = targetChannel.name
+                    val targetUrl = targetChannel.streamUrl
+                    if (targetUrl == activeStreamUrl) {
+                        playerEngine.playStream(targetUrl, isLive = true)
+                    } else {
+                        activeStreamUrl = targetUrl
+                    }
+                    channelOsdText = targetChannel.name
+                    channelOsdSubtext = "Canal ${newIndex + 1} de ${cleanLiveChannels.size}"
+                    channelOsdDirection = if (delta > 0) "▲ Siguiente Canal" else "▼ Canal Anterior"
+                    channelOsdVersion++
+                }
             }
         }
     }
 
-    val liveCategoryList = remember(liveCategories, cleanLiveChannels) {
+    val liveCategoryList = remember(liveCategories, cleanLiveChannels, hiddenLiveCategories) {
         val fromDb = liveCategories.map { MobileCategoryItem(id = it.categoryId, name = it.categoryName) }
         val fromChannels = cleanLiveChannels.mapNotNull { ch ->
             if (ch.categoryName.isNotBlank() && ch.categoryId.isNotBlank()) {
@@ -199,30 +249,43 @@ fun MobileHomeScreen(
         }
         val combined = (fromDb + fromChannels)
             .filter { it.id != "all" && !it.name.equals("todos", ignoreCase = true) }
+            .filter { it.id !in hiddenLiveCategories && it.name !in hiddenLiveCategories }
             .distinctBy { it.name.trim().lowercase() }
             .sortedBy { it.name }
         listOf(MobileCategoryItem(id = "all", name = "Todos")) + combined
     }
 
-    val movieCategoryList = remember(vodCategories, movies) {
+    val filteredMovies = remember(movies, hiddenMovieCategories) {
+        movies.filter { it.categoryId !in hiddenMovieCategories && it.categoryName !in hiddenMovieCategories }
+    }
+
+    val movieCategoryList = remember(vodCategories, filteredMovies, hiddenMovieCategories) {
         val fromDb = vodCategories.map { MobileCategoryItem(id = it.categoryId, name = it.categoryName) }
-        val fromMovies = movies.mapNotNull { mov ->
+        val fromMovies = filteredMovies.mapNotNull { mov ->
             if (mov.categoryName.isNotBlank() && mov.categoryId.isNotBlank()) {
                 MobileCategoryItem(id = mov.categoryId, name = mov.categoryName)
             } else null
         }.distinctBy { it.id }
-        val combined = (fromDb + fromMovies).distinctBy { it.id }.sortedBy { it.name }
+        val combined = (fromDb + fromMovies)
+            .filter { it.id !in hiddenMovieCategories && it.name !in hiddenMovieCategories }
+            .distinctBy { it.id }.sortedBy { it.name }
         listOf(MobileCategoryItem(id = "all", name = "Todas")) + combined
     }
 
-    val seriesCategoryList = remember(seriesCategories, seriesList) {
+    val filteredSeriesList = remember(seriesList, hiddenSeriesCategories) {
+        seriesList.filter { it.categoryId !in hiddenSeriesCategories && it.categoryName !in hiddenSeriesCategories }
+    }
+
+    val seriesCategoryList = remember(seriesCategories, filteredSeriesList, hiddenSeriesCategories) {
         val fromDb = seriesCategories.map { MobileCategoryItem(id = it.categoryId, name = it.categoryName) }
-        val fromSeries = seriesList.mapNotNull { s ->
+        val fromSeries = filteredSeriesList.mapNotNull { s ->
             if (s.categoryName.isNotBlank() && s.categoryId.isNotBlank()) {
                 MobileCategoryItem(id = s.categoryId, name = s.categoryName)
             } else null
         }.distinctBy { it.id }
-        val combined = (fromDb + fromSeries).distinctBy { it.id }.sortedBy { it.name }
+        val combined = (fromDb + fromSeries)
+            .filter { it.id !in hiddenSeriesCategories && it.name !in hiddenSeriesCategories }
+            .distinctBy { it.id }.sortedBy { it.name }
         listOf(MobileCategoryItem(id = "all", name = "Todas")) + combined
     }
 
@@ -253,6 +316,7 @@ fun MobileHomeScreen(
                 isLivePlayback = false
                 activeChannelName = movie.name
                 activeStreamUrl = url
+                isPlayerFullscreen = true
                 selectedMovie = null
             },
             onDismiss = { selectedMovie = null }
@@ -268,6 +332,7 @@ fun MobileHomeScreen(
                 isLivePlayback = false
                 activeChannelName = title
                 activeStreamUrl = url
+                isPlayerFullscreen = true
                 selectedSeries = null
             },
             onDismiss = { selectedSeries = null }
@@ -278,9 +343,25 @@ fun MobileHomeScreen(
         selectedTab = 0
     }
 
+    var isCategoryManagerModalOpen by remember { mutableStateOf(false) }
+    var categoryManagerInitialScope by remember { mutableStateOf(MobileCategoryScope.LIVE) }
+
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
-            containerColor = LelouchBackground
+            containerColor = LelouchBackground,
+            topBar = {
+                if (selectedTab != 0) {
+                    MobileTopBar(
+                        activeSource = activeSource,
+                        showSearch = selectedTab != 4,
+                        searchQuery = searchQuery,
+                        onSearchChange = { searchQuery = it },
+                        onSettingsTap = { showPinDialog = true },
+                        selectedTab = selectedTab,
+                        onBackTap = { selectedTab = 0 }
+                    )
+                }
+            }
         ) { paddingValues ->
             Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
                 if (activeStreamUrl != null && !isPlayerFullscreen) {
@@ -308,15 +389,6 @@ fun MobileHomeScreen(
                         )
                     )
                 }
-                MobileTopBar(
-                    activeSource = activeSource,
-                    showSearch = selectedTab != 4,
-                    searchQuery = searchQuery,
-                    onSearchChange = { searchQuery = it },
-                    onSettingsTap = { selectedTab = 4 },
-                    selectedTab = selectedTab,
-                    onBackTap = { selectedTab = 0 }
-                )
                 AnimatedContent(
                     targetState = selectedTab,
                     transitionSpec = { fadeIn() togetherWith fadeOut() },
@@ -325,16 +397,16 @@ fun MobileHomeScreen(
                 ) { tab ->
                     when (tab) {
                         0 -> MobileHomeTab(
-                            liveChannels = cleanLiveChannels, movies = movies, seriesList = seriesList,
+                            liveChannels = cleanLiveChannels, movies = filteredMovies, seriesList = filteredSeriesList,
                             activeSource = activeSource,
-                            onChannelClick = { ch, url -> isLivePlayback = true; activeChannelName = ch; activeStreamUrl = url },
+                            onChannelClick = { ch, url -> isPlayerFullscreen = true; isLivePlayback = true; activeChannelName = ch; activeStreamUrl = url },
                             onMovieClick = { selectedMovie = it },
                             onSeriesClick = { selectedSeries = it },
                             onSeeAllLive = { selectedTab = 1 },
                             onSeeAllMovies = { selectedTab = 2 },
                             onSeeAllSeries = { selectedTab = 3 },
                             onReloadCatalog = onForceSync,
-                            onOpenSettings = { selectedTab = 4 }
+                            onOpenSettings = { showPinDialog = true }
                         )
                         1 -> MobileLiveTab(
                             channels = if (searchQuery.isBlank()) cleanLiveChannels
@@ -343,38 +415,48 @@ fun MobileHomeScreen(
                             categories = liveCategoryList,
                             favoriteChannels = favoriteChannels,
                             onToggleFavorite = onToggleFavoriteChannel,
-                            onChannelClick = { ch, url -> isLivePlayback = true; activeChannelName = ch; activeStreamUrl = url }
+                            onChannelClick = { ch, url -> isPlayerFullscreen = true; isLivePlayback = true; activeChannelName = ch; activeStreamUrl = url }
                         )
                         2 -> MobileMoviesTab(
-                            movies = if (searchQuery.isBlank()) movies
-                                     else movies.filter { it.name.contains(searchQuery, ignoreCase = true) },
+                            movies = if (searchQuery.isBlank()) filteredMovies
+                                     else filteredMovies.filter { it.name.contains(searchQuery, ignoreCase = true) },
                             categories = movieCategoryList,
                             onMovieClick = { selectedMovie = it }
                         )
                         3 -> MobileSeriesTab(
-                            seriesList = if (searchQuery.isBlank()) seriesList
-                                         else seriesList.filter { it.name.contains(searchQuery, ignoreCase = true) },
+                            seriesList = if (searchQuery.isBlank()) filteredSeriesList
+                                         else filteredSeriesList.filter { it.name.contains(searchQuery, ignoreCase = true) },
                             categories = seriesCategoryList,
                             onSeriesClick = { selectedSeries = it }
                         )
-                    4 -> MobileSettingsTab(
-                        activeSource = activeSource, allSources = allSources,
-                        newServerUrl = newServerUrl, newUsername = newUsername,
-                        newPassword = newPassword, newName = newName,
-                        onNewServerUrl = { newServerUrl = it }, onNewUsername = { newUsername = it },
-                        onNewPassword = { newPassword = it }, onNewName = { newName = it },
-                        onActivateSource = onActivateSource, onDeleteSource = onDeleteSource,
-                        onAddSource = { s, u, p, n ->
-                            onAddSource(s, u, p, n)
-                            newServerUrl = ""; newUsername = ""; newPassword = ""; newName = ""
-                        },
-                        onSyncCloud = onSyncCloudSources, onForceSync = onForceSync, onLogout = onLogout,
-                        onOpenUpdate = { isUpdateModalOpen = true }
-                    )
+                        4 -> MobileSettingsTab(
+                            activeSource = activeSource, allSources = allSources,
+                            newServerUrl = newServerUrl, newUsername = newUsername,
+                            newPassword = newPassword, newName = newName,
+                            onNewServerUrl = { newServerUrl = it }, onNewUsername = { newUsername = it },
+                            onNewPassword = { newPassword = it }, onNewName = { newName = it },
+                            onActivateSource = onActivateSource, onDeleteSource = onDeleteSource,
+                            onAddSource = { s, u, p, n ->
+                                onAddSource(s, u, p, n)
+                                newServerUrl = ""; newUsername = ""; newPassword = ""; newName = ""
+                            },
+                            onSyncCloud = onSyncCloudSources, onForceSync = onForceSync, onLogout = onLogout,
+                            onOpenUpdate = { isUpdateModalOpen = true },
+                            liveTotal = liveCategories.size,
+                            liveHiddenCount = liveCategories.count { hiddenLiveCategories.contains(it.categoryName) || hiddenLiveCategories.contains(it.categoryId) },
+                            moviesTotal = vodCategories.size,
+                            moviesHiddenCount = vodCategories.count { hiddenMovieCategories.contains(it.categoryName) || hiddenMovieCategories.contains(it.categoryId) },
+                            seriesTotal = seriesCategories.size,
+                            seriesHiddenCount = seriesCategories.count { hiddenSeriesCategories.contains(it.categoryName) || hiddenSeriesCategories.contains(it.categoryId) },
+                            onOpenCategoryManager = { scope ->
+                                categoryManagerInitialScope = scope
+                                isCategoryManagerModalOpen = true
+                            }
+                        )
+                    }
                 }
             }
         }
-    }
 
         // REPRODUCTOR HORIZONTAL A PANTALLA COMPLETA
         if (isPlayerFullscreen && activeStreamUrl != null) {
@@ -585,6 +667,88 @@ fun MobileHomeScreen(
             }
         }
     }
+
+    if (showPinDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showPinDialog = false; pinInput = "" },
+            title = { Text("Acceso a Ajustes", color = Color.White, fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    Text("Ingresa el PIN para gestionar listas y visibilidad de categorías:", color = Color.White.copy(0.7f))
+                    Spacer(modifier = Modifier.height(16.dp))
+                    androidx.compose.material3.OutlinedTextField(
+                        value = pinInput,
+                        onValueChange = { pinInput = it },
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.NumberPassword
+                        ),
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                        singleLine = true,
+                        colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedBorderColor = LelouchCyanAccent,
+                            cursorColor = LelouchCyanAccent
+                        )
+                    )
+                }
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    if (pinInput == "1990") {
+                        showPinDialog = false
+                        pinInput = ""
+                        selectedTab = 4 // Direct to MobileSettingsTab instead of TvAdminPanelModal!
+                    } else {
+                        android.widget.Toast.makeText(context, "PIN Incorrecto", android.widget.Toast.LENGTH_SHORT).show()
+                        pinInput = ""
+                    }
+                }) {
+                    Text("Aceptar", color = LelouchCyanAccent)
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { showPinDialog = false; pinInput = "" }) {
+                    Text("Cancelar", color = LelouchTextSecondary)
+                }
+            },
+            containerColor = LelouchSurface
+        )
+    }
+
+    if (isCategoryManagerModalOpen) {
+        MobileCategoryManagerModal(
+            initialScope = categoryManagerInitialScope,
+            liveCategories = liveCategories,
+            hiddenLiveCategoryNames = hiddenLiveCategories,
+            movieCategories = vodCategories,
+            hiddenMovieCategoryNames = hiddenMovieCategories,
+            seriesCategories = seriesCategories,
+            hiddenSeriesCategoryNames = hiddenSeriesCategories,
+            onToggleLiveCategory = { cat ->
+                if (cat.categoryName in hiddenLiveCategories || cat.categoryId in hiddenLiveCategories) {
+                    saveHiddenLive(hiddenLiveCategories - cat.categoryName - cat.categoryId)
+                } else {
+                    saveHiddenLive(hiddenLiveCategories + cat.categoryName + cat.categoryId)
+                }
+            },
+            onToggleMovieCategory = { cat ->
+                if (cat.categoryName in hiddenMovieCategories || cat.categoryId in hiddenMovieCategories) {
+                    saveHiddenMovies(hiddenMovieCategories - cat.categoryName - cat.categoryId)
+                } else {
+                    saveHiddenMovies(hiddenMovieCategories + cat.categoryName + cat.categoryId)
+                }
+            },
+            onToggleSeriesCategory = { cat ->
+                if (cat.categoryName in hiddenSeriesCategories || cat.categoryId in hiddenSeriesCategories) {
+                    saveHiddenSeries(hiddenSeriesCategories - cat.categoryName - cat.categoryId)
+                } else {
+                    saveHiddenSeries(hiddenSeriesCategories + cat.categoryName + cat.categoryId)
+                }
+            },
+            onDismiss = { isCategoryManagerModalOpen = false }
+        )
+    }
 }
 
 // TOP BAR
@@ -630,7 +794,7 @@ private fun MobileTopBar(
                     Spacer(Modifier.width(10.dp))
                     Box(
                         modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(LelouchSurfaceVariant)
-                            .clickable(onClick = onSettingsTap).padding(horizontal = 8.dp, vertical = 3.dp)
+                            .padding(horizontal = 8.dp, vertical = 3.dp) // Quitado clickable(onSettingsTap)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color(0xFF10B981)))
@@ -645,7 +809,7 @@ private fun MobileTopBar(
             if (showSearch) {
                 IconButton(onClick = { expanded = true }) { Icon(Icons.Default.Search, null, tint = LelouchCyanAccent) }
             }
-            IconButton(onClick = onSettingsTap) { Icon(Icons.Default.Settings, null, tint = LelouchTextSecondary) }
+            // Quitado el IconButton de Settings
         }
     }
 }
@@ -658,8 +822,7 @@ private fun MobileBottomNavBar(selectedTab: Int, onTabChange: (Int) -> Unit) {
             Icons.Default.Home to "Inicio",
             Icons.Default.LiveTv to "En Vivo",
             Icons.Default.Movie to "Peliculas",
-            Icons.Default.Tv to "Series",
-            Icons.Default.Settings to "Listas"
+            Icons.Default.Tv to "Series"
         ).forEachIndexed { index, (icon, label) ->
             NavigationBarItem(
                 selected = selectedTab == index,
@@ -714,77 +877,8 @@ private fun MobileHomeTab(
                 },
                 onReloadCatalog = onReloadCatalog,
                 onOpenSettings = onOpenSettings,
-                onOpenDiagnostics = onOpenSettings,
                 modifier = Modifier.padding(bottom = 8.dp)
             )
-        }
-        item {
-            val featuredMovie = movies.firstOrNull()
-            Box(
-                modifier = Modifier.fillMaxWidth().height(200.dp)
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                    .clip(RoundedCornerShape(16.dp)).background(LelouchSurfaceVariant)
-            ) {
-                if (featuredMovie != null && !featuredMovie.streamIcon.isNullOrBlank()) {
-                    AsyncImage(model = featuredMovie.streamIcon, contentDescription = null,
-                        modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                    Box(modifier = Modifier.fillMaxSize().background(
-                        Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(0.88f)))))
-                }
-                Column(modifier = Modifier.align(Alignment.BottomStart).padding(16.dp)) {
-                    Box(modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(LelouchLiveRed)
-                        .padding(horizontal = 6.dp, vertical = 2.dp)) {
-                        Text("DESTACADO", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Spacer(Modifier.height(4.dp))
-                    Text(featuredMovie?.name ?: "Bienvenido a LELOUCH", color = Color.White,
-                        fontWeight = FontWeight.Black, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text("Tu centro multimedia personal", color = Color.White.copy(0.7f), fontSize = 12.sp)
-                }
-                if (featuredMovie != null) {
-                    IconButton(
-                        onClick = { onMovieClick(featuredMovie) },
-                        modifier = Modifier.align(Alignment.TopEnd).padding(12.dp).background(LelouchCyanAccent, CircleShape)
-                    ) { Icon(Icons.Default.PlayArrow, null, tint = Color.Black) }
-                }
-            }
-        }
-        if (liveChannels.isNotEmpty()) {
-            item {
-                SectionHeader("Canales en Vivo", liveChannels.size, onSeeAllLive)
-                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    items(liveChannels.take(15)) { ch ->
-                        val url = StreamUrlResolver.resolveLive(ch.streamUrl, activeSource, ch.streamId)
-                        LiveChannelCard(channel = ch, onClick = { onChannelClick(ch.name, url) })
-                    }
-                    item { SeeMoreCard(onClick = onSeeAllLive) }
-                }
-                Spacer(Modifier.height(16.dp))
-            }
-        }
-        if (movies.isNotEmpty()) {
-            item {
-                SectionHeader("Peliculas", movies.size, onSeeAllMovies)
-                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    items(movies.take(15)) { movie ->
-                        MovieCard(movie = movie, onClick = { onMovieClick(movie) })
-                    }
-                    item { SeeMoreCard(onClick = onSeeAllMovies) }
-                }
-                Spacer(Modifier.height(16.dp))
-            }
-        }
-        if (seriesList.isNotEmpty()) {
-            item {
-                SectionHeader("Series", seriesList.size, onSeeAllSeries)
-                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    items(seriesList.take(15)) { series ->
-                        SeriesCard(series = series, onClick = { onSeriesClick(series) })
-                    }
-                    item { SeeMoreCard(onClick = onSeeAllSeries) }
-                }
-                Spacer(Modifier.height(24.dp))
-            }
         }
         if (liveChannels.isEmpty() && movies.isEmpty() && seriesList.isEmpty()) {
             item {
@@ -933,9 +1027,9 @@ private fun MobileMoviesTab(
             }
         }
         LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
+            columns = GridCells.Adaptive(85.dp),
             contentPadding = PaddingValues(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
             verticalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier.fillMaxSize()
         ) {
@@ -987,9 +1081,9 @@ private fun MobileSeriesTab(
             }
         }
         LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
+            columns = GridCells.Adaptive(85.dp),
             contentPadding = PaddingValues(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
             verticalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier.fillMaxSize()
         ) {
@@ -1010,7 +1104,11 @@ private fun MobileSettingsTab(
     onActivateSource: (String) -> Unit, onDeleteSource: (String) -> Unit,
     onAddSource: (String, String, String, String) -> Unit,
     onSyncCloud: () -> Unit, onForceSync: () -> Unit, onLogout: () -> Unit,
-    onOpenUpdate: () -> Unit
+    onOpenUpdate: () -> Unit,
+    liveTotal: Int, liveHiddenCount: Int,
+    moviesTotal: Int, moviesHiddenCount: Int,
+    seriesTotal: Int, seriesHiddenCount: Int,
+    onOpenCategoryManager: (MobileCategoryScope) -> Unit
 ) {
     LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1025,6 +1123,19 @@ private fun MobileSettingsTab(
                 MobileDangerButton("Salir", Modifier.weight(1f), onClick = onLogout)
             }
         }
+        
+        item {
+            MobileCategoryVisibilitySection(
+                liveTotal = liveTotal,
+                liveHiddenCount = liveHiddenCount,
+                moviesTotal = moviesTotal,
+                moviesHiddenCount = moviesHiddenCount,
+                seriesTotal = seriesTotal,
+                seriesHiddenCount = seriesHiddenCount,
+                onOpenManager = onOpenCategoryManager
+            )
+        }
+        
         item {
             Box(
                 modifier = Modifier
@@ -1267,7 +1378,15 @@ private fun MiniPlayerOverlay(
     osdDirection: String? = null,
     modifier: Modifier = Modifier
 ) {
-    Box(modifier = modifier.fillMaxWidth().height(220.dp).background(Color.Black)) {
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .then(if (isLandscape) Modifier.height(180.dp) else Modifier.aspectRatio(16f / 9f))
+            .background(Color.Black)
+    ) {
         LelouchVideoPlayer(playerEngine = playerEngine, modifier = Modifier.fillMaxSize())
 
         AnimatedVisibility(
@@ -1701,7 +1820,7 @@ private fun SeriesCard(series: Series, onClick: () -> Unit) {
 
 @Composable
 private fun MovieGridCard(movie: VodMovie, onClick: () -> Unit) {
-    Box(modifier = Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(12.dp))
+    Box(modifier = Modifier.fillMaxWidth().aspectRatio(2f/3f).clip(RoundedCornerShape(12.dp))
         .background(LelouchSurface).clickable(onClick = onClick)) {
         if (!movie.streamIcon.isNullOrBlank()) {
             AsyncImage(model = movie.streamIcon, contentDescription = movie.name,
@@ -1734,7 +1853,7 @@ private fun MovieGridCard(movie: VodMovie, onClick: () -> Unit) {
 
 @Composable
 private fun SeriesGridCard(series: Series, onClick: () -> Unit) {
-    Box(modifier = Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(12.dp))
+    Box(modifier = Modifier.fillMaxWidth().aspectRatio(2f/3f).clip(RoundedCornerShape(12.dp))
         .background(LelouchSurface).clickable(onClick = onClick)) {
         if (!series.cover.isNullOrBlank()) {
             AsyncImage(model = series.cover, contentDescription = series.name,

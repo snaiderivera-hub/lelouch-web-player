@@ -290,7 +290,7 @@ fun TvPortalDashboard(
                 */
 
                 // Indicador de Vencimiento
-                val expiryText = activeSource?.expireDate ?: "13/10/2026"
+                val expiryText = activeSource?.formattedExpireDate ?: "13/10/2026"
                 Text(
                     text = "Vence: $expiryText",
                     color = Color(0xFF94A3B8),

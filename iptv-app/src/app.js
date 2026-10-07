@@ -322,10 +322,14 @@ async function initApp() {
 
   // Comprobar si la playlist activa guardada es la lista personalizada
   const savedActiveId = localStorage.getItem('iptv_active_playlist_id');
+  let isActuallyCustom = false;
   if (savedActiveId === 'custom_lelouch_playlist') {
     const customList = getCustomM3UList();
     if (customList && customList.length > 0) {
+      isActuallyCustom = true;
       await activateCustomM3UAsMainPlaylist();
+    } else {
+      localStorage.removeItem('iptv_active_playlist_id');
     }
   }
 
@@ -343,7 +347,7 @@ async function initApp() {
   }
 
   // SOLO conectar si la playlist activa NO es la lista personalizada interna (evita 403 en vercel.app)
-  const isActiveCustom = savedActiveId === 'custom_lelouch_playlist' || activePlaylist?.id === 'custom_lelouch_playlist';
+  const isActiveCustom = isActuallyCustom || activePlaylist?.id === 'custom_lelouch_playlist';
   if (!isActiveCustom && activePlaylist && activePlaylist.url) {
     // Normalizar URLs antiguas de LionTV que tenían puerto 80 para evitar bloqueos del proveedor
     if (activePlaylist.url.includes('liontv.es:80/')) {

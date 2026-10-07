@@ -14,6 +14,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.Image
+import kotlinx.coroutines.delay
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -40,15 +52,47 @@ fun MobilePortalDashboard(
     onDownloadM3U: () -> Unit,
     onReloadCatalog: () -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenDiagnostics: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
+    Box(modifier = modifier.fillMaxSize()) {
+        Image(
+            painter = painterResource(id = com.lelouch.feature.mobile.R.drawable.bg_category_card),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.65f))
+        )
+
+        var currentTime by remember { mutableStateOf("") }
+        LaunchedEffect(Unit) {
+            val sdf = SimpleDateFormat("hh:mm a", Locale.getDefault())
+            sdf.timeZone = TimeZone.getTimeZone("America/Guatemala")
+            while (true) {
+                currentTime = sdf.format(Date())
+                delay(1000L)
+            }
+        }
+
+        Text(
+            text = currentTime,
+            color = Color.White.copy(alpha = 0.85f),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 16.dp, end = 16.dp)
+        )
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
         // ══════════════════════════════════════════════════════════════════════
         // 1. CABECERA CENTRAL DE MARCA Y ESTADO
         // ══════════════════════════════════════════════════════════════════════
@@ -85,6 +129,7 @@ fun MobilePortalDashboard(
                     .clip(RoundedCornerShape(16.dp))
                     .background(Color(0xFF061826))
                     .border(1.dp, Color(0xFF00E5FF).copy(alpha = 0.35f), RoundedCornerShape(16.dp))
+                    .clickable(onClick = onOpenSettings)
                     .padding(horizontal = 10.dp, vertical = 4.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -126,7 +171,7 @@ fun MobilePortalDashboard(
             Spacer(modifier = Modifier.width(8.dp))
 
             // Fecha de Expiración
-            val expiryText = activeSource?.expireDate ?: "13/10/2026"
+            val expiryText = activeSource?.formattedExpireDate ?: "13/10/2026"
             Text(
                 text = "Vence: $expiryText",
                 color = Color(0xFF94A3B8),
@@ -138,53 +183,42 @@ fun MobilePortalDashboard(
         Spacer(modifier = Modifier.height(16.dp))
 
         // ══════════════════════════════════════════════════════════════════════
-        // 2. LAS 4 TARJETAS EN CUADRÍCULA 2x2 PARA MÓVIL
+        // 2. LAS 4 TARJETAS EN FILA HORIZONTAL
         // ══════════════════════════════════════════════════════════════════════
         Column(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Fila 1: TV EN VIVO y PELÍCULAS
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 MobileHeroCard(
                     title = "TV EN VIVO",
-                    iconContent = { TvCardVectorIcon(size = 54.dp) },
+                    iconContent = { TvCardVectorIcon(size = 48.dp) },
                     count = liveChannelsCount,
                     onClick = onNavigateToLive,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f).height(115.dp)
                 )
-
                 MobileHeroCard(
                     title = "PELÍCULAS",
-                    iconContent = { MovieCardVectorIcon(size = 54.dp) },
+                    iconContent = { MovieCardVectorIcon(size = 48.dp) },
                     count = moviesCount,
                     onClick = onNavigateToMovies,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f).height(115.dp)
                 )
             }
-
-            // Fila 2: SERIES y DEPORTES
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 MobileHeroCard(
                     title = "SERIES",
-                    iconContent = { SeriesCardVectorIcon(size = 54.dp) },
+                    iconContent = { SeriesCardVectorIcon(size = 48.dp) },
                     count = seriesCount,
                     onClick = onNavigateToSeries,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f).height(115.dp)
                 )
-
                 MobileHeroCard(
                     title = "DEPORTES",
-                    iconContent = { SportsCardVectorIcon(size = 54.dp) },
+                    iconContent = { SportsCardVectorIcon(size = 48.dp) },
                     count = sportsCount,
                     onClick = onNavigateToSports,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f).height(115.dp)
                 )
             }
         }
@@ -213,20 +247,14 @@ fun MobilePortalDashboard(
             )
 
             MobileActionPill(
-                icon = "⚙️",
+                icon = "🩺",
                 label = "Ajustes",
                 onClick = onOpenSettings,
                 modifier = Modifier.weight(1f)
             )
-
-            MobileActionPill(
-                icon = "🩺",
-                label = "Diagnóstico",
-                onClick = onOpenDiagnostics,
-                modifier = Modifier.weight(1f)
-            )
         }
     }
+}
 }
 
 @Composable
