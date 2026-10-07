@@ -1223,13 +1223,27 @@ function renderLiveChannelsList() {
       <div class="empty-state" style="padding:2.5rem 1.5rem; text-align:center;">
         <div style="font-size:2rem; margin-bottom:0.5rem;">${isUserCat ? '⭐' : '📺'}</div>
         <div class="empty-title">${isUserCat ? 'Categoría vacía' : 'Sin canales'}</div>
-        <div class="empty-sub" style="margin-top:6px;">
+        <div class="empty-sub" style="margin-top:6px; margin-bottom: 1rem;">
           ${isUserCat 
             ? 'Esta categoría no tiene canales aún. Busca cualquier canal y presiona ➕ para agregarlo aquí.' 
             : 'No se encontraron canales disponibles en esta categoría.'}
         </div>
+        ${uiState.onlyMyCategories ? '<button id="btn-show-all-cats-fallback" class="btn btn-primary btn-sm">Ver categorías del proveedor</button>' : ''}
       </div>
     `;
+
+    const showAllBtn = container.querySelector('#btn-show-all-cats-fallback');
+    if (showAllBtn) {
+      showAllBtn.addEventListener('click', () => {
+        uiState.onlyMyCategories = false;
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('iptv_only_my_cats', 'false');
+        }
+        const chk = document.getElementById('setting-only-my-categories');
+        if (chk) chk.checked = false;
+        renderLiveTVView();
+      });
+    }
     return;
   }
 
