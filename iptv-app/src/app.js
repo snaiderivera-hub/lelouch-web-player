@@ -330,6 +330,10 @@ async function initApp() {
       await activateCustomM3UAsMainPlaylist();
     } else {
       localStorage.removeItem('iptv_active_playlist_id');
+      if (uiState.onlyMyCategories) {
+        uiState.onlyMyCategories = false;
+        localStorage.setItem('iptv_only_my_cats', 'false');
+      }
     }
   }
 
@@ -2419,6 +2423,10 @@ export function clearCustomM3UList() {
   if (list.length === 0) return;
   if (!confirm(`¿Estás seguro de vaciar los ${list.length} elementos de tu lista personalizada?`)) return;
   saveCustomM3UList([]);
+  if (uiState.onlyMyCategories) {
+    uiState.onlyMyCategories = false;
+    localStorage.setItem('iptv_only_my_cats', 'false');
+  }
   toast('🗑 Lista personalizada vaciada', 'info');
   renderCustomM3UManager();
 }
