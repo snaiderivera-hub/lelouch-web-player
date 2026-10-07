@@ -460,10 +460,26 @@ fun MobileHomeScreen(
 
         // REPRODUCTOR HORIZONTAL A PANTALLA COMPLETA
         if (isPlayerFullscreen && activeStreamUrl != null) {
+            var isOverlayVisible by remember { mutableStateOf(true) }
+
+            // Auto-hide timer
+            LaunchedEffect(isOverlayVisible, playbackState) {
+                if (isOverlayVisible && playbackState is PlaybackState.Playing) {
+                    kotlinx.coroutines.delay(4000L)
+                    isOverlayVisible = false
+                }
+            }
+
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black)
+                    .clickable(
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        isOverlayVisible = !isOverlayVisible
+                    }
                     .swipeToChangeChannel(
                         enabled = isLivePlayback,
                         onNext = { switchChannelByOffset(1) },
@@ -490,6 +506,12 @@ fun MobileHomeScreen(
                 }
 
                 // Barra Superior
+                AnimatedVisibility(
+                    visible = isOverlayVisible,
+                    enter = fadeIn() + slideInVertically { -it },
+                    exit = fadeOut() + slideOutVertically { -it },
+                    modifier = Modifier.align(Alignment.TopCenter)
+                ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -538,6 +560,7 @@ fun MobileHomeScreen(
                             Icon(Icons.Default.FullscreenExit, contentDescription = "Minimizar", tint = Color.White)
                         }
                     }
+                    }
                 }
 
                 // Barra Inferior para VOD / Películas / Series (Timeline, Adelantar, Velocidad)
@@ -550,13 +573,18 @@ fun MobileHomeScreen(
                     }
                     val isPlaying = playbackState is PlaybackState.Playing
 
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .align(Alignment.BottomCenter)
-                            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(0.9f))))
-                            .padding(horizontal = 24.dp, vertical = 16.dp)
+                    AnimatedVisibility(
+                        visible = isOverlayVisible,
+                        enter = fadeIn() + slideInVertically { it / 2 },
+                        exit = fadeOut() + slideOutVertically { it / 2 },
+                        modifier = Modifier.align(Alignment.BottomCenter)
                     ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(0.9f))))
+                                .padding(horizontal = 24.dp, vertical = 16.dp)
+                        ) {
                         // Barra de progreso y tiempos
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -662,6 +690,7 @@ fun MobileHomeScreen(
                                 )
                             }
                         }
+                    }
                     }
                 }
             }

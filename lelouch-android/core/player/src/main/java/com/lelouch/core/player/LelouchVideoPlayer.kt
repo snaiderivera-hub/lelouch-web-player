@@ -111,7 +111,7 @@ fun LelouchVideoPlayer(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT
                     )
-                    useController = true
+                    useController = false
                     isFocusable = true
                     isFocusableInTouchMode = false
                     keepScreenOn = true
