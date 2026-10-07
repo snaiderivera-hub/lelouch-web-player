@@ -149,12 +149,12 @@ fun MobileHomeScreen(
     }
 
     // FASE 33: Anticaídas de señal y Omisión Automática de canales caídos o vacíos
-    DisposableEffect(playerEngine, cleanLiveChannels, activeStreamUrl, isLivePlayback) {
+    DisposableEffect(playerEngine, cleanLiveChannels, activeStreamUrl, isLivePlayback, activeSource) {
         playerEngine.onChannelUnavailable = {
             if (isLivePlayback && cleanLiveChannels.isNotEmpty()) {
                 if (consecutiveAutoSkips < 5) {
                     consecutiveAutoSkips++
-                    val currentIndex = cleanLiveChannels.indexOfFirst { it.streamUrl == activeStreamUrl || it.name == activeChannelName }
+                    val currentIndex = cleanLiveChannels.indexOfFirst { it.name == activeChannelName }
                     val nextIndex = if (currentIndex in 0 until cleanLiveChannels.size - 1) currentIndex + 1 else 0
                     val nextChannel = cleanLiveChannels[nextIndex]
                     android.widget.Toast.makeText(
@@ -163,7 +163,7 @@ fun MobileHomeScreen(
                         android.widget.Toast.LENGTH_SHORT
                     ).show()
                     activeChannelName = nextChannel.name
-                    val targetUrl = nextChannel.streamUrl
+                    val targetUrl = com.lelouch.core.network.StreamUrlResolver.resolveLive(nextChannel.streamUrl, activeSource, nextChannel.streamId)
                     if (targetUrl == activeStreamUrl) {
                         playerEngine.playStream(targetUrl, isLive = true)
                     } else {
@@ -202,40 +202,28 @@ fun MobileHomeScreen(
         }
     }
 
-    val switchChannelByOffset: (Int) -> Unit = remember(cleanLiveChannels, activeStreamUrl, activeChannelName) {
+    val switchChannelByOffset: (Int) -> Unit = remember(cleanLiveChannels, activeStreamUrl, activeChannelName, activeSource) {
         { delta: Int ->
             if (cleanLiveChannels.isNotEmpty()) {
-                val currentIndex = cleanLiveChannels.indexOfFirst { it.streamUrl == activeStreamUrl || it.name == activeChannelName }
-                var newIndex = when {
+                val currentIndex = cleanLiveChannels.indexOfFirst { it.name == activeChannelName }
+                val newIndex = when {
                     currentIndex == -1 -> 0
                     delta > 0 -> if (currentIndex < cleanLiveChannels.size - 1) currentIndex + 1 else 0
                     else -> if (currentIndex > 0) currentIndex - 1 else cleanLiveChannels.size - 1
                 }
                 
-                var attempts = 0
-                while (cleanLiveChannels[newIndex].streamUrl.isBlank() && attempts < cleanLiveChannels.size) {
-                    newIndex = if (delta > 0) {
-                        if (newIndex < cleanLiveChannels.size - 1) newIndex + 1 else 0
-                    } else {
-                        if (newIndex > 0) newIndex - 1 else cleanLiveChannels.size - 1
-                    }
-                    attempts++
+                val targetChannel = cleanLiveChannels[newIndex]
+                activeChannelName = targetChannel.name
+                val targetUrl = com.lelouch.core.network.StreamUrlResolver.resolveLive(targetChannel.streamUrl, activeSource, targetChannel.streamId)
+                if (targetUrl == activeStreamUrl) {
+                    playerEngine.playStream(targetUrl, isLive = true)
+                } else {
+                    activeStreamUrl = targetUrl
                 }
-
-                if (attempts < cleanLiveChannels.size) {
-                    val targetChannel = cleanLiveChannels[newIndex]
-                    activeChannelName = targetChannel.name
-                    val targetUrl = targetChannel.streamUrl
-                    if (targetUrl == activeStreamUrl) {
-                        playerEngine.playStream(targetUrl, isLive = true)
-                    } else {
-                        activeStreamUrl = targetUrl
-                    }
-                    channelOsdText = targetChannel.name
-                    channelOsdSubtext = "Canal ${newIndex + 1} de ${cleanLiveChannels.size}"
-                    channelOsdDirection = if (delta > 0) "▲ Siguiente Canal" else "▼ Canal Anterior"
-                    channelOsdVersion++
-                }
+                channelOsdText = targetChannel.name
+                channelOsdSubtext = "Canal ${newIndex + 1} de ${cleanLiveChannels.size}"
+                channelOsdDirection = if (delta > 0) "▲ Siguiente Canal" else "▼ Canal Anterior"
+                channelOsdVersion++
             }
         }
     }
