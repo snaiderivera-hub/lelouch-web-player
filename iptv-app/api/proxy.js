@@ -105,17 +105,15 @@ export default async function handler(req, res) {
       // ✅ PROXY PERMITIDO: Imágenes (Portadas, logos de canales)
       res.setHeader('Content-Type', contentType || 'image/jpeg');
       
-      const contentLength = response.headers.get('content-length');
-      if (contentLength) res.setHeader('Content-Length', contentLength);
-      
-      if (!response.body) return res.end();
-      
-      const stream = Readable.fromWeb(response.body);
-      stream.on('error', (err) => {
-        console.warn('[Proxy Image Error]:', err.message);
-        if (!res.headersSent) res.status(502).end(); else res.destroy();
-      });
-      return stream.pipe(res);
+      try {
+        const arrayBuffer = await response.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        res.setHeader('Content-Length', buffer.length);
+        return res.send(buffer);
+      } catch (imgErr) {
+        console.warn('[Proxy Image Buffer Error]:', imgErr.message);
+        return res.status(502).end();
+      }
     }
 
     // ✅ PROXY PERMITIDO: Solo respuestas ligeras de API JSON (categorías, canales, VOD)
