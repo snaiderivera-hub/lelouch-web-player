@@ -78,14 +78,15 @@ export default async function handler(req, res) {
 
     let contentType = (response.headers.get('content-type') || '').toLowerCase();
     
-    // Definimos qué es seguro proxyar en Vercel (solo APIs de texto/JSON/XML)
+    // Definimos qué es seguro proxyar en Vercel
     const isApiJson = contentType.includes('json') || contentType.includes('xml') || contentType.includes('text') || targetUrl.includes('player_api.php') || targetUrl.includes('get.php');
+    const isImage = contentType.includes('image') || targetUrl.match(/\.(png|jpg|jpeg|gif|webp)($|\?)/i);
     
-    // Si NO es una API de texto o es video/audio/m3u8/binario, detenemos el proxy y REDIRIGIMOS
+    // Si es claramente un video, audio, o binario no permitido, lo bloqueamos
     const isVideoOrBinary = contentType.includes('video') || contentType.includes('audio') || contentType.includes('mpegurl') || contentType.includes('octet-stream') || targetUrl.match(/\.(ts|mp4|mkv|m3u8|avi)($|\?)/i);
 
-    if (isVideoOrBinary || !isApiJson) {
-      // 🚫 BLOQUEO DE VIDEO: Es un flujo multimedia o binario.
+    if (isVideoOrBinary || (!isApiJson && !isImage)) {
+      // 🚫 BLOQUEO DE VIDEO: Es un flujo multimedia o binario no reconocido.
       // Abortamos la conexión proxy para no consumir ancho de banda de Vercel.
       abortController.abort();
       
@@ -93,14 +94,32 @@ export default async function handler(req, res) {
       return res.redirect(302, targetUrl);
     }
 
-    // ✅ PROXY PERMITIDO: Solo respuestas ligeras de API JSON (categorías, canales, VOD)
     res.status(response.status);
-    res.setHeader('Content-Type', contentType || 'application/json; charset=utf-8');
     
     if (response.ok && req.method === 'GET') {
-      // Cachear en el CDN Edge de Vercel para aceleración (2 minutos en CDN, 10 min stale)
-      res.setHeader('Cache-Control', 'public, s-maxage=120, stale-while-revalidate=600');
+      // Cachear fuertemente en el CDN Edge de Vercel para aceleración y ahorro (1 día CDN, 7 días stale)
+      res.setHeader('Cache-Control', 'public, s-maxage=86400, stale-while-revalidate=604800');
     }
+
+    if (isImage) {
+      // ✅ PROXY PERMITIDO: Imágenes (Portadas, logos de canales)
+      res.setHeader('Content-Type', contentType || 'image/jpeg');
+      
+      const contentLength = response.headers.get('content-length');
+      if (contentLength) res.setHeader('Content-Length', contentLength);
+      
+      if (!response.body) return res.end();
+      
+      const stream = Readable.fromWeb(response.body);
+      stream.on('error', (err) => {
+        console.warn('[Proxy Image Error]:', err.message);
+        if (!res.headersSent) res.status(502).end(); else res.destroy();
+      });
+      return stream.pipe(res);
+    }
+
+    // ✅ PROXY PERMITIDO: Solo respuestas ligeras de API JSON (categorías, canales, VOD)
+    res.setHeader('Content-Type', contentType || 'application/json; charset=utf-8');
     
     const textData = await response.text();
     res.setHeader('Content-Length', Buffer.byteLength(textData, 'utf8'));
