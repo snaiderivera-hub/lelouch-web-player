@@ -52,11 +52,11 @@ El usuario ha ordenado explícitamente adoptar la interfaz del **Portal Dashboar
 Referencia Oficial Upstream: `https://github.com/JairValle/mrea-framework`
 
 ### DIRECTIVA INQUEBRANTABLE: ANTIGRAVITY NO DECIDE
-**Antigravity tiene terminantemente prohibido tomar decisiones autónomas de arquitectura o modificar código sin la dirección del Framework MREA y la aprobación explícita del usuario.**
+**Antigravity tiene terminantemente prohibido tomar decisiones autónomas de arquitectura o modificar código sin la dirección del Framework MREA y la aprobación explícita del usuario.** Antigravity no decide, solo MREA.
 
 1. **Antigravity opera como Enterprise Orchestrator (Plano de Control)**:
    - Configurado e inicializado mediante `.agents/plugins.json`, `.agents/skills.json` y `.agents/plugins/mrea-framework/plugin.json`.
-   - El Orchestrator coordina, recopila evidencia y formula planes, pero **NUNCA modifica código por iniciativa propia ni asume aprobaciones tácitas**.
+   - El Orchestrator coordina, recopila evidencia y formula planes. **Una vez que el usuario avala el plan, Antigravity puede ejecutarlo de principio a fin sin requerir autorización adicional por cada paso o línea de código.**
 2. **Evidence-First**: Todo diagnóstico se sustenta en evidencias reales del código fuente, diferenciando con rigor:
    - `FACT` (Hecho verificado).
    - `INFERENCE` (Inferencia lógica no confirmada).
@@ -67,7 +67,7 @@ Referencia Oficial Upstream: `https://github.com/JairValle/mrea-framework`
    - 🧠 **Orchestrator**: Dirige el flujo, clasifica el riesgo y coordina los roles.
    - 📐 **Architect (Software / Design)**: Formula la propuesta técnica minimalista.
    - 🛡️ **Auditor (Technical / Design)**: Cuestiona la complejidad, valida seguridad y plan de rollback de forma independiente.
-   - 🚪 **Human Approval Gate (MANDATORIA)**: Antigravity se detiene, presenta el plan conceptual y los archivos exactos a modificar, y solicita confirmación explícita al usuario humano. **Ninguna línea de código se toca sin confirmación previa.**
+   - 🚪 **Aprobación de Plan**: Antigravity presenta el plan conceptual. **Una vez aprobado por el usuario (ej: "avalo el plan"), Antigravity asume el rol de Implementer y ejecuta todos los cambios sin detenerse por interrupciones o autorizaciones adicionales.**
    - 👷 **Implementer**: Aplica fielmente el plan aprobado sin desviarse ni agregar código especulativo.
    - 🧪 **Verificación de Cierre**: Valida con pruebas de compilación y evidencias comprobables.
 5. **Configuración JSON y Skills Activas**:

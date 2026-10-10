@@ -76,90 +76,35 @@ export default async function handler(req, res) {
       signal: abortController.signal,
     });
 
-    let contentType = response.headers.get('content-type') || 'application/octet-stream';
-    const isM3u8 = targetUrl.includes('.m3u8') || targetUrl.includes('output=m3u8') || contentType.includes('mpegurl');
+    let contentType = (response.headers.get('content-type') || '').toLowerCase();
+    
+    // Definimos qué es seguro proxyar en Vercel (solo APIs de texto/JSON/XML)
+    const isApiJson = contentType.includes('json') || contentType.includes('xml') || contentType.includes('text') || targetUrl.includes('player_api.php') || targetUrl.includes('get.php');
+    
+    // Si NO es una API de texto o es video/audio/m3u8/binario, detenemos el proxy y REDIRIGIMOS
+    const isVideoOrBinary = contentType.includes('video') || contentType.includes('audio') || contentType.includes('mpegurl') || contentType.includes('octet-stream') || targetUrl.match(/\.(ts|mp4|mkv|m3u8|avi)($|\?)/i);
 
-    if (isM3u8) {
-      contentType = 'application/vnd.apple.mpegurl';
-      res.setHeader('Content-Type', contentType);
-      res.status(response.status);
-
-      if (!response.ok) {
-        const text = await response.text();
-        return res.send(text);
-      }
-
-      // Reescritura de manifest M3U8 para resolver segmentos contra el proxy
-      const manifestText = await response.text();
-      const baseUrl = new URL(targetUrl);
-      const lines = manifestText.split(/\r?\n/);
-      const rewrittenLines = lines.map(line => {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith('#')) {
-          return line;
-        }
-        try {
-          const absoluteSegment = new URL(trimmed, baseUrl).href;
-          return `/api/proxy?target=${encodeURIComponent(absoluteSegment)}`;
-        } catch {
-          return line;
-        }
-      });
-
-      const rewrittenManifest = rewrittenLines.join('\n');
-      res.setHeader('Content-Length', Buffer.byteLength(rewrittenManifest, 'utf8'));
-      return res.send(rewrittenManifest);
+    if (isVideoOrBinary || !isApiJson) {
+      // 🚫 BLOQUEO DE VIDEO: Es un flujo multimedia o binario.
+      // Abortamos la conexión proxy para no consumir ancho de banda de Vercel.
+      abortController.abort();
+      
+      // Retornamos un Redirect (302) para que el reproductor conecte DIRECTAMENTE con el proveedor IPTV.
+      return res.redirect(302, targetUrl);
     }
 
-    // Respuestas de API JSON (player_api.php, categorías, canales, VOD)
-    const isApiJson = contentType.includes('json') || targetUrl.includes('player_api.php') || targetUrl.includes('get.php');
-    if (isApiJson) {
-      res.status(response.status);
-      res.setHeader('Content-Type', 'application/json; charset=utf-8');
-      if (response.ok && req.method === 'GET') {
-        // Cachear en el CDN Edge de Vercel para aceleración instantánea (2 minutos en CDN, 10 min stale)
-        res.setHeader('Cache-Control', 'public, s-maxage=120, stale-while-revalidate=600');
-      }
-      const jsonText = await response.text();
-      res.setHeader('Content-Length', Buffer.byteLength(jsonText, 'utf8'));
-      return res.send(jsonText);
-    }
-
-    // Para streams continuos de video/audio (MPEG-TS, MP4, MKV)
-    res.setHeader('Content-Type', contentType);
-
-    const contentLength = response.headers.get('content-length');
-    if (contentLength) {
-      res.setHeader('Content-Length', contentLength);
-    }
-
-    const contentRange = response.headers.get('content-range');
-    if (contentRange) {
-      res.setHeader('Content-Range', contentRange);
-    }
-
-    const acceptRanges = response.headers.get('accept-ranges');
-    if (acceptRanges) {
-      res.setHeader('Accept-Ranges', acceptRanges);
-    }
-
+    // ✅ PROXY PERMITIDO: Solo respuestas ligeras de API JSON (categorías, canales, VOD)
     res.status(response.status);
-
-    if (!response.body) {
-      return res.end();
+    res.setHeader('Content-Type', contentType || 'application/json; charset=utf-8');
+    
+    if (response.ok && req.method === 'GET') {
+      // Cachear en el CDN Edge de Vercel para aceleración (2 minutos en CDN, 10 min stale)
+      res.setHeader('Cache-Control', 'public, s-maxage=120, stale-while-revalidate=600');
     }
-
-    const stream = Readable.fromWeb(response.body);
-    stream.on('error', (err) => {
-      console.warn('[Proxy Stream Error]:', err.message);
-      if (!res.headersSent) {
-        res.status(502).end();
-      } else {
-        res.destroy();
-      }
-    });
-
-    return stream.pipe(res);
+    
+    const textData = await response.text();
+    res.setHeader('Content-Length', Buffer.byteLength(textData, 'utf8'));
+    return res.send(textData);
   } catch (err) {
     if (err.name === 'AbortError') {
       return res.end();
