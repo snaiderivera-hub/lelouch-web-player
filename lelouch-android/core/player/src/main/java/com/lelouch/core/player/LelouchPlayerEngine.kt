@@ -11,6 +11,9 @@ import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.HttpDataSource
+import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
@@ -23,6 +26,7 @@ import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
+import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import com.lelouch.core.player.telemetry.PlaybackAttemptMetrics
 import com.lelouch.core.player.telemetry.PlaybackAttemptResult
 import com.lelouch.core.player.telemetry.PlaybackMediaType
@@ -38,6 +42,26 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+
+@OptIn(UnstableApi::class)
+private class IptvLoadErrorHandlingPolicy(private val maxRetries: Int = 5) : DefaultLoadErrorHandlingPolicy(maxRetries) {
+    override fun getRetryDelayMsFor(loadErrorInfo: LoadErrorHandlingPolicy.LoadErrorInfo): Long {
+        val ex = loadErrorInfo.exception
+        if (ex is HttpDataSource.InvalidResponseCodeException) {
+            // Error 429 (Too Many Requests), 503 (Service Unavailable) o 500: reintentar con backoff suave
+            if (ex.responseCode == 429 || ex.responseCode == 503 || ex.responseCode == 500) {
+                if (loadErrorInfo.errorCount <= maxRetries) {
+                    return (1_500L * loadErrorInfo.errorCount).coerceAtMost(5_000L)
+                }
+            }
+        }
+        return super.getRetryDelayMsFor(loadErrorInfo)
+    }
+
+    override fun getMinimumLoadableRetryCount(dataType: Int): Int {
+        return maxRetries
+    }
+}
 
 /**
  * Native IPTV video player engine powered by AndroidX Media3 ExoPlayer.
@@ -83,6 +107,7 @@ class LelouchPlayerEngine(
                 config.bufferForPlaybackMs,
                 config.bufferForPlaybackAfterRebufferMs
             )
+            .setBackBuffer(0, false)
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
     }
@@ -97,16 +122,16 @@ class LelouchPlayerEngine(
     }
 
     private val trackSelector by lazy {
-        // ABR adaptativo agresivo para IPTV:
-        // - minDurationForQualityIncreaseMs = 12s para subir de resolución (evita fluctuaciones)
-        // - maxDurationForQualityDecreaseMs = 5s (si el buffer decae a menos de 5s, baja calidad de inmediato)
-        // - minDurationToRetainAfterDiscardMs = 3s (descarta paquetes pesados para no congelar la imagen)
-        // - bandwidthFraction = 0.75f (utiliza hasta el 75% del ancho de banda disponible)
+        // ABR adaptativo optimizado para IPTV y redes domésticas:
+        // - minDurationForQualityIncreaseMs = 15s para subir de resolución con estabilidad
+        // - maxDurationForQualityDecreaseMs = 2s (si el buffer decae a menos de 2s, baja de calidad inmediatamente para evitar cortes)
+        // - minDurationToRetainAfterDiscardMs = 2s
+        // - bandwidthFraction = 0.85f (utiliza hasta el 85% del ancho de banda disponible)
         val adaptiveTrackSelectionFactory = AdaptiveTrackSelection.Factory(
-            12_000,
-            5_000,
-            3_000,
-            0.75f
+            15_000,
+            2_000,
+            2_000,
+            0.85f
         )
         DefaultTrackSelector(context, adaptiveTrackSelectionFactory).also { selector ->
             selector.setParameters(
@@ -115,6 +140,7 @@ class LelouchPlayerEngine(
                     .setAllowVideoMixedMimeTypeAdaptiveness(true)
                     .setAllowAudioMixedMimeTypeAdaptiveness(true)
                     .setExceedRendererCapabilitiesIfNecessary(true)
+                    .setExceedVideoConstraintsIfNecessary(true)
             )
         }
     }
@@ -269,40 +295,57 @@ class LelouchPlayerEngine(
         val watchdogAttemptId = currentAttemptId
         playbackTracker.onWatchdogEvent(watchdogAttemptId, WatchdogEventType.WATCHDOG_STARTED)
         bufferingWatchdogJob = scope.launch {
-            // FASE 1 (3 segundos de buffering):
-            // Reducir temporalmente la calidad de video al bitrate más bajo (720p/480p) para salvar la transmisión sin cortar.
-            delay(3_000L)
+            val isMultiBitrateHls = _currentUrl.value?.contains(".m3u8", ignoreCase = true) == true ||
+                                    _currentUrl.value?.contains("output=m3u8", ignoreCase = true) == true
+
+            // FASE 1 (2.5 segundos de buffering):
+            // Reducir la calidad de video al bitrate intermedio (720p/480p) para salvar la transmisión sin cortar.
+            // NOTA: Solo aplicar reducción de bitrate (ABR) en streams HLS multi-bitrate (.m3u8).
+            // En canales TS puros de IPTV (.ts), cambiar trackSelector fuerza a MediaCodec a desconectarse
+            // de la Surface ("SurfaceUtils: disconnecting from surface") y tira el canal ("se quita luego").
+            delay(2_500L)
             if (!isActive || !isCurrentStreamLive) return@launch
 
-            playbackTracker.onWatchdogEvent(watchdogAttemptId, WatchdogEventType.WATCHDOG_BITRATE_REDUCTION, "Bitrate -> 1.5Mbps")
-            android.util.Log.w("LelouchPlayer", "Buffer en riesgo (>3s). Reduciendo calidad de video (ABR) para evitar corte...")
-            try {
-                trackSelector.setParameters(
-                    trackSelector.parameters.buildUpon().setMaxVideoBitrate(1_500_000)
-                )
-            } catch (_: Exception) {}
+            if (isMultiBitrateHls) {
+                playbackTracker.onWatchdogEvent(watchdogAttemptId, WatchdogEventType.WATCHDOG_BITRATE_REDUCTION, "Bitrate -> 1.5Mbps")
+                android.util.Log.w("LelouchPlayer", "Buffer en riesgo (>2.5s). Reduciendo calidad de video (ABR) para evitar corte...")
+                try {
+                    trackSelector.setParameters(
+                        trackSelector.parameters.buildUpon()
+                            .setMaxVideoBitrate(1_500_000)
+                            .setExceedVideoConstraintsIfNecessary(true)
+                    )
+                } catch (_: Exception) {}
+            }
 
-            // FASE 2 (7 segundos continuos en buffering):
-            // Si el buffer no se recuperó a menor bitrate, intentar reconectar stream.
-            delay(4_000L)
+            // FASE 2 (6 segundos continuos en buffering):
+            // Reducir al bitrate mínimo (SD/480p/360p) para mantener la reproducción en redes lentas.
+            delay(3_500L)
+            if (!isActive || !isCurrentStreamLive) return@launch
+
+            if (isMultiBitrateHls) {
+                playbackTracker.onWatchdogEvent(watchdogAttemptId, WatchdogEventType.WATCHDOG_BITRATE_REDUCTION, "Bitrate -> 800kbps")
+                android.util.Log.w("LelouchPlayer", "Buffer persistente (>6s). Reduciendo calidad de video al mínimo (800kbps)...")
+                try {
+                    trackSelector.setParameters(
+                        trackSelector.parameters.buildUpon()
+                            .setMaxVideoBitrate(800_000)
+                            .setExceedVideoConstraintsIfNecessary(true)
+                    )
+                } catch (_: Exception) {}
+            }
+
+            // FASE 3 (12 segundos continuos en buffering):
+            // Si el buffer no se recuperó, intentar refrescar silenciosamente el stream SIN botar al usuario del canal.
+            delay(6_000L)
             if (!isActive || !isCurrentStreamLive) return@launch
 
             if (autoRetryAttemptsLeft > 0) {
                 autoRetryAttemptsLeft--
-                playbackTracker.onWatchdogEvent(watchdogAttemptId, WatchdogEventType.WATCHDOG_RETRY, "Reconnect attempt")
-                android.util.Log.w("LelouchPlayer", "Stream congelado >7s. Intentando reconectar señal...")
+                playbackTracker.onWatchdogEvent(watchdogAttemptId, WatchdogEventType.WATCHDOG_RETRY, "Silent reconnect attempt")
+                android.util.Log.w("LelouchPlayer", "Stream en pausa prolongada. Reintentando reconexión silenciosa del mismo canal...")
                 exoPlayer.prepare()
                 exoPlayer.playWhenReady = true
-                delay(5_000L)
-                if (exoPlayer.playbackState == Player.STATE_BUFFERING && isActive && isCurrentStreamLive) {
-                    playbackTracker.onWatchdogEvent(watchdogAttemptId, WatchdogEventType.WATCHDOG_SKIP, "Canal sin señal tras reconexión")
-                    android.util.Log.e("LelouchPlayer", "Canal sin señal tras reconexión. Deteniendo buffer.")
-                    triggerChannelUnavailable("Señal caída (stream congelado).")
-                }
-            } else {
-                playbackTracker.onWatchdogEvent(watchdogAttemptId, WatchdogEventType.WATCHDOG_SKIP, "Canal congelado >7s")
-                android.util.Log.e("LelouchPlayer", "Señal IPTV caída (>7s congelado). Deteniendo buffer.")
-                triggerChannelUnavailable("Señal caída (stream congelado).")
             }
         }
     }
@@ -398,17 +441,26 @@ class LelouchPlayerEngine(
             val isNetworkError = error.errorCode in setOf(
                 PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
                 PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
+                PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,
                 PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE,
                 PlaybackException.ERROR_CODE_IO_UNSPECIFIED,
                 -3 // Handling undocumented legacy error -3
             )
             val currentStreamUrl = _currentUrl.value
-            if (isNetworkError && isCurrentStreamLive && currentStreamUrl != null && autoRetryAttemptsLeft > 0) {
+            if (isNetworkError && currentStreamUrl != null && autoRetryAttemptsLeft > 0) {
                 autoRetryAttemptsLeft--
                 _playbackState.value = PlaybackState.Buffering
+                val resumePosition = if (!isCurrentStreamLive) exoPlayer.currentPosition.coerceAtLeast(0L) else C.TIME_UNSET
+                android.util.Log.w(
+                    "LelouchPlayer",
+                    "Error de red o HTTP (${error.errorCode}). Reintentando conexión silenciosa (isLive=$isCurrentStreamLive, resumePos=$resumePosition, intentosRestantes=$autoRetryAttemptsLeft)..."
+                )
                 scope.launch {
-                    delay(2_000L)
+                    delay(1_500L)
                     if (_currentUrl.value == currentStreamUrl) {
+                        if (!isCurrentStreamLive && resumePosition != C.TIME_UNSET && resumePosition > 0L) {
+                            exoPlayer.seekTo(resumePosition)
+                        }
                         exoPlayer.prepare()
                         exoPlayer.playWhenReady = true
                     }
@@ -422,7 +474,7 @@ class LelouchPlayerEngine(
                 PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ->
                     "Sin conexión al servidor IPTV. Saltando canal..."
                 PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ->
-                    "Canal no disponible (Error 403/404). Saltando al siguiente..."
+                    "Canal no disponible (Error 403/404/429). Saltando al siguiente..."
                 PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
                 PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED ->
                     "Formato de stream incompatible. Saltando al siguiente..."
@@ -482,8 +534,9 @@ class LelouchPlayerEngine(
             return
         }
 
-        // Cancelar buffer previo y reiniciar el contador de reintentos para el nuevo canal
+        // Cancelar buffer previo, liberar conexión HTTP previa para evitar 429/503 y reiniciar contador de reintentos
         exoPlayer.stop()
+        exoPlayer.clearMediaItems()
         _currentUrl.value = url
         isCurrentStreamLive = isLive
         autoRetryAttemptsLeft = config.autoRetryCount
@@ -506,18 +559,47 @@ class LelouchPlayerEngine(
         exoPlayer.playWhenReady = true
     }
 
+    private val extractorsFactory by lazy {
+        DefaultExtractorsFactory().apply {
+            setTsExtractorFlags(
+                DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
+                DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS
+            )
+        }
+    }
+
+    private val defaultMediaSourceFactory by lazy {
+        androidx.media3.exoplayer.source.DefaultMediaSourceFactory(httpDataSourceFactory, extractorsFactory)
+    }
+
     private fun buildMediaSource(url: String, attemptId: Long): MediaSource {
         val uri = Uri.parse(url)
-        val retryPolicy = DefaultLoadErrorHandlingPolicy(config.autoRetryCount)
+        val retryPolicy = IptvLoadErrorHandlingPolicy(config.autoRetryCount)
 
-        return androidx.media3.exoplayer.source.DefaultMediaSourceFactory(httpDataSourceFactory)
-            .setLoadErrorHandlingPolicy(retryPolicy)
-            .createMediaSource(
-                MediaItem.Builder()
-                    .setUri(uri)
-                    .setMediaId("attempt_$attemptId")
-                    .build()
-            )
+        val isHls = url.contains(".m3u8", ignoreCase = true) || url.contains("output=m3u8", ignoreCase = true)
+        val isMp4 = url.contains(".mp4", ignoreCase = true)
+
+        val mediaItem = MediaItem.Builder()
+            .setUri(uri)
+            .setMediaId("attempt_$attemptId")
+            .apply {
+                when {
+                    isHls -> setMimeType(MimeTypes.APPLICATION_M3U8)
+                    isMp4 -> setMimeType(MimeTypes.APPLICATION_MP4)
+                }
+            }
+            .build()
+
+        return if (isHls) {
+            HlsMediaSource.Factory(httpDataSourceFactory)
+                .setAllowChunklessPreparation(config.allowChunklessPreparation)
+                .setLoadErrorHandlingPolicy(retryPolicy)
+                .createMediaSource(mediaItem)
+        } else {
+            defaultMediaSourceFactory
+                .setLoadErrorHandlingPolicy(retryPolicy)
+                .createMediaSource(mediaItem)
+        }
     }
 
     private fun updateState(isPlaying: Boolean) {

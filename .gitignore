@@ -19,4 +19,11 @@ RESPALDOS_Y_DATOS/
 *.apk
 .freebuff/
 current_device_screen_*.png
+tv_screen_*.png
 current_ui.xml
+
+# Local environments and desktop builds
+node-env/
+lelouch-desktop/node_modules/
+lelouch-desktop/dist/
+Lelouch_Setup.exe

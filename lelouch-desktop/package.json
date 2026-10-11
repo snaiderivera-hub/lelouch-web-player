@@ -1,0 +1,41 @@
+{
+  "name": "lelouch-desktop",
+  "version": "1.0.0",
+  "description": "Lelouch IPTV Desktop",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.3.0"
+  },
+  "build": {
+    "appId": "com.lelouch.iptv",
+    "productName": "Lelouch IPTV",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "extraResources": [
+      {
+        "from": "../iptv-app",
+        "to": "iptv-app",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ]
+  },
+  "devDependencies": {
+    "electron": "^41.7.1",
+    "electron-builder": "^24.13.3"
+  }
+}

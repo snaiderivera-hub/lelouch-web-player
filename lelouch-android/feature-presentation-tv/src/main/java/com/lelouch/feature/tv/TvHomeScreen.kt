@@ -611,20 +611,10 @@ fun TvHomeScreen(
         }
     }
 
-    // FASE 33: Anticaídas de señal y Omisión Automática de canales en TV Box
-    DisposableEffect(playerEngine, visibleChannels, activePlaybackChannels, activePlaybackChannelIndex, isPlayingLive) {
+    // FASE 33: Resiliencia de señal en TV Box (sin saltos involuntarios de canal)
+    DisposableEffect(playerEngine) {
         playerEngine.onChannelUnavailable = {
-            if (isPlayingLive) {
-                val channels = if (activePlaybackChannels.isNotEmpty()) activePlaybackChannels else visibleChannels
-                if (channels.isNotEmpty()) {
-                    val nextIndex = if (activePlaybackChannelIndex in 0 until channels.size - 1) activePlaybackChannelIndex + 1 else 0
-                    activePlaybackChannelIndex = nextIndex
-                    val nextCh = channels[nextIndex]
-                    focusedChannelIndex = visibleChannels.indexOfFirst { it.streamId == nextCh.streamId }.coerceAtLeast(0)
-                    playerEngine.playStream(nextCh.streamUrl, isLive = true)
-                    isHudVisible = true
-                }
-            }
+            // El usuario pidió no saltar de canal automáticamente: se preserva la sintonía en el canal actual.
         }
         onDispose {
             playerEngine.onChannelUnavailable = null
@@ -779,10 +769,10 @@ fun TvHomeScreen(
         }
     }
 
-    // Auto-ocultar Mini-Guía HUD tras 5 segundos
+    // Auto-ocultar info badge HUD tras 2.5 segundos
     LaunchedEffect(isHudVisible) {
         if (isHudVisible) {
-            delay(5000)
+            delay(2500)
             isHudVisible = false
         }
     }
@@ -859,10 +849,9 @@ fun TvHomeScreen(
                                     focusedChannel = ch
                                     isPlayingLive = true
                                     playerEngine.playStream(ch.streamUrl, isLive = true, userT0 = userT0)
-                                    isHudVisible = true
+                                    isHudVisible = false
                                     true
                                 } else {
-                                    isHudVisible = true
                                     true
                                 }
                             }
@@ -880,10 +869,9 @@ fun TvHomeScreen(
                                     focusedChannel = ch
                                     isPlayingLive = true
                                     playerEngine.playStream(ch.streamUrl, isLive = true, userT0 = userT0)
-                                    isHudVisible = true
+                                    isHudVisible = false
                                     true
                                 } else {
-                                    isHudVisible = true
                                     true
                                 }
                             }
@@ -1245,7 +1233,8 @@ fun TvHomeScreen(
                                                     focusedChannelId = ch.id
                                                     focusedChannel = ch
                                                     focusedChannelIndex = index
-                                                    activePlaybackChannelIndex = activePlaybackChannels.indexOfFirst { it.id == ch.id }.coerceAtLeast(0)
+                                                    activePlaybackChannels = visibleChannels
+                                                    activePlaybackChannelIndex = visibleChannels.indexOfFirst { it.id == ch.id }.coerceAtLeast(0)
                                                     isPlayingLive = true
                                                     playerEngine.playStream(ch.streamUrl, isLive = true, userT0 = userT0)
                                                     isFullscreen = true
@@ -1887,141 +1876,6 @@ fun TvHomeScreen(
                                 )
                             }
                         }
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        LaunchedEffect(focusedChannelIndex, isHudVisible) {
-                            if (isHudVisible && focusedChannelIndex in visibleChannels.indices) {
-                                hudListState.animateScrollToItem(focusedChannelIndex)
-                            }
-                        }
-
-                        TvLazyRow(
-                            state = hudListState,
-                            modifier = Modifier.focusRestorer(),
-                            horizontalArrangement = Arrangement.spacedBy(14.dp)
-                        ) {
-                            itemsIndexed(
-                                items = visibleChannels,
-                                key = { idx, channel -> "hud_ch_${channel.streamId}_$idx" }
-                            ) { index, channel ->
-                                val isSelected = (index == focusedChannelIndex)
-                                var isCardFocused by remember { mutableStateOf(false) }
-
-                                val hudCardInteractionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                                Box(
-                                    modifier = Modifier
-                                        .width(185.dp)
-                                        .height(72.dp)
-                                        .onFocusChanged {
-                                            isCardFocused = it.isFocused
-                                            if (it.isFocused) {
-                                                focusedChannelIndex = index
-                                            }
-                                        }
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (isCardFocused) LelouchCardFocused else if (isSelected) LelouchSurfaceVariant else LelouchSurface)
-                                        .border(
-                                            width = if (isCardFocused) 2.dp else 1.dp,
-                                            color = if (isCardFocused) LelouchCyanAccent else LelouchBorder,
-                                            shape = RoundedCornerShape(8.dp)
-                                        )
-                                        .onKeyEvent { keyEvent ->
-                                            val keyCode = keyEvent.nativeKeyEvent.keyCode
-                                            val isCenterKey = keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
-                                                              keyCode == KeyEvent.KEYCODE_ENTER ||
-                                                              keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER ||
-                                                              keyCode == KeyEvent.KEYCODE_BUTTON_A
-
-                                            if (isCenterKey) {
-                                                if (keyEvent.type == KeyEventType.KeyDown && keyEvent.nativeKeyEvent.repeatCount == 0) {
-                                                    val userT0 = android.os.SystemClock.elapsedRealtime()
-                                                    focusedChannelIndex = index
-                                                    focusedChannel = channel
-                                                    isPlayingLive = true
-                                                    playerEngine.playStream(channel.streamUrl, isLive = true, userT0 = userT0)
-                                                    true
-                                                } else if (keyEvent.type == KeyEventType.KeyUp) {
-                                                    true
-                                                } else {
-                                                    false
-                                                }
-                                            } else {
-                                                false
-                                            }
-                                        }
-                                        .clickable(
-                                            interactionSource = hudCardInteractionSource,
-                                            indication = null
-                                        ) {
-                                            val userT0 = android.os.SystemClock.elapsedRealtime()
-                                            focusedChannelIndex = index
-                                            focusedChannel = channel
-                                            isPlayingLive = true
-                                            playerEngine.playStream(channel.streamUrl, isLive = true, userT0 = userT0)
-                                        }
-                                        .padding(8.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxSize(),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        // Logo miniatura
-                                        Box(
-                                            modifier = Modifier
-                                                .size(46.dp, 34.dp)
-                                                .clip(RoundedCornerShape(4.dp))
-                                                .background(Color.Black.copy(alpha = 0.5f))
-                                                .padding(2.dp),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            if (!channel.streamIcon.isNullOrBlank()) {
-                                                AsyncImage(
-                                                    model = channel.streamIcon,
-                                                    contentDescription = channel.name,
-                                                    modifier = Modifier.fillMaxSize(),
-                                                    contentScale = ContentScale.Fit
-                                                )
-                                            } else {
-                                                Text(
-                                                    text = channel.name.take(3).uppercase(),
-                                                    color = LelouchCyanAccent,
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = "CH ${channel.num} - ${channel.name}",
-                                                color = if (isCardFocused || isSelected) LelouchCyanAccent else LelouchTextPrimary,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            Text(
-                                                text = channel.currentProgram,
-                                                color = LelouchTextSecondary,
-                                                fontSize = 10.sp,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Text(
-                            text = "Presiona BACK para salir al menú  •  D-Pad ARRIBA / ABAJO para ocultar guía",
-                            color = LelouchTextMuted,
-                            fontSize = 11.sp,
-                            modifier = Modifier.align(Alignment.CenterHorizontally)
-                        )
                     }
                 } else {
                     Column {

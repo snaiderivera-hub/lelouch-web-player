@@ -10,6 +10,169 @@ using System.Collections.Generic;
 
 namespace IPTVDataArchitect
 {
+    class SplashForm : Form
+    {
+        private float actualProgress = 0f;
+        private float displayProgress = 0f;
+        private string statusMessage = "Inicializando núcleo...";
+        private System.Windows.Forms.Timer animTimer;
+
+        public void UpdateProgress(float p, string msg)
+        {
+            this.actualProgress = p;
+            this.statusMessage = msg;
+        }
+
+        public SplashForm()
+        {
+            this.FormBorderStyle = FormBorderStyle.None;
+            this.StartPosition = FormStartPosition.CenterScreen;
+            this.Size = new Size(800, 450); 
+            this.ShowInTaskbar = false;
+            this.DoubleBuffered = true; 
+
+            try {
+                string exeDir = AppDomain.CurrentDomain.BaseDirectory;
+                string imgPath = Path.Combine(exeDir, "iptv-app", "splash_bg.jpg");
+                if (File.Exists(imgPath)) {
+                    this.BackgroundImage = Image.FromFile(imgPath);
+                    this.BackgroundImageLayout = ImageLayout.Stretch;
+                }
+            } catch {}
+
+            animTimer = new System.Windows.Forms.Timer();
+            animTimer.Interval = 16; 
+            animTimer.Tick += (s, e) => {
+                displayProgress += (actualProgress - displayProgress) * 0.15f;
+                if (displayProgress > 0.999f) displayProgress = 1f;
+                this.Invalidate();
+            };
+            animTimer.Start();
+
+            this.Paint += (s, e) => {
+                Graphics g = e.Graphics;
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+                g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+
+                if (this.BackgroundImage == null)
+                {
+                    g.Clear(Color.FromArgb(10, 5, 20));
+                }
+
+                using (Pen borderPen = new Pen(Color.FromArgb(0, 217, 255), 1f))
+                {
+                    g.DrawRectangle(borderPen, 0, 0, this.Width - 1, this.Height - 1);
+                }
+
+                using (Font iptvFont = new Font("Segoe UI", 8, FontStyle.Bold))
+                using (Brush iptvBrush = new SolidBrush(Color.FromArgb(150, 150, 180)))
+                {
+                    g.DrawString("▷ IPTV", iptvFont, iptvBrush, this.Width - 60, 15);
+                }
+
+                int cx = this.Width / 2;
+
+                using (System.Drawing.Drawing2D.GraphicsPath crown = new System.Drawing.Drawing2D.GraphicsPath())
+                {
+                    int cy = 110;
+                    crown.AddLine(cx - 30, cy - 10, cx - 40, cy - 40);
+                    crown.AddLine(cx - 40, cy - 40, cx - 15, cy - 20);
+                    crown.AddLine(cx - 15, cy - 20, cx, cy - 45);
+                    crown.AddLine(cx, cy - 45, cx + 15, cy - 20);
+                    crown.AddLine(cx + 15, cy - 20, cx + 40, cy - 40);
+                    crown.AddLine(cx + 40, cy - 40, cx + 30, cy - 10);
+                    
+                    using (Pen crownPen = new Pen(Color.FromArgb(189, 101, 255), 2f)) 
+                    {
+                        crownPen.LineJoin = System.Drawing.Drawing2D.LineJoin.Round;
+                        g.DrawPath(crownPen, crown);
+                    }
+                }
+
+                string title = "LELOUCH";
+                using (Font titleFont = new Font("Segoe UI", 48, FontStyle.Bold))
+                using (Brush titleBrush = new SolidBrush(Color.FromArgb(248, 250, 255)))
+                {
+                    SizeF tSize = g.MeasureString(title, titleFont);
+                    g.DrawString(title, titleFont, titleBrush, cx - (tSize.Width / 2), 125);
+                }
+
+                string subtitle = "R E P R O D U C T O R   I P T V";
+                using (Font subFont = new Font("Segoe UI", 10, FontStyle.Bold))
+                using (Brush subBrush = new SolidBrush(Color.FromArgb(189, 101, 255)))
+                {
+                    SizeF sSize = g.MeasureString(subtitle, subFont);
+                    g.DrawString(subtitle, subFont, subBrush, cx - (sSize.Width / 2), 205);
+                }
+
+                int barWidth = 480;
+                int barHeight = 4;
+                int barX = cx - (barWidth / 2);
+                int barY = 270;
+
+                using (Pen trackPen = new Pen(Color.FromArgb(0, 217, 255), 1f))
+                {
+                    g.DrawRectangle(trackPen, barX - 1, barY - 1, barWidth + 1, barHeight + 1);
+                }
+
+                int fillWidth = (int)(barWidth * displayProgress);
+                if (fillWidth > 0)
+                {
+                    using (var fillBrush = new System.Drawing.Drawing2D.LinearGradientBrush(
+                        new Rectangle(barX, barY, Math.Max(fillWidth, 1), barHeight),
+                        Color.FromArgb(0, 100, 255),
+                        Color.FromArgb(0, 217, 255),
+                        0f))
+                    {
+                        g.FillRectangle(fillBrush, barX, barY, fillWidth, barHeight);
+                    }
+                    
+                    using (System.Drawing.Drawing2D.GraphicsPath path = new System.Drawing.Drawing2D.GraphicsPath())
+                    {
+                        int glowRadius = 40;
+                        path.AddEllipse(barX + fillWidth - (glowRadius/2), barY + (barHeight/2) - (glowRadius/2), glowRadius, glowRadius);
+                        using (var pgb = new System.Drawing.Drawing2D.PathGradientBrush(path))
+                        {
+                            pgb.CenterColor = Color.FromArgb(150, 0, 217, 255);
+                            pgb.SurroundColors = new Color[] { Color.Transparent };
+                            g.FillEllipse(pgb, barX + fillWidth - (glowRadius/2), barY + (barHeight/2) - (glowRadius/2), glowRadius, glowRadius);
+                        }
+                    }
+                }
+
+                using (Font statFont = new Font("Segoe UI", 9, FontStyle.Regular))
+                using (Brush statBrush = new SolidBrush(Color.FromArgb(200, 200, 220)))
+                {
+                    SizeF stSize = g.MeasureString(statusMessage, statFont);
+                    g.DrawString(statusMessage, statFont, statBrush, cx - (stSize.Width / 2), barY + 20);
+                }
+
+                string pct = (int)(displayProgress * 100) + "%";
+                using (Font pctFont = new Font("Segoe UI", 9, FontStyle.Bold))
+                using (Brush pctBrush = new SolidBrush(Color.FromArgb(0, 217, 255)))
+                {
+                    SizeF pSize = g.MeasureString(pct, pctFont);
+                    g.DrawString(pct, pctFont, pctBrush, cx - (pSize.Width / 2), barY + 40);
+                }
+
+                int iconY = 380;
+                using (Font iconFont = new Font("Segoe UI", 8, FontStyle.Regular))
+                using (Brush iconBrush = new SolidBrush(Color.FromArgb(100, 100, 130)))
+                {
+                    string[] icons = { "📺 TV", "🎬 PELÍCULAS", "🎞️ SERIES", "⭐ FAVORITOS" };
+                    int spacing = 120;
+                    int startX = cx - (int)(spacing * 1.5f);
+                    
+                    for (int i = 0; i < icons.Length; i++)
+                    {
+                        SizeF icSize = g.MeasureString(icons[i], iconFont);
+                        g.DrawString(icons[i], iconFont, iconBrush, startX + (spacing * i) - (icSize.Width / 2), iconY);
+                    }
+                }
+            };
+        }
+    }
+
     static class Program
     {
         private static HttpListener webListener;
@@ -34,42 +197,62 @@ namespace IPTVDataArchitect
         [STAThread]
         static void Main(string[] args)
         {
-            string exeDir = AppDomain.CurrentDomain.BaseDirectory;
-            string subDir = Path.Combine(exeDir, "iptv-app");
-            appRoot = Directory.Exists(subDir) ? subDir : exeDir;
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+            
+            SplashForm splash = new SplashForm();
 
-            webListener = BindListener(ref webPort, 8686, 8700);
-            if (webListener == null) return;
+            Thread initThread = new Thread(() => {
+                string exeDir = AppDomain.CurrentDomain.BaseDirectory;
+                string subDir = Path.Combine(exeDir, "iptv-app");
+                appRoot = Directory.Exists(subDir) ? subDir : exeDir;
 
-            proxyListener = BindListener(ref proxyPort, 7878, 7890);
-            if (proxyListener == null) return;
+                splash.Invoke(new Action(() => splash.UpdateProgress(0.15f, "Inicializando núcleo...")));
+                Thread.Sleep(500);
 
-            try
-            {
-                string configPath = Path.Combine(appRoot, "src", "proxy-config.js");
-                string configDir = Path.GetDirectoryName(configPath);
-                if (!Directory.Exists(configDir)) Directory.CreateDirectory(configDir);
-                File.WriteAllText(configPath, "window.IPTV_PROXY_PORT = " + proxyPort + ";", Encoding.UTF8);
-            }
-            catch {}
+                splash.Invoke(new Action(() => splash.UpdateProgress(0.35f, "Preparando servicios multimedia...")));
+                webListener = BindListener(ref webPort, 8686, 8700);
+                proxyListener = BindListener(ref proxyPort, 7878, 7890);
+                Thread.Sleep(500);
 
-            Thread tWeb = new Thread(RunWebServer) { IsBackground = true };
-            tWeb.Start();
+                if (webListener != null && proxyListener != null)
+                {
+                    splash.Invoke(new Action(() => splash.UpdateProgress(0.60f, "Estableciendo túneles de red...")));
+                    try
+                    {
+                        string configPath = Path.Combine(appRoot, "src", "proxy-config.js");
+                        string configDir = Path.GetDirectoryName(configPath);
+                        if (!Directory.Exists(configDir)) Directory.CreateDirectory(configDir);
+                        File.WriteAllText(configPath, "window.IPTV_PROXY_PORT = " + proxyPort + ";", Encoding.UTF8);
+                    }
+                    catch {}
 
-            Thread tProxy = new Thread(RunProxyServer) { IsBackground = true };
-            tProxy.Start();
+                    Thread tWeb = new Thread(RunWebServer) { IsBackground = true };
+                    tWeb.Start();
 
-            Thread.Sleep(300);
+                    Thread tProxy = new Thread(RunProxyServer) { IsBackground = true };
+                    tProxy.Start();
+                    Thread.Sleep(400);
+                }
 
-            string appUrl = "http://localhost:" + webPort;
+                splash.Invoke(new Action(() => splash.UpdateProgress(0.85f, "Desplegando interfaz...")));
+                Thread.Sleep(500);
 
-            string cmdLine = Environment.CommandLine;
-            if (cmdLine.IndexOf("--open-browser", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
+                splash.Invoke(new Action(() => splash.UpdateProgress(0.95f, "Finalizando inicialización...")));
+                string appUrl = "http://localhost:" + webPort;
                 OpenPreferredBrowser(appUrl);
-            }
+                Thread.Sleep(600);
 
-            // Mantener la aplicación activa indefinidamente
+                splash.Invoke(new Action(() => {
+                    splash.UpdateProgress(1.0f, "Sistema preparado");
+                    splash.Close();
+                }));
+            });
+            initThread.IsBackground = true;
+            initThread.Start();
+
+            Application.Run(splash);
+
             Thread.Sleep(Timeout.Infinite);
         }
 

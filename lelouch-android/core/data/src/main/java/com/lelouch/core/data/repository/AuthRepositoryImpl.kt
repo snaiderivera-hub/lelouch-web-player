@@ -157,8 +157,13 @@ class AuthRepositoryImpl(
                             Regex("^(https?://[^/]+)").find(url)?.groupValues?.get(1) ?: ""
                         }
 
-                        val isM3u = url.contains("/api/playlist") || url.endsWith(".m3u") || url.endsWith(".m3u8") ||
-                                serverUrl.contains("vercel.app") || (!url.contains("username=") && !url.contains("password=") && url.startsWith("http"))
+                        val isVercelOrManifest = url.contains("/api/playlist") || serverUrl.contains("vercel.app")
+                        val hasXtreamCreds = userMatch.isNotBlank() && (passMatch.isNotBlank() || serverUrl.isNotBlank())
+                        val isM3u = isVercelOrManifest || (!hasXtreamCreds && (
+                            url.substringBefore('?').endsWith(".m3u", ignoreCase = true) ||
+                            url.substringBefore('?').endsWith(".m3u8", ignoreCase = true) ||
+                            (!url.contains("username=") && !url.contains("password=") && url.startsWith("http"))
+                        ))
 
                         val tokenFromUrl = when {
                             url.contains("/api/playlist/") -> url.substringAfter("/api/playlist/").substringBefore("?").trim()
@@ -350,7 +355,7 @@ class AuthRepositoryImpl(
         if (customList.isNotEmpty()) {
             val validCustomTokens = customList.mapNotNull { it.accessToken }.filter { it.isNotBlank() && it != "revoked" }
             val hasRevocation = customList.any { it.serverUrl.contains("token=revoked") || it.accessToken == null }
-            val bestToken = validCustomTokens.firstOrNull() ?: if (!hasRevocation) "pByk2IfABSGuLwSC9b14z6Y7penWElnYjbgzmI3R" else null
+            val bestToken = validCustomTokens.firstOrNull()
 
             val wasCustomActive = if (bestToken == null) false else customList.any { it.id == currentActiveId || it.isActive }
             val canonicalCustomUrl = if (bestToken != null) {
@@ -383,10 +388,11 @@ class AuthRepositoryImpl(
                 seenKeys.add(key)
                 val existingPass = currentPasswordMap[src.serverUrl + src.username]
                 val resolvedPass = if (src.password.isNotBlank()) src.password else (existingPass ?: "")
+                val isSourceActive = if (currentActiveId != null) (src.id == currentActiveId) else src.isActive
                 consolidatedSources.add(
                     src.copy(
                         password = resolvedPass,
-                        isActive = (src.id == currentActiveId)
+                        isActive = isSourceActive
                     )
                 )
             }
