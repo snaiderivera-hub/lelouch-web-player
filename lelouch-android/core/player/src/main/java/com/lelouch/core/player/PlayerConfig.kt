@@ -12,12 +12,12 @@ package com.lelouch.core.player
  */
 data class PlayerConfig(
     val userAgent: String = "IPTVSmartersPlayer",
-    val minBufferMs: Int = 3_000,
+    val minBufferMs: Int = 4_000,
     val maxBufferMs: Int = 45_000,
     val bufferForPlaybackMs: Int = 500,
-    val bufferForPlaybackAfterRebufferMs: Int = 1_000,
-    val connectTimeoutMs: Int = 12_000,
-    val readTimeoutMs: Int = 12_000,
+    val bufferForPlaybackAfterRebufferMs: Int = 1_500,
+    val connectTimeoutMs: Int = 10_000,
+    val readTimeoutMs: Int = 8_000,
     val enableHardwareAcceleration: Boolean = true,
     val allowChunklessPreparation: Boolean = true,
     val autoRetryCount: Int = 5

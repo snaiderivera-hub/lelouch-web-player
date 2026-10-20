@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.76",
-  "versionCode": 1000076,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.76/app-debug.apk",
-  "changelog": "• Limpieza del panel superior TV: 4 categorías principales amplias y espaciosas (En Vivo, Películas, Series, Deportes).\n• Barra inferior completa con acciones rápidas: Descargar M3U, Filtrar Categorías, Diagnóstico, Ajustes y Recargar."
+  "versionName": "1.0.77",
+  "versionCode": 1000077,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.77/app-debug.apk",
+  "changelog": "• Auto-recuperación transparente ante congelamiento de transmisión en vivo (silent stall detector a los 4s y buffer recovery a los 4.5s sin requerir cambio de canal).\n• Optimización de buffers (4s de colchón) y timeout de red rápido a 8s para evitar sockets muertos."
 }

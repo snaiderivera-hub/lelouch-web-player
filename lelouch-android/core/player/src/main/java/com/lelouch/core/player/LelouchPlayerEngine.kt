@@ -289,6 +289,51 @@ class LelouchPlayerEngine(
     private var bufferingWatchdogJob: Job? = null
     var onChannelUnavailable: (() -> Unit)? = null
 
+    @Volatile
+    private var isRecoveringLive: Boolean = false
+    private var lastFreezeRecoveryTimestampMs: Long = 0L
+    private var lastTrackedPositionMs: Long = -1L
+    private var silentStallCounter: Int = 0
+
+    /**
+     * Auto-recuperación transparente para transmisiones en vivo congeladas o atascadas.
+     * Simula internamente un reinicio limpio de la conexión HTTP y MediaSource 
+     * (equivalente al cambio de canal y retorno que realiza el usuario manualmente),
+     * sin alterar la interfaz ni deseleccionar el canal actual.
+     */
+    fun recoverLiveStream(reason: String) {
+        if (!isCurrentStreamLive) return
+        val url = _currentUrl.value ?: return
+        val now = System.currentTimeMillis()
+        if (isRecoveringLive || (now - lastFreezeRecoveryTimestampMs < 3_500L)) {
+            return
+        }
+        isRecoveringLive = true
+        lastFreezeRecoveryTimestampMs = now
+
+        android.util.Log.w("LelouchPlayer", "[LIVE_AUTO_RECOVER] Causa: $reason. Reiniciando conexión del stream...")
+        _playbackState.value = PlaybackState.Buffering
+
+        scope.launch {
+            try {
+                val attempt = playbackTracker.startAttempt(url, PlaybackMediaType.LIVE_CHANNEL, PlayerStartType.WARM_SWITCH)
+                currentAttemptId = attempt.attemptId
+
+                val newMediaSource = buildMediaSource(url, currentAttemptId)
+                exoPlayer.setMediaSource(newMediaSource, /* resetPosition = */ true)
+                playbackTracker.onMediaItemSet(currentAttemptId)
+                exoPlayer.prepare()
+                playbackTracker.onPrepareCalled(currentAttemptId)
+                exoPlayer.playWhenReady = true
+            } catch (e: Exception) {
+                android.util.Log.e("LelouchPlayer", "[LIVE_AUTO_RECOVER] Error al reconectar: ${e.message}")
+            } finally {
+                delay(2_000L)
+                isRecoveringLive = false
+            }
+        }
+    }
+
     private fun startBufferingWatchdog() {
         stopBufferingWatchdog()
         if (!isCurrentStreamLive) return
@@ -301,8 +346,6 @@ class LelouchPlayerEngine(
             // FASE 1 (2.5 segundos de buffering):
             // Reducir la calidad de video al bitrate intermedio (720p/480p) para salvar la transmisión sin cortar.
             // NOTA: Solo aplicar reducción de bitrate (ABR) en streams HLS multi-bitrate (.m3u8).
-            // En canales TS puros de IPTV (.ts), cambiar trackSelector fuerza a MediaCodec a desconectarse
-            // de la Surface ("SurfaceUtils: disconnecting from surface") y tira el canal ("se quita luego").
             delay(2_500L)
             if (!isActive || !isCurrentStreamLive) return@launch
 
@@ -318,34 +361,16 @@ class LelouchPlayerEngine(
                 } catch (_: Exception) {}
             }
 
-            // FASE 2 (6 segundos continuos en buffering):
-            // Reducir al bitrate mínimo (SD/480p/360p) para mantener la reproducción en redes lentas.
-            delay(3_500L)
-            if (!isActive || !isCurrentStreamLive) return@launch
-
-            if (isMultiBitrateHls) {
-                playbackTracker.onWatchdogEvent(watchdogAttemptId, WatchdogEventType.WATCHDOG_BITRATE_REDUCTION, "Bitrate -> 800kbps")
-                android.util.Log.w("LelouchPlayer", "Buffer persistente (>6s). Reduciendo calidad de video al mínimo (800kbps)...")
-                try {
-                    trackSelector.setParameters(
-                        trackSelector.parameters.buildUpon()
-                            .setMaxVideoBitrate(800_000)
-                            .setExceedVideoConstraintsIfNecessary(true)
-                    )
-                } catch (_: Exception) {}
-            }
-
-            // FASE 3 (12 segundos continuos en buffering):
-            // Si el buffer no se recuperó, intentar refrescar silenciosamente el stream SIN botar al usuario del canal.
-            delay(6_000L)
+            // FASE 2 (4.5 segundos continuos en buffering en vivo):
+            // Si el buffer no se recuperó en 4.5s (en vivo), no dejar al usuario esperando 12 segundos;
+            // auto-reconectar de inmediato el socket hacia el servidor IPTV.
+            delay(2_000L)
             if (!isActive || !isCurrentStreamLive) return@launch
 
             if (autoRetryAttemptsLeft > 0) {
                 autoRetryAttemptsLeft--
-                playbackTracker.onWatchdogEvent(watchdogAttemptId, WatchdogEventType.WATCHDOG_RETRY, "Silent reconnect attempt")
-                android.util.Log.w("LelouchPlayer", "Stream en pausa prolongada. Reintentando reconexión silenciosa del mismo canal...")
-                exoPlayer.prepare()
-                exoPlayer.playWhenReady = true
+                playbackTracker.onWatchdogEvent(watchdogAttemptId, WatchdogEventType.WATCHDOG_RETRY, "Buffering timeout auto-recover")
+                recoverLiveStream("Buffer agotado durante >4.5s")
             }
         }
     }
@@ -450,19 +475,23 @@ class LelouchPlayerEngine(
             if (isNetworkError && currentStreamUrl != null && autoRetryAttemptsLeft > 0) {
                 autoRetryAttemptsLeft--
                 _playbackState.value = PlaybackState.Buffering
-                val resumePosition = if (!isCurrentStreamLive) exoPlayer.currentPosition.coerceAtLeast(0L) else C.TIME_UNSET
                 android.util.Log.w(
                     "LelouchPlayer",
-                    "Error de red o HTTP (${error.errorCode}). Reintentando conexión silenciosa (isLive=$isCurrentStreamLive, resumePos=$resumePosition, intentosRestantes=$autoRetryAttemptsLeft)..."
+                    "Error de red o HTTP (${error.errorCode}). Reintentando conexión silenciosa (isLive=$isCurrentStreamLive, intentosRestantes=$autoRetryAttemptsLeft)..."
                 )
-                scope.launch {
-                    delay(1_500L)
-                    if (_currentUrl.value == currentStreamUrl) {
-                        if (!isCurrentStreamLive && resumePosition != C.TIME_UNSET && resumePosition > 0L) {
-                            exoPlayer.seekTo(resumePosition)
+                if (isCurrentStreamLive) {
+                    recoverLiveStream("Error de red/timeout (${error.errorCode})")
+                } else {
+                    val resumePosition = exoPlayer.currentPosition.coerceAtLeast(0L)
+                    scope.launch {
+                        delay(1_500L)
+                        if (_currentUrl.value == currentStreamUrl) {
+                            if (resumePosition > 0L) {
+                                exoPlayer.seekTo(resumePosition)
+                            }
+                            exoPlayer.prepare()
+                            exoPlayer.playWhenReady = true
                         }
-                        exoPlayer.prepare()
-                        exoPlayer.playWhenReady = true
                     }
                 }
                 return
@@ -563,7 +592,8 @@ class LelouchPlayerEngine(
         DefaultExtractorsFactory().apply {
             setTsExtractorFlags(
                 DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
-                DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS
+                DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS or
+                DefaultTsPayloadReaderFactory.FLAG_IGNORE_SPLICE_INFO_STREAM
             )
         }
     }
@@ -579,10 +609,20 @@ class LelouchPlayerEngine(
         val isHls = url.contains(".m3u8", ignoreCase = true) || url.contains("output=m3u8", ignoreCase = true)
         val isMp4 = url.contains(".mp4", ignoreCase = true)
 
+        val liveConfig = if (isCurrentStreamLive) {
+            MediaItem.LiveConfiguration.Builder()
+                .setMaxPlaybackSpeed(1.02f)
+                .setMinPlaybackSpeed(0.98f)
+                .build()
+        } else null
+
         val mediaItem = MediaItem.Builder()
             .setUri(uri)
             .setMediaId("attempt_$attemptId")
             .apply {
+                if (liveConfig != null) {
+                    setLiveConfiguration(liveConfig)
+                }
                 when {
                     isHls -> setMimeType(MimeTypes.APPLICATION_M3U8)
                     isMp4 -> setMimeType(MimeTypes.APPLICATION_MP4)
@@ -614,11 +654,41 @@ class LelouchPlayerEngine(
 
     private fun startProgressTracking() {
         stopProgressTracking()
+        lastTrackedPositionMs = -1L
+        silentStallCounter = 0
         progressTrackingJob = scope.launch {
             while (isActive) {
                 if (exoPlayer.isPlaying) {
                     updateState(true)
                 }
+
+                // DETECCIÓN DE CONGELAMIENTO SILENCIOSO EN VIVO (SILENT STALL):
+                // En canales en vivo, si el reproductor está en STATE_READY y playWhenReady == true,
+                // la posición (currentPosition) DEBE avanzar en cada segundo.
+                // Si la posición se detiene durante >= 4 segundos seguidos (sin emitir error ExoPlayer),
+                // el stream se ha congelado (hiccup del servidor IPTV o socket muerto).
+                if (isCurrentStreamLive && 
+                    exoPlayer.playbackState == Player.STATE_READY && 
+                    exoPlayer.playWhenReady &&
+                    !isRecoveringLive
+                ) {
+                    val currentPos = exoPlayer.currentPosition
+                    if (lastTrackedPositionMs >= 0L && kotlin.math.abs(currentPos - lastTrackedPositionMs) < 150L) {
+                        silentStallCounter++
+                        if (silentStallCounter >= 4) { // 4 segundos consecutivos sin avance
+                            silentStallCounter = 0
+                            lastTrackedPositionMs = -1L
+                            recoverLiveStream("Transmisión congelada (posición estancada por 4s en STATE_READY)")
+                        }
+                    } else {
+                        silentStallCounter = 0
+                        lastTrackedPositionMs = currentPos
+                    }
+                } else {
+                    silentStallCounter = 0
+                    lastTrackedPositionMs = -1L
+                }
+
                 delay(1000)
             }
         }
