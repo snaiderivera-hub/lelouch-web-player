@@ -68,6 +68,7 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import com.lelouch.core.network.StreamUrlResolver
 import com.lelouch.core.player.LelouchVideoPlayer
 import com.lelouch.core.player.PlaybackState
+import com.lelouch.core.player.PlayerDiagnosticInfo
 import com.lelouch.core.player.rememberLelouchPlayer
 import com.lelouch.feature.tv.components.*
 import com.lelouch.feature.tv.focus.*
@@ -175,6 +176,7 @@ fun TvHomeScreen(
     val playerEngine = rememberLelouchPlayer()
     val playbackState by playerEngine.playbackState.collectAsStateWithLifecycle()
     val videoInfo by playerEngine.videoTrackInfo.collectAsStateWithLifecycle()
+    val diagnosticInfo by playerEngine.diagnosticInfo.collectAsStateWithLifecycle()
 
     // Mapas de categorías para resolver nombres de categorías faltantes en Xtream Codes
     val liveCatMap = remember(liveCategories) {
@@ -1738,7 +1740,8 @@ fun TvHomeScreen(
                                         },
                                         focusedChannelName = focusedChannel?.name,
                                         playbackState = playbackState,
-                                        syncStateText = syncStateText
+                                        syncStateText = syncStateText,
+                                        diagnosticInfo = diagnosticInfo
                                     )
 
                                     // 🎯 GESTIÓN DE CATEGORÍAS VISIBLES (Exacto al diseño Web solicitado)
@@ -2496,7 +2499,8 @@ private fun TvDiagnosticsSection(
     resolvedUrl: String?,
     focusedChannelName: String?,
     playbackState: PlaybackState,
-    syncStateText: String
+    syncStateText: String,
+    diagnosticInfo: PlayerDiagnosticInfo = PlayerDiagnosticInfo()
 ) {
     val stateLabel = when (val s = playbackState) {
         is PlaybackState.Idle -> "En reposo"
@@ -2518,13 +2522,55 @@ private fun TvDiagnosticsSection(
             .padding(18.dp)
     ) {
         Text(
-            text = "🩺 DIAGNÓSTICO DE REPRODUCCIÓN",
+            text = "🩺 DIAGNÓSTICO DE REPRODUCCIÓN & TELEMETRÍA EN VIVO",
             color = LelouchCyanAccent,
             fontSize = 16.sp,
             fontWeight = FontWeight.Black,
             letterSpacing = 1.sp
         )
         Spacer(modifier = Modifier.height(14.dp))
+
+        // ─── ⚡ TELEMETRÍA EN VIVO (HARDWARE & EXOPLAYER) ───
+        Text(
+            text = "⚡ TELEMETRÍA EN TIEMPO REAL (HARDWARE & DECODER)",
+            color = LelouchTextSecondary,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        DiagnosticRow("Resolución Detectada", diagnosticInfo.resolution)
+        DiagnosticRow(
+            "Tasa de Cuadros (FPS)",
+            if (diagnosticInfo.frameRate > 0f) "%.2f fps".format(diagnosticInfo.frameRate) else "—"
+        )
+        DiagnosticRow(
+            "Códec / Formato",
+            diagnosticInfo.mimeType.ifEmpty { "MPEG-TS / HLS (Automático)" }
+        )
+        DiagnosticRow(
+            "Tasa de Bits (Bitrate)",
+            if (diagnosticInfo.bitrate > 0) "${diagnosticInfo.bitrate / 1000} kbps" else "Bitrate Dinámico / VBR"
+        )
+        DiagnosticRow(
+            "Cuadros de Vídeo (Frames)",
+            "${diagnosticInfo.renderedFrames} procesados  •  ${diagnosticInfo.droppedFrames} perdidos"
+        )
+        DiagnosticRow(
+            "Vigilante Anti-Congelamiento",
+            if (diagnosticInfo.stallCount > 0) "⚠️ ${diagnosticInfo.stallCount} auto-recuperaciones ejecutadas" else "✅ Activo (Sin congelamientos)"
+        )
+        if (diagnosticInfo.stallCount > 0) {
+            DiagnosticRow("Última Auto-Recuperación", diagnosticInfo.lastRecoveryReason)
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+        Text(
+            text = "📡 FUENTE Y CATÁLOGO LOCAL",
+            color = LelouchTextSecondary,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(6.dp))
 
         DiagnosticRow("Fuente activa", activeSource?.name ?: "— ninguna —")
         DiagnosticRow("ID de fuente (Room)", activeSource?.id ?: "—")
@@ -2544,7 +2590,7 @@ private fun TvDiagnosticsSection(
         Spacer(modifier = Modifier.height(10.dp))
         DiagnosticRow("Canal enfocado", focusedChannelName ?: "—")
         DiagnosticRow("Última sincronización", syncStateText.ifBlank { "— sin datos —" })
-        DiagnosticRow("Estado del reproductor", stateLabel)
+        DiagnosticRow("Estado del reproductor", "$stateLabel (${diagnosticInfo.stateName})")
 
         Spacer(modifier = Modifier.height(14.dp))
         Text(

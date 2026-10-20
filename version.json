@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.78",
-  "versionCode": 1000078,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.78/app-debug.apk",
-  "changelog": "• Migración a OkHttpDataSource con TCP Keep-Alive activo y retryOnConnectionFailure para evitar caída de sockets en IPTV.\n• Detector real de frames de video renderizados (renderedOutputBuffers) y Hard Flush de MediaCodec por hardware."
+  "versionName": "1.0.79",
+  "versionCode": 1000079,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.79/app-debug.apk",
+  "changelog": "• Panel de diagnóstico en pantalla con telemetría en tiempo real: resolución, fps, códec, bitrate y contador de frames.\n• Vigilante anti-congelamiento continuo inmune a transiciones STATE_READY con Hard Flush de hardware en Amlogic."
 }

@@ -72,6 +72,23 @@ private class IptvLoadErrorHandlingPolicy(private val maxRetries: Int = 5) : Def
  * Tailored for low-latency live IPTV streams, hardware accelerated decoding, and automatic HLS/MPEG-TS negotiation.
  */
 @OptIn(UnstableApi::class)
+data class PlayerDiagnosticInfo(
+    val isLive: Boolean = false,
+    val stateName: String = "IDLE",
+    val isPlaying: Boolean = false,
+    val playWhenReady: Boolean = false,
+    val currentPositionMs: Long = 0L,
+    val renderedFrames: Int = 0,
+    val droppedFrames: Int = 0,
+    val resolution: String = "Detectando...",
+    val frameRate: Float = 0f,
+    val bitrate: Int = 0,
+    val mimeType: String = "",
+    val stallCount: Int = 0,
+    val lastRecoveryReason: String = "Ninguna",
+    val lastLogTimeMs: Long = System.currentTimeMillis()
+)
+
 class LelouchPlayerEngine(
     private val context: Context,
     private val config: PlayerConfig = PlayerConfig(),
@@ -87,6 +104,11 @@ class LelouchPlayerEngine(
 
     private val _videoTrackInfo = MutableStateFlow(VideoTrackInfo())
     val videoTrackInfo: StateFlow<VideoTrackInfo> = _videoTrackInfo.asStateFlow()
+
+    private val _diagnosticInfo = MutableStateFlow(PlayerDiagnosticInfo())
+    val diagnosticInfo: StateFlow<PlayerDiagnosticInfo> = _diagnosticInfo.asStateFlow()
+    private var lastRecoveryReasonString: String = "Ninguna"
+    private var lastDiagnosticLogTimestampMs: Long = 0L
 
     private val _currentUrl = MutableStateFlow<String?>(null)
     val currentUrl: StateFlow<String?> = _currentUrl.asStateFlow()
@@ -323,8 +345,9 @@ class LelouchPlayerEngine(
         }
         isRecoveringLive = true
         lastFreezeRecoveryTimestampMs = now
+        lastRecoveryReasonString = reason
 
-        android.util.Log.w("LelouchPlayer", "[LIVE_HARD_RECOVER] Causa: $reason. Ejecutando reinicio completo de hardware y socket...")
+        android.util.Log.e("LelouchDiag", "[LIVE_HARD_RECOVER] Causa: $reason. Ejecutando reinicio completo de hardware y socket...")
         _playbackState.value = PlaybackState.Buffering
 
         scope.launch {
@@ -344,7 +367,7 @@ class LelouchPlayerEngine(
                 playbackTracker.onPrepareCalled(currentAttemptId)
                 exoPlayer.playWhenReady = true
             } catch (e: Exception) {
-                android.util.Log.e("LelouchPlayer", "[LIVE_HARD_RECOVER] Error al reconectar: ${e.message}")
+                android.util.Log.e("LelouchDiag", "[LIVE_HARD_RECOVER] Error al reconectar: ${e.message}")
             } finally {
                 delay(2_000L)
                 isRecoveringLive = false
@@ -426,13 +449,13 @@ class LelouchPlayerEngine(
                 Player.STATE_BUFFERING -> {
                     _playbackState.value = PlaybackState.Buffering
                     startBufferingWatchdog()
+                    if (exoPlayer.playWhenReady) startProgressTracking()
                 }
                 Player.STATE_READY -> {
                     stopBufferingWatchdog()
                     autoRetryAttemptsLeft = config.autoRetryCount
-                    val isPlaying = exoPlayer.playWhenReady
-                    updateState(isPlaying)
-                    if (isPlaying) {
+                    updateState(exoPlayer.isPlaying)
+                    if (exoPlayer.playWhenReady) {
                         startProgressTracking()
                     } else {
                         stopProgressTracking()
@@ -451,16 +474,37 @@ class LelouchPlayerEngine(
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
-            if (exoPlayer.playbackState == Player.STATE_READY) {
-                updateState(isPlaying)
-                if (isPlaying) startProgressTracking() else stopProgressTracking()
+            updateState(isPlaying)
+            // BLINDAJE CRÍTICO: Si el usuario desea reproducir (playWhenReady == true),
+            // NUNCA detener el tracking cuando isPlaying pasa a false por un congelamiento o corte.
+            if (exoPlayer.playWhenReady) {
+                startProgressTracking()
+            } else {
+                stopProgressTracking()
+            }
+        }
+
+        override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+            val format = exoPlayer.videoFormat
+            if (format != null) {
+                _videoTrackInfo.value = VideoTrackInfo(
+                    width = format.width,
+                    height = format.height,
+                    frameRate = if (format.frameRate > 0) format.frameRate else 0f,
+                    bitrate = if (format.bitrate > 0) format.bitrate else 0,
+                    mimeType = format.sampleMimeType
+                )
             }
         }
 
         override fun onVideoSizeChanged(videoSize: VideoSize) {
+            val format = exoPlayer.videoFormat
             _videoTrackInfo.value = _videoTrackInfo.value.copy(
                 width = videoSize.width,
-                height = videoSize.height
+                height = videoSize.height,
+                frameRate = if (format != null && format.frameRate > 0) format.frameRate else _videoTrackInfo.value.frameRate,
+                bitrate = if (format != null && format.bitrate > 0) format.bitrate else _videoTrackInfo.value.bitrate,
+                mimeType = format?.sampleMimeType ?: _videoTrackInfo.value.mimeType
             )
         }
 
@@ -671,7 +715,7 @@ class LelouchPlayerEngine(
     }
 
     private fun startProgressTracking() {
-        stopProgressTracking()
+        if (progressTrackingJob?.isActive == true) return
         lastTrackedPositionMs = -1L
         lastRenderedFrames = -1
         silentStallCounter = 0
@@ -681,35 +725,38 @@ class LelouchPlayerEngine(
                     updateState(true)
                 }
 
-                // DETECCIÓN DE CONGELAMIENTO SILENCIOSO EN VIVO (SILENT STALL):
-                // En canales en vivo, si el reproductor está en STATE_READY y playWhenReady == true,
-                // tanto la posición como los frames renderizados DEBEN avanzar.
-                // Si los frames de video se detienen (decodificador trabado en chip) o la posición se estanca
-                // durante >= 4 segundos seguidos (sin emitir error ExoPlayer),
-                // el stream se ha congelado (hiccup del servidor IPTV o saturación de buffers de hardware).
+                val currentPos = exoPlayer.currentPosition
+                val renderedFrames = exoPlayer.videoDecoderCounters?.renderedOutputBufferCount ?: -1
+                val droppedFrames = exoPlayer.videoDecoderCounters?.droppedBufferCount ?: 0
+
+                // DETECCIÓN DE CONGELAMIENTO EN VIVO (STALL WATCHDOG):
+                // En canales en vivo, mientras el usuario tenga playWhenReady = true:
+                // 1. Si los fotogramas de video no avanzan (decodificador de chip trabado en TV Box)
+                // 2. Si la posición de tiempo/audio no avanza
+                // 3. Si el reproductor está en STATE_READY pero isPlaying es false por más de 3.5s
                 if (isCurrentStreamLive && 
-                    exoPlayer.playbackState == Player.STATE_READY && 
                     exoPlayer.playWhenReady &&
                     !isRecoveringLive
                 ) {
-                    val currentPos = exoPlayer.currentPosition
-                    val renderedFrames = exoPlayer.videoDecoderCounters?.renderedOutputBufferCount ?: -1
-
                     val isFrameStalled = if (renderedFrames >= 0 && lastRenderedFrames >= 0) {
                         (renderedFrames - lastRenderedFrames) == 0
                     } else false
 
                     val isPositionStalled = lastTrackedPositionMs >= 0L && kotlin.math.abs(currentPos - lastTrackedPositionMs) < 150L
+                    val isNotPlayingStalled = !exoPlayer.isPlaying && exoPlayer.playbackState == Player.STATE_READY
 
-                    if (isFrameStalled || isPositionStalled) {
+                    if (isFrameStalled || isPositionStalled || isNotPlayingStalled) {
                         silentStallCounter++
                         if (silentStallCounter >= 4) { // 4 segundos consecutivos sin avance
                             silentStallCounter = 0
                             lastTrackedPositionMs = -1L
                             lastRenderedFrames = -1
                             recoverLiveStream(
-                                if (isFrameStalled) "Video congelado (0 frames de video renderizados en 4s)"
-                                else "Transmisión congelada (posición estancada por 4s)"
+                                when {
+                                    isFrameStalled -> "Video congelado (0 frames renderizados en 4s, decodificador bloqueado)"
+                                    isNotPlayingStalled -> "ExoPlayer detenido en STATE_READY (isPlaying=false por 4s)"
+                                    else -> "Transmisión congelada (posición estancada por 4s)"
+                                }
                             )
                         }
                     } else {
@@ -723,6 +770,36 @@ class LelouchPlayerEngine(
                     silentStallCounter = 0
                     lastTrackedPositionMs = -1L
                     lastRenderedFrames = -1
+                }
+
+                // Emisión de Telemetría cada 2 segundos a Log.e("LelouchDiag")
+                val now = System.currentTimeMillis()
+                if (now - lastDiagnosticLogTimestampMs >= 2_000L) {
+                    lastDiagnosticLogTimestampMs = now
+                    val stateStr = when (exoPlayer.playbackState) {
+                        Player.STATE_IDLE -> "IDLE"
+                        Player.STATE_BUFFERING -> "BUFFERING"
+                        Player.STATE_READY -> "READY"
+                        Player.STATE_ENDED -> "ENDED"
+                        else -> "UNKNOWN"
+                    }
+                    val diagMsg = "[LelouchDiag] isLive=$isCurrentStreamLive | State=$stateStr | isPlaying=${exoPlayer.isPlaying} | playWhenReady=${exoPlayer.playWhenReady} | pos=${currentPos}ms | frames=$renderedFrames | dropped=$droppedFrames | stallCounter=$silentStallCounter | res=${_videoTrackInfo.value.resolutionLabel} (${_videoTrackInfo.value.width}x${_videoTrackInfo.value.height} @ ${_videoTrackInfo.value.frameRate}fps) | codec=${_videoTrackInfo.value.mimeType}"
+                    android.util.Log.e("LelouchDiag", diagMsg)
+                    _diagnosticInfo.value = PlayerDiagnosticInfo(
+                        isLive = isCurrentStreamLive,
+                        stateName = stateStr,
+                        isPlaying = exoPlayer.isPlaying,
+                        playWhenReady = exoPlayer.playWhenReady,
+                        currentPositionMs = currentPos,
+                        renderedFrames = renderedFrames.coerceAtLeast(0),
+                        droppedFrames = droppedFrames,
+                        resolution = "${_videoTrackInfo.value.resolutionLabel} (${_videoTrackInfo.value.width}x${_videoTrackInfo.value.height})",
+                        frameRate = _videoTrackInfo.value.frameRate,
+                        bitrate = _videoTrackInfo.value.bitrate,
+                        mimeType = _videoTrackInfo.value.mimeType ?: "Desconocido",
+                        stallCount = silentStallCounter,
+                        lastRecoveryReason = lastRecoveryReasonString
+                    )
                 }
 
                 delay(1000)
