@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.75",
-  "versionCode": 1000075,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.75/app-debug.apk",
-  "changelog": "• Enfoque D-Pad de alto contraste con resplandor neón en listas de Ajustes de TV.\n• Acceso directo a Diagnóstico y Filtrar Categorías en Portal Dashboard y Ajustes.\n• Panel Administrador y Selector de Categorías optimizados para control remoto."
+  "versionName": "1.0.76",
+  "versionCode": 1000076,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.76/app-debug.apk",
+  "changelog": "• Limpieza del panel superior TV: 4 categorías principales amplias y espaciosas (En Vivo, Películas, Series, Deportes).\n• Barra inferior completa con acciones rápidas: Descargar M3U, Filtrar Categorías, Diagnóstico, Ajustes y Recargar."
 }

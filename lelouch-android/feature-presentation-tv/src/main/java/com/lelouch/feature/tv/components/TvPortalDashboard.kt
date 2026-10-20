@@ -83,7 +83,7 @@ fun TvPortalDashboard(
     val heroBtnRequester = remember { firstItemRequester ?: FocusRequester() }
     val heroInfoRequester = remember { FocusRequester() }
 
-    val pillRequesters = remember { List(8) { FocusRequester() } }
+    val pillRequesters = remember { List(4) { FocusRequester() } }
 
     val featuredMovie = remember(visibleMovies) {
         visibleMovies.firstOrNull { !it.backdropPath.isNullOrBlank() || !it.streamIcon.isNullOrBlank() }
@@ -163,7 +163,7 @@ fun TvPortalDashboard(
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             TvCategoryPill(
@@ -199,7 +199,7 @@ fun TvPortalDashboard(
                 modifier = Modifier.weight(1f).focusProperties {
                     left = pillRequesters[1]
                     right = pillRequesters[3]
-                    up = heroBtnRequester
+                    up = heroInfoRequester
                 }
             )
             TvCategoryPill(
@@ -210,54 +210,7 @@ fun TvPortalDashboard(
                 focusRequester = pillRequesters[3],
                 modifier = Modifier.weight(1f).focusProperties {
                     left = pillRequesters[2]
-                    right = pillRequesters[4]
-                    up = heroBtnRequester
-                }
-            )
-            TvCategoryPill(
-                icon = "🎯",
-                label = "Categorías",
-                count = 0,
-                onClick = onOpenCategoryFilter,
-                focusRequester = pillRequesters[4],
-                modifier = Modifier.weight(1f).focusProperties {
-                    left = pillRequesters[3]
-                    right = pillRequesters[5]
-                    up = heroInfoRequester
-                }
-            )
-            TvCategoryPill(
-                icon = "🩺",
-                label = "Diagnóstico",
-                count = 0,
-                onClick = onOpenDiagnostics,
-                focusRequester = pillRequesters[5],
-                modifier = Modifier.weight(1f).focusProperties {
-                    left = pillRequesters[4]
-                    right = pillRequesters[6]
-                    up = heroInfoRequester
-                }
-            )
-            TvCategoryPill(
-                icon = "⚙️",
-                label = "Ajustes",
-                count = 0,
-                onClick = onOpenSettings,
-                focusRequester = pillRequesters[6],
-                modifier = Modifier.weight(1f).focusProperties {
-                    left = pillRequesters[5]
-                    right = pillRequesters[7]
-                    up = heroInfoRequester
-                }
-            )
-            TvCategoryPill(
-                icon = "🔄",
-                label = "Recargar",
-                count = 0,
-                onClick = onReloadCatalog,
-                focusRequester = pillRequesters[7],
-                modifier = Modifier.weight(1f).focusProperties {
-                    left = pillRequesters[6]
+                    right = FocusRequester.Cancel
                     up = heroInfoRequester
                 }
             )
@@ -461,6 +414,28 @@ fun TvPortalDashboard(
                 ) {
                     Text(
                         text = "⚙️ Ajustes",
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                    )
+                }
+
+                Surface(
+                    onClick = onReloadCatalog,
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = Color(0xFF040D18),
+                        focusedContainerColor = LelouchCyanAccent
+                    ),
+                    border = ClickableSurfaceDefaults.border(
+                        border = Border(BorderStroke(1.dp, Color(0xFF334155))),
+                        focusedBorder = Border(BorderStroke(1.5.dp, Color.White))
+                    )
+                ) {
+                    Text(
+                        text = "🔄 Recargar",
                         color = Color.White,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
@@ -713,30 +688,30 @@ private fun TvCategoryPill(
         )
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
         ) {
-            Text(text = icon, fontSize = 14.sp)
-            Spacer(modifier = Modifier.width(6.dp))
+            Text(text = icon, fontSize = 16.sp)
+            Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = label,
                 color = if (isFocused) Color.Black else Color.White,
-                fontSize = 12.sp,
+                fontSize = 14.sp,
                 fontWeight = FontWeight.Bold
             )
             if (count > 0) {
-                Spacer(modifier = Modifier.width(6.dp))
+                Spacer(modifier = Modifier.width(8.dp))
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
                         .background(if (isFocused) Color.Black.copy(alpha = 0.2f) else LelouchCyanAccent.copy(alpha = 0.2f))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
                 ) {
                     Text(
                         text = if (count > 999) "%,d".format(count) else "$count",
                         color = if (isFocused) Color.Black else LelouchCyanAccent,
-                        fontSize = 10.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Black
                     )
                 }
