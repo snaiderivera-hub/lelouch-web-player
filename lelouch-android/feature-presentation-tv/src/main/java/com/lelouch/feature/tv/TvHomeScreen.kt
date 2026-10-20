@@ -18,11 +18,15 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.SolidColor
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
@@ -240,6 +244,12 @@ fun TvHomeScreen(
     var isPlayingLive by remember { mutableStateOf(true) }
     var currentPlayingTitle by remember { mutableStateOf<String?>(null) }
     var seekFeedbackText by remember { mutableStateOf<String?>(null) }
+    var channelInputBuffer by remember { mutableStateOf("") }
+    var channelInputJob by remember { mutableStateOf<Job?>(null) }
+    var movieSearchQuery by rememberSaveable { mutableStateOf("") }
+    var isMovieSearchFocused by remember { mutableStateOf(false) }
+    var movieSearchResults by remember { mutableStateOf<List<VodMovie>>(emptyList()) }
+    var isMovieSearching by remember { mutableStateOf(false) }
     val focusTracker = remember { FocusTracker() }
     var focusedTopTab by remember { mutableIntStateOf(1) }
     var selectedTopTab by remember { mutableIntStateOf(1) } // 0:Buscar, 1:Inicio, 2:En Vivo, 3:Películas, 4:Series, 5:Favoritos, 6:Ajustes
@@ -271,6 +281,28 @@ fun TvHomeScreen(
         // Sin sidebar: entregar el foco al contenido de la pestaña recién mostrada.
         delay(150)
         try { contentFocusRequester.requestFocus() } catch (_: Exception) {}
+    }
+
+    LaunchedEffect(movieSearchQuery, activeSource?.id, hiddenMovieCategories) {
+        val q = movieSearchQuery.trim()
+        val srcId = activeSource?.id.orEmpty()
+        if (q.length < 2 || srcId.isBlank() || vodRepository == null) {
+            movieSearchResults = emptyList()
+            isMovieSearching = false
+        } else {
+            isMovieSearching = true
+            delay(250)
+            val results = withContext(Dispatchers.IO) {
+                vodRepository.searchMovies(
+                    sourceId = srcId,
+                    query = q,
+                    hiddenCategoryIds = hiddenMovieCategories.toList(),
+                    limit = 60
+                )
+            }
+            movieSearchResults = results
+            isMovieSearching = false
+        }
     }
 
     var lastFullscreenEntryTime by remember { mutableLongStateOf(0L) }
@@ -613,6 +645,34 @@ fun TvHomeScreen(
         }
     }
 
+    fun tuneToDirectChannel(input: String) {
+        val targetNum = input.toIntOrNull() ?: return
+        var targetIndex = activePlaybackChannels.indexOfFirst { it.num == targetNum }
+        if (targetIndex < 0) {
+            val foundInVisible = visibleChannels.find { it.num == targetNum }
+            if (foundInVisible != null) {
+                activePlaybackChannels = visibleChannels
+                targetIndex = activePlaybackChannels.indexOfFirst { it.streamId == foundInVisible.streamId }
+            }
+        }
+        if (targetIndex < 0 && targetNum in 1..activePlaybackChannels.size) {
+            targetIndex = targetNum - 1
+        }
+        if (targetIndex >= 0) {
+            activePlaybackChannelIndex = targetIndex
+            val ch = activePlaybackChannels[targetIndex]
+            focusedChannelIndex = visibleChannels.indexOfFirst { it.streamId == ch.streamId }.coerceAtLeast(0)
+            focusedChannel = ch
+            isPlayingLive = true
+            val userT0 = android.os.SystemClock.elapsedRealtime()
+            playerEngine.playStream(ch.streamUrl, isLive = true, userT0 = userT0)
+            isHudVisible = false
+            seekFeedbackText = "📺 Sintonizado: ${ch.num} - ${ch.name}"
+        } else {
+            seekFeedbackText = "✖ Canal $targetNum no encontrado"
+        }
+    }
+
     // FASE 33: Resiliencia de señal en TV Box (sin saltos involuntarios de canal)
     DisposableEffect(playerEngine) {
         playerEngine.onChannelUnavailable = {
@@ -906,7 +966,12 @@ fun TvHomeScreen(
                             KeyEvent.KEYCODE_DPAD_CENTER,
                             KeyEvent.KEYCODE_ENTER,
                             KeyEvent.KEYCODE_NUMPAD_ENTER -> {
-                                if (System.currentTimeMillis() - lastFullscreenEntryTime < 600L) {
+                                if (channelInputBuffer.isNotEmpty()) {
+                                    channelInputJob?.cancel()
+                                    tuneToDirectChannel(channelInputBuffer)
+                                    channelInputBuffer = ""
+                                    true
+                                } else if (System.currentTimeMillis() - lastFullscreenEntryTime < 600L) {
                                     true
                                 } else {
                                     if (!isHudVisible) {
@@ -946,8 +1011,49 @@ fun TvHomeScreen(
                                 }
                                 true
                             }
+                            KeyEvent.KEYCODE_0, KeyEvent.KEYCODE_NUMPAD_0,
+                            KeyEvent.KEYCODE_1, KeyEvent.KEYCODE_NUMPAD_1,
+                            KeyEvent.KEYCODE_2, KeyEvent.KEYCODE_NUMPAD_2,
+                            KeyEvent.KEYCODE_3, KeyEvent.KEYCODE_NUMPAD_3,
+                            KeyEvent.KEYCODE_4, KeyEvent.KEYCODE_NUMPAD_4,
+                            KeyEvent.KEYCODE_5, KeyEvent.KEYCODE_NUMPAD_5,
+                            KeyEvent.KEYCODE_6, KeyEvent.KEYCODE_NUMPAD_6,
+                            KeyEvent.KEYCODE_7, KeyEvent.KEYCODE_NUMPAD_7,
+                            KeyEvent.KEYCODE_8, KeyEvent.KEYCODE_NUMPAD_8,
+                            KeyEvent.KEYCODE_9, KeyEvent.KEYCODE_NUMPAD_9 -> {
+                                if (isLiveStream) {
+                                    val digit = when (keyEvent.nativeKeyEvent.keyCode) {
+                                        KeyEvent.KEYCODE_0, KeyEvent.KEYCODE_NUMPAD_0 -> "0"
+                                        KeyEvent.KEYCODE_1, KeyEvent.KEYCODE_NUMPAD_1 -> "1"
+                                        KeyEvent.KEYCODE_2, KeyEvent.KEYCODE_NUMPAD_2 -> "2"
+                                        KeyEvent.KEYCODE_3, KeyEvent.KEYCODE_NUMPAD_3 -> "3"
+                                        KeyEvent.KEYCODE_4, KeyEvent.KEYCODE_NUMPAD_4 -> "4"
+                                        KeyEvent.KEYCODE_5, KeyEvent.KEYCODE_NUMPAD_5 -> "5"
+                                        KeyEvent.KEYCODE_6, KeyEvent.KEYCODE_NUMPAD_6 -> "6"
+                                        KeyEvent.KEYCODE_7, KeyEvent.KEYCODE_NUMPAD_7 -> "7"
+                                        KeyEvent.KEYCODE_8, KeyEvent.KEYCODE_NUMPAD_8 -> "8"
+                                        KeyEvent.KEYCODE_9, KeyEvent.KEYCODE_NUMPAD_9 -> "9"
+                                        else -> ""
+                                    }
+                                    val newBuf = (channelInputBuffer + digit).take(5)
+                                    channelInputBuffer = newBuf
+                                    channelInputJob?.cancel()
+                                    channelInputJob = coroutineScope.launch {
+                                        delay(1500)
+                                        tuneToDirectChannel(newBuf)
+                                        channelInputBuffer = ""
+                                    }
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
                             KeyEvent.KEYCODE_BACK -> {
-                                if (isHudVisible) {
+                                if (channelInputBuffer.isNotEmpty()) {
+                                    channelInputJob?.cancel()
+                                    channelInputBuffer = ""
+                                    true
+                                } else if (isHudVisible) {
                                     isHudVisible = false
                                     true
                                 } else {
@@ -1315,14 +1421,178 @@ fun TvHomeScreen(
                                     )
                                 }
 
-                                TvCategorySelectorBar(
-                                    categories = movieCategoryList,
-                                    selectedCategoryId = selectedMovieCategoryId,
-                                    onSelectCategory = { selectedMovieCategoryId = it.id },
-                                    firstItemRequester = contentFocusRequester,
-                                    sidebarRequester = sidebarRequesters[3],
-                                    modifier = Modifier.padding(bottom = 12.dp)
-                                )
+                                // Barra de Búsqueda de Películas
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(if (isMovieSearchFocused) Color(0xFF1E293B) else Color(0xFF0F172A))
+                                            .border(
+                                                width = if (isMovieSearchFocused) 2.dp else 1.dp,
+                                                color = if (isMovieSearchFocused) LelouchCyanAccent else Color(0xFF334155),
+                                                shape = RoundedCornerShape(10.dp)
+                                            )
+                                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Search,
+                                            contentDescription = null,
+                                            tint = if (isMovieSearchFocused) LelouchCyanAccent else LelouchTextSecondary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        BasicTextField(
+                                            value = movieSearchQuery,
+                                            onValueChange = { movieSearchQuery = it },
+                                            singleLine = true,
+                                            cursorBrush = SolidColor(LelouchCyanAccent),
+                                            textStyle = TextStyle(
+                                                color = Color.White,
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.Medium
+                                            ),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .onFocusChanged { isMovieSearchFocused = it.isFocused },
+                                            decorationBox = { innerTextField ->
+                                                if (movieSearchQuery.isEmpty()) {
+                                                    Text(
+                                                        text = "🔍 Buscar películas en catálogo por título o género...",
+                                                        color = LelouchTextMuted,
+                                                        fontSize = 14.sp
+                                                    )
+                                                }
+                                                innerTextField()
+                                            }
+                                        )
+                                        if (movieSearchQuery.isNotEmpty()) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(CircleShape)
+                                                    .clickable { movieSearchQuery = "" }
+                                                    .padding(4.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Close,
+                                                    contentDescription = "Limpiar",
+                                                    tint = LelouchTextSecondary,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                val isMovieSearchActive = movieSearchQuery.trim().length >= 2
+                                if (!isMovieSearchActive) {
+                                    TvCategorySelectorBar(
+                                        categories = movieCategoryList,
+                                        selectedCategoryId = selectedMovieCategoryId,
+                                        onSelectCategory = { selectedMovieCategoryId = it.id },
+                                        firstItemRequester = contentFocusRequester,
+                                        sidebarRequester = sidebarRequesters[3],
+                                        modifier = Modifier.padding(bottom = 12.dp)
+                                    )
+                                } else {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(bottom = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = if (isMovieSearching) "Buscando '$movieSearchQuery'..." else "Resultados de búsqueda: ${movieSearchResults.size} películas encontradas",
+                                            color = LelouchCyanAccent,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Surface(
+                                            onClick = { movieSearchQuery = "" },
+                                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                                            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+                                            colors = ClickableSurfaceDefaults.colors(
+                                                containerColor = Color(0xFF1E293B),
+                                                focusedContainerColor = LelouchCyanAccent
+                                            )
+                                        ) {
+                                            Text(
+                                                text = "Ver Todas las Categorías",
+                                                color = Color.White,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                if (isMovieSearchActive) {
+                                    if (movieSearchResults.isEmpty() && !isMovieSearching) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(bottom = 48.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                Text(text = "🎬", fontSize = 36.sp)
+                                                Spacer(modifier = Modifier.height(8.dp))
+                                                Text(
+                                                    text = "No se encontraron películas para '$movieSearchQuery'",
+                                                    color = Color.White,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 18.sp
+                                                )
+                                                Spacer(modifier = Modifier.height(6.dp))
+                                                Text(
+                                                    text = "Prueba con otra palabra o borra el buscador",
+                                                    color = LelouchTextSecondary,
+                                                    fontSize = 14.sp
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        LazyVerticalGrid(
+                                            columns = GridCells.Fixed(6),
+                                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                            verticalArrangement = Arrangement.spacedBy(20.dp),
+                                            contentPadding = PaddingValues(bottom = 48.dp),
+                                            modifier = Modifier.fillMaxSize()
+                                        ) {
+                                            items(
+                                                count = movieSearchResults.size,
+                                                key = { idx -> "search_movie_${movieSearchResults[idx].id}_$idx" }
+                                            ) { idx ->
+                                                val movie = movieSearchResults[idx]
+                                                val isFirstColumn = (idx % 6 == 0)
+                                                val cardModifier = if (isFirstColumn) {
+                                                    Modifier.focusProperties { left = sidebarRequesters[3] }
+                                                } else {
+                                                    Modifier
+                                                }
+
+                                                TvPosterCard(
+                                                    title = movie.name,
+                                                    posterUrl = movie.streamIcon,
+                                                    rating = movie.rating ?: 0.0,
+                                                    year = movie.year,
+                                                    onClick = {
+                                                        playMovie(movie)
+                                                    },
+                                                    modifier = cardModifier
+                                                )
+                                            }
+                                        }
+                                    }
+                                } else
 
                                 if (pagedMovies.itemCount == 0 && pagedMovies.loadState.refresh !is androidx.paging.LoadState.Loading) {
                                     Box(
@@ -2262,6 +2532,43 @@ fun TvHomeScreen(
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Black
                     )
+                }
+            }
+        }
+
+        // CAPA 12: Banner de Sintonización Numérica Directa (Control Toshiba / HDMI-CEC)
+        if (channelInputBuffer.isNotEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = 40.dp, end = 56.dp),
+                contentAlignment = Alignment.TopEnd
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color(0xE606111E))
+                        .border(2.dp, LelouchCyanAccent, RoundedCornerShape(16.dp))
+                        .padding(horizontal = 24.dp, vertical = 14.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "📺 SINTONIZAR",
+                            color = LelouchTextSecondary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = channelInputBuffer,
+                            color = LelouchCyanAccent,
+                            fontSize = 32.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 2.sp
+                        )
+                    }
                 }
             }
         }

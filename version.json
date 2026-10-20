@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.79",
-  "versionCode": 1000079,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.79/app-debug.apk",
-  "changelog": "• Panel de diagnóstico en pantalla con telemetría en tiempo real: resolución, fps, códec, bitrate y contador de frames.\n• Vigilante anti-congelamiento continuo inmune a transiciones STATE_READY con Hard Flush de hardware en Amlogic."
+  "versionName": "1.0.80",
+  "versionCode": 1000080,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.80/app-debug.apk",
+  "changelog": "• Sintonizador numérico directo: cambia de canal tecleando números con el control de la TV (Toshiba CE-Link / HDMI-CEC).\n• Buscador integrado en la pestaña de Películas con filtrado reactivo instantáneo por título y género."
 }
