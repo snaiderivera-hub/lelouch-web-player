@@ -1,27 +1,31 @@
 package com.lelouch.feature.tv.components
 
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
-import androidx.compose.foundation.Image
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -30,17 +34,22 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
+import androidx.tv.material3.Icon
 import androidx.tv.material3.Surface
+import coil.compose.AsyncImage
 import com.lelouch.core.designsystem.*
 import com.lelouch.core.model.SourceConfig
-import com.lelouch.feature.tv.R
+import com.lelouch.feature.tv.ChannelUiModel
+import com.lelouch.feature.tv.MovieUiModel
+import com.lelouch.feature.tv.SeriesUiModel
 
 /**
- * FASE 32: Portal Dashboard Canónico para Android TV (TV Box)
- * Replica con máxima fidelidad la pantalla de inicio del reproductor web:
- * - Cabecera con marca "REPRODUCTOR LELOUCH", subtítulo y píldora de cuenta activa.
- * - 4 Tarjetas Gigantes Hero: TV EN VIVO, PELÍCULAS, SERIES, DEPORTES con badges numéricos.
- * - Fila inferior de acciones rápidas: Descargar M3U, Recargar Catálogo, Ajustes y Listas, Diagnóstico.
+ * Experiencia 100% Nativa y Cinemática para Android TV Box (D-Pad Compatible).
+ * Combina el flujo de los mejores repositorios de streaming:
+ * 1. Hero Featured Banner (Póster/Backdrop con reproducción directa mediante control remoto).
+ * 2. Píldoras de Categoría con navegación D-Pad y contadores en tiempo real.
+ * 3. Carruseles Horizontales de Contenido (En Vivo, Películas y Series) con foco D-Pad fluido.
+ * 4. Tarjeta de Estado y Acciones Rápidas (Ajustes, Recargar, M3U).
  */
 @OptIn(ExperimentalTvMaterial3Api::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
@@ -58,512 +67,629 @@ fun TvPortalDashboard(
     onReloadCatalog: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenDiagnostics: () -> Unit,
+    onOpenCategoryFilter: () -> Unit = {},
     onNavigateToSearch: () -> Unit = {},
     onNavigateToFavorites: () -> Unit = {},
     modifier: Modifier = Modifier,
     sidebarRequester: FocusRequester? = null,
-    firstItemRequester: FocusRequester? = null
+    firstItemRequester: FocusRequester? = null,
+    visibleChannels: List<ChannelUiModel> = emptyList(),
+    visibleMovies: List<MovieUiModel> = emptyList(),
+    visibleSeriesList: List<SeriesUiModel> = emptyList(),
+    onChannelClick: ((ChannelUiModel) -> Unit)? = null,
+    onMovieClick: ((MovieUiModel) -> Unit)? = null,
+    onSeriesClick: ((SeriesUiModel) -> Unit)? = null
 ) {
-    val cardFocusRequesters = remember(firstItemRequester) {
-        List(4) { idx -> if (idx == 0 && firstItemRequester != null) firstItemRequester else FocusRequester() }
+    val heroBtnRequester = remember { firstItemRequester ?: FocusRequester() }
+    val heroInfoRequester = remember { FocusRequester() }
+
+    val pillRequesters = remember { List(8) { FocusRequester() } }
+
+    val featuredMovie = remember(visibleMovies) {
+        visibleMovies.firstOrNull { !it.backdropPath.isNullOrBlank() || !it.streamIcon.isNullOrBlank() }
+            ?: visibleMovies.firstOrNull()
     }
-    val actionFocusRequesters = remember { List(4) { FocusRequester() } }
-    val reloadBtnRequester = remember { FocusRequester() }
-    val searchBtnRequester = remember { FocusRequester() }
-    val favBtnRequester = remember { FocusRequester() }
+    val featuredSeries = remember(visibleSeriesList) {
+        visibleSeriesList.firstOrNull { !it.backdropPath.isNullOrBlank() || !it.cover.isNullOrBlank() }
+            ?: visibleSeriesList.firstOrNull()
+    }
 
-    Box(modifier = modifier.fillMaxSize()) {
-        Image(
-            painter = painterResource(id = R.drawable.bg_category_card),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize()
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.65f))
-        )
+    LaunchedEffect(Unit) {
+        try {
+            heroBtnRequester.requestFocus()
+        } catch (_: Exception) {}
+    }
 
-        var currentTime by remember { mutableStateOf("") }
-        LaunchedEffect(Unit) {
-            val sdf = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault())
-            sdf.timeZone = java.util.TimeZone.getTimeZone("America/Guatemala")
-            while (true) {
-                currentTime = sdf.format(java.util.Date())
-                kotlinx.coroutines.delay(1000L)
-            }
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(LelouchBackground)
+            .padding(horizontal = 32.dp, vertical = 16.dp)
+    ) {
+        // ══════════════════════════════════════════════════════════════════════
+        // 1. HERO FEATURED BANNER TV (CINEMÁTICO CON D-PAD)
+        // ══════════════════════════════════════════════════════════════════════
+        if (featuredMovie != null) {
+            TvHeroBanner(
+                title = featuredMovie.name,
+                subtitle = featuredMovie.genre?.ifBlank { null } ?: featuredMovie.categoryName.ifBlank { "Película Destacada" },
+                rating = featuredMovie.rating,
+                year = featuredMovie.year,
+                plot = featuredMovie.plot,
+                imageUrl = featuredMovie.backdropPath?.ifBlank { null } ?: featuredMovie.streamIcon,
+                onPlayClick = { onMovieClick?.invoke(featuredMovie) ?: onNavigateToMovies() },
+                onInfoClick = { onMovieClick?.invoke(featuredMovie) ?: onNavigateToMovies() },
+                playFocusRequester = heroBtnRequester,
+                infoFocusRequester = heroInfoRequester,
+                sidebarRequester = sidebarRequester,
+                downRequester = pillRequesters[0],
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(230.dp)
+            )
+        } else if (featuredSeries != null) {
+            TvHeroBanner(
+                title = featuredSeries.name,
+                subtitle = featuredSeries.genre?.ifBlank { null } ?: featuredSeries.categoryName.ifBlank { "Serie Destacada" },
+                rating = featuredSeries.rating,
+                year = featuredSeries.releaseDate?.take(4),
+                plot = featuredSeries.plot,
+                imageUrl = featuredSeries.backdropPath?.ifBlank { null } ?: featuredSeries.cover,
+                onPlayClick = { onSeriesClick?.invoke(featuredSeries) ?: onNavigateToSeries() },
+                onInfoClick = { onSeriesClick?.invoke(featuredSeries) ?: onNavigateToSeries() },
+                playFocusRequester = heroBtnRequester,
+                infoFocusRequester = heroInfoRequester,
+                sidebarRequester = sidebarRequester,
+                downRequester = pillRequesters[0],
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(230.dp)
+            )
         }
 
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // ══════════════════════════════════════════════════════════════════════
+        // 2. PÍLDORAS DE CATEGORÍA NATIVAS CON FOCO D-PAD
+        // ══════════════════════════════════════════════════════════════════════
         Text(
-            text = currentTime,
-            color = Color.White.copy(alpha = 0.85f),
-            fontSize = 18.sp,
+            text = "EXPLORAR CATÁLOGO",
+            color = LelouchTextMuted,
+            fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 24.dp, end = 48.dp)
+            letterSpacing = 1.sp,
+            modifier = Modifier.padding(bottom = 8.dp)
         )
 
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .wrapContentHeight()
-                .padding(horizontal = 36.dp, vertical = 20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
+            TvCategoryPill(
+                icon = "📺",
+                label = "En Vivo",
+                count = liveChannelsCount,
+                onClick = onNavigateToLive,
+                focusRequester = pillRequesters[0],
+                modifier = Modifier.weight(1f).focusProperties {
+                    left = sidebarRequester ?: FocusRequester.Cancel
+                    right = pillRequesters[1]
+                    up = heroBtnRequester
+                }
+            )
+            TvCategoryPill(
+                icon = "🎬",
+                label = "Películas",
+                count = moviesCount,
+                onClick = onNavigateToMovies,
+                focusRequester = pillRequesters[1],
+                modifier = Modifier.weight(1f).focusProperties {
+                    left = pillRequesters[0]
+                    right = pillRequesters[2]
+                    up = heroBtnRequester
+                }
+            )
+            TvCategoryPill(
+                icon = "🎞️",
+                label = "Series",
+                count = seriesCount,
+                onClick = onNavigateToSeries,
+                focusRequester = pillRequesters[2],
+                modifier = Modifier.weight(1f).focusProperties {
+                    left = pillRequesters[1]
+                    right = pillRequesters[3]
+                    up = heroBtnRequester
+                }
+            )
+            TvCategoryPill(
+                icon = "⚽",
+                label = "Deportes",
+                count = sportsCount,
+                onClick = onNavigateToSports,
+                focusRequester = pillRequesters[3],
+                modifier = Modifier.weight(1f).focusProperties {
+                    left = pillRequesters[2]
+                    right = pillRequesters[4]
+                    up = heroBtnRequester
+                }
+            )
+            TvCategoryPill(
+                icon = "🎯",
+                label = "Categorías",
+                count = 0,
+                onClick = onOpenCategoryFilter,
+                focusRequester = pillRequesters[4],
+                modifier = Modifier.weight(1f).focusProperties {
+                    left = pillRequesters[3]
+                    right = pillRequesters[5]
+                    up = heroInfoRequester
+                }
+            )
+            TvCategoryPill(
+                icon = "🩺",
+                label = "Diagnóstico",
+                count = 0,
+                onClick = onOpenDiagnostics,
+                focusRequester = pillRequesters[5],
+                modifier = Modifier.weight(1f).focusProperties {
+                    left = pillRequesters[4]
+                    right = pillRequesters[6]
+                    up = heroInfoRequester
+                }
+            )
+            TvCategoryPill(
+                icon = "⚙️",
+                label = "Ajustes",
+                count = 0,
+                onClick = onOpenSettings,
+                focusRequester = pillRequesters[6],
+                modifier = Modifier.weight(1f).focusProperties {
+                    left = pillRequesters[5]
+                    right = pillRequesters[7]
+                    up = heroInfoRequester
+                }
+            )
+            TvCategoryPill(
+                icon = "🔄",
+                label = "Recargar",
+                count = 0,
+                onClick = onReloadCatalog,
+                focusRequester = pillRequesters[7],
+                modifier = Modifier.weight(1f).focusProperties {
+                    left = pillRequesters[6]
+                    up = heroInfoRequester
+                }
+            )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
         // ══════════════════════════════════════════════════════════════════════
-        // 1. CABECERA CENTRAL DE MARCA Y ESTADO
+        // 3. CARRUSEL HORIZONTAL TV: CANALES EN VIVO & DEPORTES
         // ══════════════════════════════════════════════════════════════════════
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(
-                text = "REPRODUCTOR LELOUCH",
-                color = Color.White,
-                fontSize = 28.sp,
-                fontWeight = FontWeight.ExtraBold,
-                letterSpacing = 1.5.sp
+        if (visibleChannels.isNotEmpty()) {
+            TvSwimlaneHeader(
+                title = "🔴 CANALES EN VIVO & DEPORTES",
+                actionText = "Ver todos [>]",
+                onActionClick = onNavigateToLive
             )
 
-            Spacer(modifier = Modifier.height(4.dp))
-
-            Text(
-                text = "M3U • XTREAM CODES • HLS",
-                color = LelouchTextSecondary,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 2.sp
-            )
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Fila de estado: Servidor Activo + Botón Recargar + Fecha de Vencimiento
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center,
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                // Pill Servidor Activo
+                items(visibleChannels.take(12)) { channel ->
+                    TvStreamCard(
+                        channel = channel,
+                        onClick = { onChannelClick?.invoke(channel) ?: onNavigateToLive() }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(22.dp))
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // 4. CARRUSEL HORIZONTAL TV: PELÍCULAS DE ESTRENO
+        // ══════════════════════════════════════════════════════════════════════
+        if (visibleMovies.isNotEmpty()) {
+            TvSwimlaneHeader(
+                title = "🎬 PELÍCULAS RECOMENDADAS",
+                actionText = "Ver todas [>]",
+                onActionClick = onNavigateToMovies
+            )
+
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(visibleMovies.take(12)) { movie ->
+                    TvPosterMovieCard(
+                        movie = movie,
+                        onClick = { onMovieClick?.invoke(movie) ?: onNavigateToMovies() }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(22.dp))
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // 5. CARRUSEL HORIZONTAL TV: SERIES POPULARES
+        // ══════════════════════════════════════════════════════════════════════
+        if (visibleSeriesList.isNotEmpty()) {
+            TvSwimlaneHeader(
+                title = "🎞️ SERIES POPULARES",
+                actionText = "Ver todas [>]",
+                onActionClick = onNavigateToSeries
+            )
+
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(visibleSeriesList.take(12)) { series ->
+                    TvPosterSeriesCard(
+                        series = series,
+                        onClick = { onSeriesClick?.invoke(series) ?: onNavigateToSeries() }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(22.dp))
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // 6. PIE DE PÁGINA: ESTADO DE CUENTA Y ACCIONES RÁPIDAS
+        // ══════════════════════════════════════════════════════════════════════
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(LelouchSurfaceVariant)
+                .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(12.dp))
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(Color(0xFF061826))
-                        .border(1.dp, Color(0xFF00E5FF).copy(alpha = 0.35f), RoundedCornerShape(20.dp))
-                        .padding(horizontal = 14.dp, vertical = 6.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(text = "🌐", fontSize = 12.sp)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = activeSource?.name ?: activeSource?.serverUrl?.removePrefix("http://")?.take(22) ?: "liontv.es (Activa)",
-                            color = Color(0xFFE2E8F0),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.width(10.dp))
-
-                // Botón RECARGAR (Focusable con D-Pad)
-                var isReloadFocused by remember { mutableStateOf(false) }
-                Surface(
-                    onClick = onReloadCatalog,
-                    modifier = Modifier
-                        .focusRequester(reloadBtnRequester)
-                        .focusProperties {
-                            right = FocusRequester.Cancel
-                            down = cardFocusRequesters[0]
-                        }
-                        .onFocusChanged { isReloadFocused = it.isFocused },
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
-                    colors = ClickableSurfaceDefaults.colors(
-                        containerColor = if (isReloadFocused) Color(0xFF00E5FF) else Color(0xFF061826),
-                        focusedContainerColor = Color(0xFF00E5FF)
-                    ),
-                    border = ClickableSurfaceDefaults.border(
-                        border = Border(BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.5f))),
-                        focusedBorder = Border(BorderStroke(1.5.dp, Color.White))
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(text = "🔄", fontSize = 11.sp)
-                        Spacer(modifier = Modifier.width(5.dp))
-                        Text(
-                            text = "RECARGAR",
-                            color = if (isReloadFocused) Color(0xFF02070D) else Color(0xFF00E5FF),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            letterSpacing = 0.5.sp
-                        )
-                    }
-                }
-
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(LelouchSuccess)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = activeSource?.name ?: "Servidor Conectado",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
                 Spacer(modifier = Modifier.width(12.dp))
-
-                /* BUSCAR/FAVORITOS retirados del Home TV (vista minimalista).
-                var isSearchFocused by remember { mutableStateOf(false) }
-                Surface(
-                    onClick = onNavigateToSearch,
-                    modifier = Modifier
-                        .focusRequester(searchBtnRequester)
-                        .focusProperties {
-                            left = reloadBtnRequester
-                            right = favBtnRequester
-                            down = cardFocusRequesters[1]
-                        }
-                        .onFocusChanged { isSearchFocused = it.isFocused },
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
-                    colors = ClickableSurfaceDefaults.colors(
-                        containerColor = if (isSearchFocused) Color(0xFF00E5FF) else Color(0xFF061826),
-                        focusedContainerColor = Color(0xFF00E5FF)
-                    ),
-                    border = ClickableSurfaceDefaults.border(
-                        border = Border(BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.5f))),
-                        focusedBorder = Border(BorderStroke(1.5.dp, Color.White))
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(text = "🔍", fontSize = 11.sp)
-                        Spacer(modifier = Modifier.width(5.dp))
-                        Text(
-                            text = "BUSCAR",
-                            color = if (isSearchFocused) Color(0xFF02070D) else Color(0xFF00E5FF),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            letterSpacing = 0.5.sp
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.width(10.dp))
-
-                // Botón FAVORITOS (Focusable con D-Pad)
-                var isFavFocused by remember { mutableStateOf(false) }
-                Surface(
-                    onClick = onNavigateToFavorites,
-                    modifier = Modifier
-                        .focusRequester(favBtnRequester)
-                        .focusProperties {
-                            left = searchBtnRequester
-                            down = cardFocusRequesters[2]
-                        }
-                        .onFocusChanged { isFavFocused = it.isFocused },
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
-                    colors = ClickableSurfaceDefaults.colors(
-                        containerColor = if (isFavFocused) Color(0xFF00E5FF) else Color(0xFF061826),
-                        focusedContainerColor = Color(0xFF00E5FF)
-                    ),
-                    border = ClickableSurfaceDefaults.border(
-                        border = Border(BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.5f))),
-                        focusedBorder = Border(BorderStroke(1.5.dp, Color.White))
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(text = "⭐", fontSize = 11.sp)
-                        Spacer(modifier = Modifier.width(5.dp))
-                        Text(
-                            text = "FAVORITOS",
-                            color = if (isFavFocused) Color(0xFF02070D) else Color(0xFF00E5FF),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            letterSpacing = 0.5.sp
-                        )
-                    }
-                }
-                */
-
-                // Indicador de Vencimiento
                 val expiryText = activeSource?.formattedExpireDate ?: "13/10/2026"
                 Text(
                     text = "Vence: $expiryText",
-                    color = Color(0xFF94A3B8),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium
+                    color = LelouchTextSecondary,
+                    fontSize = 12.sp
                 )
             }
-        }
 
-        Spacer(modifier = Modifier.height(18.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    onClick = onDownloadM3U,
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = Color(0xFF040D18),
+                        focusedContainerColor = LelouchCyanAccent
+                    ),
+                    border = ClickableSurfaceDefaults.border(
+                        border = Border(BorderStroke(1.dp, Color(0xFF334155))),
+                        focusedBorder = Border(BorderStroke(1.5.dp, Color.White))
+                    )
+                ) {
+                    Text(
+                        text = "📄 M3U",
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                    )
+                }
 
-        // Auto-foco en la primera tarjeta (TV EN VIVO) al iniciar
-        LaunchedEffect(Unit) {
-            try {
-                cardFocusRequesters[0].requestFocus()
-            } catch (_: Exception) {}
-        }
+                Surface(
+                    onClick = onOpenCategoryFilter,
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = Color(0xFF040D18),
+                        focusedContainerColor = LelouchCyanAccent
+                    ),
+                    border = ClickableSurfaceDefaults.border(
+                        border = Border(BorderStroke(1.dp, Color(0xFF334155))),
+                        focusedBorder = Border(BorderStroke(1.5.dp, Color.White))
+                    )
+                ) {
+                    Text(
+                        text = "🎯 Filtrar Categorías",
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                    )
+                }
 
-        // ══════════════════════════════════════════════════════════════════════
-        // 2. LAS 4 TARJETAS GIGANTES HERO (PORTAL DASHBOARD)
-        // ══════════════════════════════════════════════════════════════════════
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .wrapContentHeight(),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // 1. TV EN VIVO
-            PortalHeroCard(
-                title = "TV EN VIVO",
-                iconContent = { TvCardVectorIcon(size = 72.dp) },
-                count = liveChannelsCount,
-                accentColor = Color(0xFF00E5FF),
-                onClick = onNavigateToLive,
-                focusRequester = cardFocusRequesters[0],
-                modifier = Modifier
-                    .weight(1f)
-                    .focusProperties {
-                        left = sidebarRequester ?: FocusRequester.Cancel
-                        right = cardFocusRequesters[1]
-                        up = reloadBtnRequester
-                        down = actionFocusRequesters[0]
-                    }
-            )
+                Surface(
+                    onClick = onOpenDiagnostics,
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = Color(0xFF040D18),
+                        focusedContainerColor = LelouchCyanAccent
+                    ),
+                    border = ClickableSurfaceDefaults.border(
+                        border = Border(BorderStroke(1.dp, Color(0xFF334155))),
+                        focusedBorder = Border(BorderStroke(1.5.dp, Color.White))
+                    )
+                ) {
+                    Text(
+                        text = "🩺 Diagnóstico",
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                    )
+                }
 
-            // 2. PELÍCULAS
-            PortalHeroCard(
-                title = "PELÍCULAS",
-                iconContent = { MovieCardVectorIcon(size = 72.dp) },
-                count = moviesCount,
-                accentColor = Color(0xFF38BDF8),
-                onClick = onNavigateToMovies,
-                focusRequester = cardFocusRequesters[1],
-                modifier = Modifier
-                    .weight(1f)
-                    .focusProperties {
-                        left = cardFocusRequesters[0]
-                        right = cardFocusRequesters[2]
-                        up = reloadBtnRequester
-                        down = actionFocusRequesters[1]
-                    }
-            )
-
-            // 3. SERIES
-            PortalHeroCard(
-                title = "SERIES",
-                iconContent = { SeriesCardVectorIcon(size = 72.dp) },
-                count = seriesCount,
-                accentColor = Color(0xFFA855F7),
-                onClick = onNavigateToSeries,
-                focusRequester = cardFocusRequesters[2],
-                modifier = Modifier
-                    .weight(1f)
-                    .focusProperties {
-                        left = cardFocusRequesters[1]
-                        right = cardFocusRequesters[3]
-                        up = reloadBtnRequester
-                        down = actionFocusRequesters[2]
-                    }
-            )
-
-            // 4. DEPORTES
-            PortalHeroCard(
-                title = "DEPORTES",
-                iconContent = { SportsCardVectorIcon(size = 72.dp) },
-                count = sportsCount,
-                accentColor = Color(0xFF10B981),
-                onClick = onNavigateToSports,
-                focusRequester = cardFocusRequesters[3],
-                modifier = Modifier
-                    .weight(1f)
-                    .focusProperties {
-                        left = cardFocusRequesters[2]
-                        right = cardFocusRequesters[3]
-                        up = reloadBtnRequester
-                        down = actionFocusRequesters[3]
-                    }
-            )
-        }
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        // ══════════════════════════════════════════════════════════════════════
-        // 3. FILA INFERIOR DE ACCIONES RÁPIDAS
-        // ══════════════════════════════════════════════════════════════════════
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Acción 1: Descargar M3U
-            PortalActionPill(
-                icon = "📄",
-                label = "Descargar M3U",
-                onClick = onDownloadM3U,
-                focusRequester = actionFocusRequesters[0],
-                modifier = Modifier
-                    .weight(1f)
-                    .focusProperties {
-                        left = sidebarRequester ?: FocusRequester.Cancel
-                        right = actionFocusRequesters[1]
-                        up = cardFocusRequesters[0]
-                    }
-            )
-
-            // Acción 2: Recargar Catálogo
-            PortalActionPill(
-                icon = "🔄",
-                label = "Recargar Catálogo",
-                onClick = onReloadCatalog,
-                focusRequester = actionFocusRequesters[1],
-                modifier = Modifier
-                    .weight(1f)
-                    .focusProperties {
-                        left = actionFocusRequesters[0]
-                        right = actionFocusRequesters[2]
-                        up = cardFocusRequesters[1]
-                    }
-            )
-
-            // Acción 3: Ajustes y Listas
-            PortalActionPill(
-                icon = "⚙️",
-                label = "Ajustes y Listas",
-                onClick = onOpenSettings,
-                focusRequester = actionFocusRequesters[2],
-                modifier = Modifier
-                    .weight(1f)
-                    .focusProperties {
-                        left = actionFocusRequesters[1]
-                        right = actionFocusRequesters[3]
-                        up = cardFocusRequesters[2]
-                    }
-            )
-
-            // Acción 4: Diagnóstico
-            PortalActionPill(
-                icon = "🩺",
-                label = "Diagnóstico",
-                onClick = onOpenDiagnostics,
-                focusRequester = actionFocusRequesters[3],
-                modifier = Modifier
-                    .weight(1f)
-                    .focusProperties {
-                        left = actionFocusRequesters[2]
-                        right = actionFocusRequesters[3]
-                        up = cardFocusRequesters[3]
-                    }
-            )
+                Surface(
+                    onClick = onOpenSettings,
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = Color(0xFF040D18),
+                        focusedContainerColor = LelouchCyanAccent
+                    ),
+                    border = ClickableSurfaceDefaults.border(
+                        border = Border(BorderStroke(1.dp, Color(0xFF334155))),
+                        focusedBorder = Border(BorderStroke(1.5.dp, Color.White))
+                    )
+                ) {
+                    Text(
+                        text = "⚙️ Ajustes",
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                    )
+                }
+            }
         }
     }
 }
-}
 
-/**
- * Tarjeta Hero grande del Portal Dashboard con resplandor neón cian al enfocarse con D-Pad.
- */
-@OptIn(ExperimentalTvMaterial3Api::class)
+// ─────────────────────────────────────────────────────────────────────────────
+// COMPOSABLES TV DE APOYO CON COMPATIBILIDAD 100% D-PAD
+// ─────────────────────────────────────────────────────────────────────────────
+
+@OptIn(ExperimentalTvMaterial3Api::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
-private fun PortalHeroCard(
+private fun TvHeroBanner(
     title: String,
-    iconContent: @Composable () -> Unit,
-    count: Int,
-    accentColor: Color,
-    onClick: () -> Unit,
-    focusRequester: FocusRequester,
+    subtitle: String,
+    rating: Double?,
+    year: String?,
+    plot: String?,
+    imageUrl: String?,
+    onPlayClick: () -> Unit,
+    onInfoClick: () -> Unit,
+    playFocusRequester: FocusRequester,
+    infoFocusRequester: FocusRequester,
+    sidebarRequester: FocusRequester?,
+    downRequester: FocusRequester?,
     modifier: Modifier = Modifier
 ) {
-    var isFocused by remember { mutableStateOf(false) }
-
-    Surface(
-        onClick = onClick,
+    Box(
         modifier = modifier
-            .height(185.dp)
-            .focusRequester(focusRequester)
-            .onFocusChanged { isFocused = it.isFocused },
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(20.dp)),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color(0xFF040D18),
-            focusedContainerColor = Color(0xFF0A1B2E)
-        ),
-        border = ClickableSurfaceDefaults.border(
-            border = Border(BorderStroke(1.5.dp, Color(0xFF00E5FF).copy(alpha = 0.45f))),
-            focusedBorder = Border(BorderStroke(3.dp, Color(0xFF00E5FF)))
-        )
+            .clip(RoundedCornerShape(16.dp))
+            .background(LelouchSurfaceVariant)
     ) {
+        if (!imageUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = imageUrl,
+                contentDescription = title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        // Degradado cinematográfico
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
-                    if (isFocused) {
-                        Brush.radialGradient(
-                            colors = listOf(Color(0xFF00E5FF).copy(alpha = 0.30f), Color(0xFF040D18)),
-                            radius = 450f
-                        )
-                    } else {
-                        Brush.verticalGradient(
-                            colors = listOf(Color(0xFF071424), Color(0xFF02070D))
-                        )
-                    }
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            Color(0xFF02070D).copy(alpha = 0.95f),
+                            Color(0xFF02070D).copy(alpha = 0.80f),
+                            Color.Transparent
+                        ),
+                        startX = 0f,
+                        endX = 1200f
+                    )
                 )
-                .padding(14.dp)
+        )
+
+        // Contenido Superpuesto
+        Column(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .fillMaxHeight()
+                .fillMaxWidth(0.55f)
+                .padding(24.dp),
+            verticalArrangement = Arrangement.Center
         ) {
-            // Badge contador superior derecho con resplandor
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFF00E5FF).copy(alpha = if (isFocused) 0.25f else 0.12f))
-                    .border(1.dp, Color(0xFF00E5FF).copy(alpha = if (isFocused) 0.7f else 0.35f), RoundedCornerShape(12.dp))
-                    .padding(horizontal = 9.dp, vertical = 3.dp)
-            ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(LelouchCyanAccent.copy(alpha = 0.2f))
+                        .border(1.dp, LelouchCyanAccent.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "⭐ DESTACADO TV",
+                        color = LelouchCyanAccent,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 1.sp
+                    )
+                }
+
+                if (rating != null && rating > 0.0) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "★ %.1f".format(rating),
+                        color = Color(0xFFFFD700),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                if (!year.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = year,
+                        color = LelouchTextSecondary,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Text(
+                text = title,
+                color = Color.White,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Black,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Text(
+                text = subtitle,
+                color = LelouchCyanAccent,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            if (!plot.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = if (count > 999) "%,d".format(count) else "$count",
-                    color = Color(0xFF00E5FF),
+                    text = plot,
+                    color = LelouchTextSecondary,
                     fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
 
-            // Contenido central: Ilustración Vectorial + Título
-            Column(
-                modifier = Modifier.align(Alignment.Center),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                iconContent()
+            Spacer(modifier = Modifier.height(14.dp))
 
-                Spacer(modifier = Modifier.height(10.dp))
+            // Botones D-Pad
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Surface(
+                    onClick = onPlayClick,
+                    modifier = Modifier
+                        .focusRequester(playFocusRequester)
+                        .focusProperties {
+                            left = sidebarRequester ?: FocusRequester.Cancel
+                            right = infoFocusRequester
+                            if (downRequester != null) down = downRequester
+                        },
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = LelouchCyanAccent,
+                        focusedContainerColor = Color.White
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            tint = Color.Black,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Ver Ahora",
+                            color = Color.Black,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                    }
+                }
 
-                Text(
-                    text = title,
-                    color = if (isFocused) Color(0xFF00E5FF) else Color.White,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = 1.sp,
-                    textAlign = TextAlign.Center
-                )
+                Surface(
+                    onClick = onInfoClick,
+                    modifier = Modifier
+                        .focusRequester(infoFocusRequester)
+                        .focusProperties {
+                            left = playFocusRequester
+                            if (downRequester != null) down = downRequester
+                        },
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = Color(0xFF0B131E),
+                        focusedContainerColor = LelouchSurfaceVariant
+                    ),
+                    border = ClickableSurfaceDefaults.border(
+                        border = Border(BorderStroke(1.dp, Color.White.copy(alpha = 0.3f))),
+                        focusedBorder = Border(BorderStroke(1.5.dp, LelouchCyanAccent))
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Detalles",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
             }
         }
     }
 }
 
-/**
- * Píldora de acción rápida en la barra inferior (Descargar M3U, Recargar, Ajustes, Diagnóstico).
- */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun PortalActionPill(
+private fun TvCategoryPill(
     icon: String,
     label: String,
+    count: Int,
     onClick: () -> Unit,
     focusRequester: FocusRequester,
     modifier: Modifier = Modifier
@@ -573,37 +699,357 @@ private fun PortalActionPill(
     Surface(
         onClick = onClick,
         modifier = modifier
-            .height(48.dp)
             .focusRequester(focusRequester)
             .onFocusChanged { isFocused = it.isFocused },
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color(0xFF040D18),
-            focusedContainerColor = Color(0xFF071F36)
+            containerColor = Color(0xFF0B131E),
+            focusedContainerColor = LelouchCyanAccent
         ),
         border = ClickableSurfaceDefaults.border(
-            border = Border(BorderStroke(1.dp, Color(0xFF1E3A5F).copy(alpha = 0.6f))),
-            focusedBorder = Border(BorderStroke(1.5.dp, Color(0xFF00E5FF)))
+            border = Border(BorderStroke(1.dp, Color(0xFF1E293B))),
+            focusedBorder = Border(BorderStroke(1.5.dp, Color.White))
         )
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 12.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
         ) {
             Text(text = icon, fontSize = 14.sp)
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(6.dp))
             Text(
                 text = label,
-                color = if (isFocused) Color(0xFF00E5FF) else Color(0xFFCBD5E1),
+                color = if (isFocused) Color.Black else Color.White,
                 fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                fontWeight = FontWeight.Bold
             )
+            if (count > 0) {
+                Spacer(modifier = Modifier.width(6.dp))
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (isFocused) Color.Black.copy(alpha = 0.2f) else LelouchCyanAccent.copy(alpha = 0.2f))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = if (count > 999) "%,d".format(count) else "$count",
+                        color = if (isFocused) Color.Black else LelouchCyanAccent,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TvSwimlaneHeader(
+    title: String,
+    actionText: String,
+    onActionClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(bottom = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = title,
+            color = Color.White,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = 0.5.sp
+        )
+        Text(
+            text = actionText,
+            color = LelouchCyanAccent,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvStreamCard(
+    channel: ChannelUiModel,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var isFocused by remember { mutableStateOf(false) }
+
+    Surface(
+        onClick = onClick,
+        modifier = modifier
+            .width(160.dp)
+            .height(98.dp)
+            .onFocusChanged { isFocused = it.isFocused },
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color(0xFF0B131E),
+            focusedContainerColor = LelouchSurfaceVariant
+        ),
+        border = ClickableSurfaceDefaults.border(
+            border = Border(BorderStroke(1.dp, Color(0xFF1E293B))),
+            focusedBorder = Border(BorderStroke(2.dp, LelouchCyanAccent))
+        )
+    ) {
+        Box(modifier = Modifier.fillMaxSize().padding(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 48.dp, height = 30.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color.Black.copy(alpha = 0.6f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (!channel.streamIcon.isNullOrBlank()) {
+                        AsyncImage(
+                            model = channel.streamIcon,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Fit
+                        )
+                    } else {
+                        Text(
+                            text = channel.name.take(3).uppercase(),
+                            color = LelouchCyanAccent,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(LelouchLiveRed)
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "LIVE",
+                        color = Color.White,
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                }
+            }
+
+            Column(modifier = Modifier.align(Alignment.BottomStart)) {
+                Text(
+                    text = channel.name,
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = channel.categoryName.ifBlank { "Canal en Vivo" },
+                    color = LelouchTextMuted,
+                    fontSize = 9.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvPosterMovieCard(
+    movie: MovieUiModel,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier
+            .width(120.dp)
+            .height(180.dp),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color(0xFF0B131E)
+        ),
+        border = ClickableSurfaceDefaults.border(
+            border = Border(BorderStroke(1.dp, Color(0xFF1E293B))),
+            focusedBorder = Border(BorderStroke(2.dp, LelouchCyanAccent))
+        )
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            if (!movie.streamIcon.isNullOrBlank()) {
+                AsyncImage(
+                    model = movie.streamIcon,
+                    contentDescription = movie.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.9f))
+                            )
+                        )
+                )
+            } else {
+                Box(
+                    modifier = Modifier.fillMaxSize().background(LelouchSurfaceVariant),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = movie.name.take(2).uppercase(),
+                        color = LelouchCyanAccent,
+                        fontSize = 26.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                }
+            }
+
+            val rating = movie.rating
+            if (rating > 0.0) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color.Black.copy(alpha = 0.75f))
+                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "★ %.1f".format(rating),
+                        color = Color(0xFFFFD700),
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(8.dp)
+            ) {
+                Text(
+                    text = movie.name,
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                val year = movie.year
+                if (!year.isNullOrBlank()) {
+                    Text(
+                        text = year,
+                        color = LelouchTextSecondary,
+                        fontSize = 9.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvPosterSeriesCard(
+    series: SeriesUiModel,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier
+            .width(120.dp)
+            .height(180.dp),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color(0xFF0B131E)
+        ),
+        border = ClickableSurfaceDefaults.border(
+            border = Border(BorderStroke(1.dp, Color(0xFF1E293B))),
+            focusedBorder = Border(BorderStroke(2.dp, LelouchCyanAccent))
+        )
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            if (!series.cover.isNullOrBlank()) {
+                AsyncImage(
+                    model = series.cover,
+                    contentDescription = series.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.9f))
+                            )
+                        )
+                )
+            } else {
+                Box(
+                    modifier = Modifier.fillMaxSize().background(LelouchSurfaceVariant),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = series.name.take(2).uppercase(),
+                        color = LelouchCyanAccent,
+                        fontSize = 26.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                }
+            }
+
+            if (series.seasonsCount > 0) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color.Black.copy(alpha = 0.75f))
+                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "${series.seasonsCount}T",
+                        color = LelouchCyanAccent,
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(8.dp)
+            ) {
+                Text(
+                    text = series.name,
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }

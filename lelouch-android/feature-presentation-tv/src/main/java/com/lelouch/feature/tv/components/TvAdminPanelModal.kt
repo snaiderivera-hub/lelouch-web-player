@@ -253,31 +253,41 @@ fun TvAdminPanelModal(
                                     val isCurrentActive = (source.id == activeSource?.id || source.serverUrl == activeSource?.serverUrl)
                                     var isCardFocused by remember { mutableStateOf(false) }
 
-                                    Box(
+                                    Surface(
+                                        onClick = {
+                                            if (!isCurrentActive) {
+                                                onActivateSource(source.id)
+                                                onDismiss()
+                                            }
+                                        },
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .focusable()
-                                            .onFocusChanged { isCardFocused = it.isFocused }
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .background(if (isCardFocused) LelouchCardFocused else LelouchSurfaceVariant)
-                                            .border(
-                                                width = if (isCardFocused) 2.dp else 1.dp,
-                                                color = if (isCardFocused) LelouchCyanAccent else if (isCurrentActive) Color(0xFF10B981) else LelouchBorder,
-                                                shape = RoundedCornerShape(10.dp)
-                                            )
-                                            .padding(16.dp)
+                                            .onFocusChanged { isCardFocused = it.isFocused },
+                                        shape = ClickableSurfaceDefaults.shape(
+                                            shape = RoundedCornerShape(12.dp),
+                                            focusedShape = RoundedCornerShape(12.dp)
+                                        ),
+                                        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
+                                        colors = ClickableSurfaceDefaults.colors(
+                                            containerColor = if (isCurrentActive) Color(0xFF0F2338) else LelouchSurfaceVariant,
+                                            focusedContainerColor = Color(0xFF1E3A5F),
+                                            pressedContainerColor = Color(0xFF1E3A5F)
+                                        ),
+                                        border = ClickableSurfaceDefaults.border(
+                                            border = Border(androidx.compose.foundation.BorderStroke(if (isCurrentActive) 1.5.dp else 1.dp, if (isCurrentActive) Color(0xFF10B981) else LelouchBorder)),
+                                            focusedBorder = Border(androidx.compose.foundation.BorderStroke(3.dp, LelouchCyanAccent))
+                                        )
                                     ) {
                                         Row(
-                                            modifier = Modifier.fillMaxWidth(),
+                                            modifier = Modifier.fillMaxWidth().padding(16.dp),
                                             horizontalArrangement = Arrangement.SpaceBetween,
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            // Información de la Lista
                                             Column(modifier = Modifier.weight(1f)) {
                                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                                     Text(
                                                         text = source.name,
-                                                        color = LelouchTextPrimary,
+                                                        color = if (isCardFocused) Color.White else (if (isCurrentActive) LelouchCyanAccent else LelouchTextPrimary),
                                                         fontSize = 16.sp,
                                                         fontWeight = FontWeight.Bold
                                                     )
@@ -293,6 +303,22 @@ fun TvAdminPanelModal(
                                                                 text = "✓ EN USO",
                                                                 color = Color.White,
                                                                 fontSize = 10.sp,
+                                                                fontWeight = FontWeight.Black
+                                                            )
+                                                        }
+                                                    }
+                                                    if (isCardFocused) {
+                                                        Spacer(modifier = Modifier.width(6.dp))
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .clip(RoundedCornerShape(4.dp))
+                                                                .background(LelouchCyanAccent)
+                                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                        ) {
+                                                            Text(
+                                                                text = "PRESIONA OK",
+                                                                color = Color.Black,
+                                                                fontSize = 9.sp,
                                                                 fontWeight = FontWeight.Black
                                                             )
                                                         }
@@ -313,30 +339,23 @@ fun TvAdminPanelModal(
                                                 }
                                                 Spacer(modifier = Modifier.height(6.dp))
                                                 Text(
-                                                    text = "Servidor: ${source.serverUrl}  •  Usuario: ${source.username}  •  Contraseña: ••••••••",
-                                                    color = LelouchTextSecondary,
+                                                    text = "Servidor: ${source.serverUrl}  •  Usuario: ${source.username}",
+                                                    color = if (isCardFocused) Color(0xFFE2E8F0) else LelouchTextSecondary,
                                                     fontSize = 12.sp
                                                 )
                                             }
 
-                                            // Botones de Acción
-                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                                 if (!isCurrentActive) {
-                                                    var isActFocused by remember { mutableStateOf(false) }
                                                     Box(
                                                         modifier = Modifier
-                                                            .focusable()
-                                                            .onFocusChanged { isActFocused = it.isFocused }
                                                             .clip(RoundedCornerShape(6.dp))
-                                                            .background(if (isActFocused) Color.White else Color(0xFF10B981))
-                                                            .clickable {
-                                                                onActivateSource(source.id)
-                                                            }
+                                                            .background(if (isCardFocused) Color.White else LelouchCyanAccent)
                                                             .padding(horizontal = 14.dp, vertical = 8.dp)
                                                     ) {
                                                         Text(
                                                             text = "⚡ Activar",
-                                                            color = if (isActFocused) Color.Black else Color.White,
+                                                            color = Color.Black,
                                                             fontSize = 12.sp,
                                                             fontWeight = FontWeight.Bold
                                                         )
@@ -346,14 +365,12 @@ fun TvAdminPanelModal(
                                                 var isDelFocused by remember { mutableStateOf(false) }
                                                 Box(
                                                     modifier = Modifier
-                                                        .focusable()
-                                                        .onFocusChanged { isDelFocused = it.isFocused }
-                                                        .clip(RoundedCornerShape(6.dp))
-                                                        .background(if (isDelFocused) LelouchLiveRed else LelouchSurface)
                                                         .clickable {
                                                             onDeleteSource(source.id)
                                                         }
-                                                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .background(if (isDelFocused) LelouchLiveRed else Color(0xFF1E293B))
+                                                        .padding(horizontal = 10.dp, vertical = 8.dp)
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Default.Delete,

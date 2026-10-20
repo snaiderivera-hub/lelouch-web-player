@@ -1,12 +1,27 @@
 package com.lelouch.feature.mobile
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -15,28 +30,25 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
-import androidx.compose.foundation.Image
-import kotlinx.coroutines.delay
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import java.util.TimeZone
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.lelouch.core.designsystem.*
+import com.lelouch.core.model.LiveStream
+import com.lelouch.core.model.Series
 import com.lelouch.core.model.SourceConfig
+import com.lelouch.core.model.VodMovie
 
 /**
- * FASE 32: Portal Dashboard Canónico para Teléfonos Móviles
- * Adapta el diseño de 4 tarjetas del reproductor web a una experiencia táctil 2x2 de respuesta inmediata.
+ * Experiencia 100% Nativa de Streaming Móvil (Material 3 & Jetpack Compose).
+ * Reemplaza el dashboard estático tipo web por un feed dinámico:
+ * 1. Hero Featured Banner (Póster/Backdrop con reproducción directa).
+ * 2. Píldoras de Acceso Rápido con contadores en tiempo real.
+ * 3. Carruseles Horizontales de Contenido (En Vivo, Películas y Series).
+ * 4. Tarjeta de Estado y Gestión de Cuenta nativa.
  */
 @Composable
 fun MobilePortalDashboard(
@@ -52,297 +64,723 @@ fun MobilePortalDashboard(
     onDownloadM3U: () -> Unit,
     onReloadCatalog: () -> Unit,
     onOpenSettings: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    liveChannels: List<LiveStream> = emptyList(),
+    movies: List<VodMovie> = emptyList(),
+    seriesList: List<Series> = emptyList(),
+    onChannelClick: (String, String) -> Unit = { _, _ -> },
+    onMovieClick: (VodMovie) -> Unit = {},
+    onSeriesClick: (Series) -> Unit = {}
 ) {
-    Box(modifier = modifier.fillMaxSize()) {
-        Image(
-            painter = painterResource(id = com.lelouch.feature.mobile.R.drawable.bg_category_card),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize()
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.65f))
-        )
+    // Selección dinámica del ítem destacado para el Hero Banner
+    val featuredMovie = remember(movies) {
+        movies.firstOrNull { !it.backdropPath.isNullOrBlank() || !it.streamIcon.isNullOrBlank() }
+            ?: movies.firstOrNull()
+    }
+    val featuredSeries = remember(seriesList) {
+        seriesList.firstOrNull { !it.backdropPath.isNullOrBlank() || !it.cover.isNullOrBlank() }
+            ?: seriesList.firstOrNull()
+    }
 
-        var currentTime by remember { mutableStateOf("") }
-        LaunchedEffect(Unit) {
-            val sdf = SimpleDateFormat("hh:mm a", Locale.getDefault())
-            sdf.timeZone = TimeZone.getTimeZone("America/Guatemala")
-            while (true) {
-                currentTime = sdf.format(Date())
-                delay(1000L)
-            }
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(LelouchBackground)
+    ) {
+        // ══════════════════════════════════════════════════════════════════════
+        // 1. HERO FEATURED BANNER (ESTILO STREAMING NATIVO)
+        // ══════════════════════════════════════════════════════════════════════
+        if (featuredMovie != null) {
+            MobileHeroBanner(
+                title = featuredMovie.name,
+                subtitle = featuredMovie.genre?.ifBlank { null } ?: featuredMovie.categoryName.ifBlank { "Película Destacada" },
+                rating = featuredMovie.rating,
+                imageUrl = featuredMovie.backdropPath?.ifBlank { null } ?: featuredMovie.streamIcon,
+                onPlayClick = { onMovieClick(featuredMovie) },
+                onInfoClick = { onMovieClick(featuredMovie) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+        } else if (featuredSeries != null) {
+            MobileHeroBanner(
+                title = featuredSeries.name,
+                subtitle = featuredSeries.genre?.ifBlank { null } ?: featuredSeries.categoryName.ifBlank { "Serie Destacada" },
+                rating = featuredSeries.rating,
+                imageUrl = featuredSeries.backdropPath?.ifBlank { null } ?: featuredSeries.cover,
+                onPlayClick = { onSeriesClick(featuredSeries) },
+                onInfoClick = { onSeriesClick(featuredSeries) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            )
         }
-
-        Text(
-            text = currentTime,
-            color = Color.White.copy(alpha = 0.85f),
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 16.dp, end = 16.dp)
-        )
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-        // ══════════════════════════════════════════════════════════════════════
-        // 1. CABECERA CENTRAL DE MARCA Y ESTADO
-        // ══════════════════════════════════════════════════════════════════════
-        Text(
-            text = "REPRODUCTOR LELOUCH",
-            color = Color.White,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.ExtraBold,
-            letterSpacing = 1.sp,
-            textAlign = TextAlign.Center
-        )
-
-        Spacer(modifier = Modifier.height(2.dp))
-
-        Text(
-            text = "M3U • XTREAM CODES • HLS",
-            color = LelouchTextSecondary,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.SemiBold,
-            letterSpacing = 1.5.sp
-        )
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Fila de estado táctil: Servidor + Recargar + Vencimiento
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center,
+        // ══════════════════════════════════════════════════════════════════════
+        // 2. PÍLDORAS DE ACCESO RÁPIDO CON CONTADORES NEÓN
+        // ══════════════════════════════════════════════════════════════════════
+        Text(
+            text = "EXPLORAR CATEGORÍAS",
+            color = LelouchTextMuted,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.sp,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+        )
+
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
-            // Pill Servidor Activo
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color(0xFF061826))
-                    .border(1.dp, Color(0xFF00E5FF).copy(alpha = 0.35f), RoundedCornerShape(16.dp))
-                    .clickable(onClick = onOpenSettings)
-                    .padding(horizontal = 10.dp, vertical = 4.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(text = "🌐", fontSize = 11.sp)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = activeSource?.name ?: activeSource?.serverUrl?.removePrefix("http://")?.take(18) ?: "liontv.es",
-                        color = Color(0xFFE2E8F0),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            // Botón RECARGAR Táctil
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(Color(0xFF00E5FF))
-                    .clickable { onReloadCatalog() }
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(text = "🔄", fontSize = 10.sp)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "RECARGAR",
-                        color = Color(0xFF02070D),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Black
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            // Fecha de Expiración
-            val expiryText = activeSource?.formattedExpireDate ?: "13/10/2026"
-            Text(
-                text = "Vence: $expiryText",
-                color = Color(0xFF94A3B8),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium
-            )
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // ══════════════════════════════════════════════════════════════════════
-        // 2. LAS 4 TARJETAS EN FILA HORIZONTAL
-        // ══════════════════════════════════════════════════════════════════════
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                MobileHeroCard(
-                    title = "TV EN VIVO",
-                    iconContent = { TvCardVectorIcon(size = 48.dp) },
+            item {
+                NativeCategoryPill(
+                    icon = "📺",
+                    label = "En Vivo",
                     count = liveChannelsCount,
-                    onClick = onNavigateToLive,
-                    modifier = Modifier.weight(1f).height(115.dp)
-                )
-                MobileHeroCard(
-                    title = "PELÍCULAS",
-                    iconContent = { MovieCardVectorIcon(size = 48.dp) },
-                    count = moviesCount,
-                    onClick = onNavigateToMovies,
-                    modifier = Modifier.weight(1f).height(115.dp)
+                    onClick = onNavigateToLive
                 )
             }
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                MobileHeroCard(
-                    title = "SERIES",
-                    iconContent = { SeriesCardVectorIcon(size = 48.dp) },
-                    count = seriesCount,
-                    onClick = onNavigateToSeries,
-                    modifier = Modifier.weight(1f).height(115.dp)
+            item {
+                NativeCategoryPill(
+                    icon = "🎬",
+                    label = "Películas",
+                    count = moviesCount,
+                    onClick = onNavigateToMovies
                 )
-                MobileHeroCard(
-                    title = "DEPORTES",
-                    iconContent = { SportsCardVectorIcon(size = 48.dp) },
+            }
+            item {
+                NativeCategoryPill(
+                    icon = "🎞️",
+                    label = "Series",
+                    count = seriesCount,
+                    onClick = onNavigateToSeries
+                )
+            }
+            item {
+                NativeCategoryPill(
+                    icon = "⚽",
+                    label = "Deportes",
                     count = sportsCount,
-                    onClick = onNavigateToSports,
-                    modifier = Modifier.weight(1f).height(115.dp)
+                    onClick = onNavigateToSports
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(18.dp))
 
         // ══════════════════════════════════════════════════════════════════════
-        // 3. FILA INFERIOR DE ACCIONES RÁPIDAS
+        // 3. CARRUSEL HORIZONTAL: EN VIVO & DEPORTES
         // ══════════════════════════════════════════════════════════════════════
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        if (liveChannels.isNotEmpty()) {
+            SwimlaneHeader(
+                title = "En Vivo & Deportes",
+                actionText = "Ver todos >",
+                onActionClick = onNavigateToLive
+            )
+
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(liveChannels.take(15)) { channel ->
+                    NativeLiveStreamCard(
+                        channel = channel,
+                        onClick = { onChannelClick(channel.streamUrl, channel.name) }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // 4. CARRUSEL HORIZONTAL: PELÍCULAS DE ESTRENO
+        // ══════════════════════════════════════════════════════════════════════
+        if (movies.isNotEmpty()) {
+            SwimlaneHeader(
+                title = "Películas Recomendadas",
+                actionText = "Ver todas >",
+                onActionClick = onNavigateToMovies
+            )
+
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(movies.take(15)) { movie ->
+                    NativePosterCard(
+                        title = movie.name,
+                        imageUrl = movie.streamIcon,
+                        rating = movie.rating,
+                        subtitle = movie.year,
+                        onClick = { onMovieClick(movie) }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // 5. CARRUSEL HORIZONTAL: SERIES POPULARES
+        // ══════════════════════════════════════════════════════════════════════
+        if (seriesList.isNotEmpty()) {
+            SwimlaneHeader(
+                title = "Series Populares",
+                actionText = "Ver todas >",
+                onActionClick = onNavigateToSeries
+            )
+
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(seriesList.take(15)) { series ->
+                    val seasonText = if (series.seasonsCount > 0) "${series.seasonsCount} Temp" else null
+                    NativePosterCard(
+                        title = series.name,
+                        imageUrl = series.cover,
+                        rating = series.rating,
+                        subtitle = seasonText,
+                        onClick = { onSeriesClick(series) }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // 6. TARJETA NATIVA DE ESTADO Y GESTIÓN DE CUENTA (FOOTER)
+        // ══════════════════════════════════════════════════════════════════════
+        NativeAccountStatusCard(
+            activeSource = activeSource,
+            onReloadCatalog = onReloadCatalog,
+            onOpenSettings = onOpenSettings,
+            onDownloadM3U = onDownloadM3U,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        )
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COMPOSABLES VISUALES NATIVOS DE APOYO
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun MobileHeroBanner(
+    title: String,
+    subtitle: String,
+    rating: Double?,
+    imageUrl: String?,
+    onPlayClick: () -> Unit,
+    onInfoClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .height(210.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(LelouchSurfaceVariant)
+    ) {
+        if (!imageUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = imageUrl,
+                contentDescription = title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        // Degradado fluido estilo streaming
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Black.copy(alpha = 0.25f),
+                            Color.Transparent,
+                            Color(0xFF02070D).copy(alpha = 0.85f),
+                            Color(0xFF02070D)
+                        )
+                    )
+                )
+        )
+
+        // Contenido superpuesto
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .padding(14.dp)
         ) {
-            MobileActionPill(
-                icon = "📄",
-                label = "Descargar M3U",
-                onClick = onDownloadM3U,
-                modifier = Modifier.weight(1f)
+            // Badge Destacado
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(LelouchCyanAccent.copy(alpha = 0.2f))
+                        .border(1.dp, LelouchCyanAccent.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "⭐ DESTACADO",
+                        color = LelouchCyanAccent,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 0.5.sp
+                    )
+                }
+                if (rating != null && rating > 0.0) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "★ %.1f".format(rating),
+                        color = Color(0xFFFFD700),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Text(
+                text = title,
+                color = Color.White,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Black,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
 
-            MobileActionPill(
-                icon = "🔄",
-                label = "Recargar",
-                onClick = onReloadCatalog,
-                modifier = Modifier.weight(1f)
+            Text(
+                text = subtitle,
+                color = LelouchTextSecondary,
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
 
-            MobileActionPill(
-                icon = "🩺",
-                label = "Ajustes",
-                onClick = onOpenSettings,
-                modifier = Modifier.weight(1f)
-            )
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Botones de acción táctiles
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Button(
+                    onClick = onPlayClick,
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = LelouchCyanAccent,
+                        contentColor = Color(0xFF02070D)
+                    ),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                    modifier = Modifier.height(34.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = "Reproducir",
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Ver Ahora",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = onInfoClick,
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.35f)),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = Color.White
+                    ),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    modifier = Modifier.height(34.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Info,
+                        contentDescription = "Detalles",
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Detalles",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
         }
     }
 }
-}
 
 @Composable
-private fun MobileHeroCard(
-    title: String,
-    iconContent: @Composable () -> Unit,
+private fun NativeCategoryPill(
+    icon: String,
+    label: String,
     count: Int,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Box(
         modifier = modifier
-            .height(125.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(Color(0xFF071424), Color(0xFF02070D))
-                )
-            )
-            .border(1.5.dp, Color(0xFF00E5FF).copy(alpha = 0.35f), RoundedCornerShape(16.dp))
+            .height(38.dp)
+            .clip(RoundedCornerShape(19.dp))
+            .background(LelouchSurfaceVariant)
+            .border(1.dp, LelouchCyanAccent.copy(alpha = 0.3f), RoundedCornerShape(19.dp))
             .clickable { onClick() }
-            .padding(10.dp)
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.Center
     ) {
-        // Badge contador
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .clip(RoundedCornerShape(10.dp))
-                .background(Color(0xFF00E5FF).copy(alpha = 0.15f))
-                .border(1.dp, Color(0xFF00E5FF).copy(alpha = 0.35f), RoundedCornerShape(10.dp))
-                .padding(horizontal = 7.dp, vertical = 2.dp)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
         ) {
+            Text(text = icon, fontSize = 12.sp)
+            Spacer(modifier = Modifier.width(6.dp))
             Text(
-                text = if (count > 999) "%,d".format(count) else "$count",
-                color = Color(0xFF00E5FF),
-                fontSize = 10.sp,
+                text = label,
+                color = Color.White,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.Bold
             )
+            if (count > 0) {
+                Spacer(modifier = Modifier.width(6.dp))
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(LelouchCyanAccent.copy(alpha = 0.2f))
+                        .padding(horizontal = 6.dp, vertical = 1.dp)
+                ) {
+                    Text(
+                        text = if (count > 999) "%,d".format(count) else "$count",
+                        color = LelouchCyanAccent,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                }
+            }
         }
+    }
+}
 
-        // Centro: Ilustración Vectorial + Título
-        Column(
-            modifier = Modifier.align(Alignment.Center),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+@Composable
+private fun SwimlaneHeader(
+    title: String,
+    actionText: String,
+    onActionClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = title,
+            color = Color.White,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = 0.3.sp
+        )
+        TextButton(
+            onClick = onActionClick,
+            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
         ) {
-            iconContent()
-            Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = title,
-                color = Color.White,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.ExtraBold,
-                letterSpacing = 0.5.sp,
-                textAlign = TextAlign.Center
+                text = actionText,
+                color = LelouchCyanAccent,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
             )
         }
     }
 }
 
 @Composable
-private fun MobileActionPill(
-    icon: String,
-    label: String,
+private fun NativeLiveStreamCard(
+    channel: LiveStream,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Box(
         modifier = modifier
-            .height(40.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(Color(0xFF040D18))
-            .border(1.dp, Color(0xFF1E3A5F).copy(alpha = 0.7f), RoundedCornerShape(10.dp))
-            .clickable { onClick() }
-            .padding(horizontal = 6.dp),
-        contentAlignment = Alignment.Center
+            .width(145.dp)
+            .height(92.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(LelouchSurfaceVariant)
+            .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(8.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(text = icon, fontSize = 11.sp)
-            Spacer(modifier = Modifier.width(4.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.TopCenter),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(width = 44.dp, height = 30.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color.Black.copy(alpha = 0.5f)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (!channel.streamIcon.isNullOrBlank()) {
+                    AsyncImage(
+                        model = channel.streamIcon,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit
+                    )
+                } else {
+                    Text(
+                        text = channel.name.take(3).uppercase(),
+                        color = LelouchCyanAccent,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(LelouchLiveRed)
+                    .padding(horizontal = 5.dp, vertical = 1.5.dp)
+            ) {
+                Text(
+                    text = "LIVE",
+                    color = Color.White,
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Black
+                )
+            }
+        }
+
+        Column(modifier = Modifier.align(Alignment.BottomStart)) {
             Text(
-                text = label,
-                color = Color(0xFFCBD5E1),
-                fontSize = 10.sp,
+                text = channel.name,
+                color = Color.White,
+                fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+            Text(
+                text = channel.categoryName.ifBlank { "Canal en Vivo" },
+                color = LelouchTextMuted,
+                fontSize = 9.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun NativePosterCard(
+    title: String,
+    imageUrl: String?,
+    rating: Double?,
+    subtitle: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .width(115.dp)
+            .height(175.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(LelouchSurface)
+            .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+    ) {
+        if (!imageUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = imageUrl,
+                contentDescription = title,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.88f))
+                        )
+                    )
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(LelouchSurfaceVariant),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = title.take(2).uppercase(),
+                    color = LelouchCyanAccent,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Black
+                )
+            }
+        }
+
+        // Rating
+        if (rating != null && rating > 0.0) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(Color.Black.copy(alpha = 0.75f))
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = "★ %.1f".format(rating),
+                    color = Color(0xFFFFD700),
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        // Información al pie
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(6.dp)
+        ) {
+            Text(
+                text = title,
+                color = Color.White,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (!subtitle.isNullOrBlank()) {
+                Text(
+                    text = subtitle,
+                    color = LelouchTextSecondary,
+                    fontSize = 9.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NativeAccountStatusCard(
+    activeSource: SourceConfig?,
+    onReloadCatalog: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onDownloadM3U: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(LelouchSurfaceVariant)
+            .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(14.dp))
+            .padding(12.dp)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Servidor Activo
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(7.dp)
+                            .clip(CircleShape)
+                            .background(LelouchSuccess)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = activeSource?.name ?: "Servidor Conectado",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                val expiryText = activeSource?.formattedExpireDate ?: "13/10/2026"
+                Text(
+                    text = "Vence: $expiryText",
+                    color = LelouchTextSecondary,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Botones de acción inferior
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onReloadCatalog,
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, LelouchCyanAccent.copy(alpha = 0.4f)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = LelouchCyanAccent),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    modifier = Modifier.weight(1f).height(34.dp)
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(13.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Recargar", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+
+                OutlinedButton(
+                    onClick = onOpenSettings,
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, Color(0xFF334155)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFCBD5E1)),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    modifier = Modifier.weight(1f).height(34.dp)
+                ) {
+                    Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(13.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Ajustes", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                }
+
+                OutlinedButton(
+                    onClick = onDownloadM3U,
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, Color(0xFF334155)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFCBD5E1)),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    modifier = Modifier.weight(1f).height(34.dp)
+                ) {
+                    Text("📄 M3U", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
         }
     }
 }

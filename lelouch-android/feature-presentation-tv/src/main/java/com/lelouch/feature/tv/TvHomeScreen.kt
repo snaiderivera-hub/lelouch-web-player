@@ -1087,10 +1087,30 @@ fun TvHomeScreen(
                                             android.widget.Toast.makeText(context, "Lista M3U lista para exportar", android.widget.Toast.LENGTH_SHORT).show()
                                         },
                                         onReloadCatalog = { onForceSync() },
-                                        onOpenSettings = { isAdminModalVisible = true },
+                                        onOpenSettings = { selectedTopTab = 6 },
                                         onOpenDiagnostics = { selectedTopTab = 6 },
+                                        onOpenCategoryFilter = { isCategoryManagerVisible = true },
                                         onNavigateToSearch = { selectedTopTab = 0 },
                                         onNavigateToFavorites = { selectedTopTab = 5 },
+                                        visibleChannels = visibleChannels,
+                                        visibleMovies = visibleMovies,
+                                        visibleSeriesList = visibleSeriesList,
+                                        onChannelClick = { ch ->
+                                            val userT0 = android.os.SystemClock.elapsedRealtime()
+                                            focusedChannelId = ch.id
+                                            focusedChannel = ch
+                                            activePlaybackChannels = visibleChannels
+                                            activePlaybackChannelIndex = visibleChannels.indexOfFirst { it.id == ch.id }.coerceAtLeast(0)
+                                            isPlayingLive = true
+                                            playerEngine.playStream(ch.streamUrl, isLive = true, userT0 = userT0)
+                                            isFullscreen = true
+                                        },
+                                        onMovieClick = { movie ->
+                                            playMovie(movie)
+                                        },
+                                        onSeriesClick = { series ->
+                                            openSeriesDetails(series)
+                                        },
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .padding(bottom = 24.dp)
@@ -1664,18 +1684,33 @@ fun TvHomeScreen(
                                     )
                                     Spacer(modifier = Modifier.height(20.dp))
 
-                                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                         ActionButton(
-                                            icon = Icons.Default.CloudSync,
-                                            label = "☁️ Sincronizar Supabase",
+                                            icon = Icons.Default.ArrowBack,
+                                            label = "⬅️ Inicio",
                                             modifier = Modifier
                                                 .focusRequester(contentFocusRequester)
                                                 .focusProperties { left = sidebarRequesters[6] },
+                                            onClick = { selectedTopTab = 1 }
+                                        )
+                                        ActionButton(
+                                            icon = Icons.Default.FilterList,
+                                            label = "🎯 Filtrar Categorías",
+                                            onClick = { isCategoryManagerVisible = true }
+                                        )
+                                        ActionButton(
+                                            icon = Icons.Default.Add,
+                                            label = "➕ Gestionar / Añadir Cuenta",
+                                            onClick = { isAdminModalVisible = true }
+                                        )
+                                        ActionButton(
+                                            icon = Icons.Default.CloudSync,
+                                            label = "☁️ Sincronizar",
                                             onClick = onSyncCloudSources
                                         )
                                         ActionButton(
                                             icon = Icons.Default.Refresh,
-                                            label = "🔄 Re-sincronizar Catálogo",
+                                            label = "🔄 Recargar",
                                             onClick = onForceSync
                                         )
                                         ActionButton(
@@ -1749,15 +1784,15 @@ fun TvHomeScreen(
                                             shape = RoundedCornerShape(12.dp),
                                             focusedShape = RoundedCornerShape(12.dp)
                                         ),
-                                        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+                                        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
                                         colors = ClickableSurfaceDefaults.colors(
-                                            containerColor = if (isActive) LelouchSurfaceVariant else LelouchSurface,
-                                            focusedContainerColor = LelouchCardFocused,
-                                            pressedContainerColor = LelouchCardFocused
+                                            containerColor = if (isActive) Color(0xFF0F2338) else LelouchSurface,
+                                            focusedContainerColor = Color(0xFF1E3A5F),
+                                            pressedContainerColor = Color(0xFF1E3A5F)
                                         ),
                                         border = ClickableSurfaceDefaults.border(
                                             border = Border(androidx.compose.foundation.BorderStroke(if (isActive) 1.5.dp else 1.dp, if (isActive) Color(0xFF10B981) else LelouchBorder)),
-                                            focusedBorder = Border(androidx.compose.foundation.BorderStroke(2.dp, LelouchCyanAccent))
+                                            focusedBorder = Border(androidx.compose.foundation.BorderStroke(3.dp, LelouchCyanAccent))
                                         )
                                     ) {
                                         Row(
@@ -1767,16 +1802,31 @@ fun TvHomeScreen(
                                         ) {
                                             Column(modifier = Modifier.weight(1f)) {
                                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    Text(source.name, color = if (isCardFocused) LelouchCyanAccent else LelouchTextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                                    Text(
+                                                        text = source.name,
+                                                        color = if (isCardFocused) Color.White else (if (isActive) LelouchCyanAccent else LelouchTextPrimary),
+                                                        fontSize = 17.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
                                                     Spacer(modifier = Modifier.width(10.dp))
                                                     if (isActive) {
                                                         Box(modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Color(0xFF10B981)).padding(horizontal = 8.dp, vertical = 3.dp)) {
                                                             Text("🟢 ACTIVA", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black)
                                                         }
                                                     }
+                                                    if (isCardFocused) {
+                                                        Spacer(modifier = Modifier.width(8.dp))
+                                                        Box(modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(LelouchCyanAccent).padding(horizontal = 8.dp, vertical = 3.dp)) {
+                                                            Text("PRESIONA OK", color = Color.Black, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                                                        }
+                                                    }
                                                 }
                                                 Spacer(modifier = Modifier.height(4.dp))
-                                                Text("Servidor: ${source.serverUrl}  •  Usuario: ${source.username}", color = LelouchTextSecondary, fontSize = 12.sp)
+                                                Text(
+                                                    text = "Servidor: ${source.serverUrl}  •  Usuario: ${source.username}",
+                                                    color = if (isCardFocused) Color(0xFFE2E8F0) else LelouchTextSecondary,
+                                                    fontSize = 13.sp
+                                                )
                                             }
 
                                             if (!isActive) {
@@ -1787,6 +1837,15 @@ fun TvHomeScreen(
                                                         .padding(horizontal = 14.dp, vertical = 8.dp)
                                                 ) {
                                                     Text("⚡ ACTIVAR", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                                                }
+                                            } else {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .background(Color(0xFF10B981))
+                                                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                                                ) {
+                                                    Text("✓ EN USO", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black)
                                                 }
                                             }
                                         }

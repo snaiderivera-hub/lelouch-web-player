@@ -10,6 +10,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -117,11 +118,20 @@ fun MobileHomeScreen(
         hiddenPrefs.edit().putStringSet("series", newSet).apply()
     }
 
-    // FASE 32: Permitir rotación libre en el teléfono móvil
+    // FASE 32: Permitir rotación automática controlada
     DisposableEffect(Unit) {
-        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         onDispose {
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
+
+    // Auto-rotar a horizontal al entrar a pantalla completa y volver a vertical al salir
+    LaunchedEffect(isPlayerFullscreen) {
+        if (isPlayerFullscreen) {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        } else {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
     }
 
@@ -542,6 +552,19 @@ fun MobileHomeScreen(
                             Icon(Icons.Default.Share, contentDescription = "Copiar Enlace", tint = Color.White)
                         }
                         IconButton(
+                            onClick = {
+                                val cur = activity?.requestedOrientation
+                                if (cur == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE || cur == ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE) {
+                                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                                } else {
+                                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                                }
+                            },
+                            modifier = Modifier.background(Color.Black.copy(0.6f), CircleShape)
+                        ) {
+                            Icon(Icons.Default.ScreenRotation, contentDescription = "Girar Pantalla", tint = Color.White)
+                        }
+                        IconButton(
                             onClick = { isPlayerFullscreen = false },
                             modifier = Modifier.background(Color.Black.copy(0.6f), CircleShape)
                         ) {
@@ -894,6 +917,12 @@ private fun MobileHomeTab(
                 },
                 onReloadCatalog = onReloadCatalog,
                 onOpenSettings = onOpenSettings,
+                liveChannels = liveChannels,
+                movies = movies,
+                seriesList = seriesList,
+                onChannelClick = onChannelClick,
+                onMovieClick = onMovieClick,
+                onSeriesClick = onSeriesClick,
                 modifier = Modifier.padding(bottom = 8.dp)
             )
         }
@@ -1516,17 +1545,47 @@ private fun MobileMovieDetailDialog(
                             maxLines = 4, overflow = TextOverflow.Ellipsis)
                     }
                     Spacer(Modifier.height(16.dp))
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
                         val context = LocalContext.current
                         Button(
                             onClick = { onPlay(streamUrl) },
                             colors = ButtonDefaults.buttonColors(containerColor = LelouchCyanAccent),
-                            modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)
+                            modifier = Modifier.weight(1f).height(44.dp), shape = RoundedCornerShape(10.dp)
                         ) {
-                            Icon(Icons.Default.PlayArrow, null, tint = Color.Black, modifier = Modifier.size(20.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("REPRODUCIR", color = Color.Black, fontWeight = FontWeight.Bold)
+                            Icon(Icons.Default.PlayArrow, null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("REPRODUCIR", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                        Button(
+                            onClick = {
+                                try {
+                                    val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as? android.app.DownloadManager
+                                    if (dm != null && streamUrl.isNotBlank()) {
+                                        val cleanName = movie.name.replace(Regex("[^a-zA-Z0-9.-]"), "_")
+                                        val ext = if (movie.containerExtension.isNotBlank()) movie.containerExtension else "mp4"
+                                        val request = android.app.DownloadManager.Request(android.net.Uri.parse(streamUrl))
+                                            .setTitle(movie.name)
+                                            .setDescription("Descargando película...")
+                                            .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                            .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, "${cleanName}.${ext}")
+                                            .setAllowedOverMetered(true)
+                                            .setAllowedOverRoaming(true)
+                                        dm.enqueue(request)
+                                        android.widget.Toast.makeText(context, "📥 Descarga iniciada: ${movie.name}", android.widget.Toast.LENGTH_LONG).show()
+                                    }
+                                } catch (e: Exception) {
+                                    android.widget.Toast.makeText(context, "Error al descargar: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = LelouchSurfaceVariant),
+                            border = BorderStroke(1.dp, LelouchCyanAccent.copy(alpha = 0.5f)),
+                            modifier = Modifier.height(44.dp),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.Download, contentDescription = "Descargar", tint = LelouchCyanAccent, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("DESCARGAR", color = LelouchCyanAccent, fontWeight = FontWeight.Bold, fontSize = 11.sp)
                         }
                         IconButton(
                             onClick = {
@@ -1535,7 +1594,7 @@ private fun MobileMovieDetailDialog(
                                     android.widget.Toast.makeText(context, "📋 Enlace copiado: ${movie.name}", android.widget.Toast.LENGTH_SHORT).show()
                                 }
                             },
-                            modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(LelouchSurfaceVariant).size(48.dp)
+                            modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(LelouchSurfaceVariant).size(44.dp)
                         ) {
                             Icon(Icons.Default.Share, contentDescription = "Copiar Enlace", tint = LelouchCyanAccent)
                         }
@@ -1732,6 +1791,32 @@ private fun MobileSeriesDetailDialog(
                                     }
 
                                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        IconButton(
+                                            onClick = {
+                                                try {
+                                                    val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as? android.app.DownloadManager
+                                                    if (dm != null && streamUrl.isNotBlank()) {
+                                                        val cleanName = "${series.name}_${epTitle}".replace(Regex("[^a-zA-Z0-9.-]"), "_")
+                                                        val ext = if (ep.containerExtension.isNotBlank()) ep.containerExtension else "mp4"
+                                                        val request = android.app.DownloadManager.Request(android.net.Uri.parse(streamUrl))
+                                                            .setTitle("${series.name} - $epTitle")
+                                                            .setDescription("Descargando episodio...")
+                                                            .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                                            .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, "${cleanName}.${ext}")
+                                                            .setAllowedOverMetered(true)
+                                                            .setAllowedOverRoaming(true)
+                                                        dm.enqueue(request)
+                                                        android.widget.Toast.makeText(context, "📥 Descargando: $epTitle", android.widget.Toast.LENGTH_LONG).show()
+                                                    }
+                                                } catch (e: Exception) {
+                                                    android.widget.Toast.makeText(context, "Error al descargar: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                                                }
+                                            },
+                                            modifier = Modifier.size(34.dp)
+                                        ) {
+                                            Icon(Icons.Default.Download, contentDescription = "Descargar Episodio", tint = LelouchCyanAccent, modifier = Modifier.size(18.dp))
+                                        }
+
                                         IconButton(
                                             onClick = {
                                                 if (streamUrl.isNotBlank()) {
