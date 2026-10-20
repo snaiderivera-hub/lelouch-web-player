@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.77",
-  "versionCode": 1000077,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.77/app-debug.apk",
-  "changelog": "• Auto-recuperación transparente ante congelamiento de transmisión en vivo (silent stall detector a los 4s y buffer recovery a los 4.5s sin requerir cambio de canal).\n• Optimización de buffers (4s de colchón) y timeout de red rápido a 8s para evitar sockets muertos."
+  "versionName": "1.0.78",
+  "versionCode": 1000078,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.78/app-debug.apk",
+  "changelog": "• Migración a OkHttpDataSource con TCP Keep-Alive activo y retryOnConnectionFailure para evitar caída de sockets en IPTV.\n• Detector real de frames de video renderizados (renderedOutputBuffers) y Hard Flush de MediaCodec por hardware."
 }

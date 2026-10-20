@@ -12,6 +12,10 @@ import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.HttpDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import okhttp3.ConnectionPool
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import androidx.media3.exoplayer.DefaultLoadControl
@@ -90,13 +94,21 @@ class LelouchPlayerEngine(
     private val _isMuted = MutableStateFlow(false)
     val isMuted: StateFlow<Boolean> = _isMuted.asStateFlow()
 
-    private val httpDataSourceFactory: DefaultHttpDataSource.Factory by lazy {
-        DefaultHttpDataSource.Factory()
+    private val streamingOkHttpClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .retryOnConnectionFailure(true)
+            .pingInterval(10, TimeUnit.SECONDS)
+            .connectTimeout(config.connectTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
+            .readTimeout(config.readTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
+            .connectionPool(ConnectionPool(0, 5, TimeUnit.MINUTES))
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .build()
+    }
+
+    private val httpDataSourceFactory: androidx.media3.datasource.DataSource.Factory by lazy {
+        OkHttpDataSource.Factory(streamingOkHttpClient)
             .setUserAgent(config.userAgent)
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(config.connectTimeoutMs)
-            .setReadTimeoutMs(config.readTimeoutMs)
-            .setKeepPostFor302Redirects(true)
     }
 
     private val loadControl by lazy {
@@ -293,12 +305,13 @@ class LelouchPlayerEngine(
     private var isRecoveringLive: Boolean = false
     private var lastFreezeRecoveryTimestampMs: Long = 0L
     private var lastTrackedPositionMs: Long = -1L
+    private var lastRenderedFrames: Int = -1
     private var silentStallCounter: Int = 0
 
     /**
      * Auto-recuperación transparente para transmisiones en vivo congeladas o atascadas.
-     * Simula internamente un reinicio limpio de la conexión HTTP y MediaSource 
-     * (equivalente al cambio de canal y retorno que realiza el usuario manualmente),
+     * Simula internamente un reinicio limpio de hardware (MediaCodec flush) y socket HTTP
+     * (exactamente lo mismo que ocurre al cambiar de canal y retornar),
      * sin alterar la interfaz ni deseleccionar el canal actual.
      */
     fun recoverLiveStream(reason: String) {
@@ -311,22 +324,27 @@ class LelouchPlayerEngine(
         isRecoveringLive = true
         lastFreezeRecoveryTimestampMs = now
 
-        android.util.Log.w("LelouchPlayer", "[LIVE_AUTO_RECOVER] Causa: $reason. Reiniciando conexión del stream...")
+        android.util.Log.w("LelouchPlayer", "[LIVE_HARD_RECOVER] Causa: $reason. Ejecutando reinicio completo de hardware y socket...")
         _playbackState.value = PlaybackState.Buffering
 
         scope.launch {
             try {
+                // HARD FLUSH: Detener y limpiar ítems para forzar a Android y al chip Amlogic
+                // a liberar los buffers saturados en MediaCodec (BufferPoolAccessor2.0)
+                exoPlayer.stop()
+                exoPlayer.clearMediaItems()
+
                 val attempt = playbackTracker.startAttempt(url, PlaybackMediaType.LIVE_CHANNEL, PlayerStartType.WARM_SWITCH)
                 currentAttemptId = attempt.attemptId
 
                 val newMediaSource = buildMediaSource(url, currentAttemptId)
-                exoPlayer.setMediaSource(newMediaSource, /* resetPosition = */ true)
+                exoPlayer.setMediaSource(newMediaSource)
                 playbackTracker.onMediaItemSet(currentAttemptId)
                 exoPlayer.prepare()
                 playbackTracker.onPrepareCalled(currentAttemptId)
                 exoPlayer.playWhenReady = true
             } catch (e: Exception) {
-                android.util.Log.e("LelouchPlayer", "[LIVE_AUTO_RECOVER] Error al reconectar: ${e.message}")
+                android.util.Log.e("LelouchPlayer", "[LIVE_HARD_RECOVER] Error al reconectar: ${e.message}")
             } finally {
                 delay(2_000L)
                 isRecoveringLive = false
@@ -655,6 +673,7 @@ class LelouchPlayerEngine(
     private fun startProgressTracking() {
         stopProgressTracking()
         lastTrackedPositionMs = -1L
+        lastRenderedFrames = -1
         silentStallCounter = 0
         progressTrackingJob = scope.launch {
             while (isActive) {
@@ -664,29 +683,46 @@ class LelouchPlayerEngine(
 
                 // DETECCIÓN DE CONGELAMIENTO SILENCIOSO EN VIVO (SILENT STALL):
                 // En canales en vivo, si el reproductor está en STATE_READY y playWhenReady == true,
-                // la posición (currentPosition) DEBE avanzar en cada segundo.
-                // Si la posición se detiene durante >= 4 segundos seguidos (sin emitir error ExoPlayer),
-                // el stream se ha congelado (hiccup del servidor IPTV o socket muerto).
+                // tanto la posición como los frames renderizados DEBEN avanzar.
+                // Si los frames de video se detienen (decodificador trabado en chip) o la posición se estanca
+                // durante >= 4 segundos seguidos (sin emitir error ExoPlayer),
+                // el stream se ha congelado (hiccup del servidor IPTV o saturación de buffers de hardware).
                 if (isCurrentStreamLive && 
                     exoPlayer.playbackState == Player.STATE_READY && 
                     exoPlayer.playWhenReady &&
                     !isRecoveringLive
                 ) {
                     val currentPos = exoPlayer.currentPosition
-                    if (lastTrackedPositionMs >= 0L && kotlin.math.abs(currentPos - lastTrackedPositionMs) < 150L) {
+                    val renderedFrames = exoPlayer.videoDecoderCounters?.renderedOutputBufferCount ?: -1
+
+                    val isFrameStalled = if (renderedFrames >= 0 && lastRenderedFrames >= 0) {
+                        (renderedFrames - lastRenderedFrames) == 0
+                    } else false
+
+                    val isPositionStalled = lastTrackedPositionMs >= 0L && kotlin.math.abs(currentPos - lastTrackedPositionMs) < 150L
+
+                    if (isFrameStalled || isPositionStalled) {
                         silentStallCounter++
                         if (silentStallCounter >= 4) { // 4 segundos consecutivos sin avance
                             silentStallCounter = 0
                             lastTrackedPositionMs = -1L
-                            recoverLiveStream("Transmisión congelada (posición estancada por 4s en STATE_READY)")
+                            lastRenderedFrames = -1
+                            recoverLiveStream(
+                                if (isFrameStalled) "Video congelado (0 frames de video renderizados en 4s)"
+                                else "Transmisión congelada (posición estancada por 4s)"
+                            )
                         }
                     } else {
                         silentStallCounter = 0
                         lastTrackedPositionMs = currentPos
+                        if (renderedFrames >= 0) {
+                            lastRenderedFrames = renderedFrames
+                        }
                     }
                 } else {
                     silentStallCounter = 0
                     lastTrackedPositionMs = -1L
+                    lastRenderedFrames = -1
                 }
 
                 delay(1000)
