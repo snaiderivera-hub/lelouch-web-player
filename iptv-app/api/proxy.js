@@ -56,6 +56,12 @@ export default async function handler(req, res) {
       targetUrl = parsed.href;
     }
 
+    // Normalizar servidores IPTV con puertos caídos o reasignados (ej. redworld.pro 8888 -> 8880)
+    if (host === 'redworld.pro' && (parsed.port === '8888' || !parsed.port)) {
+      parsed.port = '8880';
+      targetUrl = parsed.href;
+    }
+
     const abortController = new AbortController();
     req.on('close', () => {
       abortController.abort();

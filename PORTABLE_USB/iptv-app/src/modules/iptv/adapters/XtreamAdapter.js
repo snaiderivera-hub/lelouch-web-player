@@ -133,7 +133,14 @@ export class XtreamAdapter {
    */
   constructor(parsedUrl) {
     this.parsedUrl = parsedUrl;
-    this.serverBaseUrl = parsedUrl.serverBaseUrl;
+    let base = parsedUrl.serverBaseUrl;
+    if (parsedUrl.hostname?.toLowerCase() === 'liontv.es' && (parsedUrl.port === '80' || !parsedUrl.port)) {
+      base = 'http://liontv.es:8080';
+    }
+    if (parsedUrl.hostname?.toLowerCase() === 'redworld.pro' && (parsedUrl.port === '8888' || !parsedUrl.port)) {
+      base = 'http://redworld.pro:8880';
+    }
+    this.serverBaseUrl = base;
     this.username = parsedUrl.username;
     this.password = parsedUrl._password;
     this.diagnostics = [];

@@ -140,6 +140,9 @@ export class XtreamAdapter {
     if (parsedUrl.hostname?.toLowerCase() === 'liontv.es' && (parsedUrl.port === '80' || !parsedUrl.port)) {
       base = 'http://liontv.es:8080';
     }
+    if (parsedUrl.hostname?.toLowerCase() === 'redworld.pro' && (parsedUrl.port === '8888' || !parsedUrl.port)) {
+      base = 'http://redworld.pro:8880';
+    }
     this.serverBaseUrl = base;
     this.username = parsedUrl.username;
     this.password = parsedUrl._password;
@@ -200,11 +203,17 @@ export class XtreamAdapter {
     const normalized = normalizeAccountInfo(data, this.serverBaseUrl);
 
     // Si el servidor reporta un puerto específico (ej. 8080), actualizar serverBaseUrl para acelerar endpoints
+    // NOTA: Protegemos servidores con puertos probados (ej. redworld.pro 8880 que reporta internamente 8888 caído)
     if (normalized?.server?.port && normalized.server.port !== '80' && normalized.server.port !== '443') {
       try {
         const u = new URL(this.serverBaseUrl);
-        u.port = normalized.server.port;
-        this.serverBaseUrl = u.origin;
+        if (u.hostname.toLowerCase() === 'redworld.pro') {
+          u.port = '8880';
+          this.serverBaseUrl = u.origin;
+        } else if (!u.port || u.port === '80' || u.port === '443') {
+          u.port = normalized.server.port;
+          this.serverBaseUrl = u.origin;
+        }
       } catch {}
     }
 

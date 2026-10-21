@@ -113,15 +113,35 @@ function escHtml(s) {
 
 function getProxyUrl(rawUrl) {
   if (!rawUrl) return '';
-  if (rawUrl.includes('/api/proxy') || rawUrl.includes('/proxy?target=')) return rawUrl;
+  let normalized = rawUrl;
+  if (normalized.includes('redworld.pro:8888')) {
+    normalized = normalized.replace('redworld.pro:8888', 'redworld.pro:8880');
+  } else if (normalized.includes('redworld.pro/') && !normalized.includes('redworld.pro:')) {
+    normalized = normalized.replace('redworld.pro/', 'redworld.pro:8880/');
+  }
+  if (normalized.includes('/api/proxy') || normalized.includes('/proxy?target=')) return normalized;
   if (typeof window !== 'undefined' && (window.location.protocol === 'https:' || (!window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1')))) {
-    return `${window.location.origin}/api/proxy?target=${encodeURIComponent(rawUrl)}`;
+    return `${window.location.origin}/api/proxy?target=${encodeURIComponent(normalized)}`;
   }
   const port = (typeof window !== 'undefined' && window.IPTV_PROXY_PORT) ? window.IPTV_PROXY_PORT : 7878;
-  if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
-    return `http://localhost:${port}/proxy?target=${encodeURIComponent(rawUrl)}`;
+  if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+    return `http://localhost:${port}/proxy?target=${encodeURIComponent(normalized)}`;
   }
-  return rawUrl;
+  return normalized;
+}
+
+function getSafeImageUrl(rawUrl) {
+  if (!rawUrl) return '';
+  let url = rawUrl;
+  if (url.includes('redworld.pro:8888')) {
+    url = url.replace('redworld.pro:8888', 'redworld.pro:8880');
+  } else if (url.includes('redworld.pro/') && !url.includes('redworld.pro:')) {
+    url = url.replace('redworld.pro/', 'redworld.pro:8880/');
+  }
+  if (typeof window !== 'undefined' && window.location.protocol === 'https:' && url.startsWith('http://')) {
+    return `${window.location.origin}/api/proxy?target=${encodeURIComponent(url)}`;
+  }
+  return url;
 }
 
 function createPosterPlaceholderSvg(title, category = '', icon = '🎬') {
@@ -1269,7 +1289,7 @@ function renderLiveChannelsList() {
     row.className = `channel-row ${uiState.currentLiveChannel?.id === ch.id ? 'active' : ''} ${healthStatus === HealthStatus.OFFLINE ? 'is-offline' : ''}`;
     row.innerHTML = `
       ${ch.logo
-        ? `<img class="channel-logo-img" src="${escHtml(ch.logo)}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+        ? `<img class="channel-logo-img" src="${escHtml(getSafeImageUrl(ch.logo))}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
         : ''}
       <div class="channel-logo-ph" style="${ch.logo ? 'display:none' : ''}">📺</div>
       <div class="channel-meta">
@@ -5343,7 +5363,7 @@ export function openCustomCatCreatorDialog(catIdToEdit = null, preselectedChanne
       row.className = 'custom-cat-picker-item';
       row.innerHTML = `
         <input type="checkbox" value="${escHtml(chId)}" ${isChecked ? 'checked' : ''} />
-        ${ch.logo ? `<img src="${escHtml(ch.logo)}" style="width:24px; height:24px; object-fit:contain; border-radius:3px;" onerror="this.style.display='none'">` : ''}
+        ${ch.logo ? `<img src="${escHtml(getSafeImageUrl(ch.logo))}" style="width:24px; height:24px; object-fit:contain; border-radius:3px;" onerror="this.style.display='none'">` : ''}
         <span style="flex:1; font-size:0.85rem; color:var(--text-main); font-weight:500;">${escHtml(ch.name)}</span>
         <span style="font-size:0.75rem; color:var(--text-muted);">${escHtml(ch.categoryName)}</span>
       `;

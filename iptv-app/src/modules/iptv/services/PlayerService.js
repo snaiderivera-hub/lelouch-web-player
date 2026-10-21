@@ -10,15 +10,21 @@ import { cacheService } from './CacheService.js';
 
 function getProxyUrl(rawUrl) {
   if (!rawUrl) return '';
-  if (rawUrl.includes('/api/proxy') || rawUrl.includes('/proxy?target=')) return rawUrl;
+  let normalized = rawUrl;
+  if (normalized.includes('redworld.pro:8888')) {
+    normalized = normalized.replace('redworld.pro:8888', 'redworld.pro:8880');
+  } else if (normalized.includes('redworld.pro/') && !normalized.includes('redworld.pro:')) {
+    normalized = normalized.replace('redworld.pro/', 'redworld.pro:8880/');
+  }
+  if (normalized.includes('/api/proxy') || normalized.includes('/proxy?target=')) return normalized;
   if (typeof window !== 'undefined' && (window.location.protocol === 'https:' || (!window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1')))) {
-    return `${window.location.origin}/api/proxy?target=${encodeURIComponent(rawUrl)}`;
+    return `${window.location.origin}/api/proxy?target=${encodeURIComponent(normalized)}`;
   }
   const port = (typeof window !== 'undefined' && window.IPTV_PROXY_PORT) ? window.IPTV_PROXY_PORT : 7878;
-  if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
-    return `http://localhost:${port}/proxy?target=${encodeURIComponent(rawUrl)}`;
+  if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+    return `http://localhost:${port}/proxy?target=${encodeURIComponent(normalized)}`;
   }
-  return rawUrl;
+  return normalized;
 }
 
 export const PlayerState = {
@@ -321,12 +327,13 @@ class PlayerService {
   _playMpegts(url, media) {
     try {
       const isLive = media.type === 'live';
+      const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
       const player = window.mpegts.createPlayer({
         type: 'mse',
         isLive: isLive,
         url: url,
       }, {
-        enableWorker: true,
+        enableWorker: !isHttps,
         lazyLoad: false,
         liveBufferLatencyChasing: false,
         liveBufferLatencyMaxLatency: 6.0,
