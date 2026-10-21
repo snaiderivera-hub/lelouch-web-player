@@ -250,6 +250,10 @@ fun TvHomeScreen(
     var isMovieSearchFocused by remember { mutableStateOf(false) }
     var movieSearchResults by remember { mutableStateOf<List<VodMovie>>(emptyList()) }
     var isMovieSearching by remember { mutableStateOf(false) }
+    var channelSearchQuery by rememberSaveable { mutableStateOf("") }
+    var isChannelSearchFocused by remember { mutableStateOf(false) }
+    var channelSearchResults by remember { mutableStateOf<List<ChannelUiModel>>(emptyList()) }
+    var isChannelSearching by remember { mutableStateOf(false) }
     val focusTracker = remember { FocusTracker() }
     var focusedTopTab by remember { mutableIntStateOf(1) }
     var selectedTopTab by remember { mutableIntStateOf(1) } // 0:Buscar, 1:Inicio, 2:En Vivo, 3:Películas, 4:Series, 5:Favoritos, 6:Ajustes
@@ -302,6 +306,53 @@ fun TvHomeScreen(
             }
             movieSearchResults = results
             isMovieSearching = false
+        }
+    }
+
+    LaunchedEffect(channelSearchQuery, activeSource?.id, hiddenLiveCategories) {
+        val q = channelSearchQuery.trim()
+        val srcId = activeSource?.id.orEmpty()
+        if (q.length < 2 || srcId.isBlank() || channelRepository == null) {
+            channelSearchResults = emptyList()
+            isChannelSearching = false
+        } else {
+            isChannelSearching = true
+            delay(250)
+            val results = withContext(Dispatchers.IO) {
+                channelRepository.searchChannels(
+                    sourceId = srcId,
+                    query = q,
+                    hiddenCategoryIds = hiddenLiveCategories.toList(),
+                    hideAdult = true,
+                    limit = 60
+                )
+            }
+            channelSearchResults = results.map { channel ->
+                val resolvedCategoryName = liveCatMap[channel.categoryId]
+                    ?: channel.categoryName.takeIf { it.isNotBlank() }
+                    ?: "General"
+                val streamUrl = StreamUrlResolver.resolve(
+                    directUrl = channel.streamUrl,
+                    source = activeSource,
+                    streamId = channel.streamId,
+                    kind = StreamUrlResolver.Kind.LIVE,
+                    extension = channel.containerExtension.ifBlank { "m3u8" }
+                )
+                ChannelUiModel(
+                    id = channel.id,
+                    streamId = channel.streamId,
+                    name = channel.name,
+                    num = channel.num,
+                    categoryName = resolvedCategoryName,
+                    categoryId = channel.categoryId,
+                    streamIcon = channel.streamIcon,
+                    currentProgram = channel.epgChannelId ?: "En Directo",
+                    streamUrl = streamUrl,
+                    isFavorite = channel.isFavorite,
+                    sourceId = channel.id
+                )
+            }
+            isChannelSearching = false
         }
     }
 
@@ -669,7 +720,52 @@ fun TvHomeScreen(
             isHudVisible = false
             seekFeedbackText = "📺 Sintonizado: ${ch.num} - ${ch.name}"
         } else {
-            seekFeedbackText = "✖ Canal $targetNum no encontrado"
+            // Si el canal no está cargado aún en memoria RAM por la paginación de Paging3 (ej: Canal 1300
+            // en la categoría "Todos"), consultamos directamente a la base de datos Room por número,
+            // streamId o posición ordinal en el catálogo completo sin necesidad de hacer scroll manual.
+            val srcId = activeSource?.id.orEmpty()
+            if (channelRepository != null && srcId.isNotBlank()) {
+                coroutineScope.launch {
+                    val liveStream = channelRepository.getChannelByNumOrPosition(srcId, targetNum)
+                    if (liveStream != null) {
+                        val resolvedCat = liveCatMap[liveStream.categoryId]
+                            ?: liveStream.categoryName.takeIf { it.isNotBlank() }
+                            ?: "General"
+                        val streamUrl = StreamUrlResolver.resolve(
+                            directUrl = liveStream.streamUrl,
+                            source = activeSource,
+                            streamId = liveStream.streamId,
+                            kind = StreamUrlResolver.Kind.LIVE,
+                            extension = liveStream.containerExtension.ifBlank { "m3u8" }
+                        )
+                        val ch = ChannelUiModel(
+                            id = liveStream.id,
+                            streamId = liveStream.streamId,
+                            name = liveStream.name,
+                            num = if (liveStream.num > 0) liveStream.num else targetNum,
+                            categoryName = resolvedCat,
+                            categoryId = liveStream.categoryId,
+                            streamIcon = liveStream.streamIcon,
+                            currentProgram = liveStream.epgChannelId ?: "En Directo",
+                            streamUrl = streamUrl,
+                            isFavorite = liveStream.isFavorite,
+                            sourceId = srcId
+                        )
+                        activePlaybackChannels = listOf(ch)
+                        activePlaybackChannelIndex = 0
+                        focusedChannel = ch
+                        isPlayingLive = true
+                        val userT0 = android.os.SystemClock.elapsedRealtime()
+                        playerEngine.playStream(ch.streamUrl, isLive = true, userT0 = userT0)
+                        isHudVisible = false
+                        seekFeedbackText = "📺 Sintonizado: ${ch.num} - ${ch.name}"
+                    } else {
+                        seekFeedbackText = "✖ Canal $targetNum no encontrado"
+                    }
+                }
+            } else {
+                seekFeedbackText = "✖ Canal $targetNum no encontrado"
+            }
         }
     }
 
@@ -840,10 +936,12 @@ fun TvHomeScreen(
     }
 
     // Manejo de tecla BACK: regresa a Inicio de forma segura en vez de salir de la app
-    BackHandler(enabled = isFullscreen || isHudVisible || selectedTopTab != 1) {
+    BackHandler(enabled = isFullscreen || isHudVisible || selectedTopTab != 1 || channelSearchQuery.isNotEmpty() || movieSearchQuery.isNotEmpty()) {
         when {
             isHudVisible -> isHudVisible = false
             isFullscreen -> isFullscreen = false
+            channelSearchQuery.isNotEmpty() && selectedTopTab == 2 -> channelSearchQuery = ""
+            movieSearchQuery.isNotEmpty() && selectedTopTab == 3 -> movieSearchQuery = ""
             selectedTopTab != 1 -> {
                 selectedTopTab = 1
             }
@@ -1270,16 +1368,194 @@ fun TvHomeScreen(
                                     )
                                 }
 
-                                TvCategorySelectorBar(
-                                    categories = channelCategoryList,
-                                    selectedCategoryId = selectedChannelCategoryId,
-                                    onSelectCategory = { selectedChannelCategoryId = it.id },
-                                    firstItemRequester = contentFocusRequester,
-                                    sidebarRequester = sidebarRequesters[2],
-                                    modifier = Modifier.padding(bottom = 12.dp)
-                                )
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(if (isChannelSearchFocused) Color(0xFF1E293B) else Color(0xFF0F172A))
+                                            .border(
+                                                width = if (isChannelSearchFocused) 2.dp else 1.dp,
+                                                color = if (isChannelSearchFocused) LelouchCyanAccent else Color(0xFF334155),
+                                                shape = RoundedCornerShape(10.dp)
+                                            )
+                                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Search,
+                                            contentDescription = null,
+                                            tint = if (isChannelSearchFocused) LelouchCyanAccent else LelouchTextSecondary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        BasicTextField(
+                                            value = channelSearchQuery,
+                                            onValueChange = { channelSearchQuery = it },
+                                            singleLine = true,
+                                            cursorBrush = SolidColor(LelouchCyanAccent),
+                                            textStyle = TextStyle(
+                                                color = Color.White,
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.Medium
+                                            ),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .onFocusChanged { isChannelSearchFocused = it.isFocused },
+                                            decorationBox = { innerTextField ->
+                                                if (channelSearchQuery.isEmpty()) {
+                                                    Text(
+                                                        text = "🔍 Buscar canales por nombre o número...",
+                                                        color = LelouchTextMuted,
+                                                        fontSize = 14.sp
+                                                    )
+                                                }
+                                                innerTextField()
+                                            }
+                                        )
+                                        if (channelSearchQuery.isNotEmpty()) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(CircleShape)
+                                                    .clickable { channelSearchQuery = "" }
+                                                    .padding(4.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Close,
+                                                    contentDescription = "Limpiar",
+                                                    tint = LelouchTextSecondary,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
 
-                                if (pagedChannels.itemCount == 0 && pagedChannels.loadState.refresh !is androidx.paging.LoadState.Loading) {
+                                val isChannelSearchActive = channelSearchQuery.trim().length >= 2
+                                if (!isChannelSearchActive) {
+                                    TvCategorySelectorBar(
+                                        categories = channelCategoryList,
+                                        selectedCategoryId = selectedChannelCategoryId,
+                                        onSelectCategory = { selectedChannelCategoryId = it.id },
+                                        firstItemRequester = contentFocusRequester,
+                                        sidebarRequester = sidebarRequesters[2],
+                                        modifier = Modifier.padding(bottom = 12.dp)
+                                    )
+                                } else {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(bottom = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = if (isChannelSearching) "Buscando '$channelSearchQuery'..." else "Resultados de búsqueda: ${channelSearchResults.size} canales encontrados",
+                                            color = LelouchCyanAccent,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp
+                                        )
+                                        Surface(
+                                            onClick = { channelSearchQuery = "" },
+                                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                                            colors = ClickableSurfaceDefaults.colors(
+                                                containerColor = Color(0xFF1E293B),
+                                                focusedContainerColor = LelouchCyanAccent
+                                            )
+                                        ) {
+                                            Text(
+                                                text = "✕ Limpiar filtro",
+                                                color = Color.White,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                if (isChannelSearchActive) {
+                                    if (channelSearchResults.isEmpty() && !isChannelSearching) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(bottom = 48.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                Text(text = "📺", fontSize = 36.sp)
+                                                Spacer(modifier = Modifier.height(8.dp))
+                                                Text(
+                                                    text = "No se encontraron canales para '$channelSearchQuery'",
+                                                    color = Color.White,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 18.sp
+                                                )
+                                                Spacer(modifier = Modifier.height(6.dp))
+                                                Text(
+                                                    text = "Prueba con otra palabra o número de canal",
+                                                    color = LelouchTextSecondary,
+                                                    fontSize = 14.sp
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        LazyVerticalGrid(
+                                            columns = GridCells.Fixed(4),
+                                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                                            contentPadding = PaddingValues(bottom = 64.dp),
+                                            modifier = Modifier.fillMaxSize()
+                                        ) {
+                                            items(
+                                                count = channelSearchResults.size,
+                                                key = { idx -> "search_ch_${channelSearchResults[idx].id}_$idx" }
+                                            ) { idx ->
+                                                val ch = channelSearchResults[idx]
+                                                val isSelected = (ch.id == focusedChannelId || (focusedChannelId == null && idx == 0))
+                                                val isFirstColumn = (idx % 4 == 0)
+                                                val cardModifier = if (isFirstColumn) {
+                                                    Modifier
+                                                        .fillMaxWidth()
+                                                        .focusProperties { left = sidebarRequesters[2] }
+                                                } else {
+                                                    Modifier.fillMaxWidth()
+                                                }
+
+                                                TvChannelCard(
+                                                    channel = ch,
+                                                    isSelected = isSelected,
+                                                    onFocused = {
+                                                        focusedChannelId = ch.id
+                                                        focusedChannel = ch
+                                                        focusedChannelIndex = idx
+                                                    },
+                                                    onClick = {
+                                                        val userT0 = android.os.SystemClock.elapsedRealtime()
+                                                        focusedChannelId = ch.id
+                                                        focusedChannel = ch
+                                                        focusedChannelIndex = idx
+                                                        activePlaybackChannels = channelSearchResults
+                                                        activePlaybackChannelIndex = idx
+                                                        isPlayingLive = true
+                                                        playerEngine.playStream(ch.streamUrl, isLive = true, userT0 = userT0)
+                                                        isFullscreen = true
+                                                    },
+                                                    onToggleFavorite = {
+                                                        onToggleFavoriteChannel(ch.streamId, !ch.isFavorite)
+                                                    },
+                                                    isFavorite = ch.isFavorite,
+                                                    modifier = cardModifier
+                                                )
+                                            }
+                                        }
+                                    }
+                                } else if (pagedChannels.itemCount == 0 && pagedChannels.loadState.refresh !is androidx.paging.LoadState.Loading) {
                                     Box(
                                         modifier = Modifier
                                             .fillMaxSize()

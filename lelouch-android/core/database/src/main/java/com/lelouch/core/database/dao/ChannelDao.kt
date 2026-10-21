@@ -54,6 +54,12 @@ interface ChannelDao {
     @Query("SELECT * FROM channels WHERE streamId = :streamId LIMIT 1")
     suspend fun getChannelByStreamId(streamId: Int): ChannelEntity?
 
+    @Query("SELECT * FROM channels WHERE sourceId = :sourceId AND (num = :num OR streamId = :num) LIMIT 1")
+    suspend fun getChannelByNumOrStreamId(sourceId: String, num: Int): ChannelEntity?
+
+    @Query("SELECT * FROM channels WHERE sourceId = :sourceId ORDER BY num ASC, name ASC, id ASC LIMIT 1 OFFSET :offset")
+    suspend fun getChannelByPosition(sourceId: String, offset: Int): ChannelEntity?
+
     @Query("UPDATE channels SET isFavorite = :isFavorite WHERE sourceId = :sourceId AND streamId = :streamId")
     suspend fun updateFavoriteStatus(sourceId: String, streamId: Int, isFavorite: Boolean)
 

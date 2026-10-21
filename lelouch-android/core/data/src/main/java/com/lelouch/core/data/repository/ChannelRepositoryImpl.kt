@@ -136,6 +136,16 @@ class ChannelRepositoryImpl(
         }
     }
 
+    override suspend fun getChannelByNumOrPosition(sourceId: String, num: Int): LiveStream? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val byNum = channelDao.getChannelByNumOrStreamId(sourceId, num)
+        if (byNum != null) return@withContext byNum.toDomain()
+        if (num > 0) {
+            val byOffset = channelDao.getChannelByPosition(sourceId, num - 1)
+            if (byOffset != null) return@withContext byOffset.toDomain()
+        }
+        null
+    }
+
     override suspend fun syncChannels(
         sourceId: String,
         serverUrl: String,

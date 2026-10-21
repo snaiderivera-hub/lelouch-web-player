@@ -26,5 +26,6 @@ interface ChannelRepository {
         hideAdult: Boolean = false,
         limit: Int = 20
     ): List<LiveStream>
+    suspend fun getChannelByNumOrPosition(sourceId: String, num: Int): LiveStream?
     suspend fun syncChannels(sourceId: String, serverUrl: String, user: String, pass: String): Result<Unit>
 }

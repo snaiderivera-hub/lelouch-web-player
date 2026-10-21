@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.80",
-  "versionCode": 1000080,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.80/app-debug.apk",
-  "changelog": "• Sintonizador numérico directo: cambia de canal tecleando números con el control de la TV (Toshiba CE-Link / HDMI-CEC).\n• Buscador integrado en la pestaña de Películas con filtrado reactivo instantáneo por título y género."
+  "versionName": "1.0.81",
+  "versionCode": 1000081,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.81/app-debug.apk",
+  "changelog": "• Búsqueda instantánea en vivo: nuevo buscador integrado en la sección de canales EN VIVO por nombre o número.\n• Sintonización directa Room: resolución directa de canales por número (ej: 1300) sin importar la posición de scroll o paginación en memoria."
 }
