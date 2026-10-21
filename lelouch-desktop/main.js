@@ -24,6 +24,12 @@ function createServers() {
         let targetUrl = req.query.target;
         if (!targetUrl) return res.status(400).send('Target URL required');
         
+        if (targetUrl.includes('redworld.pro:8888')) {
+            targetUrl = targetUrl.replace('redworld.pro:8888', 'redworld.pro:8880');
+        } else if (targetUrl.includes('redworld.pro/') && !targetUrl.includes('redworld.pro:')) {
+            targetUrl = targetUrl.replace('redworld.pro/', 'redworld.pro:8880/');
+        }
+        
         const controller = new AbortController();
         req.on('close', () => controller.abort());
 

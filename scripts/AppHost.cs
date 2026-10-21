@@ -528,6 +528,14 @@ namespace IPTVDataArchitect
             }
 
             string targetUrl = Uri.UnescapeDataString(targetEncoded);
+            if (targetUrl.IndexOf("redworld.pro:8888", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                targetUrl = targetUrl.Replace(":8888", ":8880");
+            }
+            else if (targetUrl.IndexOf("redworld.pro/", StringComparison.OrdinalIgnoreCase) >= 0 && targetUrl.IndexOf("redworld.pro:", StringComparison.OrdinalIgnoreCase) < 0)
+            {
+                targetUrl = targetUrl.Replace("redworld.pro/", "redworld.pro:8880/");
+            }
 
             Uri targetUri;
             if (!Uri.TryCreate(targetUrl, UriKind.Absolute, out targetUri) || !IsSafeTargetUri(targetUri))
