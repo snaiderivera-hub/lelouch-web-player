@@ -73,3 +73,13 @@ Referencia Oficial Upstream: `https://github.com/JairValle/mrea-framework`
 5. **Configuración JSON y Skills Activas**:
    - Configuración: `.agents/skills.json`, `.agents/plugins.json`, `.agents/mrea/config.json`.
    - Skills operativas: `engineering-protocol`, `evidence-based-validation`, `happy-path`, `ponytail-philosophy`, `rollback-strategy`, `security-baseline`, `iptv-architect`.
+
+## FASE 34 — CONGELACIÓN TOTAL DEL MOTOR DE CANALES EN VIVO (ZONA BLINDADA / NO TOCAR)
+**MANDATO ESTRICTO DEL USUARIO:** *"La APK quedó perfecta, ya no se traban los canales. Está prohibido modificar algo de los canales, así como está trabajando, así se queda."* (Referencia completa: `CANALES_FROZEN_ZONE.md`).
+
+1. **PROHIBICIÓN TOTAL DE MODIFICACIÓN:**
+   - **`LelouchPlayerEngine.kt`:** Prohibido modificar `startProgressTracking`, `recoverLiveStream`, `streamingOkHttpClient` (OkHttp TCP Keep-Alive con ping de 10s), `IptvLoadErrorHandlingPolicy` o los listeners de ciclo de vida.
+   - **`PlayerConfig.kt`:** Prohibido modificar los valores calibrados de búfer (`minBufferMs=4000`, `maxBufferMs=45000`, `bufferForPlaybackMs=1500`, `bufferForPlaybackAfterRebufferMs=2500`, `readTimeoutMs=8000`).
+   - **`TvHomeScreen.kt` (Sección Canales y Sintonía):** Prohibido alterar la captura de teclas numéricas (Toshiba CE-Link / HDMI-CEC), la lógica de zapping D-Pad, o la función `tuneToDirectChannel`.
+2. **REGLA DE CONSERVACIÓN:**
+   Cualquier desarrollo futuro (ej. en catálogo de películas, series o mejoras visuales secundarias) debe ser 100% aislado. Bajo ninguna circunstancia se debe tocar el subsistema de reproducción en vivo.
