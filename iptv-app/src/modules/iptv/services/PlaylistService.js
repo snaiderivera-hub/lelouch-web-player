@@ -35,11 +35,18 @@ class PlaylistService {
                 maskedUsername: cPl.username ? maskUsername(cPl.username) : '',
                 sourceType: parsed.sourceType,
                 isActive: !!cPl.isActive,
+                expiresAt: cPl.expiresAt || null,
+                channelsCount: cPl.channelsCount || 0,
+                moviesCount: cPl.moviesCount || 0,
+                seriesCount: cPl.seriesCount || 0,
                 createdAt: Date.now(),
                 lastUsedAt: Date.now()
               };
               await cacheService.savePlaylist(newLocalPl);
               lists.push(newLocalPl);
+            } else if (cPl.expiresAt && !exists.expiresAt) {
+              exists.expiresAt = cPl.expiresAt;
+              await cacheService.savePlaylist(exists);
             }
           }
         }
@@ -218,10 +225,20 @@ class PlaylistService {
     return {
       id: playlist.id,
       name: playlist.name,
+      url: playlist.url,
       serverBaseUrl: playlist.serverBaseUrl,
       username: playlist.maskedUsername || maskUsername(playlist.username || ''),
+      rawUsername: playlist.username || '',
       sourceType: playlist.sourceType,
       isActive: isActive,
+      expiresAt: playlist.expiresAt || playlist.expires_at || null,
+      daysRemaining: playlist.daysRemaining,
+      status: playlist.status || 'Active',
+      maxConnections: playlist.maxConnections,
+      activeConnections: playlist.activeConnections,
+      channelsCount: playlist.channelsCount || playlist.channels_count || 0,
+      moviesCount: playlist.moviesCount || playlist.movies_count || 0,
+      seriesCount: playlist.seriesCount || playlist.series_count || 0,
       createdAt: playlist.createdAt,
       lastUsedAt: playlist.lastUsedAt
     };

@@ -1936,29 +1936,69 @@ async function renderSettingsPlaylists() {
 
   const providerCardsHtml = providerLists.map((pl) => {
     const isThisActive = !isCustomActive && pl.isActive;
+
+    // 1. Formateo de fecha de vencimiento y estado
+    let expBadgeHtml = '';
+    const expDateVal = pl.expiresAt || pl.expires_at;
+    if (expDateVal) {
+      const d = new Date(expDateVal);
+      if (!isNaN(d.getTime())) {
+        const now = new Date();
+        const diffDays = Math.ceil((d - now) / (1000 * 60 * 60 * 24));
+        const dateStr = d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        if (diffDays <= 0) {
+          expBadgeHtml = `<span class="badge-mini" style="background:rgba(239,68,68,0.18); color:#ef4444; border:1px solid rgba(239,68,68,0.35); font-weight:700;" title="Suscripción expirada">🔴 Venció: ${dateStr}</span>`;
+        } else if (diffDays <= 15) {
+          expBadgeHtml = `<span class="badge-mini" style="background:rgba(245,158,11,0.18); color:#f59e0b; border:1px solid rgba(245,158,11,0.35); font-weight:700;" title="Expira pronto">⚠️ Vence: ${dateStr} (${diffDays}d)</span>`;
+        } else {
+          expBadgeHtml = `<span class="badge-mini" style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.35); font-weight:700;" title="Suscripción activa">📅 Vence: ${dateStr} <span style="opacity:0.8; font-size:9px;">(${diffDays} días)</span></span>`;
+        }
+      }
+    }
+
+    // 2. Badge de conexiones simultáneas si está disponible
+    let connsBadgeHtml = '';
+    if (pl.maxConnections) {
+      const activeC = pl.activeConnections || 0;
+      connsBadgeHtml = `<span class="badge-mini" style="background:rgba(168,85,247,0.15); color:#c084fc; border:1px solid rgba(168,85,247,0.3); font-weight:600;" title="Conexiones simultáneas activas">👥 ${activeC}/${pl.maxConnections} Conex.</span>`;
+    }
+
+    // 3. Métricas de contenido de catálogo si están disponibles
+    const hasCounts = (pl.channelsCount > 0 || pl.moviesCount > 0 || pl.seriesCount > 0);
+    const countsHtml = hasCounts ? `
+      <div class="pl-counts-row" style="display:inline-flex; flex-wrap:wrap; gap:10px; margin-top:5px; font-size:0.75rem;">
+        ${pl.channelsCount ? `<span style="color:var(--accent-cyan); display:inline-flex; align-items:center; gap:4px;">📺 <b>${Number(pl.channelsCount).toLocaleString()}</b> canales</span>` : ''}
+        ${pl.moviesCount ? `<span style="color:#a78bfa; display:inline-flex; align-items:center; gap:4px;">🎬 <b>${Number(pl.moviesCount).toLocaleString()}</b> pelis</span>` : ''}
+        ${pl.seriesCount ? `<span style="color:#fbbf24; display:inline-flex; align-items:center; gap:4px;">🎞️ <b>${Number(pl.seriesCount).toLocaleString()}</b> series</span>` : ''}
+      </div>
+    ` : '';
+
     return `
     <div class="playlist-card-row ${isThisActive ? 'active' : ''}">
       <div class="pl-info">
-        <div class="pl-title-row">
-          <span class="pl-name">${escHtml(pl.name)}</span>
+        <div class="pl-title-row" style="display:flex; flex-wrap:wrap; align-items:center; gap:6px;">
+          <span class="pl-name" style="font-weight:800; font-size:1.02rem;">${escHtml(pl.name)}</span>
           ${isThisActive
             ? '<span class="pl-tag-active" style="background:linear-gradient(90deg,#10b981,#059669);color:#fff;font-size:0.65rem;font-weight:800;padding:0.2rem 0.65rem;border-radius:99px;letter-spacing:0.05em;">✓ EN USO</span>'
             : ''}
-          <span class="badge-mini" style="background:rgba(56,189,248,0.15); color:#38bdf8; font-size:10px; margin-left:8px; border:1px solid rgba(56,189,248,0.3)">☁️ En la Nube</span>
+          ${expBadgeHtml}
+          ${connsBadgeHtml}
+          <span class="badge-mini" style="background:rgba(56,189,248,0.15); color:#38bdf8; font-size:10px; border:1px solid rgba(56,189,248,0.3)">☁️ En la Nube</span>
         </div>
-        <div class="pl-sub">
-          <span>Servidor: ${escHtml(pl.serverBaseUrl)}</span> •
-          <span>Usuario: ${escHtml(pl.username || '—')}</span> •
-          <span>Contraseña: ••••••••</span>
+        <div class="pl-sub" style="margin-top:6px; display:flex; flex-wrap:wrap; align-items:center; gap:8px; font-size:0.8rem; color:var(--text-secondary);">
+          <span>🌐 Servidor: <code style="color:var(--text-primary); font-family:monospace;">${escHtml(pl.serverBaseUrl)}</code></span> •
+          <span>👤 Usuario: <code style="color:var(--accent-cyan); font-family:monospace;">${escHtml(pl.username || '—')}</code></span> •
+          <span>🔒 Contraseña: ••••••••</span>
         </div>
+        ${countsHtml}
       </div>
       <div class="pl-actions">
         ${isThisActive
-          ? '<button class="btn btn-sm" style="background:linear-gradient(90deg,#10b981,#059669);color:#fff;opacity:0.85;cursor:default;pointer-events:none;" disabled>✓ En uso</button>'
-          : `<button class="btn btn-primary btn-sm btn-activate-pl" data-id="${pl.id}">⚡ Activar</button>`}
+          ? '<button class="btn btn-sm" style="background:linear-gradient(90deg,#10b981,#059669);color:#fff;opacity:0.85;cursor:default;pointer-events:none;font-weight:700;" disabled>✓ En uso</button>'
+          : `<button class="btn btn-primary btn-sm btn-activate-pl" data-id="${pl.id}" style="font-weight:700;">⚡ Activar</button>`}
         <button class="btn btn-secondary btn-sm btn-extract-pl" data-id="${pl.id}" style="color:var(--accent-cyan); border-color:rgba(0,229,255,0.4); font-weight:700;" title="Extraer contenido de esta cuenta para alimentar Mi Lista LELOUCH">📥 Extraer a Mi Lista</button>
         <button class="btn btn-secondary btn-sm btn-edit-pl" data-id="${pl.id}">✏️ Modificar</button>
-        <button class="btn btn-secondary btn-sm btn-reload-pl" data-id="${pl.id}">🔄 Recargar</button>
+        <button class="btn btn-secondary btn-sm btn-reload-pl" data-id="${pl.id}" title="Verificar estado de suscripción, conexiones y catálogo">🔄 Recargar</button>
         <button class="btn btn-danger btn-sm btn-delete-pl" data-id="${pl.id}">🗑️ Eliminar</button>
       </div>
     </div>
@@ -2005,15 +2045,96 @@ async function renderSettingsPlaylists() {
 
   container.querySelectorAll('.btn-reload-pl').forEach((btn) => {
     btn.addEventListener('click', async () => {
-      const lists = await cacheService.getPlaylists();
-      const pl = lists.find(p => p.id === btn.dataset.id);
-      if (pl) {
-        await loadCatalogWithProgress(pl.url);
-        renderSettingsPlaylists();
-        updateActivePlaylistUI();
+      const btnEl = btn;
+      const originalText = btnEl.innerHTML;
+      btnEl.disabled = true;
+      btnEl.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Verificando...';
+      try {
+        const lists = await cacheService.getPlaylists();
+        const pl = lists.find(p => p.id === btnEl.dataset.id);
+        if (pl) {
+          toast(`🔄 Verificando credenciales de ${pl.name}...`, 'info');
+          const parsed = parseIPTVUrl(pl.url);
+          if (parsed.sourceType === 'xtream' && parsed.username && parsed._password) {
+            const adapter = new XtreamAdapter(parsed);
+            const auth = await adapter.authenticate();
+            if (auth?.account) {
+              pl.expiresAt = auth.account.expiresAt ? new Date(auth.account.expiresAt).toISOString() : null;
+              pl.daysRemaining = auth.account.daysRemaining;
+              pl.maxConnections = auth.account.maxConnections;
+              pl.activeConnections = auth.account.activeConnections;
+              pl.status = auth.account.status;
+              
+              try {
+                const cats = await adapter.getCategories();
+                if (cats) {
+                  const sumCount = (arr) => (arr || []).reduce((acc, c) => acc + (Number(c.count) || 0), 0);
+                  const lCount = sumCount(cats.live);
+                  const vCount = sumCount(cats.vod);
+                  const sCount = sumCount(cats.series);
+                  if (lCount > 0) pl.channelsCount = lCount;
+                  if (vCount > 0) pl.moviesCount = vCount;
+                  if (sCount > 0) pl.seriesCount = sCount;
+                }
+              } catch {}
+
+              await cacheService.savePlaylist(pl);
+              if (supabaseService.isAvailable) {
+                await supabaseService.savePlaylist(pl);
+              }
+              const dateMsg = pl.expiresAt ? new Date(pl.expiresAt).toLocaleDateString('es-ES') : 'indefinida';
+              toast(`✅ ${pl.name}: Vence ${dateMsg} (${pl.activeConnections || 0}/${pl.maxConnections || 1} conexiones)`, 'success', 3500);
+            }
+          }
+          if (pl.isActive) {
+            await loadCatalogWithProgress(pl.url);
+          }
+          renderSettingsPlaylists();
+          updateActivePlaylistUI();
+        }
+      } catch (err) {
+        toast(`Error al recargar cuenta: ${err.message}`, 'error');
+      } finally {
+        btnEl.disabled = false;
+        btnEl.innerHTML = originalText;
       }
     });
   });
+
+  // Enriquecer en segundo plano cualquier cuenta que no tenga fecha de vencimiento aún
+  setTimeout(async () => {
+    let anyUpdated = false;
+    for (const pl of providerLists) {
+      if (!pl.expiresAt && pl.url) {
+        const parsed = parseIPTVUrl(pl.url);
+        if (parsed.sourceType === 'xtream' && parsed.username && parsed._password) {
+          try {
+            const adapter = new XtreamAdapter(parsed);
+            const auth = await adapter.authenticate();
+            if (auth?.account) {
+              const fullLists = await cacheService.getPlaylists();
+              const target = fullLists.find(p => p.id === pl.id);
+              if (target) {
+                target.expiresAt = auth.account.expiresAt ? new Date(auth.account.expiresAt).toISOString() : null;
+                target.daysRemaining = auth.account.daysRemaining;
+                target.maxConnections = auth.account.maxConnections;
+                target.activeConnections = auth.account.activeConnections;
+                target.status = auth.account.status;
+                await cacheService.savePlaylist(target);
+                if (supabaseService.isAvailable) {
+                  await supabaseService.savePlaylist(target);
+                }
+                anyUpdated = true;
+              }
+            }
+          } catch {}
+        }
+      }
+    }
+    if (anyUpdated) {
+      renderSettingsPlaylists();
+    }
+  }, 300);
 
   container.querySelectorAll('.btn-edit-pl').forEach((btn) => {
     btn.addEventListener('click', async () => {
