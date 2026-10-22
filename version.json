@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.84",
-  "versionCode": 1000084,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.84/app-debug.apk",
-  "changelog": "• Limpieza visual en TV Box: retirada la tarjeta central de sintonización para conservar la barra inferior HUD informativa elegante.\n• Nuevo Loader Cyberpunk Multi-Color: círculo segmentado con degradé rotatorio vibrante y resplandor neón exterior.\n• Conexión y sincronización de fuentes optimizada."
+  "versionName": "1.0.85",
+  "versionCode": 1000085,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.85/app-debug.apk",
+  "changelog": "• Indicador de carga continuo posicionado con precisión (aro blanco fino en degradé neón, sin porcentajes).\n• Detección visual en UI de stream fuera de línea para evitar esperas indefinidas.\n• Blindaje total de LelouchPlayerEngine y PlayerConfig intacto."
 }

@@ -7,6 +7,7 @@ import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,9 +22,12 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -98,6 +102,18 @@ fun LelouchVideoPlayer(
         }
     }
 
+    var isBufferTimeout by remember { mutableStateOf(false) }
+
+    LaunchedEffect(playbackState) {
+        if (playbackState is PlaybackState.Buffering) {
+            isBufferTimeout = false
+            kotlinx.coroutines.delay(10000L)
+            isBufferTimeout = true
+        } else {
+            isBufferTimeout = false
+        }
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -129,7 +145,7 @@ fun LelouchVideoPlayer(
         // Custom overlay slot (HUD, gradients, watermark, indicators)
         overlayContent()
 
-        // ── FASE 33: Overlay de estado — error visible + botón reintentar ──
+        // ── FASE 33 & 34: Overlay de estado — error visible / fuera de línea + loader discreto ──
         when (val state = playbackState) {
             is PlaybackState.Error -> ErrorOverlay(
                 message = state.errorMessage,
@@ -138,14 +154,39 @@ fun LelouchVideoPlayer(
                 onRetry = { playerEngine.retry() },
                 modifier = Modifier.fillMaxSize()
             )
-            PlaybackState.Buffering -> Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                com.lelouch.core.designsystem.components.LelouchCyberpunkLoader(
-                    size = 64.dp,
-                    strokeWidth = 5.5.dp
-                )
+            PlaybackState.Buffering -> {
+                if (isBufferTimeout) {
+                    // Si el stream no responde tras 10s continuos de buffering, notificar fuera de línea
+                    ErrorOverlay(
+                        message = "📡 Canal fuera de línea o sin señal del proveedor.\nEl servidor no está emitiendo este stream.",
+                        errorCode = -1,
+                        canRetry = true,
+                        onRetry = {
+                            isBufferTimeout = false
+                            playerEngine.retry()
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    BoxWithConstraints(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.35f))
+                    ) {
+                        val loaderSize = 68.dp
+                        // Coordenadas solicitadas: x = 40.5% del ancho, y = 72% del alto tomadas desde el centro del indicador
+                        val xPos = (maxWidth * 0.405f) - (loaderSize / 2)
+                        val yPos = (maxHeight * 0.72f) - (loaderSize / 2)
+                        Box(
+                            modifier = Modifier.padding(start = xPos, top = yPos)
+                        ) {
+                            com.lelouch.core.designsystem.components.LelouchCyberpunkLoader(
+                                size = loaderSize,
+                                strokeWidth = 4.2.dp
+                            )
+                        }
+                    }
+                }
             }
             else -> Unit
         }

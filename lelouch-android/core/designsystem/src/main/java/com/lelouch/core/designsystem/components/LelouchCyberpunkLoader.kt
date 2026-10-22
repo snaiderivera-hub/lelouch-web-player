@@ -7,93 +7,118 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.lelouch.core.designsystem.LelouchCyanAccent
 
 /**
- * Loader circular segmentado estilo Neón Cyberpunk Multi-Color (FASE 34).
- * Presenta 8 segmentos curvados con extremos redondeados (StrokeCap.Round),
- * resplandor neón exterior y un degradé dinámico de colores vivos (cian neón, azul eléctrico,
- * violeta púrpura y magenta) con estela rotatoria.
+ * Indicador de carga circular continuo con aro fino, degradé degradado (Neón Cyan -> Azul -> Violeta / Púrpura)
+ * y rotación suave continua (FASE 34), recreando con exactitud la imagen de referencia solicitada por el usuario.
  */
 @Composable
 fun LelouchCyberpunkLoader(
     modifier: Modifier = Modifier,
-    size: Dp = 64.dp,
-    segmentCount: Int = 8,
-    strokeWidth: Dp = 5.5.dp
+    size: Dp = 72.dp,
+    strokeWidth: Dp = 4.dp
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "CyberpunkLoaderTransition")
     val rotation by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1000, easing = LinearEasing),
+            animation = tween(durationMillis = 1100, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "rotation"
     )
 
-    // Paleta de colores vivos y saturados por segmento (Neón Cyan -> Azul Eléctrico -> Púrpura -> Turquesa)
-    val segmentColors = listOf(
-        Color(0xFF00F0FF), // Neón Cyan brillante
-        Color(0xFF00D2FF), // Sky Cyan
-        Color(0xFF0099FF), // Electric Blue
-        Color(0xFF4361EE), // Royal Indigo
-        Color(0xFF7209B7), // Electric Violet
-        Color(0xFFB5179E), // Vivid Magenta
-        Color(0xFF00E5FF), // Pure Cyan
-        Color(0xFF00F5D4)  // Aquamarine
-    )
-
     Canvas(modifier = modifier.size(size)) {
         val strokePx = strokeWidth.toPx()
-        val radius = (this.size.minDimension / 2f) - (strokePx * 1.3f)
+        val radius = (this.size.minDimension / 2f) - (strokePx * 1.2f)
         val center = Offset(this.size.width / 2f, this.size.height / 2f)
-        val arcSweep = 360f / segmentCount
+        val arcSize = Size(radius * 2, radius * 2)
+        val topLeft = Offset(center.x - radius, center.y - radius)
 
-        for (i in 0 until segmentCount) {
-            val segmentBaseAngle = (i * arcSweep)
-            val diff = (segmentBaseAngle - rotation + 360f) % 360f
-            val normalizedTrail = 1f - (diff / 360f)
-            val alpha = (0.15f + 0.85f * normalizedTrail).coerceIn(0.12f, 1f)
+        // 1. Aro base blanco/translúcido fino de fondo
+        drawCircle(
+            color = Color.White.copy(alpha = 0.12f),
+            radius = radius,
+            center = center,
+            style = Stroke(width = strokePx * 0.75f)
+        )
 
-            val baseColor = segmentColors[i % segmentColors.size]
-            val segmentLength = arcSweep * 0.62f
-            val startAngle = segmentBaseAngle + (arcSweep - segmentLength) / 2f
+        // 2. Trazo continuo en degradé rotatorio (Neón Cyan -> Deep Blue -> Violeta / Púrpura)
+        val stepCount = 36
+        val stepSweep = 360f / stepCount
 
-            // Glow exterior difuso vibrante
-            if (alpha > 0.30f) {
-                drawArc(
-                    color = baseColor.copy(alpha = alpha * 0.45f),
-                    startAngle = startAngle,
-                    sweepAngle = segmentLength,
-                    useCenter = false,
-                    topLeft = Offset(center.x - radius, center.y - radius),
-                    size = androidx.compose.ui.geometry.Size(radius * 2, radius * 2),
-                    style = androidx.compose.ui.graphics.drawscope.Stroke(
-                        width = strokePx * 2.4f,
-                        cap = StrokeCap.Round
+        for (i in 0 until stepCount) {
+            val angle = (i * stepSweep)
+            val diff = (angle - rotation + 360f) % 360f
+            val progress = 1f - (diff / 360f) // 1.0 en la cabeza, 0.0 en la cola
+
+            // Mapeo suave de colores vivos: Violeta (#A855F7) -> Azul Eléctrico (#3B82F6) -> Neón Cyan (#00E5FF)
+            val segmentColor = when {
+                progress < 0.35f -> {
+                    val t = progress / 0.35f
+                    Color(
+                        red = 0.50f + (0.15f * t),
+                        green = 0.20f + (0.25f * t),
+                        blue = 0.85f + (0.10f * t),
+                        alpha = 0.15f + (0.45f * t)
                     )
-                )
+                }
+                progress < 0.75f -> {
+                    val t = (progress - 0.35f) / 0.40f
+                    Color(
+                        red = 0.40f - (0.35f * t),
+                        green = 0.40f + (0.45f * t),
+                        blue = 0.95f + (0.05f * t),
+                        alpha = 0.60f + (0.30f * t)
+                    )
+                }
+                else -> {
+                    val t = (progress - 0.75f) / 0.25f
+                    Color(
+                        red = 0.05f * (1f - t),
+                        green = 0.85f + (0.15f * t),
+                        blue = 1.0f,
+                        alpha = 0.90f + (0.10f * t)
+                    )
+                }
             }
 
-            // Trazo principal nítido con puntas redondeadas
             drawArc(
-                color = baseColor.copy(alpha = alpha),
-                startAngle = startAngle,
-                sweepAngle = segmentLength,
+                color = segmentColor,
+                startAngle = angle,
+                sweepAngle = stepSweep * 1.15f,
                 useCenter = false,
-                topLeft = Offset(center.x - radius, center.y - radius),
-                size = androidx.compose.ui.geometry.Size(radius * 2, radius * 2),
-                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                topLeft = topLeft,
+                size = arcSize,
+                style = Stroke(
                     width = strokePx,
                     cap = StrokeCap.Round
                 )
             )
+
+            // Resplandor exterior suave para los puntos brillantes de la cabeza
+            if (progress > 0.65f) {
+                drawArc(
+                    color = segmentColor.copy(alpha = (progress - 0.65f) * 0.4f),
+                    startAngle = angle,
+                    sweepAngle = stepSweep * 1.25f,
+                    useCenter = false,
+                    topLeft = topLeft,
+                    size = arcSize,
+                    style = Stroke(
+                        width = strokePx * 2.2f,
+                        cap = StrokeCap.Round
+                    )
+                )
+            }
         }
     }
 }
+
