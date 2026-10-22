@@ -36,13 +36,24 @@ Flexibilidad total para disfrutar tu lista personalizada según el dispositivo o
 - **Control Parental & Categorías:** Oculta, reorganiza o bloquea con PIN categorías de adultos o canales sensibles.
 - **Diagnóstico de Servidor:** Prueba de latencia, ping y estado de paneles Xtream Codes.
 
-### 4. 📱 App Nativa Android TV & Mobile (`lelouch-android`)
+### 4. 📱 App Nativa Android TV & Mobile (`lelouch-android` v1.0.82)
 - Diseñada con **Jetpack Compose Multiplatform** y **Material 3**.
 - Optimización de foco mediante control remoto D-Pad para Xiaomi TV Stick, Chromecast con Google TV y Smart TVs.
 - **Interfaz "EveryCine" (FASE 32):** Dashboard unificado con fondo personalizado (Estilo Tecnológico Neón), tarjetas hero interactivas y reloj regional automático.
+- **Gestor de Listas Enriquecido (Cyberpunk):**
+  - **Fecha de Vencimiento Dinámica:** Indicador visual inteligente (`📅 Vence: DD/MM/YYYY (X días)`, alerta ámbar `⚠️` si restan ≤15 días, o `🔴 Venció` si expiró, e `♾️ Ilimitado` para listas personalizadas).
+  - **Conexiones Simultáneas:** Contador en tiempo real `👥 X/Y Conex.` para evitar saturación de suscripciones.
+  - **Botón `🔄 Recargar` de 1 Clic:** Revalida credenciales, vigencia, conexiones y métricas de catálogo en tiempo real contra el servidor IPTV.
+  - **Sincronización Instantánea Reactiva (0.05s):** Cambio de cuenta inmediato sin bloqueos de red ni pantallas congeladas.
+- **Gestor de Categorías Visibles Mobile-First:** Selector horizontal de pestañas (`📺 En Vivo`, `🎬 Películas`, `🎭 Series`) que ocupa el 100% de la pantalla del móvil, eliminando columnas rígidas o cortes de texto.
 - **Actualizaciones OTA (Over-The-Air) por Wi-Fi:** Notifica e instala automáticamente nuevas versiones del APK sin requerir cables ni formateos.
 
-### 5. 💾 Modo Portable USB
+### 5. ⚡ Web Player Enriquecido (Playlists Guardadas)
+- Tarjetas idénticas con cálculo automático de vigencia en días restantes y conexiones concurrentes.
+- Enriquecimiento automático silencioso en segundo plano y verificación instantánea por API Xtream Codes.
+- Manejo optimizado en Supabase con blindaje anti-desborde para listas masivas (Zero-413).
+
+### 6. 💾 Modo Portable USB
 - Paquete independiente en [`PORTABLE_USB/`](PORTABLE_USB/) listo para ser ejecutado directamente desde una memoria USB en cualquier PC con Windows sin necesidad de instalación previa.
 
 ---
