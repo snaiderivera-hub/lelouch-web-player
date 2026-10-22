@@ -143,9 +143,8 @@ fun LelouchVideoPlayer(
                 contentAlignment = Alignment.Center
             ) {
                 com.lelouch.core.designsystem.components.LelouchCyberpunkLoader(
-                    size = 56.dp,
-                    color = Color(0xFF00E5FF),
-                    strokeWidth = 5.dp
+                    size = 64.dp,
+                    strokeWidth = 5.5.dp
                 )
             }
             else -> Unit

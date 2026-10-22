@@ -927,10 +927,10 @@ fun TvHomeScreen(
         }
     }
 
-    // Auto-ocultar info badge HUD tras 2.5 segundos
+    // Auto-ocultar info badge HUD tras 3.5 segundos
     LaunchedEffect(isHudVisible) {
         if (isHudVisible) {
-            delay(2500)
+            delay(3500)
             isHudVisible = false
         }
     }
@@ -1172,91 +1172,6 @@ fun TvHomeScreen(
                     modifier = Modifier.fillMaxSize(),
                     resizeMode = if (isPlayingLive) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
                 )
-
-                // Overlay informativo de Sintonización para TV Box (cuando está cargando el canal)
-                if (isPlayingLive && playbackState is PlaybackState.Buffering && focusedChannel != null) {
-                    val tuningCh = focusedChannel!!
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.55f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(Color(0xF20B132B))
-                                .border(1.5.dp, LelouchCyanAccent.copy(alpha = 0.8f), RoundedCornerShape(20.dp))
-                                .padding(horizontal = 36.dp, vertical = 24.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                com.lelouch.core.designsystem.components.LelouchCyberpunkLoader(
-                                    size = 54.dp,
-                                    color = LelouchCyanAccent,
-                                    strokeWidth = 5.dp
-                                )
-                                Spacer(modifier = Modifier.height(18.dp))
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(6.dp))
-                                            .background(LelouchLiveRed)
-                                            .padding(horizontal = 8.dp, vertical = 3.dp)
-                                    ) {
-                                        Text(
-                                            text = "SINTONIZANDO",
-                                            color = Color.White,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Black,
-                                            letterSpacing = 1.sp
-                                        )
-                                    }
-                                    if (tuningCh.num > 0) {
-                                        Box(
-                                            modifier = Modifier
-                                                .clip(RoundedCornerShape(6.dp))
-                                                .background(LelouchCyanAccent.copy(alpha = 0.2f))
-                                                .border(1.dp, LelouchCyanAccent, RoundedCornerShape(6.dp))
-                                                .padding(horizontal = 10.dp, vertical = 3.dp)
-                                        ) {
-                                            Text(
-                                                text = "CANAL ${tuningCh.num}",
-                                                color = LelouchCyanAccent,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Black
-                                            )
-                                        }
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(10.dp))
-                                Text(
-                                    text = tuningCh.name,
-                                    color = Color.White,
-                                    fontSize = 22.sp,
-                                    fontWeight = FontWeight.Black,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                if (tuningCh.categoryName.isNotBlank()) {
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = tuningCh.categoryName,
-                                        color = LelouchTextSecondary,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
             }
         }
 

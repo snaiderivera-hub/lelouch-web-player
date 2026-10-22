@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.83",
-  "versionCode": 1000083,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.83/app-debug.apk",
-  "changelog": "• Corrección crítica de cambio de cuenta: al seleccionar otra lista (LionTV, etc.) el reproductor conmuta de inmediato sin quedarse atrapado en la lista personalizada.\n• Enlace Inteligente para añadir listas: nueva entrada unificada para pegar cualquier URL M3U o Xtream Codes completa (como en Web Player), sin ingresar datos por separado.\n• 📥 Extraer a Mi Lista: nuevo modal para seleccionar categorías y enriquecer tu lista personalizada LELOUCH tanto en local como sincronizado con Supabase Cloud."
+  "versionName": "1.0.84",
+  "versionCode": 1000084,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.84/app-debug.apk",
+  "changelog": "• Limpieza visual en TV Box: retirada la tarjeta central de sintonización para conservar la barra inferior HUD informativa elegante.\n• Nuevo Loader Cyberpunk Multi-Color: círculo segmentado con degradé rotatorio vibrante y resplandor neón exterior.\n• Conexión y sincronización de fuentes optimizada."
 }
