@@ -15,6 +15,8 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 
 class AuthRepositoryImpl(
@@ -114,10 +116,59 @@ class AuthRepositoryImpl(
         }
     }
 
+    override suspend fun addSourceFromUrl(
+        rawUrl: String,
+        customName: String?
+    ): Result<SourceConfig> = withContext(Dispatchers.IO) {
+        try {
+            val parsed = com.lelouch.core.data.util.SmartUrlParser.parse(rawUrl, customName)
+            if (parsed.type == SourceType.XTREAM) {
+                val authResult = validateXtream(parsed.serverUrl, parsed.username, parsed.password, parsed.suggestedName)
+                authResult.onSuccess { src ->
+                    saveToCloudPlaylists(src)
+                }
+                return@withContext authResult
+            } else {
+                val source = SourceConfig(
+                    id = "m3u_${System.currentTimeMillis()}",
+                    name = parsed.suggestedName,
+                    serverUrl = parsed.serverUrl,
+                    username = parsed.username,
+                    password = parsed.password,
+                    type = SourceType.M3U,
+                    isActive = true,
+                    accessToken = parsed.token
+                )
+                saveSource(source)
+                activateSource(source.id)
+                saveToCloudPlaylists(source)
+                return@withContext Result.success(source)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    private fun saveToCloudPlaylists(source: SourceConfig) {
+        try {
+            val supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvdHVwYmRlbGpnZmRkeXdyeWhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzNjA2MzksImV4cCI6MjEwNTkzNjYzOX0.zDVgrQo_IU5FhfSMpl0-MbS9Eod43czS21TBi5Z3Lvo"
+            val payload = """{"name":"${source.name.replace("\"", "\\\"")}","url":"${source.serverUrl.replace("\"", "\\\"")}","server_url":"${source.serverUrl.replace("\"", "\\\"")}","username":"${source.username.replace("\"", "\\\"")}","password":"${source.password.replace("\"", "\\\"")}","is_active":true}"""
+            val req = Request.Builder()
+                .url("$supabaseBaseUrl/rest/v1/playlists?on_conflict=url")
+                .post(payload.toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull()))
+                .addHeader("apikey", supabaseKey)
+                .addHeader("Authorization", "Bearer $supabaseKey")
+                .addHeader("Prefer", "resolution=merge-duplicates")
+                .build()
+            httpClient.newCall(req).execute().close()
+        } catch (_: Exception) {}
+    }
+
     override suspend fun syncCloudSources(): List<SourceConfig> = withContext(Dispatchers.IO) {
         val currentSources = preferencesDataSource.allSources.first()
         val currentPasswordMap = currentSources.associate { (it.serverUrl + it.username) to it.password }
         val currentActiveId = currentSources.firstOrNull { it.isActive }?.id
+        val wasCustomActive = currentActiveId == "custom_lelouch" || (currentActiveId == null && currentSources.any { it.id == "custom_lelouch" && it.isActive })
 
         val supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvdHVwYmRlbGpnZmRkeXdyeWhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzNjA2MzksImV4cCI6MjEwNTkzNjYzOX0.zDVgrQo_IU5FhfSMpl0-MbS9Eod43czS21TBi5Z3Lvo"
         val cloudSources = mutableListOf<SourceConfig>()
@@ -364,7 +415,7 @@ class AuthRepositoryImpl(
             val hasRevocation = customList.any { it.serverUrl.contains("token=revoked") || it.accessToken == null }
             val bestToken = validCustomTokens.firstOrNull()
 
-            val wasCustomActive = if (bestToken == null) false else customList.any { it.id == currentActiveId || it.isActive }
+            val wasCustomActive = if (bestToken == null) false else (currentActiveId == "custom_lelouch" || (currentActiveId == null && customList.any { it.isActive }))
             val canonicalCustomUrl = if (bestToken != null) {
                 "https://lelouch-web-player.vercel.app/api/playlist?token=$bestToken"
             } else {
@@ -395,7 +446,7 @@ class AuthRepositoryImpl(
                 seenKeys.add(key)
                 val existingPass = currentPasswordMap[src.serverUrl + src.username]
                 val resolvedPass = if (src.password.isNotBlank()) src.password else (existingPass ?: "")
-                val isSourceActive = if (currentActiveId != null) (src.id == currentActiveId) else src.isActive
+                val isSourceActive = if (currentActiveId != null) (src.id == currentActiveId) else (src.isActive && !wasCustomActive)
                 consolidatedSources.add(
                     src.copy(
                         password = resolvedPass,

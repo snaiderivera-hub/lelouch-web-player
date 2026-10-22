@@ -61,6 +61,7 @@ import com.lelouch.core.model.SourceType
 import com.lelouch.core.network.StreamUrlResolver
 import com.lelouch.core.player.LelouchVideoPlayer
 import com.lelouch.core.player.rememberLelouchPlayer
+import kotlinx.coroutines.launch
 
 data class MobileCategoryItem(
     val id: String,
@@ -84,6 +85,8 @@ fun MobileHomeScreen(
     onActivateSource: (String) -> Unit = {},
     onDeleteSource: (String) -> Unit = {},
     onAddSource: (String, String, String, String) -> Unit = { _, _, _, _ -> },
+    onAddSourceSmart: ((rawUrl: String, customName: String) -> Unit)? = null,
+    onExtractContent: (suspend (sourceId: String, categoryNames: Set<String>, type: String) -> Int)? = null,
     onSyncCloudSources: () -> Unit = {},
     onForceSync: () -> Unit = {},
     onLogout: () -> Unit = {},
@@ -296,6 +299,7 @@ fun MobileHomeScreen(
     var selectedMovie by remember { mutableStateOf<VodMovie?>(null) }
     var selectedSeries by remember { mutableStateOf<Series?>(null) }
     var isUpdateModalOpen by remember { mutableStateOf(false) }
+    var extractTargetSource by remember { mutableStateOf<SourceConfig?>(null) }
 
     LaunchedEffect(activeStreamUrl) {
         activeStreamUrl?.let { url -> playerEngine.playStream(url, isLive = isLivePlayback) }
@@ -430,14 +434,12 @@ fun MobileHomeScreen(
                         )
                         4 -> MobileSettingsTab(
                             activeSource = activeSource, allSources = allSources,
-                            newServerUrl = newServerUrl, newUsername = newUsername,
-                            newPassword = newPassword, newName = newName,
-                            onNewServerUrl = { newServerUrl = it }, onNewUsername = { newUsername = it },
-                            onNewPassword = { newPassword = it }, onNewName = { newName = it },
                             onActivateSource = onActivateSource, onDeleteSource = onDeleteSource,
-                            onAddSource = { s, u, p, n ->
-                                onAddSource(s, u, p, n)
-                                newServerUrl = ""; newUsername = ""; newPassword = ""; newName = ""
+                            onAddSourceSmart = { rawUrl, name ->
+                                onAddSourceSmart?.invoke(rawUrl, name) ?: onAddSource(rawUrl, "", "", name)
+                            },
+                            onOpenExtractModal = { target ->
+                                extractTargetSource = target
                             },
                             onSyncCloud = onSyncCloudSources, onForceSync = onForceSync, onLogout = onLogout,
                             onOpenUpdate = { isUpdateModalOpen = true },
@@ -788,6 +790,28 @@ fun MobileHomeScreen(
                 }
             },
             onDismiss = { isCategoryManagerModalOpen = false }
+        )
+    }
+
+    extractTargetSource?.let { targetSource ->
+        val coroutineScope = rememberCoroutineScope()
+        MobileExtractContentModal(
+            source = targetSource,
+            liveCategories = liveCategories,
+            vodCategories = vodCategories,
+            seriesCategories = seriesCategories,
+            onExtract = { contentType, selectedCatNames ->
+                coroutineScope.launch {
+                    val count = onExtractContent?.invoke(targetSource.id, selectedCatNames, contentType) ?: 0
+                    android.widget.Toast.makeText(
+                        context,
+                        "🎉 ¡Se extrajeron y añadieron $count elementos a Tu Lista LELOUCH!",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                    extractTargetSource = null
+                }
+            },
+            onDismiss = { extractTargetSource = null }
         )
     }
 }
@@ -1158,11 +1182,9 @@ private fun MobileSeriesTab(
 @Composable
 private fun MobileSettingsTab(
     activeSource: SourceConfig?, allSources: List<SourceConfig>,
-    newServerUrl: String, newUsername: String, newPassword: String, newName: String,
-    onNewServerUrl: (String) -> Unit, onNewUsername: (String) -> Unit,
-    onNewPassword: (String) -> Unit, onNewName: (String) -> Unit,
     onActivateSource: (String) -> Unit, onDeleteSource: (String) -> Unit,
-    onAddSource: (String, String, String, String) -> Unit,
+    onAddSourceSmart: (String, String) -> Unit,
+    onOpenExtractModal: (SourceConfig) -> Unit,
     onSyncCloud: () -> Unit, onForceSync: () -> Unit, onLogout: () -> Unit,
     onOpenUpdate: () -> Unit,
     liveTotal: Int, liveHiddenCount: Int,
@@ -1275,7 +1297,7 @@ private fun MobileSettingsTab(
                 fontWeight = FontWeight.Bold, fontSize = 14.sp)
         }
         items(allSources) { source ->
-            val isActive = source.id == activeSource?.id || source.isActive
+            val isActive = source.id == activeSource?.id
             val daysRem = source.expireDaysRemaining
             val isCustom = source.type == SourceType.M3U || source.id.startsWith("custom_")
 
@@ -1466,6 +1488,17 @@ private fun MobileSettingsTab(
                             ) {
                                 Text("🔄 Recargar", color = LelouchTextPrimary, fontSize = 11.sp)
                             }
+
+                            if (!isCustom) {
+                                OutlinedButton(
+                                    onClick = { onOpenExtractModal(source) },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                    shape = RoundedCornerShape(6.dp),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, LelouchCyanAccent.copy(alpha = 0.5f))
+                                ) {
+                                    Text("📥 Extraer", color = LelouchCyanAccent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
                         }
 
                         if (allSources.size > 1) {
@@ -1481,6 +1514,101 @@ private fun MobileSettingsTab(
                                 )
                             }
                         }
+                    }
+                }
+            }
+        }
+
+        // SECCIÓN AÑADIR NUEVA LISTA (ENLACE INTELIGENTE SMART URL)
+        item {
+            var smartUrl by remember { mutableStateOf("") }
+            var smartName by remember { mutableStateOf("") }
+            var isSubmitting by remember { mutableStateOf(false) }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(LelouchSurface)
+                    .border(1.dp, LelouchCyanAccent.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                    .padding(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        "➕ Añadir Nueva Lista (Enlace Inteligente)",
+                        color = LelouchTextPrimary,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 15.sp
+                    )
+                    Text(
+                        "Pega tu enlace M3U o Xtream Codes completo (como en Web Player). Detecta servidor, usuario y contraseña automáticamente.",
+                        color = LelouchTextSecondary,
+                        fontSize = 12.sp
+                    )
+
+                    OutlinedTextField(
+                        value = smartUrl,
+                        onValueChange = { smartUrl = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("Pega enlace M3U / Xtream completo...", fontSize = 12.sp, color = LelouchTextSecondary) },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = LelouchCyanAccent,
+                            unfocusedBorderColor = LelouchBorder,
+                            focusedTextColor = LelouchTextPrimary,
+                            unfocusedTextColor = LelouchTextPrimary,
+                            focusedContainerColor = LelouchBackground,
+                            unfocusedContainerColor = LelouchBackground
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        singleLine = true
+                    )
+
+                    OutlinedTextField(
+                        value = smartName,
+                        onValueChange = { smartName = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("Nombre de la cuenta (opcional)", fontSize = 12.sp, color = LelouchTextSecondary) },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = LelouchCyanAccent,
+                            unfocusedBorderColor = LelouchBorder,
+                            focusedTextColor = LelouchTextPrimary,
+                            unfocusedTextColor = LelouchTextPrimary,
+                            focusedContainerColor = LelouchBackground,
+                            unfocusedContainerColor = LelouchBackground
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        singleLine = true
+                    )
+
+                    Button(
+                        onClick = {
+                            if (smartUrl.isNotBlank()) {
+                                isSubmitting = true
+                                onAddSourceSmart(smartUrl, smartName)
+                                smartUrl = ""
+                                smartName = ""
+                                isSubmitting = false
+                            }
+                        },
+                        enabled = smartUrl.isNotBlank() && !isSubmitting,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = LelouchCyanAccent,
+                            disabledContainerColor = LelouchSurfaceVariant
+                        ),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(
+                            "⚡ Conectar y Guardar Lista",
+                            color = if (smartUrl.isNotBlank()) Color.Black else LelouchTextSecondary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
                     }
                 }
             }

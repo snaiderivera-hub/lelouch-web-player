@@ -124,6 +124,24 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            fun onAddSourceSmart(rawUrl: String, customName: String) {
+                lifecycleScope.launch {
+                    val authResult = app.authRepository.addSourceFromUrl(rawUrl, customName)
+                    authResult.onSuccess { source ->
+                        app.syncManager.syncAll(source.id, source.serverUrl, source.username, source.password, source.type)
+                        bootstrapViewModel.retry()
+                    }.onFailure { error ->
+                        errorMessage = error.localizedMessage ?: "Error al conectar"
+                    }
+                }
+            }
+
+            suspend fun onExtractContent(sourceId: String, categoryNames: Set<String>, type: String): Int {
+                val count = app.syncManager.extractChannelsToCustomPlaylist(sourceId, categoryNames)
+                bootstrapViewModel.retry()
+                return count
+            }
+
             fun onSyncCloud() {
                 lifecycleScope.launch {
                     bootstrapViewModel.retry()
@@ -340,6 +358,8 @@ class MainActivity : ComponentActivity() {
                                 onActivateSource = ::onActivateSource,
                                 onDeleteSource = ::onDeleteSource,
                                 onAddSource = ::onAddSource,
+                                onAddSourceSmart = ::onAddSourceSmart,
+                                onExtractContent = ::onExtractContent,
                                 onSyncCloudSources = ::onSyncCloud,
                                 onForceSync = ::onForceSync,
                                 onLogout = ::onLogout,

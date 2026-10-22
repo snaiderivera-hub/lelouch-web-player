@@ -10,6 +10,7 @@ interface AuthRepository {
     suspend fun activateSource(sourceId: String): SourceConfig?
     suspend fun removeSource(sourceId: String)
     suspend fun validateXtream(serverUrl: String, user: String, pass: String, customName: String? = null): Result<SourceConfig>
+    suspend fun addSourceFromUrl(rawUrl: String, customName: String? = null): Result<SourceConfig>
     suspend fun syncCloudSources(): List<SourceConfig>
     suspend fun logout()
     val isLastSyncFromCache: Boolean get() = false

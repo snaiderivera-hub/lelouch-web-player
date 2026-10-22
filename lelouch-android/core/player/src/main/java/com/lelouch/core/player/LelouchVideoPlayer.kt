@@ -142,10 +142,10 @@ fun LelouchVideoPlayer(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
-                CircularProgressIndicator(
+                com.lelouch.core.designsystem.components.LelouchCyberpunkLoader(
+                    size = 56.dp,
                     color = Color(0xFF00E5FF),
-                    strokeWidth = 3.dp,
-                    modifier = Modifier.size(46.dp)
+                    strokeWidth = 5.dp
                 )
             }
             else -> Unit

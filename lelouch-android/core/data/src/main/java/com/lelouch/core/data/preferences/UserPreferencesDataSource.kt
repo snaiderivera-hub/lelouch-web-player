@@ -104,6 +104,7 @@ class UserPreferencesDataSource private constructor(
                     else -> "pByk2IfABSGuLwSC9b14z6Y7penWElnYjbgzmI3R"
                 })
             val tokenUrl = "https://lelouch-web-player.vercel.app/api/playlist?token=$token"
+            val isCustomActive = if (activeId != null) activeId == "custom_lelouch" else customItems.any { it.isActive }
             deduplicated.add(
                 SourceConfig(
                     id = "custom_lelouch",
@@ -112,7 +113,7 @@ class UserPreferencesDataSource private constructor(
                     username = "",
                     password = "",
                     type = SourceType.M3U,
-                    isActive = customItems.any { it.id == activeId || it.isActive },
+                    isActive = isCustomActive,
                     accessToken = token
                 )
             )
@@ -208,6 +209,10 @@ class UserPreferencesDataSource private constructor(
                 preferences[PreferencesKeys.IS_LOGGED_IN] = true
                 preferences[PreferencesKeys.LAST_SYNC_TIMESTAMP] = System.currentTimeMillis()
                 active = target.copy(isActive = true)
+
+                // FASE 33: Persistir exclusividad en SAVED_SOURCES_JSON para evitar que fuentes previas sigan marcadas activas
+                val updatedJsonList = currentList.map { it.copy(isActive = (it.id == target.id)) }
+                preferences[PreferencesKeys.SAVED_SOURCES_JSON] = json.encodeToString(updatedJsonList)
             }
         }
         return active

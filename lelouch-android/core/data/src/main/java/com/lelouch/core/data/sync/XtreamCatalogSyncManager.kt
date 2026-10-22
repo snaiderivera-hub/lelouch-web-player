@@ -25,8 +25,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -1201,4 +1204,69 @@ class XtreamCatalogSyncManager private constructor(
         isFavorite = isFavorite,
         sourceId = sourceId
     )
+
+    /**
+     * FASE 33 — Extrae canales de un proveedor hacia "Mi Lista Personalizada LELOUCH".
+     * Inserta los canales en Room DB bajo sourceId = "custom_lelouch" y los sincroniza
+     * con Supabase en la tabla playlist_items.
+     */
+    suspend fun extractChannelsToCustomPlaylist(
+        sourceId: String,
+        categoryNames: Set<String>
+    ): Int = withContext(Dispatchers.IO) {
+        try {
+            val allChannels = database.channelDao().getAllChannelsBySource(sourceId).first()
+            val toExtract = allChannels.filter { categoryNames.contains(it.categoryName) }
+            if (toExtract.isEmpty()) return@withContext 0
+
+            val customEntities = toExtract.mapIndexed { idx, ch ->
+                ch.copy(
+                    id = "custom_lelouch-${ch.streamId}",
+                    sourceId = "custom_lelouch",
+                    num = idx + 1,
+                    categoryId = "custom_lelouch-${ch.categoryName.hashCode()}"
+                )
+            }
+            database.channelDao().insertChannels(customEntities)
+
+            val customCategories = toExtract.map { it.categoryName }.distinct().map { catName ->
+                com.lelouch.core.database.entity.CategoryEntity(
+                    id = "custom_lelouch-LIVE-$catName",
+                    categoryId = "custom_lelouch-${catName.hashCode()}",
+                    categoryName = catName,
+                    parentId = 0,
+                    type = "LIVE",
+                    itemCount = customEntities.count { it.categoryName == catName },
+                    isAdult = false,
+                    sourceId = "custom_lelouch"
+                )
+            }
+            database.categoryDao().insertCategories(customCategories)
+
+            // Sincronizar en segundo plano a Supabase playlist_items
+            try {
+                val cleanPlaylistId = "c9da4a22-534c-41f9-af70-42ee9f6682df"
+                val batchSize = 200
+                for (i in toExtract.indices step batchSize) {
+                    val chunk = toExtract.subList(i, minOf(i + batchSize, toExtract.size))
+                    val jsonRows = chunk.mapIndexed { idx, ch ->
+                        """{"playlist_id":"$cleanPlaylistId","item_type":"direct","media_type":"live","direct_name":"${ch.name.replace("\"", "\\\"")}","direct_url":"${ch.streamUrl.replace("\"", "\\\"")}","direct_group":"${ch.categoryName.replace("\"", "\\\"")}","direct_logo":"${ch.streamIcon ?: ""}","position":${i + idx},"enabled":true}"""
+                    }.joinToString(",", "[", "]")
+
+                    val req = Request.Builder()
+                        .url("https://rotupbdeljgfddywryhk.supabase.co/rest/v1/playlist_items")
+                        .post(jsonRows.toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull()))
+                        .addHeader("apikey", SUPABASE_ANON_KEY)
+                        .addHeader("Authorization", "Bearer $SUPABASE_ANON_KEY")
+                        .addHeader("Prefer", "resolution=merge-duplicates")
+                        .build()
+                    httpClient.newCall(req).execute().close()
+                }
+            } catch (_: Exception) {}
+
+            return@withContext customEntities.size
+        } catch (e: Exception) {
+            return@withContext 0
+        }
+    }
 }
