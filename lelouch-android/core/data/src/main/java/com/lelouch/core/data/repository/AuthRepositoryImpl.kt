@@ -179,6 +179,10 @@ class AuthRepositoryImpl(
                         val finalType = if (isM3u) SourceType.M3U else SourceType.XTREAM
                         val finalServerUrl = if (isM3u && normalizedM3uUrl.isNotBlank()) normalizedM3uUrl else cleanServer.trimEnd('/')
 
+                        val expireDateCloud = try { obj["expires_at"]?.jsonPrimitive?.content } catch (_: Exception) { null }
+                        val maxConsCloud = try { obj["max_connections"]?.jsonPrimitive?.content?.toIntOrNull() } catch (_: Exception) { null } ?: 1
+                        val activeConsCloud = try { obj["active_connections"]?.jsonPrimitive?.content?.toIntOrNull() } catch (_: Exception) { null } ?: 0
+
                         if (finalServerUrl.isNotBlank()) {
                             cloudSources.add(
                                 SourceConfig(
@@ -188,6 +192,9 @@ class AuthRepositoryImpl(
                                     username = userMatch,
                                     password = passMatch,
                                     type = finalType,
+                                    maxConnections = maxConsCloud,
+                                    activeConnections = activeConsCloud,
+                                    expireDate = expireDateCloud,
                                     isActive = isActive,
                                     accessToken = tokenFromUrl
                                 )

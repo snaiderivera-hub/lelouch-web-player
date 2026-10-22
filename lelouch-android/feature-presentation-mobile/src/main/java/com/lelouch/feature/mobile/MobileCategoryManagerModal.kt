@@ -26,10 +26,10 @@ import androidx.compose.ui.window.DialogProperties
 import com.lelouch.core.designsystem.*
 import com.lelouch.core.model.Category
 
-enum class MobileCategoryScope(val title: String, val iconText: String, val color: Color) {
-    LIVE("TV en Vivo", "📺", Color(0xFF00E5FF)),
-    MOVIES("Películas", "🎬", Color(0xFF38BDF8)),
-    SERIES("Series", "🎭", Color(0xFF818CF8))
+enum class MobileCategoryScope(val title: String, val shortTitle: String, val iconText: String, val color: Color) {
+    LIVE("TV en Vivo", "En Vivo", "📺", Color(0xFF00E5FF)),
+    MOVIES("Películas", "Películas", "🎬", Color(0xFF38BDF8)),
+    SERIES("Series", "Series", "🎭", Color(0xFF818CF8))
 }
 
 @Composable
@@ -69,13 +69,13 @@ fun MobileCategoryVisibilitySection(
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             MobileCategorySummaryCard(
                 scope = MobileCategoryScope.LIVE,
                 total = liveTotal,
                 hiddenCount = liveHiddenCount,
-                buttonLabel = "Editar TV",
+                buttonLabel = "Editar",
                 onClick = { onOpenManager(MobileCategoryScope.LIVE) },
                 modifier = Modifier.weight(1f)
             )
@@ -84,7 +84,7 @@ fun MobileCategoryVisibilitySection(
                 scope = MobileCategoryScope.MOVIES,
                 total = moviesTotal,
                 hiddenCount = moviesHiddenCount,
-                buttonLabel = "Editar Películas",
+                buttonLabel = "Editar",
                 onClick = { onOpenManager(MobileCategoryScope.MOVIES) },
                 modifier = Modifier.weight(1f)
             )
@@ -93,7 +93,7 @@ fun MobileCategoryVisibilitySection(
                 scope = MobileCategoryScope.SERIES,
                 total = seriesTotal,
                 hiddenCount = seriesHiddenCount,
-                buttonLabel = "Editar Series",
+                buttonLabel = "Editar",
                 onClick = { onOpenManager(MobileCategoryScope.SERIES) },
                 modifier = Modifier.weight(1f)
             )
@@ -118,7 +118,7 @@ private fun MobileCategorySummaryCard(
             .background(LelouchSurfaceVariant)
             .border(1.dp, LelouchBorder, RoundedCornerShape(10.dp))
             .clickable(onClick = onClick)
-            .padding(12.dp)
+            .padding(10.dp)
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Row(
@@ -127,9 +127,9 @@ private fun MobileCategorySummaryCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "${scope.iconText} ${scope.title}",
+                    text = "${scope.iconText} ${scope.shortTitle}",
                     color = scope.color,
-                    fontSize = 14.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1
                 )
@@ -273,48 +273,89 @@ fun MobileCategoryManagerModal(
                 
                 Divider(color = LelouchBorder)
 
-                Row(modifier = Modifier.fillMaxSize()) {
-                    // SIDEBAR
-                    Column(
-                        modifier = Modifier
-                            .width(220.dp)
-                            .fillMaxHeight()
-                            .background(LelouchSurfaceVariant)
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        MobileCategoryScope.values().forEach { scope ->
-                            val isSelected = selectedScope == scope
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isSelected) scope.color.copy(alpha = 0.15f) else Color.Transparent)
-                                    .border(1.dp, if (isSelected) scope.color else Color.Transparent, RoundedCornerShape(8.dp))
-                                    .clickable { selectedScope = scope }
-                                    .padding(horizontal = 16.dp, vertical = 12.dp)
-                            ) {
+                // TABS SUPERIORES HORIZONTALES (Adaptado a móviles verticales)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(LelouchSurfaceVariant)
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    MobileCategoryScope.values().forEach { scope ->
+                        val isSelected = selectedScope == scope
+                        val count = when (scope) {
+                            MobileCategoryScope.LIVE -> liveCategories.size
+                            MobileCategoryScope.MOVIES -> movieCategories.size
+                            MobileCategoryScope.SERIES -> seriesCategories.size
+                        }
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSelected) scope.color.copy(alpha = 0.2f) else LelouchSurface)
+                                .border(
+                                    1.dp,
+                                    if (isSelected) scope.color else LelouchBorder,
+                                    RoundedCornerShape(8.dp)
+                                )
+                                .clickable { selectedScope = scope }
+                                .padding(vertical = 10.dp, horizontal = 4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
-                                    text = "${scope.iconText} ${scope.title}",
+                                    text = "${scope.iconText} ${scope.shortTitle}",
                                     color = if (isSelected) scope.color else LelouchTextSecondary,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    maxLines = 1
+                                )
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    text = "$count cats",
+                                    color = if (isSelected) scope.color.copy(alpha = 0.85f) else LelouchTextMuted,
+                                    fontSize = 10.sp
                                 )
                             }
                         }
                     }
+                }
 
-                    Divider(
-                        color = LelouchBorder,
-                        modifier = Modifier.width(1.dp).fillMaxHeight()
-                    )
+                Divider(color = LelouchBorder)
 
-                    // CONTENT LIST
-                    LazyColumn(
+                // LISTA DE CATEGORÍAS (100% ANCHO CON ESTADO VACÍO)
+                if (currentCategories.isEmpty()) {
+                    Box(
                         modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight(),
-                        contentPadding = PaddingValues(20.dp),
+                            .fillMaxSize()
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "📭",
+                                fontSize = 36.sp
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                text = "Sin categorías en ${selectedScope.shortTitle}",
+                                color = LelouchTextPrimary,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = "Asegúrate de que la cuenta esté activa y sincronizada en Ajustes > Sync.",
+                                color = LelouchTextSecondary,
+                                fontSize = 12.sp,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         items(currentCategories, key = { it.categoryId }) { cat ->
@@ -331,7 +372,7 @@ fun MobileCategoryManagerModal(
                                         RoundedCornerShape(8.dp)
                                     )
                                     .clickable { onToggleCurrent(cat) }
-                                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                                    .padding(horizontal = 14.dp, vertical = 10.dp)
                             ) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -342,14 +383,14 @@ fun MobileCategoryManagerModal(
                                         Text(
                                             text = cat.categoryName,
                                             color = if (isHidden) LelouchTextMuted else LelouchTextPrimary,
-                                            fontSize = 15.sp,
+                                            fontSize = 14.sp,
                                             fontWeight = if (isHidden) FontWeight.Normal else FontWeight.Bold
                                         )
-                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Spacer(modifier = Modifier.height(2.dp))
                                         Text(
                                             text = "${cat.itemCount} items",
                                             color = LelouchTextSecondary,
-                                            fontSize = 12.sp
+                                            fontSize = 11.sp
                                         )
                                     }
                                     
@@ -357,20 +398,20 @@ fun MobileCategoryManagerModal(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(6.dp))
                                             .background(if (isHidden) LelouchSurface else selectedScope.color)
-                                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                                            .padding(horizontal = 10.dp, vertical = 5.dp)
                                     ) {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             Icon(
                                                 imageVector = if (isHidden) Icons.Default.VisibilityOff else Icons.Default.Visibility,
                                                 contentDescription = null,
                                                 tint = if (isHidden) LelouchTextSecondary else Color.Black,
-                                                modifier = Modifier.size(16.dp)
+                                                modifier = Modifier.size(15.dp)
                                             )
-                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
                                             Text(
                                                 text = if (isHidden) "OCULTO" else "VISIBLE",
                                                 color = if (isHidden) LelouchTextSecondary else Color.Black,
-                                                fontSize = 12.sp,
+                                                fontSize = 11.sp,
                                                 fontWeight = FontWeight.Bold
                                             )
                                         }

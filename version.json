@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.81",
-  "versionCode": 1000081,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.81/app-debug.apk",
-  "changelog": "• Búsqueda instantánea en vivo: nuevo buscador integrado en la sección de canales EN VIVO por nombre o número.\n• Sintonización directa Room: resolución directa de canales por número (ej: 1300) sin importar la posición de scroll o paginación en memoria."
+  "versionName": "1.0.82",
+  "versionCode": 1000082,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.82/app-debug.apk",
+  "changelog": "• Gestor de Listas en móvil: tarjetas Cyberpunk enriquecidas con fecha de vencimiento dinámica (días restantes), contador de conexiones simultáneas y botón de recarga.\n• Gestor de Categorías móvil: diseño horizontal adaptado con pestañas superiores y listado al 100% de ancho con estado informativo.\n• Sincronización instantánea: activación inmediata sin bloqueos al cambiar de cuenta IPTV."
 }

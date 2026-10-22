@@ -29,6 +29,22 @@ data class SourceConfig(
      */
     val accessToken: String? = null
 ) {
+    val expireDaysRemaining: Int?
+        get() {
+            if (expireDate.isNullOrBlank() || expireDate == "null") return null
+            val timestampMs = expireDate.toLongOrNull()?.let {
+                if (it < 10000000000L) it * 1000L else it
+            } ?: try {
+                val isoFormat = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
+                isoFormat.timeZone = java.util.TimeZone.getTimeZone("UTC")
+                isoFormat.parse(expireDate.substringBefore('.'))?.time
+            } catch (_: Exception) { null }
+            ?: return null
+
+            val diffMs = timestampMs - System.currentTimeMillis()
+            return kotlin.math.ceil(diffMs.toDouble() / (1000 * 60 * 60 * 24)).toInt()
+        }
+
     val formattedExpireDate: String
         get() {
             if (expireDate.isNullOrBlank() || expireDate == "null") return "Ilimitado"
@@ -38,6 +54,15 @@ data class SourceConfig(
                 val sdf = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault())
                 return sdf.format(java.util.Date(ms))
             }
+            try {
+                val isoFormat = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
+                isoFormat.timeZone = java.util.TimeZone.getTimeZone("UTC")
+                val parsed = isoFormat.parse(expireDate.substringBefore('.'))
+                if (parsed != null) {
+                    val outFormat = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault())
+                    return outFormat.format(parsed)
+                }
+            } catch (_: Exception) {}
             return expireDate
         }
 }

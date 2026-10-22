@@ -31,6 +31,7 @@ import com.lelouch.player.bootstrap.SourceBootstrapState
 import com.lelouch.player.bootstrap.SourceBootstrapViewModel
 import com.lelouch.feature.tv.components.TvBootstrapRecoveryScreen
 import com.lelouch.feature.tv.components.TvAdminPanelModal
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 
@@ -90,14 +91,16 @@ class MainActivity : ComponentActivity() {
                 lifecycleScope.launch {
                     val activated = app.authRepository.activateSource(sourceId)
                     if (activated != null) {
-                        app.syncManager.syncIfNeeded(
-                            sourceId = activated.id,
-                            serverUrl = activated.serverUrl,
-                            user = activated.username,
-                            pass = activated.password,
-                            sourceType = activated.type
-                        )
                         bootstrapViewModel.retry()
+                        launch(Dispatchers.IO) {
+                            app.syncManager.syncIfNeeded(
+                                sourceId = activated.id,
+                                serverUrl = activated.serverUrl,
+                                user = activated.username,
+                                pass = activated.password,
+                                sourceType = activated.type
+                            )
+                        }
                     }
                 }
             }
@@ -127,10 +130,10 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            val effectiveActiveSource = when (val bs = bootstrapState) {
+            val effectiveActiveSource = activeSource ?: when (val bs = bootstrapState) {
                 is SourceBootstrapState.Ready -> bs.source
                 is SourceBootstrapState.UsingLocalCache -> bs.source
-                else -> activeSource ?: allSources.firstOrNull()
+                else -> allSources.firstOrNull()
             }
 
             val isHomeVisible = effectiveActiveSource != null &&

@@ -57,6 +57,7 @@ import com.lelouch.core.model.Series
 import com.lelouch.core.model.Episode
 import com.lelouch.core.player.PlaybackState
 import com.lelouch.core.model.SourceConfig
+import com.lelouch.core.model.SourceType
 import com.lelouch.core.network.StreamUrlResolver
 import com.lelouch.core.player.LelouchVideoPlayer
 import com.lelouch.core.player.rememberLelouchPlayer
@@ -928,11 +929,24 @@ private fun MobileHomeTab(
         }
         if (liveChannels.isEmpty() && movies.isEmpty() && seriesList.isEmpty()) {
             item {
-                Box(modifier = Modifier.fillMaxWidth().padding(48.dp), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Sincronizando catalogo...", color = LelouchTextSecondary, fontSize = 14.sp)
-                        Spacer(Modifier.height(6.dp))
-                        Text("Ve a Listas > Sync si tarda demasiado", color = LelouchTextMuted, fontSize = 12.sp)
+                Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 36.dp), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        CircularProgressIndicator(
+                            color = LelouchCyanAccent,
+                            modifier = Modifier.size(32.dp),
+                            strokeWidth = 3.dp
+                        )
+                        Text("Sincronizando catálogo...", color = LelouchTextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        Text("Obteniendo canales, películas y series de esta cuenta.", color = LelouchTextSecondary, fontSize = 12.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        Spacer(Modifier.height(4.dp))
+                        Button(
+                            onClick = onReloadCatalog,
+                            colors = ButtonDefaults.buttonColors(containerColor = LelouchCyanAccent),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("🔄 Sincronizar Ahora", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
                     }
                 }
             }
@@ -1162,11 +1176,14 @@ private fun MobileSettingsTab(
             Text("Gestor de Listas IPTV", color = LelouchTextPrimary, fontWeight = FontWeight.Black, fontSize = 20.sp)
             Text("Cambia entre tus cuentas o anade un nuevo proveedor.", color = LelouchTextSecondary, fontSize = 13.sp)
             Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                MobileActionButton("Nube", Modifier.weight(1f), onClick = onSyncCloud)
-                MobileActionButton("Sync", Modifier.weight(1f), onClick = onForceSync)
-                MobileActionButton("Actualizar", Modifier.weight(1.2f), onClick = onOpenUpdate)
-                MobileDangerButton("Salir", Modifier.weight(1f), onClick = onLogout)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                MobileActionButton("☁️ Nube", Modifier.weight(1f), onClick = onSyncCloud)
+                MobileActionButton("🔄 Sync", Modifier.weight(1f), onClick = onForceSync)
+                MobileActionButton("📲 OTA", Modifier.weight(1f), onClick = onOpenUpdate)
+                MobileDangerButton("🚪 Salir", Modifier.weight(1f), onClick = onLogout)
             }
         }
         
@@ -1259,43 +1276,209 @@ private fun MobileSettingsTab(
         }
         items(allSources) { source ->
             val isActive = source.id == activeSource?.id || source.isActive
+            val daysRem = source.expireDaysRemaining
+            val isCustom = source.type == SourceType.M3U || source.id.startsWith("custom_")
+
             Box(
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
                     .background(if (isActive) LelouchSurfaceVariant else LelouchSurface)
                     .border(
                         if (isActive) 1.5.dp else 1.dp,
                         if (isActive) Color(0xFF10B981) else LelouchBorder,
                         RoundedCornerShape(12.dp)
                     )
-                    .clickable(enabled = !isActive) { onActivateSource(source.id) }
                     .padding(14.dp)
             ) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(source.name, color = LelouchTextPrimary, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // FILA 1: Nombre con elipsis + Badges de estado alineados
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = source.name,
+                            color = LelouchTextPrimary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        if (isActive) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0xFF10B981))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    "✓ EN USO",
+                                    color = Color.White,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                            Spacer(Modifier.width(4.dp))
+                        }
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(Color(0xFF0284C7).copy(alpha = 0.2f))
+                                .border(1.dp, Color(0xFF0284C7).copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 5.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                "☁️ Nube",
+                                color = Color(0xFF38BDF8),
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    // FILA 2: Badges de Expiración y Conexiones Simultáneas
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (isCustom || source.expireDate.isNullOrBlank()) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0xFF10B981).copy(alpha = 0.15f))
+                                    .border(1.dp, Color(0xFF10B981).copy(alpha = 0.4f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    "♾️ Ilimitado",
+                                    color = Color(0xFF10B981),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        } else if (daysRem != null) {
+                            val badgeColor = when {
+                                daysRem <= 0 -> Color(0xFFEF4444)
+                                daysRem <= 15 -> Color(0xFFF59E0B)
+                                else -> Color(0xFF10B981)
+                            }
+                            val badgeText = when {
+                                daysRem <= 0 -> "🔴 Venció: ${source.formattedExpireDate}"
+                                daysRem <= 15 -> "⚠️ Vence: ${source.formattedExpireDate} (${daysRem}d)"
+                                else -> "📅 Vence: ${source.formattedExpireDate} (${daysRem} días)"
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(badgeColor.copy(alpha = 0.15f))
+                                    .border(1.dp, badgeColor.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    badgeText,
+                                    color = badgeColor,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        if (source.maxConnections > 0 && !isCustom) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0xFF8B5CF6).copy(alpha = 0.15f))
+                                    .border(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.4f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    "👥 ${source.activeConnections}/${source.maxConnections} Conex.",
+                                    color = Color(0xFFC084FC),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+
+                    // FILA 3: Servidor y Usuario
+                    Text(
+                        text = "🌐 ${source.serverUrl}  •  👤 ${source.username.ifBlank { "—" }}",
+                        color = LelouchTextSecondary,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    // FILA 4: Botones de Acción
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (isActive) {
-                                Spacer(Modifier.width(8.dp))
-                                Box(modifier = Modifier.clip(RoundedCornerShape(4.dp))
-                                    .background(Color(0xFF10B981)).padding(horizontal = 6.dp, vertical = 2.dp)) {
-                                    Text("ACTIVA", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(Color(0xFF10B981).copy(alpha = 0.15f))
+                                        .border(1.dp, Color(0xFF10B981).copy(alpha = 0.35f), RoundedCornerShape(6.dp))
+                                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        "✓ En uso",
+                                        color = Color(0xFF10B981),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            } else {
+                                Button(
+                                    onClick = { onActivateSource(source.id) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = LelouchCyanAccent),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
+                                    Text(
+                                        "⚡ Activar",
+                                        color = Color.Black,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 }
                             }
-                        }
-                        Text("${source.serverUrl}  -  ${source.username}", color = LelouchTextSecondary,
-                            fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        if (!isActive) {
-                            TextButton(onClick = { onActivateSource(source.id) },
-                                colors = ButtonDefaults.textButtonColors(contentColor = LelouchCyanAccent)) {
-                                Text("Activar", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+
+                            OutlinedButton(
+                                onClick = {
+                                    onActivateSource(source.id)
+                                    onForceSync()
+                                },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                shape = RoundedCornerShape(6.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, LelouchBorder)
+                            ) {
+                                Text("🔄 Recargar", color = LelouchTextPrimary, fontSize = 11.sp)
                             }
                         }
+
                         if (allSources.size > 1) {
-                            IconButton(onClick = { onDeleteSource(source.id) }, modifier = Modifier.size(36.dp)) {
-                                Icon(Icons.Default.Delete, null, tint = LelouchLiveRed)
+                            IconButton(
+                                onClick = { onDeleteSource(source.id) },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = "Eliminar",
+                                    tint = LelouchLiveRed,
+                                    modifier = Modifier.size(18.dp)
+                                )
                             }
                         }
                     }
