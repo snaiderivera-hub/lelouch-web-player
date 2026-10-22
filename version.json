@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.85",
-  "versionCode": 1000085,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.85/app-debug.apk",
-  "changelog": "• Indicador de carga continuo posicionado con precisión (aro blanco fino en degradé neón, sin porcentajes).\n• Detección visual en UI de stream fuera de línea para evitar esperas indefinidas.\n• Blindaje total de LelouchPlayerEngine y PlayerConfig intacto."
+  "versionName": "1.0.86",
+  "versionCode": 1000086,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.86/app-debug.apk",
+  "changelog": "• Posicionamiento centrado absoluto del indicador circular en la pantalla.\n• Diseño continuo fino con aro blanco y degradé neón (sin números ni porcentajes).\n• Blindaje total de reproducción en vivo intacto."
 }

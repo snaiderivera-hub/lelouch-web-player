@@ -7,7 +7,6 @@ import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -168,23 +167,16 @@ fun LelouchVideoPlayer(
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {
-                    BoxWithConstraints(
+                    Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.35f))
+                            .background(Color.Black.copy(alpha = 0.35f)),
+                        contentAlignment = Alignment.Center
                     ) {
-                        val loaderSize = 68.dp
-                        // Coordenadas solicitadas: x = 40.5% del ancho, y = 72% del alto tomadas desde el centro del indicador
-                        val xPos = (maxWidth * 0.405f) - (loaderSize / 2)
-                        val yPos = (maxHeight * 0.72f) - (loaderSize / 2)
-                        Box(
-                            modifier = Modifier.padding(start = xPos, top = yPos)
-                        ) {
-                            com.lelouch.core.designsystem.components.LelouchCyberpunkLoader(
-                                size = loaderSize,
-                                strokeWidth = 4.2.dp
-                            )
-                        }
+                        com.lelouch.core.designsystem.components.LelouchCyberpunkLoader(
+                            size = 68.dp,
+                            strokeWidth = 4.5.dp
+                        )
                     }
                 }
             }
