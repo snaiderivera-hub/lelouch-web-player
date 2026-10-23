@@ -57,16 +57,36 @@ import com.lelouch.core.model.VodMovie
 import com.lelouch.core.model.Series
 import com.lelouch.core.model.Episode
 import com.lelouch.core.player.PlaybackState
+import com.lelouch.core.player.cast.DlnaCastManager
+import com.lelouch.core.player.cast.DlnaDevice
 import com.lelouch.core.model.SourceConfig
 import com.lelouch.core.model.SourceType
+import com.lelouch.core.model.ContentType
+import com.lelouch.core.model.ContinueWatchingItem
+import com.lelouch.core.domain.repository.PlaybackHistoryRepository
 import com.lelouch.core.network.StreamUrlResolver
 import com.lelouch.core.player.LelouchVideoPlayer
+import com.lelouch.core.player.PlayerGestureLayer
 import com.lelouch.core.player.rememberLelouchPlayer
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 data class MobileCategoryItem(
     val id: String,
     val name: String
+)
+
+/** FASE 37: metadatos del contenido que se está reproduciendo, para el historial. */
+data class ActiveContentMeta(
+    val title: String,
+    val posterUrl: String? = null,
+    val type: ContentType = ContentType.VOD,
+    val seasonNumber: Int? = null,
+    val episodeNumber: Int? = null
 )
 
 @Composable
@@ -91,7 +111,13 @@ fun MobileHomeScreen(
     onSyncCloudSources: () -> Unit = {},
     onForceSync: () -> Unit = {},
     onLogout: () -> Unit = {},
-    onFetchSeriesDetails: (suspend (seriesId: Int) -> Pair<List<Int>, List<Episode>>)? = null
+    onFetchSeriesDetails: (suspend (seriesId: Int) -> Pair<List<Int>, List<Episode>>)? = null,
+    playbackHistory: PlaybackHistoryRepository? = null,
+    // FASE 40: ventana flotante (Picture-in-Picture). La Activity es la dueña del modo; la
+    // pantalla solo avisa de que hay reproducción activa y dibuja el vídeo sin el resto de la UI.
+    isInPictureInPicture: Boolean = false,
+    onPlaybackActiveChanged: (Boolean) -> Unit = {},
+    onEnterPictureInPicture: () -> Unit = {}
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var activeStreamUrl by remember { mutableStateOf<String?>(null) }
@@ -100,10 +126,79 @@ fun MobileHomeScreen(
     var activeChannelName by remember { mutableStateOf("") }
     var searchQuery by remember { mutableStateOf("") }
     var isPlayerFullscreen by remember { mutableStateOf(false) }
+
+    // FASE 39: identificador de la petición de reproducción en curso. Es la clave del efecto
+    // de arranque, así que volver a tocar el mismo contenido lo reinicia y cualquier respuesta
+    // tardía de una petición anterior (p. ej. la consulta de reanudación) se descarta.
+    var playbackRequest by remember { mutableIntStateOf(0) }
+
+    /**
+     * FASE 39 · Único punto de entrada para arrancar reproducción en móvil.
+     *
+     * Fija primero el modo (directo/VOD) y después publica la URL, de modo que el efecto de
+     * arranque siempre lea el `isLivePlayback` definitivo. No reproduce aquí: el efecto lo hace
+     * de forma inmediata para no duplicar llamadas al motor.
+     */
+    val startPlayback: (url: String, live: Boolean) -> Unit = { url, live ->
+        isLivePlayback = live
+        isPlayerFullscreen = true
+        playbackRequest++
+        activeStreamUrl = url
+    }
+
+    // FASE 37: metadatos del contenido en curso para el historial (la URL es la clave estable).
+    var activeContentMeta by remember { mutableStateOf<ActiveContentMeta?>(null) }
+    var isHistoryVisible by remember { mutableStateOf(false) }
+
     val playerEngine = rememberLelouchPlayer()
+    val uiScope = rememberCoroutineScope()
+
+    // FASE 40: la Activity decide si puede entrar en ventana flotante al salir de la app.
+    LaunchedEffect(activeStreamUrl != null) {
+        onPlaybackActiveChanged(activeStreamUrl != null)
+    }
+    DisposableEffect(Unit) {
+        onDispose { onPlaybackActiveChanged(false) }
+    }
+
+    // FASE 37: historial de la lista activa (se recalcula al cambiar de fuente).
+    val historyItems by remember(playbackHistory, activeSource?.id) {
+        playbackHistory?.continueWatching(activeSource?.id.orEmpty())
+            ?: kotlinx.coroutines.flow.flowOf(emptyList<ContinueWatchingItem>())
+    }.collectAsState(initial = emptyList())
 
     val context = LocalContext.current
     val activity = context as? Activity
+
+    // FASE 38: casting DLNA (sin Play Services) del contenido en curso.
+    val castManager = remember(context) { DlnaCastManager(context) }
+    var isCastSheetVisible by remember { mutableStateOf(false) }
+    var castDevices by remember { mutableStateOf<List<DlnaDevice>>(emptyList()) }
+    var isCastSearching by remember { mutableStateOf(false) }
+    var castMessage by remember { mutableStateOf<String?>(null) }
+    var castingDevice by remember { mutableStateOf<DlnaDevice?>(null) }
+    var castStatus by remember { mutableStateOf<String?>(null) }
+    var castJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+
+    /** FASE 38: cerrar el selector cancela cualquier envío/confirmación en curso. */
+    val dismissCastSheet: () -> Unit = {
+        castJob?.cancel()
+        castJob = null
+        isCastSearching = false
+        castStatus = null
+        isCastSheetVisible = false
+    }
+
+    LaunchedEffect(isCastSheetVisible) {
+        if (!isCastSheetVisible) return@LaunchedEffect
+        isCastSearching = true
+        castMessage = null
+        castDevices = castManager.discover()
+        isCastSearching = false
+        if (castDevices.isEmpty()) {
+            castMessage = "No se encontraron dispositivos DLNA. Comprueba que estén encendidos y en la misma red Wi-Fi."
+        }
+    }
     val hiddenPrefs = remember { context.getSharedPreferences("iptv_hidden_categories", android.content.Context.MODE_PRIVATE) }
     
     var hiddenLiveCategories by remember { mutableStateOf(hiddenPrefs.getStringSet("live", emptySet())?.toSet() ?: emptySet()) }
@@ -190,6 +285,7 @@ fun MobileHomeScreen(
                         android.widget.Toast.LENGTH_SHORT
                     ).show()
                     activeChannelName = nextChannel.name
+                    activeContentMeta = ActiveContentMeta(nextChannel.name, nextChannel.streamIcon, ContentType.LIVE)
                     val targetUrl = com.lelouch.core.network.StreamUrlResolver.resolveLive(nextChannel.streamUrl, activeSource, nextChannel.streamId)
                     if (targetUrl == activeStreamUrl) {
                         playerEngine.playStream(targetUrl, isLive = true)
@@ -241,6 +337,7 @@ fun MobileHomeScreen(
                 
                 val targetChannel = cleanLiveChannels[newIndex]
                 activeChannelName = targetChannel.name
+                activeContentMeta = ActiveContentMeta(targetChannel.name, targetChannel.streamIcon, ContentType.LIVE)
                 val targetUrl = com.lelouch.core.network.StreamUrlResolver.resolveLive(targetChannel.streamUrl, activeSource, targetChannel.streamId)
                 if (targetUrl == activeStreamUrl) {
                     playerEngine.playStream(targetUrl, isLive = true)
@@ -322,8 +419,60 @@ fun MobileHomeScreen(
     var isUpdateModalOpen by remember { mutableStateOf(false) }
     var extractTargetSource by remember { mutableStateOf<SourceConfig?>(null) }
 
-    LaunchedEffect(activeStreamUrl) {
-        activeStreamUrl?.let { url -> playerEngine.playStream(url, isLive = isLivePlayback) }
+    // FASE 39: arranque de reproducción.
+    // - Directo: `playStream` se ejecuta sin ninguna suspensión previa (nada que esperar).
+    // - VOD: el stream arranca ya en 0 y la reanudación se aplica cuando llega. Si la consulta
+    //   falla, tarda o se cancela, la reproducción continúa desde el principio.
+    LaunchedEffect(activeStreamUrl, playbackRequest) {
+        val url = activeStreamUrl ?: return@LaunchedEffect
+        val request = playbackRequest
+
+        if (isLivePlayback) {
+            playerEngine.playStream(url, isLive = true)
+            return@LaunchedEffect
+        }
+
+        playerEngine.playStream(url, isLive = false)
+
+        val resumeAt = playbackHistory.safeResumePositionMs(
+            contentId = url,
+            sourceId = activeSource?.id.orEmpty()
+        )
+        val stillCurrent = request == playbackRequest &&
+            !isLivePlayback &&
+            activeStreamUrl == url &&
+            playerEngine.currentUrl.value == url
+        if (resumeAt > 0L && stillCurrent) {
+            playerEngine.seekTo(resumeAt)
+        }
+    }
+
+    // FASE 37: persistir el avance mientras se reproduce un VOD (también en el mini
+    // reproductor). En directo no se guarda: no existe una posición reanudable.
+    LaunchedEffect(activeStreamUrl, isLivePlayback, activeSource?.id, playbackHistory) {
+        val repo = playbackHistory ?: return@LaunchedEffect
+        if (isLivePlayback) return@LaunchedEffect
+        val url = activeStreamUrl ?: return@LaunchedEffect
+        val sourceId = activeSource?.id.orEmpty()
+        if (sourceId.isBlank()) return@LaunchedEffect
+        val meta = activeContentMeta
+        var lastSavedMs = -1L
+        playerEngine.progress.collect { progress ->
+            if (!progress.isPlaying || progress.durationMs <= 0L) return@collect
+            if (lastSavedMs >= 0L && progress.positionMs - lastSavedMs < 5_000L) return@collect
+            lastSavedMs = progress.positionMs
+            repo.record(
+                sourceId = sourceId,
+                contentId = url,
+                title = meta?.title ?: activeChannelName,
+                contentType = meta?.type ?: ContentType.VOD,
+                positionMs = progress.positionMs,
+                durationMs = progress.durationMs,
+                posterUrl = meta?.posterUrl,
+                seasonNumber = meta?.seasonNumber,
+                episodeNumber = meta?.episodeNumber
+            )
+        }
     }
 
     if (isUpdateModalOpen) {
@@ -337,10 +486,9 @@ fun MobileHomeScreen(
             movie = movie,
             activeSource = activeSource,
             onPlay = { url ->
-                isLivePlayback = false
                 activeChannelName = movie.name
-                activeStreamUrl = url
-                isPlayerFullscreen = true
+                activeContentMeta = ActiveContentMeta(movie.name, movie.streamIcon, ContentType.VOD)
+                startPlayback(url, false)
                 selectedMovie = null
             },
             onDismiss = { selectedMovie = null }
@@ -352,11 +500,16 @@ fun MobileHomeScreen(
             series = series,
             activeSource = activeSource,
             onFetchSeriesDetails = onFetchSeriesDetails,
-            onPlayEpisode = { url, title ->
-                isLivePlayback = false
+            onPlayEpisode = { url, title, episode ->
                 activeChannelName = title
-                activeStreamUrl = url
-                isPlayerFullscreen = true
+                activeContentMeta = ActiveContentMeta(
+                    title = title,
+                    posterUrl = episode.cover ?: series.cover,
+                    type = ContentType.SERIES,
+                    seasonNumber = episode.seasonNumber,
+                    episodeNumber = episode.episodeNumber
+                )
+                startPlayback(url, false)
                 selectedSeries = null
             },
             onDismiss = { selectedSeries = null }
@@ -367,8 +520,34 @@ fun MobileHomeScreen(
         selectedTab = 0
     }
 
+    // FASE 37/38: capas que deben consumir BACK antes de que actúe la navegación por pestañas.
+    BackHandler(enabled = isHistoryVisible) {
+        isHistoryVisible = false
+    }
+    BackHandler(enabled = isCastSheetVisible) {
+        dismissCastSheet()
+    }
+
     var isCategoryManagerModalOpen by remember { mutableStateOf(false) }
     var categoryManagerInitialScope by remember { mutableStateOf(MobileCategoryScope.LIVE) }
+
+    // FASE 40: en ventana flotante solo se dibuja el vídeo. La reproducción y sus efectos ya
+    // viven arriba, así que este recorte no reinicia nada: solo evita que la interfaz completa
+    // se encoja dentro del recuadro.
+    if (isInPictureInPicture && activeStreamUrl != null) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+        ) {
+            LelouchVideoPlayer(
+                playerEngine = playerEngine,
+                isLive = isLivePlayback,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+        return
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
@@ -431,7 +610,7 @@ fun MobileHomeScreen(
                         0 -> MobileHomeTab(
                             liveChannels = cleanLiveChannels, movies = filteredMovies, seriesList = filteredSeriesList,
                             activeSource = activeSource,
-                            onChannelClick = { ch, url -> isPlayerFullscreen = true; isLivePlayback = true; activeChannelName = ch; activeStreamUrl = url },
+                            onChannelClick = { ch, url -> activeChannelName = ch; activeContentMeta = ActiveContentMeta(ch, type = ContentType.LIVE); startPlayback(url, true) },
                             onMovieClick = { selectedMovie = it },
                             onSeriesClick = { selectedSeries = it },
                             onSeeAllLive = { selectedTab = 2 },
@@ -458,13 +637,13 @@ fun MobileHomeScreen(
                             categories = liveCategoryList,
                             favoriteChannels = favoriteChannels,
                             onToggleFavorite = onToggleFavoriteChannel,
-                            onChannelClick = { ch, url -> isPlayerFullscreen = true; isLivePlayback = true; activeChannelName = ch; activeStreamUrl = url }
+                            onChannelClick = { ch, url -> activeChannelName = ch; activeContentMeta = ActiveContentMeta(ch, type = ContentType.LIVE); startPlayback(url, true) }
                         )
                         3 -> MobileFavoritesTab(
                             favoriteChannels = favoriteChannels,
                             favoriteMovies = favoriteMovies,
                             activeSource = activeSource,
-                            onChannelClick = { ch, url -> isPlayerFullscreen = true; isLivePlayback = true; activeChannelName = ch; activeStreamUrl = url },
+                            onChannelClick = { ch, url -> activeChannelName = ch; activeContentMeta = ActiveContentMeta(ch, type = ContentType.LIVE); startPlayback(url, true) },
                             onMovieClick = { selectedMovie = it },
                             onToggleFavoriteChannel = onToggleFavoriteChannel,
                             onToggleFavoriteMovie = onToggleFavoriteMovie
@@ -481,6 +660,7 @@ fun MobileHomeScreen(
                             onSyncCloud = onSyncCloudSources, onForceSync = onForceSync, onLogout = onLogout,
                             onOpenUpdate = { isUpdateModalOpen = true },
                             onNavigateToFavorites = { selectedTab = 3 },
+                            onOpenHistory = { isHistoryVisible = true },
                             isAdultModeEnabled = isAdultModeEnabled,
                             onToggleAdultMode = { saveAdultMode(it) },
                             liveTotal = liveCategories.size,
@@ -499,9 +679,41 @@ fun MobileHomeScreen(
             }
         }
 
+        // FASE 37: HISTORIAL / CONTINUAR VIENDO
+        if (isHistoryVisible) {
+            MobileHistoryScreen(
+                items = historyItems,
+                onResume = { item ->
+                    isHistoryVisible = false
+                    activeChannelName = item.title
+                    activeContentMeta = ActiveContentMeta(
+                        title = item.title,
+                        posterUrl = item.posterUrl,
+                        type = item.contentType,
+                        seasonNumber = item.seasonNumber,
+                        episodeNumber = item.episodeNumber
+                    )
+                    startPlayback(item.contentId, false)
+                },
+                onRemove = { item ->
+                    uiScope.launch {
+                        playbackHistory?.remove(item.contentId, item.sourceId)
+                    }
+                },
+                onClearAll = {
+                    uiScope.launch {
+                        playbackHistory?.clear(activeSource?.id.orEmpty())
+                    }
+                },
+                onDismiss = { isHistoryVisible = false }
+            )
+            return@Box
+        }
+
         // REPRODUCTOR HORIZONTAL A PANTALLA COMPLETA
         if (isPlayerFullscreen && activeStreamUrl != null) {
             var isOverlayVisible by remember { mutableStateOf(true) }
+            var isTracksSheetVisible by remember { mutableStateOf(false) }
 
             // Auto-hide timer
             LaunchedEffect(isOverlayVisible, playbackState) {
@@ -511,16 +723,21 @@ fun MobileHomeScreen(
                 }
             }
 
+            // FASE 39: en directo el toque lo atiende este Box; en VOD lo atiende
+            // PlayerGestureLayer (que además distingue toque simple y doble toque). Con ambos
+            // activos a la vez el toque se procesaba dos veces y el overlay quedaba igual.
+            val toggleOverlayOnTap = Modifier.clickable(
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                indication = null
+            ) {
+                isOverlayVisible = !isOverlayVisible
+            }
+
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black)
-                    .clickable(
-                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                        indication = null
-                    ) {
-                        isOverlayVisible = !isOverlayVisible
-                    }
+                    .then(if (isLivePlayback) toggleOverlayOnTap else Modifier)
                     .swipeToChangeChannel(
                         enabled = isLivePlayback,
                         onNext = { switchChannelByOffset(1) },
@@ -529,8 +746,27 @@ fun MobileHomeScreen(
             ) {
                 LelouchVideoPlayer(
                     playerEngine = playerEngine,
+                    isLive = isLivePlayback,
                     modifier = Modifier.fillMaxSize()
                 )
+
+                // FASE 37: gestos de brillo/volumen/seek/doble toque. Solo en VOD: en directo
+                // el arrastre vertical ya está reservado al cambio de canal. Esta capa queda por
+                // debajo de los controles (se componen después), así que nunca los tapa.
+                PlayerGestureLayer(
+                    engine = playerEngine,
+                    enabled = !isLivePlayback,
+                    onSingleTap = { isOverlayVisible = !isOverlayVisible },
+                    modifier = Modifier.fillMaxSize()
+                )
+
+                // FASE 36: hoja de pistas (calidad / audio / subtítulos)
+                if (isTracksSheetVisible) {
+                    MobileTracksSheet(
+                        engine = playerEngine,
+                        onDismiss = { isTracksSheetVisible = false }
+                    )
+                }
 
                 // OSD Flotante Neón en pantalla completa
                 AnimatedVisibility(
@@ -583,6 +819,20 @@ fun MobileHomeScreen(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
                         val context = LocalContext.current
+                        // FASE 38: enviar el contenido a un televisor por DLNA.
+                        IconButton(
+                            onClick = {
+                                castMessage = null
+                                isCastSheetVisible = true
+                            },
+                            modifier = Modifier.background(Color.Black.copy(0.6f), CircleShape)
+                        ) {
+                            Icon(
+                                Icons.Default.Cast,
+                                contentDescription = "Enviar a pantalla",
+                                tint = if (castingDevice != null) LelouchCyanAccent else Color.White
+                            )
+                        }
                         IconButton(
                             onClick = {
                                 activeStreamUrl?.let { url ->
@@ -593,6 +843,12 @@ fun MobileHomeScreen(
                             modifier = Modifier.background(Color.Black.copy(0.6f), CircleShape)
                         ) {
                             Icon(Icons.Default.Share, contentDescription = "Copiar Enlace", tint = Color.White)
+                        }
+                        IconButton(
+                            onClick = { isTracksSheetVisible = true },
+                            modifier = Modifier.background(Color.Black.copy(0.6f), CircleShape)
+                        ) {
+                            Icon(Icons.Default.Tune, contentDescription = "Pistas y subtítulos", tint = Color.White)
                         }
                         IconButton(
                             onClick = {
@@ -612,6 +868,19 @@ fun MobileHomeScreen(
                             modifier = Modifier.background(Color.Black.copy(0.6f), CircleShape)
                         ) {
                             Icon(Icons.Default.FullscreenExit, contentDescription = "Minimizar", tint = Color.White)
+                        }
+                        // FASE 40: ventana flotante. Solo existe en Android 8+ (API 26).
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                            IconButton(
+                                onClick = onEnterPictureInPicture,
+                                modifier = Modifier.background(Color.Black.copy(0.6f), CircleShape)
+                            ) {
+                                Icon(
+                                    Icons.Default.PictureInPictureAlt,
+                                    contentDescription = "Ventana flotante",
+                                    tint = Color.White
+                                )
+                            }
                         }
                     }
                     }
@@ -749,6 +1018,76 @@ fun MobileHomeScreen(
                 }
             }
         }
+    }
+
+    // FASE 38: selector de dispositivos DLNA, por encima del reproductor.
+    if (isCastSheetVisible) {
+        MobileCastSheet(
+            devices = castDevices,
+            isSearching = isCastSearching,
+            statusText = castStatus,
+            message = castMessage,
+            castingDeviceName = castingDevice?.name,
+            onRefresh = {
+                uiScope.launch {
+                    isCastSearching = true
+                    castMessage = null
+                    castDevices = castManager.discover()
+                    isCastSearching = false
+                    if (castDevices.isEmpty()) {
+                        castMessage = "No se encontraron dispositivos DLNA en la red."
+                    }
+                }
+            },
+            onSelect = { device ->
+                val url = activeStreamUrl
+                if (url.isNullOrBlank()) {
+                    castMessage = "No hay contenido activo para enviar."
+                } else {
+                    castJob?.cancel()
+                    castJob = uiScope.launch {
+                        isCastSearching = true
+                        castMessage = null
+                        castStatus = "Enviando a ${device.name}… Confirma en el televisor si aparece un aviso."
+                        try {
+                            castManager.cast(
+                                device = device,
+                                url = url,
+                                title = activeChannelName,
+                                isLive = isLivePlayback
+                            ).onSuccess {
+                                castingDevice = device
+                                // Solo se pausa el móvil cuando el televisor confirma PLAYING.
+                                playerEngine.pause()
+                                isCastSheetVisible = false
+                                android.widget.Toast.makeText(
+                                    context,
+                                    "📺 Reproduciendo en ${device.name}",
+                                    android.widget.Toast.LENGTH_SHORT
+                                ).show()
+                            }.onFailure { error ->
+                                castMessage = error.message ?: "No se pudo reproducir en el televisor."
+                            }
+                        } finally {
+                            isCastSearching = false
+                            castStatus = null
+                        }
+                    }
+                }
+            },
+            onDisconnect = {
+                val device = castingDevice
+                castingDevice = null
+                castMessage = null
+                isCastSheetVisible = false
+                if (device != null) {
+                    uiScope.launch { castManager.stop(device) }
+                }
+                // El móvil retoma el contenido que se había pausado al enviarlo.
+                playerEngine.resume()
+            },
+            onDismiss = dismissCastSheet
+        )
     }
 
     if (showPinDialog) {
@@ -1476,6 +1815,7 @@ private fun MobileSettingsTab(
     onSyncCloud: () -> Unit, onForceSync: () -> Unit, onLogout: () -> Unit,
     onOpenUpdate: () -> Unit,
     onNavigateToFavorites: () -> Unit = {},
+    onOpenHistory: () -> Unit = {},
     isAdultModeEnabled: Boolean = false,
     onToggleAdultMode: (Boolean) -> Unit = {},
     liveTotal: Int, liveHiddenCount: Int,
@@ -1547,7 +1887,7 @@ private fun MobileSettingsTab(
                     icon = Icons.Default.History,
                     label = "Historial",
                     bgColor = BixCircleBlue,
-                    onClick = onNavigateToFavorites
+                    onClick = onOpenHistory
                 )
             }
         }
@@ -2380,7 +2720,7 @@ private fun MobileSeriesDetailDialog(
     series: Series,
     activeSource: SourceConfig?,
     onFetchSeriesDetails: (suspend (seriesId: Int) -> Pair<List<Int>, List<Episode>>)? = null,
-    onPlayEpisode: (String, String) -> Unit,
+    onPlayEpisode: (String, String, Episode) -> Unit,
     onDismiss: () -> Unit
 ) {
     var episodes by remember { mutableStateOf<List<Episode>>(emptyList()) }
@@ -2546,7 +2886,7 @@ private fun MobileSeriesDetailDialog(
                                         .clip(RoundedCornerShape(10.dp))
                                         .background(LelouchSurface)
                                         .border(1.dp, LelouchBorder, RoundedCornerShape(10.dp))
-                                        .clickable { onPlayEpisode(streamUrl, "${series.name} - $epTitle") }
+                                        .clickable { onPlayEpisode(streamUrl, "${series.name} - $epTitle", ep) }
                                         .padding(horizontal = 12.dp, vertical = 8.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.SpaceBetween
@@ -2609,7 +2949,7 @@ private fun MobileSeriesDetailDialog(
                                         }
 
                                         IconButton(
-                                            onClick = { onPlayEpisode(streamUrl, "${series.name} - $epTitle") },
+                                            onClick = { onPlayEpisode(streamUrl, "${series.name} - $epTitle", ep) },
                                             modifier = Modifier
                                                 .size(34.dp)
                                                 .clip(CircleShape)
@@ -2934,3 +3274,31 @@ private fun CircleActionItem(
         )
     }
 }
+
+/**
+ * FASE 39 · Lectura del punto de reanudación que nunca bloquea el arranque.
+ *
+ * - `null` (sin historial) devuelve 0 sin tocar disco.
+ * - Se ejecuta en IO para no ocupar el hilo principal.
+ * - Se corta a los 3 s: si la base tarda, el contenido se reproduce desde el principio.
+ * - Cualquier fallo se traduce en «empezar de cero»; la cancelación se propaga siempre.
+ */
+private suspend fun PlaybackHistoryRepository?.safeResumePositionMs(
+    contentId: String,
+    sourceId: String
+): Long {
+    val repository = this ?: return 0L
+    return withContext(Dispatchers.IO) {
+        withTimeoutOrNull(RESUME_LOOKUP_TIMEOUT_MS) {
+            try {
+                repository.resumePositionMs(contentId = contentId, sourceId = sourceId, isLive = false)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+                0L
+            }
+        }
+    } ?: 0L
+}
+
+private const val RESUME_LOOKUP_TIMEOUT_MS = 3_000L

@@ -62,6 +62,8 @@ import androidx.compose.foundation.text.BasicTextField
 import coil.compose.AsyncImage
 import com.lelouch.core.designsystem.*
 import com.lelouch.core.model.Category
+import com.lelouch.core.model.ContentType
+import com.lelouch.core.model.ContinueWatchingItem
 import com.lelouch.core.model.LiveStream
 import com.lelouch.core.model.Series
 import com.lelouch.core.model.SourceConfig
@@ -146,6 +148,18 @@ data class SeriesUiModel(
     val sourceId: String = ""
 )
 
+/**
+ * FASE 37 · Metadatos del contenido en reproducción, necesarios para guardar el avance.
+ * La clave estable del historial es la URL resuelta del stream, no este objeto.
+ */
+data class TvActiveContentMeta(
+    val title: String,
+    val posterUrl: String? = null,
+    val type: ContentType = ContentType.VOD,
+    val seasonNumber: Int? = null,
+    val episodeNumber: Int? = null
+)
+
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class, UnstableApi::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @Composable
 fun TvHomeScreen(
@@ -175,7 +189,9 @@ fun TvHomeScreen(
     onNavigateToSettings: () -> Unit = {},
     // FASE 33: último estado de la sincronización, para el panel de diagnóstico.
     syncStateText: String = "",
-    onFetchSeriesDetails: (suspend (seriesId: Int) -> Pair<List<Int>, List<Episode>>)? = null
+    onFetchSeriesDetails: (suspend (seriesId: Int) -> Pair<List<Int>, List<Episode>>)? = null,
+    // FASE 37: historial y «continuar viendo». Si es null, la función queda desactivada.
+    playbackHistory: com.lelouch.core.domain.repository.PlaybackHistoryRepository? = null
 ) {
     val playerEngine = rememberLelouchPlayer()
     val playbackState by playerEngine.playbackState.collectAsStateWithLifecycle()
@@ -247,6 +263,7 @@ fun TvHomeScreen(
 
     var isFullscreen by remember { mutableStateOf(false) }
     var isHudVisible by remember { mutableStateOf(false) }
+    var isTracksPanelVisible by remember { mutableStateOf(false) }
 
     var isPlayingLive by remember { mutableStateOf(true) }
     var currentPlayingTitle by remember { mutableStateOf<String?>(null) }
@@ -263,7 +280,8 @@ fun TvHomeScreen(
     var isChannelSearching by remember { mutableStateOf(false) }
     val focusTracker = remember { FocusTracker() }
     var focusedTopTab by remember { mutableIntStateOf(1) }
-    var selectedTopTab by remember { mutableIntStateOf(1) } // 0:Buscar, 1:Inicio, 2:En Vivo, 3:Películas, 4:Series, 5:Favoritos, 6:Ajustes
+    // 0:Buscar, 1:Inicio, 2:En Vivo, 3:Películas, 4:Series, 5:Favoritos, 6:Historial, 7:Ajustes
+    var selectedTopTab by remember { mutableIntStateOf(1) }
     val sidebarRequesters = remember { List(8) { FocusRequester() } }
     val contentFocusRequester = remember { FocusRequester() }
     val searchFocusRequester = remember { FocusRequester() }
@@ -272,6 +290,14 @@ fun TvHomeScreen(
     val moviesGridState = rememberLazyGridState()
     val seriesGridState = rememberLazyGridState()
     val coroutineScope = rememberCoroutineScope()
+
+    // FASE 37: historial/«continuar viendo» de la lista activa.
+    var activeContentMeta by remember { mutableStateOf<TvActiveContentMeta?>(null) }
+    var playbackRequestId by remember { mutableLongStateOf(0L) }
+    val historyItems by remember(playbackHistory, activeSource?.id) {
+        playbackHistory?.continueWatching(activeSource?.id.orEmpty())
+            ?: kotlinx.coroutines.flow.flowOf(emptyList<ContinueWatchingItem>())
+    }.collectAsState(initial = emptyList())
 
     LaunchedEffect(Unit) {
         try {
@@ -287,6 +313,7 @@ fun TvHomeScreen(
             3 -> "MOVIES"
             4 -> "SERIES"
             5 -> "FAVORITES"
+            6 -> "HISTORY"
             else -> "ADMIN"
         }
         // Sin sidebar: entregar el foco al contenido de la pestaña recién mostrada.
@@ -801,6 +828,37 @@ fun TvHomeScreen(
         }
     }
 
+    /**
+     * FASE 37 · Inicia un VOD reanudando desde el avance guardado.
+     *
+     * La consulta es local (Room), así que se resuelve antes de preparar ExoPlayer: de ese
+     * modo el primer frame ya aparece en el punto correcto en vez de saltar desde el inicio.
+     */
+    fun playVod(url: String, meta: TvActiveContentMeta) {
+        if (url.isBlank()) return
+        isPlayingLive = false
+        currentPlayingTitle = meta.title
+        activeContentMeta = meta
+        isFullscreen = true
+        activeDetailMedia = null
+
+        val requestId = ++playbackRequestId
+        val repo = playbackHistory
+        val sourceId = activeSource?.id.orEmpty()
+        coroutineScope.launch {
+            val resumeAt = if (repo != null && sourceId.isNotBlank()) {
+                withContext(Dispatchers.IO) {
+                    runCatching { repo.resumePositionMs(url, sourceId, isLive = false) }
+                        .getOrDefault(0L)
+                }
+            } else 0L
+            // Si mientras se consultaba el historial se abrió otro contenido o se salió
+            // del reproductor, no lo pisamos.
+            if (requestId != playbackRequestId || !isFullscreen) return@launch
+            playerEngine.playStream(url, isLive = false, startPositionMs = resumeAt)
+        }
+    }
+
     fun playMovie(movie: VodMovie) {
         isPlayingLive = false
         currentPlayingTitle = movie.name
@@ -813,9 +871,14 @@ fun TvHomeScreen(
             extension = ext
         )
         if (movieUrl.isNotBlank()) {
-            playerEngine.playStream(movieUrl, isLive = false)
-            isFullscreen = true
-            activeDetailMedia = null
+            playVod(
+                movieUrl,
+                TvActiveContentMeta(
+                    title = movie.name,
+                    posterUrl = movie.streamIcon,
+                    type = ContentType.VOD
+                )
+            )
         }
     }
 
@@ -831,9 +894,14 @@ fun TvHomeScreen(
             extension = ext
         )
         if (movieUrl.isNotBlank()) {
-            playerEngine.playStream(movieUrl, isLive = false)
-            isFullscreen = true
-            activeDetailMedia = null
+            playVod(
+                movieUrl,
+                TvActiveContentMeta(
+                    title = movie.name,
+                    posterUrl = movie.streamIcon,
+                    type = ContentType.VOD
+                )
+            )
         }
     }
 
@@ -940,6 +1008,34 @@ fun TvHomeScreen(
         }
     }
 
+    // FASE 37: persistir el avance mientras se reproduce un VOD a pantalla completa.
+    // En directo no se guarda: no existe una posición reanudable.
+    LaunchedEffect(isFullscreen, isPlayingLive, activeSource?.id, playbackHistory) {
+        val repo = playbackHistory ?: return@LaunchedEffect
+        if (!isFullscreen || isPlayingLive) return@LaunchedEffect
+        val sourceId = activeSource?.id.orEmpty()
+        if (sourceId.isBlank()) return@LaunchedEffect
+        var lastSavedMs = -1L
+        playerEngine.progress.collect { progress ->
+            if (!progress.isPlaying || progress.durationMs <= 0L) return@collect
+            if (lastSavedMs >= 0L && progress.positionMs - lastSavedMs < 5_000L) return@collect
+            val url = playerEngine.currentUrl.value ?: return@collect
+            lastSavedMs = progress.positionMs
+            val meta = activeContentMeta
+            repo.record(
+                sourceId = sourceId,
+                contentId = url,
+                title = meta?.title ?: currentPlayingTitle.orEmpty(),
+                contentType = meta?.type ?: ContentType.VOD,
+                positionMs = progress.positionMs,
+                durationMs = progress.durationMs,
+                posterUrl = meta?.posterUrl,
+                seasonNumber = meta?.seasonNumber,
+                episodeNumber = meta?.episodeNumber
+            )
+        }
+    }
+
     // Auto-ocultar info badge HUD tras 3.5 segundos
     LaunchedEffect(isHudVisible) {
         if (isHudVisible) {
@@ -948,9 +1044,15 @@ fun TvHomeScreen(
         }
     }
 
+    // FASE 36: el panel de pistas solo existe dentro del reproductor a pantalla completa.
+    LaunchedEffect(isFullscreen) {
+        if (!isFullscreen) isTracksPanelVisible = false
+    }
+
     // Manejo de tecla BACK: regresa a Inicio de forma segura en vez de salir de la app
-    BackHandler(enabled = isFullscreen || isHudVisible || selectedTopTab != 1 || channelSearchQuery.isNotEmpty() || movieSearchQuery.isNotEmpty()) {
+    BackHandler(enabled = isTracksPanelVisible || isFullscreen || isHudVisible || selectedTopTab != 1 || channelSearchQuery.isNotEmpty() || movieSearchQuery.isNotEmpty()) {
         when {
+            isTracksPanelVisible -> isTracksPanelVisible = false
             isHudVisible -> isHudVisible = false
             isFullscreen -> isFullscreen = false
             channelSearchQuery.isNotEmpty() && selectedTopTab == 2 -> channelSearchQuery = ""
@@ -1014,6 +1116,10 @@ fun TvHomeScreen(
                     }
                     .onKeyEvent { keyEvent ->
                         if (keyEvent.type != KeyEventType.KeyDown) return@onKeyEvent false
+                        // FASE 36: con el panel de pistas abierto, el D-pad y las teclas del mando
+                        // pertenecen al panel (navegar pistas, AZUL/BACK para cerrar). Si no se libera
+                        // aquí, ARRIBA/ABAJO zappearía canales mientras se elige una pista.
+                        if (isTracksPanelVisible) return@onKeyEvent false
                         val isLiveStream = isPlayingLive
                         when (keyEvent.nativeKeyEvent.keyCode) {
                             KeyEvent.KEYCODE_DPAD_UP,
@@ -1116,6 +1222,12 @@ fun TvHomeScreen(
                             }
                             KeyEvent.KEYCODE_MEDIA_PAUSE -> {
                                 playerEngine.pause()
+                                true
+                            }
+                            KeyEvent.KEYCODE_PROG_BLUE,
+                            KeyEvent.KEYCODE_BUTTON_X -> {
+                                // FASE 36: abre/cierra el panel de pistas (calidad / audio / subtítulos)
+                                isTracksPanelVisible = !isTracksPanelVisible
                                 true
                             }
                             KeyEvent.KEYCODE_PROG_YELLOW,
@@ -1316,8 +1428,8 @@ fun TvHomeScreen(
                                             android.widget.Toast.makeText(context, "Lista M3U lista para exportar", android.widget.Toast.LENGTH_SHORT).show()
                                         },
                                         onReloadCatalog = { onForceSync() },
-                                        onOpenSettings = { selectedTopTab = 6 },
-                                        onOpenDiagnostics = { selectedTopTab = 6 },
+                                        onOpenSettings = { selectedTopTab = 7 },
+                                        onOpenDiagnostics = { selectedTopTab = 7 },
                                         onOpenCategoryFilter = { isCategoryManagerVisible = true },
                                         onNavigateToSearch = { selectedTopTab = 0 },
                                         onNavigateToFavorites = { selectedTopTab = 5 },
@@ -1387,7 +1499,7 @@ fun TvHomeScreen(
                                         activeSource = activeSource,
                                         videoInfo = videoInfo,
                                         playbackState = playbackState,
-                                        onOpenAdmin = { selectedTopTab = 6 }
+                                        onOpenAdmin = { selectedTopTab = 7 }
                                     )
                                 }
 
@@ -1718,7 +1830,7 @@ fun TvHomeScreen(
                                         activeSource = activeSource,
                                         videoInfo = videoInfo,
                                         playbackState = playbackState,
-                                        onOpenAdmin = { selectedTopTab = 6 }
+                                        onOpenAdmin = { selectedTopTab = 7 }
                                     )
                                 }
 
@@ -2016,7 +2128,7 @@ fun TvHomeScreen(
                                         activeSource = activeSource,
                                         videoInfo = videoInfo,
                                         playbackState = playbackState,
-                                        onOpenAdmin = { selectedTopTab = 6 }
+                                        onOpenAdmin = { selectedTopTab = 7 }
                                     )
                                 }
 
@@ -2236,6 +2348,36 @@ fun TvHomeScreen(
                         }
 
                         6 -> {
+                            // 🕘 CONTINUAR VIENDO / HISTORIAL
+                            TvHistoryContent(
+                                items = historyItems,
+                                onResume = { item ->
+                                    playVod(
+                                        item.contentId,
+                                        TvActiveContentMeta(
+                                            title = item.title,
+                                            posterUrl = item.posterUrl,
+                                            type = item.contentType,
+                                            seasonNumber = item.seasonNumber,
+                                            episodeNumber = item.episodeNumber
+                                        )
+                                    )
+                                },
+                                onRemove = { item ->
+                                    coroutineScope.launch {
+                                        playbackHistory?.remove(item.contentId, item.sourceId)
+                                    }
+                                },
+                                onClearAll = {
+                                    coroutineScope.launch {
+                                        playbackHistory?.clear(activeSource?.id.orEmpty())
+                                    }
+                                },
+                                focusRequester = contentFocusRequester
+                            )
+                        }
+
+                        7 -> {
                             // ⚙️ PANEL ADMINISTRADOR & AJUSTES (ESTILO BIX PLUS / PORTAL DASHBOARD)
                             TvLazyColumn(
                                 modifier = Modifier.fillMaxSize(),
@@ -2316,7 +2458,7 @@ fun TvHomeScreen(
                                                     label = "Volver al Inicio",
                                                     modifier = Modifier
                                                         .focusRequester(contentFocusRequester)
-                                                        .focusProperties { left = sidebarRequesters[6] },
+                                                        .focusProperties { left = sidebarRequesters[7] },
                                                     onClick = { selectedTopTab = 1 }
                                                 )
                                                 ActionButton(
@@ -2420,7 +2562,7 @@ fun TvHomeScreen(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .padding(vertical = 6.dp)
-                                                .focusProperties { left = sidebarRequesters[6] }
+                                                .focusProperties { left = sidebarRequesters[7] }
                                                 .onFocusChanged { isCardFocused = it.isFocused },
                                             shape = ClickableSurfaceDefaults.shape(
                                                 shape = RoundedCornerShape(14.dp),
@@ -2684,7 +2826,7 @@ fun TvHomeScreen(
                         Spacer(modifier = Modifier.height(10.dp))
 
                         Text(
-                            text = "D-Pad ◄ / ► : -10s / +10s  •  OK : Pausa / Reanudar  •  BACK : Salir al menú",
+                            text = "D-Pad ◄ / ► : -10s / +10s  •  OK : Pausa / Reanudar  •  AZUL : Pistas  •  BACK : Salir al menú",
                             color = LelouchTextMuted,
                             fontSize = 11.sp,
                             modifier = Modifier.align(Alignment.CenterHorizontally)
@@ -2692,6 +2834,14 @@ fun TvHomeScreen(
                     }
                 }
             }
+        }
+
+        // CAPA 5.5: Panel de pistas (calidad / audio / subtítulos) — FASE 36
+        if (isFullscreen && isTracksPanelVisible) {
+            TvTracksPanel(
+                engine = playerEngine,
+                onDismiss = { isTracksPanelVisible = false }
+            )
         }
 
         // CAPA 6: Modal de Búsqueda FTS5 Instantánea
@@ -2835,8 +2985,15 @@ fun TvHomeScreen(
                         val sTitle = media.title
                         val epTitle = ep?.title ?: "Episodio 1"
                         currentPlayingTitle = "$sTitle: $epTitle"
+                        val meta = TvActiveContentMeta(
+                            title = "$sTitle: $epTitle",
+                            posterUrl = media.posterUrl,
+                            type = ContentType.SERIES,
+                            seasonNumber = ep?.seasonNumber,
+                            episodeNumber = ep?.episodeNumber
+                        )
                         if (ep != null && ep.streamUrl.isNotEmpty()) {
-                            playerEngine.playStream(ep.streamUrl, isLive = false)
+                            playVod(ep.streamUrl, meta)
                         } else {
                             // FASE 33: el resolvedor decide; en fuentes M3U devuelve "" en vez
                             // de una URL de Vercel que devolvería 404.
@@ -2849,7 +3006,7 @@ fun TvHomeScreen(
                                 kind = StreamUrlResolver.Kind.SERIES,
                                 extension = ext
                             )
-                            playerEngine.playStream(fallbackUrl, isLive = false)
+                            playVod(fallbackUrl, meta)
                         }
                     } else {
                         currentPlayingTitle = media.title
@@ -2861,9 +3018,14 @@ fun TvHomeScreen(
                             kind = StreamUrlResolver.Kind.VOD,
                             extension = ext
                         )
-                        if (movieUrl.isNotBlank()) {
-                            playerEngine.playStream(movieUrl, isLive = false)
-                        }
+                        playVod(
+                            movieUrl,
+                            TvActiveContentMeta(
+                                title = media.title,
+                                posterUrl = media.posterUrl,
+                                type = ContentType.VOD
+                            )
+                        )
                     }
                     isFullscreen = true
                     activeDetailMedia = null

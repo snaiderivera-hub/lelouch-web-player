@@ -12,4 +12,19 @@ data class WatchProgress(
     val seasonNumber: Int? = null,
     val episodeNumber: Int? = null,
     val updatedAtTimestamp: Long = System.currentTimeMillis()
-)
+) {
+    /** ¿Merece la pena ofrecer «continuar viendo» en esta posición? */
+    val isResumable: Boolean
+        get() = durationMs > 0L && positionMs >= MIN_RESUME_MS && percent < COMPLETION_PERCENT
+
+    companion object {
+        /** Por debajo de 15 s se considera que el usuario no llegó a empezar. */
+        const val MIN_RESUME_MS = 15_000L
+
+        /** Al 95 % se considera terminado y se ofrece empezar de cero. */
+        const val COMPLETION_PERCENT = 0.95f
+
+        /** Margen final para que reanudar no caiga dentro de los créditos. */
+        const val END_CREDITS_GUARD_MS = 5_000L
+    }
+}

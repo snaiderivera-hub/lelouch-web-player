@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.95",
-  "versionCode": 1000095,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.95/app-debug.apk",
-  "changelog": "- Canales en Vivo: timeout de buffering ampliado a 22s (evita corte prematuro a los 10s en canales lentos/pesados).\n- Peliculas/Series: timeout VOD en 40s y mensajes contextuales.\n- Zona Blindada (FASE 34): LelouchPlayerEngine y PlayerConfig 100% intactos."
+  "versionName": "1.0.96",
+  "versionCode": 1000096,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.96/app-debug.apk",
+  "changelog": "- DLNA Cast: transmision directa a Smart TVs sin Google Play Services.\n- Pistas y Subtitulos: selector de resolucion, audio multi-idioma y subtitulos para VOD.\n- Historial y Continuar Viendo: persistencia de avance en peliculas y series con reanudacion segura.\n- Optimizacion Movil: arranque instantaneo de canales en vivo y gestos tactiles calibrados.\n- Zona Blindada (FASE 34): canales en vivo 100% protegidos e intocables."
 }

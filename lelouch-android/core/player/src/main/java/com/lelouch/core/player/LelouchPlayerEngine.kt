@@ -8,6 +8,10 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackGroup
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.TrackSelectionParameters
+import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
@@ -108,6 +112,15 @@ class LelouchPlayerEngine(
     private val _diagnosticInfo = MutableStateFlow(PlayerDiagnosticInfo())
     val diagnosticInfo: StateFlow<PlayerDiagnosticInfo> = _diagnosticInfo.asStateFlow()
     private var lastRecoveryReasonString: String = "Ninguna"
+
+    // FASE 36: selección de pistas (calidad / audio / subtítulos)
+    private val _trackSelection = MutableStateFlow(TrackSelectionState())
+    val trackSelection: StateFlow<TrackSelectionState> = _trackSelection.asStateFlow()
+
+    private data class TrackBinding(val group: TrackGroup, val index: Int)
+    private val trackBindings = mutableMapOf<String, TrackBinding>()
+    private val externalSubtitleConfigs = mutableListOf<MediaItem.SubtitleConfiguration>()
+    private var manualVideoOverrideId: String? = null
     private var lastDiagnosticLogTimestampMs: Long = 0L
 
     private val _currentUrl = MutableStateFlow<String?>(null)
@@ -115,6 +128,18 @@ class LelouchPlayerEngine(
 
     private val _isMuted = MutableStateFlow(false)
     val isMuted: StateFlow<Boolean> = _isMuted.asStateFlow()
+
+    // FASE 37: avance observable para «continuar viendo» (historial) y gestos de búsqueda.
+    private val _progress = MutableStateFlow(PlaybackProgress())
+    val progress: StateFlow<PlaybackProgress> = _progress.asStateFlow()
+
+    /** Posición actual en ms (0 si el reproductor aún no está listo). */
+    val currentPositionMs: Long
+        get() = runCatching { exoPlayer.currentPosition.coerceAtLeast(0L) }.getOrDefault(0L)
+
+    /** Duración conocida en ms; 0 en vivo o mientras el contenedor no la declare. */
+    val durationMs: Long
+        get() = runCatching { exoPlayer.duration.coerceAtLeast(0L) }.getOrDefault(0L)
 
     private val streamingOkHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
@@ -495,6 +520,7 @@ class LelouchPlayerEngine(
                     mimeType = format.sampleMimeType
                 )
             }
+            rebuildTrackSelection(tracks)
         }
 
         override fun onVideoSizeChanged(videoSize: VideoSize) {
@@ -590,8 +616,15 @@ class LelouchPlayerEngine(
 
     /**
      * Sintoniza y reproduce una URL de transmisión IPTV en vivo o VOD bajo demanda.
+     *
+     * @param startPositionMs posición inicial para reanudar (solo VOD). Se ignora en vivo.
      */
-    fun playStream(url: String, isLive: Boolean = false, userT0: Long? = null) {
+    fun playStream(
+        url: String,
+        isLive: Boolean = false,
+        userT0: Long? = null,
+        startPositionMs: Long = 0L
+    ) {
         val mediaType = if (isLive) PlaybackMediaType.LIVE_CHANNEL else PlaybackMediaType.MOVIE
         val startType = if (isFirstPlayback) PlayerStartType.COLD_START else PlayerStartType.WARM_SWITCH
         isFirstPlayback = false
@@ -622,6 +655,7 @@ class LelouchPlayerEngine(
             if (!exoPlayer.playWhenReady) {
                 exoPlayer.playWhenReady = true
             }
+            if (startPositionMs > 0L) exoPlayer.seekTo(startPositionMs)
             return
         }
 
@@ -632,6 +666,11 @@ class LelouchPlayerEngine(
         isCurrentStreamLive = isLive
         autoRetryAttemptsLeft = config.autoRetryCount
         _playbackState.value = PlaybackState.Buffering
+        _progress.value = PlaybackProgress(isLive = isLive)
+
+        // FASE 36: un contenido nuevo no hereda subtítulos externos ni el override manual de calidad.
+        externalSubtitleConfigs.clear()
+        manualVideoOverrideId = null
 
         // Reiniciar límites de bitrate para permitir la máxima calidad al iniciar cada nuevo canal
         try {
@@ -647,6 +686,11 @@ class LelouchPlayerEngine(
         playbackTracker.onMediaItemSet(currentAttemptId)
         exoPlayer.prepare()
         playbackTracker.onPrepareCalled(currentAttemptId)
+        // FASE 37: reanudar en la posición guardada. ExoPlayer acepta seek antes de STATE_READY
+        // y lo aplica en cuanto el contenedor conoce el índice.
+        if (!isLive && startPositionMs > 0L) {
+            exoPlayer.seekTo(startPositionMs)
+        }
         exoPlayer.playWhenReady = true
     }
 
@@ -681,6 +725,7 @@ class LelouchPlayerEngine(
         val mediaItem = MediaItem.Builder()
             .setUri(uri)
             .setMediaId("attempt_$attemptId")
+            .setSubtitleConfigurations(externalSubtitleConfigs)
             .apply {
                 if (liveConfig != null) {
                     setLiveConfiguration(liveConfig)
@@ -726,6 +771,15 @@ class LelouchPlayerEngine(
                 }
 
                 val currentPos = exoPlayer.currentPosition
+                // FASE 37: publicar avance para el historial/«continuar viendo».
+                if (currentPos >= 0L) {
+                    _progress.value = PlaybackProgress(
+                        positionMs = currentPos,
+                        durationMs = exoPlayer.duration.coerceAtLeast(0L),
+                        isLive = isCurrentStreamLive,
+                        isPlaying = exoPlayer.isPlaying
+                    )
+                }
                 val renderedFrames = exoPlayer.videoDecoderCounters?.renderedOutputBufferCount ?: -1
                 val droppedFrames = exoPlayer.videoDecoderCounters?.droppedBufferCount ?: 0
 
@@ -827,6 +881,8 @@ class LelouchPlayerEngine(
             return
         }
         val isLive = isCurrentStreamLive
+        // FASE 37: conservar la posición al reintentar (antes volvía al inicio de la película).
+        val resumePositionMs = if (isLive) 0L else exoPlayer.currentPosition.coerceAtLeast(0L)
         autoRetryAttemptsLeft = config.autoRetryCount
         _playbackState.value = PlaybackState.Buffering
         val mediaType = if (isLive) PlaybackMediaType.LIVE_CHANNEL else PlaybackMediaType.MOVIE
@@ -836,6 +892,7 @@ class LelouchPlayerEngine(
         exoPlayer.setMediaSource(mediaSource)
         playbackTracker.onMediaItemSet(currentAttemptId)
         exoPlayer.prepare()
+        if (resumePositionMs > 0L) exoPlayer.seekTo(resumePositionMs)
         playbackTracker.onPrepareCalled(currentAttemptId)
         exoPlayer.playWhenReady = true
         isCurrentStreamLive = isLive
@@ -885,8 +942,200 @@ class LelouchPlayerEngine(
         exoPlayer.setPlaybackSpeed(speed)
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // FASE 36 · Selección de pistas de video, audio y subtítulos
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Reconstruye las listas de pistas a partir del snapshot de [Tracks] de Media3.
+     * Las claves `g{grupo}t{pista}` se reutilizan para aplicar el override correcto.
+     */
+    private fun rebuildTrackSelection(tracks: Tracks) {
+        val video = mutableListOf<PlayerTrack>()
+        val audio = mutableListOf<PlayerTrack>()
+        val subtitles = mutableListOf<PlayerTrack>()
+        trackBindings.clear()
+
+        tracks.groups.forEachIndexed { groupIndex, group ->
+            val kind = when (group.type) {
+                C.TRACK_TYPE_VIDEO -> PlayerTrackKind.VIDEO
+                C.TRACK_TYPE_AUDIO -> PlayerTrackKind.AUDIO
+                C.TRACK_TYPE_TEXT -> PlayerTrackKind.SUBTITLE
+                else -> return@forEachIndexed
+            }
+            if (!group.isSupported) return@forEachIndexed
+
+            for (trackIndex in 0 until group.length) {
+                val format = group.getTrackFormat(trackIndex)
+                val id = "g${groupIndex}t${trackIndex}"
+                trackBindings[id] = TrackBinding(group.mediaTrackGroup, trackIndex)
+
+                val track = PlayerTrack(
+                    id = id,
+                    kind = kind,
+                    label = when (kind) {
+                        PlayerTrackKind.VIDEO -> videoTrackLabel(format)
+                        PlayerTrackKind.AUDIO -> audioTrackLabel(format)
+                        PlayerTrackKind.SUBTITLE -> subtitleTrackLabel(format)
+                    },
+                    secondaryLabel = when (kind) {
+                        PlayerTrackKind.VIDEO -> videoTrackSecondaryLabel(format)
+                        PlayerTrackKind.AUDIO -> audioTrackSecondaryLabel(format)
+                        PlayerTrackKind.SUBTITLE -> subtitleTrackSecondaryLabel(format)
+                    },
+                    languageCode = format.language,
+                    isSelected = group.isTrackSelected(trackIndex)
+                )
+
+                when (kind) {
+                    PlayerTrackKind.VIDEO -> video += track
+                    PlayerTrackKind.AUDIO -> audio += track
+                    PlayerTrackKind.SUBTITLE -> subtitles += track
+                }
+            }
+        }
+
+        _trackSelection.value = TrackSelectionState(
+            video = video,
+            audio = audio,
+            subtitles = subtitles,
+            // "Auto" está activo mientras el usuario no fije una resolución manual.
+            autoVideoSelected = manualVideoOverrideId == null,
+            subtitlesEnabled = subtitles.any { it.isSelected }
+        )
+    }
+
+    private inline fun applyTrackParameters(block: TrackSelectionParameters.Builder.() -> Unit) {
+        try {
+            val builder = trackSelector.parameters.buildUpon()
+            builder.block()
+            trackSelector.setParameters(builder)
+        } catch (t: Throwable) {
+            android.util.Log.w("LelouchPlayer", "No se pudo aplicar la selección de pista: ${t.message}")
+        }
+    }
+
+    /** Selecciona una calidad de video fija o [AUTO_VIDEO_TRACK_ID] para ABR adaptativo. */
+    fun selectVideoTrack(id: String) {
+        if (id == AUTO_VIDEO_TRACK_ID) {
+            manualVideoOverrideId = null
+            applyTrackParameters {
+                clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+                setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, false)
+            }
+            _trackSelection.value = _trackSelection.value.copy(
+                autoVideoSelected = true,
+                video = _trackSelection.value.video.map { it.copy(isSelected = false) }
+            )
+            return
+        }
+
+        val binding = trackBindings[id] ?: return
+        manualVideoOverrideId = id
+        applyTrackParameters {
+            clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+            setOverrideForType(TrackSelectionOverride(binding.group, binding.index))
+            setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, false)
+        }
+        _trackSelection.value = _trackSelection.value.copy(
+            autoVideoSelected = false,
+            video = _trackSelection.value.video.map { it.copy(isSelected = it.id == id) }
+        )
+    }
+
+    /** Selecciona una pista de audio concreta (idioma/doblaje). */
+    fun selectAudioTrack(id: String) {
+        val binding = trackBindings[id] ?: return
+        applyTrackParameters {
+            setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+            setOverrideForType(TrackSelectionOverride(binding.group, binding.index))
+        }
+        _trackSelection.value = _trackSelection.value.copy(
+            audio = _trackSelection.value.audio.map { it.copy(isSelected = it.id == id) }
+        )
+    }
+
+    /** Activa subtítulos concretos, o los desactiva con `null`. */
+    fun selectSubtitleTrack(id: String?) {
+        if (id == null) {
+            applyTrackParameters {
+                clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+            }
+            _trackSelection.value = _trackSelection.value.copy(
+                subtitlesEnabled = false,
+                subtitles = _trackSelection.value.subtitles.map { it.copy(isSelected = false) }
+            )
+            return
+        }
+
+        val binding = trackBindings[id] ?: return
+        applyTrackParameters {
+            setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            setOverrideForType(TrackSelectionOverride(binding.group, binding.index))
+        }
+        _trackSelection.value = _trackSelection.value.copy(
+            subtitlesEnabled = true,
+            subtitles = _trackSelection.value.subtitles.map { it.copy(isSelected = it.id == id) }
+        )
+    }
+
+    /**
+     * Añade un subtítulo externo (`.srt`, `.vtt`, `.ass`, `.ttml`) mediante una URI `content://` o `file://`.
+     * Media3 lo mezcla con el medio actual; se conserva la posición de reproducción.
+     */
+    fun addExternalSubtitle(
+        uri: String,
+        label: String? = null,
+        language: String? = null,
+        mimeType: String? = null
+    ): Boolean {
+        if (uri.isBlank()) return false
+        val config = MediaItem.SubtitleConfiguration.Builder(Uri.parse(uri))
+            .setMimeType(mimeType ?: guessSubtitleMimeType(uri))
+            .setLanguage(language)
+            .setLabel(label ?: uri.substringAfterLast('/').substringBeforeLast('.'))
+            .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+            .build()
+        externalSubtitleConfigs += config
+        rebuildCurrentMediaSource()
+        return true
+    }
+
+    /** Elimina los subtítulos externos añadidos en la sesión actual. */
+    fun clearExternalSubtitles() {
+        if (externalSubtitleConfigs.isEmpty()) return
+        externalSubtitleConfigs.clear()
+        rebuildCurrentMediaSource()
+    }
+
+    /**
+     * Recrea el MediaSource actual para incorporar/retirar subtítulos side-loaded.
+     * Mantiene posición y estado de reproducción; en vivo vuelve al borde del directo.
+     */
+    private fun rebuildCurrentMediaSource() {
+        val url = _currentUrl.value ?: return
+        val position = exoPlayer.currentPosition
+        val playWhenReady = exoPlayer.playWhenReady
+        val mediaSource = buildMediaSource(url, currentAttemptId)
+        exoPlayer.setMediaSource(mediaSource)
+        exoPlayer.prepare()
+        if (isCurrentStreamLive) {
+            exoPlayer.seekToDefaultPosition()
+        } else if (position > 0L) {
+            exoPlayer.seekTo(position)
+        }
+        exoPlayer.playWhenReady = playWhenReady
+    }
+
 
     fun stop() {
+        // FASE 37: conservar la última posición en el flujo antes de detener; las pantallas
+        // la leen al cerrar el reproductor para persistir el avance.
+        _progress.value = _progress.value.copy(
+            positionMs = runCatching { exoPlayer.currentPosition.coerceAtLeast(0L) }.getOrDefault(_progress.value.positionMs),
+            isPlaying = false
+        )
         playbackTracker.onUserCancel(currentAttemptId)
         stopBufferingWatchdog()
         exoPlayer.stop()

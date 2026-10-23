@@ -37,6 +37,19 @@ import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
+    /**
+     * FASE 40 · Picture-in-Picture.
+     *
+     * El modo y la salida del usuario son callbacks del sistema, así que el estado vive aquí y
+     * Compose solo lo observa. [isPlaybackActive] lo mantiene [MobileHomeScreen] mientras haya
+     * un stream abierto, para no abrir una ventana flotante vacía.
+     */
+    private var isInPictureInPicture by mutableStateOf(false)
+    private var isPlaybackActive = false
+
+    private val pipSupported: Boolean
+        get() = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -240,6 +253,7 @@ class MainActivity : ComponentActivity() {
                                 onForceSync = ::onForceSync,
                                 onLogout = ::onLogout,
                                 syncStateText = syncStatusText,
+                                playbackHistory = app.playbackHistoryRepository,
                                 onFetchSeriesDetails = { seriesId ->
                                     app.seriesRepository.getSeriesDetailAndEpisodes(
                                         effectiveActiveSource.serverUrl,
@@ -363,6 +377,7 @@ class MainActivity : ComponentActivity() {
                                 onSyncCloudSources = ::onSyncCloud,
                                 onForceSync = ::onForceSync,
                                 onLogout = ::onLogout,
+                                playbackHistory = app.playbackHistoryRepository,
                                 onFetchSeriesDetails = { seriesId ->
                                     app.seriesRepository.getSeriesDetailAndEpisodes(
                                         effectiveActiveSource.serverUrl,
@@ -370,7 +385,15 @@ class MainActivity : ComponentActivity() {
                                         effectiveActiveSource.password,
                                         seriesId
                                     )
-                                }
+                                },
+                                isInPictureInPicture = isInPictureInPicture,
+                                onPlaybackActiveChanged = { active ->
+                                    isPlaybackActive = active
+                                    // API 31+: el sistema entra solo en PiP al salir (también con
+                                    // el gesto de inicio). Antes de eso lo hace onUserLeaveHint.
+                                    updatePictureInPictureParams()
+                                },
+                                onEnterPictureInPicture = ::enterPictureInPicture
                             )
                         } else {
                             when (val bs = bootstrapState) {
@@ -473,6 +496,52 @@ class MainActivity : ComponentActivity() {
             android.util.Log.d("XIAOMI_REMOTE", "KeyEvent: keyCode=${event.keyCode} ($keyName), action=ACTION_DOWN, repeat=${event.repeatCount}")
         }
         return super.dispatchKeyEvent(event)
+    }
+
+    /**
+     * FASE 40 · Entra en ventana flotante con proporción 16:9. El vídeo se adapta dentro del
+     * recuadro; el resto de la interfaz no se dibuja (ver `MobileHomeScreen`).
+     */
+    private fun enterPictureInPicture() {
+        if (!pipSupported || isInPictureInPicture) return
+        runCatching {
+            enterPictureInPictureMode(
+                android.app.PictureInPictureParams.Builder()
+                    .setAspectRatio(android.util.Rational(16, 9))
+                    .build()
+            )
+        }
+    }
+
+    /**
+     * Mantiene al día los parámetros de PiP. Desde Android 12 el sistema entra solo al salir
+     * (`autoEnter`); sin esto, el gesto de inicio no abre la ventana flotante.
+     */
+    private fun updatePictureInPictureParams() {
+        if (!pipSupported) return
+        runCatching {
+            val builder = android.app.PictureInPictureParams.Builder()
+                .setAspectRatio(android.util.Rational(16, 9))
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                builder.setAutoEnterEnabled(isPlaybackActive)
+                builder.setSeamlessResizeEnabled(true)
+            }
+            setPictureInPictureParams(builder.build())
+        }
+    }
+
+    /** Salir de la app con un stream abierto deja el vídeo flotando (Android 8–11). */
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (isPlaybackActive) enterPictureInPicture()
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: Configuration
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        isInPictureInPicture = isInPictureInPictureMode
     }
 
     private fun isAndroidTvDevice(): Boolean {

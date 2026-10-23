@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Search
@@ -57,8 +58,12 @@ val TV_NAV_ITEMS = listOf(
     NavItem(3, "Películas", Icons.Default.Movie),
     NavItem(4, "Series", Icons.Default.Tv),
     NavItem(5, "Favoritos", Icons.Default.Favorite),
-    NavItem(6, "Ajustes", Icons.Default.Settings)
+    NavItem(6, "Historial", Icons.Default.History),
+    NavItem(7, "Ajustes", Icons.Default.Settings)
 )
+
+/** Último índice real del rail: evita que el D-pad «escape» por abajo. */
+private val TV_NAV_LAST_INDEX = TV_NAV_ITEMS.last().index
 
 /**
  * Modern Android TV vertical left sidebar navigation.
@@ -193,7 +198,7 @@ private fun TvSidebarIconItem(
                 // Cancelar escape hacia la izquierda, arriba o abajo fuera de la pantalla
                 left = FocusRequester.Cancel
                 if (item.index == 0) up = FocusRequester.Cancel
-                if (item.index == 6) down = FocusRequester.Cancel
+                if (item.index == TV_NAV_LAST_INDEX) down = FocusRequester.Cancel
             }
             .onFocusChanged { focusState ->
                 isFocused = focusState.isFocused

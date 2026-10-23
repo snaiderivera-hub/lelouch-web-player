@@ -50,6 +50,11 @@ class SourceBootstrapViewModelTest {
         override suspend fun validateXtream(serverUrl: String, user: String, pass: String, customName: String?): Result<SourceConfig> {
             return Result.failure(UnsupportedOperationException())
         }
+        // Este flujo no añade fuentes por URL: devolver fallo explícito evita que el test
+        // pase en verde si el ViewModel empezara a usarlo sin cobertura real.
+        override suspend fun addSourceFromUrl(rawUrl: String, customName: String?): Result<SourceConfig> {
+            return Result.failure(UnsupportedOperationException("addSourceFromUrl no está soportado en este fake"))
+        }
         override suspend fun syncCloudSources(): List<SourceConfig> {
             syncCallCount++
             return syncCloudSourcesHandler()

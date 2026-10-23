@@ -7,12 +7,14 @@ import com.lelouch.player.image.LelouchImageLoader
 import com.lelouch.core.data.preferences.UserPreferencesDataSource
 import com.lelouch.core.data.repository.AuthRepositoryImpl
 import com.lelouch.core.data.repository.ChannelRepositoryImpl
+import com.lelouch.core.data.repository.PlaybackHistoryRepositoryImpl
 import com.lelouch.core.data.repository.SeriesRepositoryImpl
 import com.lelouch.core.data.repository.VodRepositoryImpl
 import com.lelouch.core.data.sync.XtreamCatalogSyncManager
 import com.lelouch.core.database.LelouchDatabase
 import com.lelouch.core.domain.repository.AuthRepository
 import com.lelouch.core.domain.repository.ChannelRepository
+import com.lelouch.core.domain.repository.PlaybackHistoryRepository
 import com.lelouch.core.domain.repository.SeriesRepository
 import com.lelouch.core.domain.repository.VodRepository
 
@@ -43,6 +45,9 @@ class LelouchApplication : Application(), ImageLoaderFactory {
     lateinit var seriesRepository: SeriesRepository
         private set
 
+    lateinit var playbackHistoryRepository: PlaybackHistoryRepository
+        private set
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -55,6 +60,7 @@ class LelouchApplication : Application(), ImageLoaderFactory {
         channelRepository = ChannelRepositoryImpl(database.channelDao(), database.categoryDao(), syncManager, database.searchDao())
         vodRepository = VodRepositoryImpl(database.movieDao(), database.categoryDao(), syncManager, database.searchDao())
         seriesRepository = SeriesRepositoryImpl(database.seriesDao(), database.categoryDao(), syncManager, database.searchDao())
+        playbackHistoryRepository = PlaybackHistoryRepositoryImpl(database.watchHistoryDao())
     }
 
     companion object {
