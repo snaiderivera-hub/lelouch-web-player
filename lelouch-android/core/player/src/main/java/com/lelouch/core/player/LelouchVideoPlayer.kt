@@ -107,8 +107,9 @@ fun LelouchVideoPlayer(
     LaunchedEffect(playbackState, isLive) {
         if (playbackState is PlaybackState.Buffering) {
             isBufferTimeout = false
-            // En vivo: 10s (sin cambios). VOD: los MKV/MP4 progresivos tardan más en abrir.
-            kotlinx.coroutines.delay(if (isLive) 10000L else 40000L)
+            // En vivo: 22s (margen para canales pesados o congestión temporal del proveedor sin cortar a los 10s).
+            // VOD: 40s (los MKV/MP4 progresivos tardan más en negociar cabeceras remotas).
+            kotlinx.coroutines.delay(if (isLive) 22000L else 40000L)
             isBufferTimeout = true
         } else {
             isBufferTimeout = false

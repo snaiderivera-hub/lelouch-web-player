@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.94",
-  "versionCode": 1000094,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.94/app-debug.apk",
-  "changelog": "- Peliculas/Series: tiempo de espera de carga ampliado a 40s (antes se cortaban a los 10s).\n- Mensajes de error especificos para peliculas (Error 429 / limite de conexiones).\n- Canales en vivo sin cambios (FASE 34 intacta)."
+  "versionName": "1.0.95",
+  "versionCode": 1000095,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.95/app-debug.apk",
+  "changelog": "- Canales en Vivo: timeout de buffering ampliado a 22s (evita corte prematuro a los 10s en canales lentos/pesados).\n- Peliculas/Series: timeout VOD en 40s y mensajes contextuales.\n- Zona Blindada (FASE 34): LelouchPlayerEngine y PlayerConfig 100% intactos."
 }
