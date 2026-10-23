@@ -100,12 +100,120 @@ fun TvPortalDashboard(
         } catch (_: Exception) {}
     }
 
+    val headerFocusRequester = remember { FocusRequester() }
+
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(LelouchBackground)
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFF2E0C06), // Ámbar/rojizo oscuro superior Bix Plus
+                        Color(0xFF180703),
+                        Color(0xFF090A0E),
+                        Color(0xFF090A0E)
+                    ),
+                    startY = 0f,
+                    endY = 850f
+                )
+            )
             .padding(horizontal = 32.dp, vertical = 16.dp)
     ) {
+        // ══════════════════════════════════════════════════════════════════════
+        // 0. CABECERA NATIVA TV: ICONO CIRCULAR + LELOUCH PLUS EN LETRAS + BADGE D-PAD
+        // ══════════════════════════════════════════════════════════════════════
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 14.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Icono Circular estilizado Lelouch
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(
+                            Brush.linearGradient(
+                                listOf(Color(0xFFFF6B00), Color(0xFFD9480F))
+                            )
+                        )
+                        .border(1.5.dp, Color.White.copy(alpha = 0.35f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "L",
+                        color = Color.White,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 22.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "LELOUCH",
+                            color = Color.White,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.sp
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "PLUS",
+                            color = Color(0xFFFF6B00), // Naranja Neón Bix Plus
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.sp
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "PELICULAS, SERIES, TV EN VIVO",
+                        color = Color.White.copy(alpha = 0.55f),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = 1.2.sp
+                    )
+                }
+            }
+
+            // Botón Circular de Acceso Rápido / Estado D-Pad compatible
+            Surface(
+                onClick = onNavigateToSearch,
+                modifier = Modifier
+                    .size(44.dp)
+                    .focusRequester(headerFocusRequester),
+                shape = ClickableSurfaceDefaults.shape(CircleShape),
+                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.15f),
+                colors = ClickableSurfaceDefaults.colors(
+                    containerColor = Color(0xFF1A1C23),
+                    focusedContainerColor = Color(0xFFFF6B00)
+                ),
+                border = ClickableSurfaceDefaults.border(
+                    border = Border(BorderStroke(1.dp, Color(0xFF334155))),
+                    focusedBorder = Border(BorderStroke(2.dp, Color.White))
+                )
+            ) {
+                var isBtnFocused by remember { mutableStateOf(false) }
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .onFocusChanged { isBtnFocused = it.isFocused },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "🔍",
+                        fontSize = 18.sp
+                    )
+                }
+            }
+        }
+
         // ══════════════════════════════════════════════════════════════════════
         // 1. HERO FEATURED BANNER TV (CINEMÁTICO CON D-PAD)
         // ══════════════════════════════════════════════════════════════════════
@@ -296,154 +404,6 @@ fun TvPortalDashboard(
             Spacer(modifier = Modifier.height(22.dp))
         }
 
-        // ══════════════════════════════════════════════════════════════════════
-        // 6. PIE DE PÁGINA: ESTADO DE CUENTA Y ACCIONES RÁPIDAS
-        // ══════════════════════════════════════════════════════════════════════
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(LelouchSurfaceVariant)
-                .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(12.dp))
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(LelouchSuccess)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = activeSource?.name ?: "Servidor Conectado",
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                val expiryText = activeSource?.formattedExpireDate ?: "13/10/2026"
-                Text(
-                    text = "Vence: $expiryText",
-                    color = LelouchTextSecondary,
-                    fontSize = 12.sp
-                )
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    onClick = onDownloadM3U,
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
-                    colors = ClickableSurfaceDefaults.colors(
-                        containerColor = Color(0xFF040D18),
-                        focusedContainerColor = LelouchCyanAccent
-                    ),
-                    border = ClickableSurfaceDefaults.border(
-                        border = Border(BorderStroke(1.dp, Color(0xFF334155))),
-                        focusedBorder = Border(BorderStroke(1.5.dp, Color.White))
-                    )
-                ) {
-                    Text(
-                        text = "📄 M3U",
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                    )
-                }
-
-                Surface(
-                    onClick = onOpenCategoryFilter,
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
-                    colors = ClickableSurfaceDefaults.colors(
-                        containerColor = Color(0xFF040D18),
-                        focusedContainerColor = LelouchCyanAccent
-                    ),
-                    border = ClickableSurfaceDefaults.border(
-                        border = Border(BorderStroke(1.dp, Color(0xFF334155))),
-                        focusedBorder = Border(BorderStroke(1.5.dp, Color.White))
-                    )
-                ) {
-                    Text(
-                        text = "🎯 Filtrar Categorías",
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                    )
-                }
-
-                Surface(
-                    onClick = onOpenDiagnostics,
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
-                    colors = ClickableSurfaceDefaults.colors(
-                        containerColor = Color(0xFF040D18),
-                        focusedContainerColor = LelouchCyanAccent
-                    ),
-                    border = ClickableSurfaceDefaults.border(
-                        border = Border(BorderStroke(1.dp, Color(0xFF334155))),
-                        focusedBorder = Border(BorderStroke(1.5.dp, Color.White))
-                    )
-                ) {
-                    Text(
-                        text = "🩺 Diagnóstico",
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                    )
-                }
-
-                Surface(
-                    onClick = onOpenSettings,
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
-                    colors = ClickableSurfaceDefaults.colors(
-                        containerColor = Color(0xFF040D18),
-                        focusedContainerColor = LelouchCyanAccent
-                    ),
-                    border = ClickableSurfaceDefaults.border(
-                        border = Border(BorderStroke(1.dp, Color(0xFF334155))),
-                        focusedBorder = Border(BorderStroke(1.5.dp, Color.White))
-                    )
-                ) {
-                    Text(
-                        text = "⚙️ Ajustes",
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                    )
-                }
-
-                Surface(
-                    onClick = onReloadCatalog,
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
-                    colors = ClickableSurfaceDefaults.colors(
-                        containerColor = Color(0xFF040D18),
-                        focusedContainerColor = LelouchCyanAccent
-                    ),
-                    border = ClickableSurfaceDefaults.border(
-                        border = Border(BorderStroke(1.dp, Color(0xFF334155))),
-                        focusedBorder = Border(BorderStroke(1.5.dp, Color.White))
-                    )
-                ) {
-                    Text(
-                        text = "🔄 Recargar",
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                    )
-                }
-            }
-        }
     }
 }
 

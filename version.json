@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.89",
-  "versionCode": 1000089,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.89/app-debug.apk",
-  "changelog": "• Corrección y soporte completo de capítulos y temporadas de series en Mobile.\n• Parser híbrido tolerante (JSONObject y JSONArray) para Xtream Codes.\n• Diseño Bix Plus con degradado cálido, buscador ovalado y sin tarjetas redundantes."
+  "versionName": "1.0.90",
+  "versionCode": 1000090,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.90/app-debug.apk",
+  "changelog": "• Unificación de diseño Bix Plus en TV Box: degradado cálido, cabecera con icono circular y letras Lelouch Plus.\n• Panel de Ajustes y Opciones renovado en TV Box con conmutador de Modo Adulto (+18) y comprobador de Actualizaciones manteniendo intactos el diagnóstico y listas IPTV.\n• Sincronización reactiva de capítulos y temporadas en TV Box.\n• Zona Blindada (FASE 34): LelouchPlayerEngine y PlayerConfig 100% intactos."
 }

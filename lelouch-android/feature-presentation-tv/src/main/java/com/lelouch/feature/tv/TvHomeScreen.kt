@@ -229,6 +229,13 @@ fun TvHomeScreen(
         hiddenSeriesCategories = newSet
         hiddenPrefs.edit().putStringSet("series", newSet).apply()
     }
+    var isAdultModeEnabled by remember {
+        mutableStateOf(hiddenPrefs.getBoolean("adult_mode_enabled", false))
+    }
+    fun toggleAdultMode(enabled: Boolean) {
+        isAdultModeEnabled = enabled
+        hiddenPrefs.edit().putBoolean("adult_mode_enabled", enabled).apply()
+    }
 
     // (Eliminados los canales y películas hardcoded de demostración para usar exclusivamente Paging3)
 
@@ -417,10 +424,11 @@ fun TvHomeScreen(
         }
     }
 
-    // Categorías y filtrado por categoría para Canales, Películas y Series (respetando categorías ocultas)
-    val channelCategoryList = remember(liveCategoryItemModels, hiddenLiveCategories) {
+    // Categorías y filtrado por categoría para Canales, Películas y Series (respetando categorías ocultas y Modo Adulto)
+    val channelCategoryList = remember(liveCategoryItemModels, hiddenLiveCategories, isAdultModeEnabled) {
         val visibleCats = liveCategoryItemModels
             .filter { it.id !in hiddenLiveCategories && it.name !in hiddenLiveCategories }
+            .filter { isAdultModeEnabled || !it.isAdult }
             .map { CategoryUiItem(id = it.id, name = it.name) }
         listOf(CategoryUiItem(id = "all", name = "Todos")) + visibleCats
     }
@@ -432,6 +440,7 @@ fun TvHomeScreen(
         channelRepository,
         activeSource?.id,
         hiddenLiveCategories,
+        isAdultModeEnabled,
         liveCatMap
     ) {
         val srcId = activeSource?.id.orEmpty()
@@ -442,7 +451,7 @@ fun TvHomeScreen(
                         sourceId = srcId,
                         categoryId = catId.takeIf { it != "all" },
                         hiddenCategoryIds = if (catId == "all") {
-                            (hiddenLiveCategories + liveCategoryItemModels.filter { it.isAdult }.map { it.id }).toList()
+                            (hiddenLiveCategories + (if (!isAdultModeEnabled) liveCategoryItemModels.filter { it.isAdult }.map { it.id } else emptyList())).toList()
                         } else {
                             hiddenLiveCategories.toList()
                         }
@@ -498,9 +507,10 @@ fun TvHomeScreen(
         }
     }
 
-    val movieCategoryList = remember(movieCategoryItemModels, hiddenMovieCategories) {
+    val movieCategoryList = remember(movieCategoryItemModels, hiddenMovieCategories, isAdultModeEnabled) {
         val visibleCats = movieCategoryItemModels
             .filter { it.id !in hiddenMovieCategories && it.name !in hiddenMovieCategories }
+            .filter { isAdultModeEnabled || !it.isAdult }
             .map { CategoryUiItem(id = it.id, name = it.name) }
         listOf(CategoryUiItem(id = "all", name = "Todas")) + visibleCats
     }
@@ -512,6 +522,7 @@ fun TvHomeScreen(
         vodRepository,
         activeSource?.id,
         hiddenMovieCategories,
+        isAdultModeEnabled,
         vodCatMap
     ) {
         val srcId = activeSource?.id.orEmpty()
@@ -522,7 +533,7 @@ fun TvHomeScreen(
                         sourceId = srcId,
                         categoryId = catId.takeIf { it != "all" },
                         hiddenCategoryIds = if (catId == "all") {
-                            (hiddenMovieCategories + movieCategoryItemModels.filter { it.isAdult }.map { it.id }).toList()
+                            (hiddenMovieCategories + (if (!isAdultModeEnabled) movieCategoryItemModels.filter { it.isAdult }.map { it.id } else emptyList())).toList()
                         } else {
                             hiddenMovieCategories.toList()
                         }
@@ -584,9 +595,10 @@ fun TvHomeScreen(
         }
     }
 
-    val seriesCategoryList = remember(seriesCategoryItemModels, hiddenSeriesCategories) {
+    val seriesCategoryList = remember(seriesCategoryItemModels, hiddenSeriesCategories, isAdultModeEnabled) {
         val visibleCats = seriesCategoryItemModels
             .filter { it.id !in hiddenSeriesCategories && it.name !in hiddenSeriesCategories }
+            .filter { isAdultModeEnabled || !it.isAdult }
             .map { CategoryUiItem(id = it.id, name = it.name) }
         listOf(CategoryUiItem(id = "all", name = "Todas")) + visibleCats
     }
@@ -598,6 +610,7 @@ fun TvHomeScreen(
         seriesRepository,
         activeSource?.id,
         hiddenSeriesCategories,
+        isAdultModeEnabled,
         seriesCatMap
     ) {
         val srcId = activeSource?.id.orEmpty()
@@ -608,7 +621,7 @@ fun TvHomeScreen(
                         sourceId = srcId,
                         categoryId = catId.takeIf { it != "all" },
                         hiddenCategoryIds = if (catId == "all") {
-                            (hiddenSeriesCategories + seriesCategoryItemModels.filter { it.isAdult }.map { it.id }).toList()
+                            (hiddenSeriesCategories + (if (!isAdultModeEnabled) seriesCategoryItemModels.filter { it.isAdult }.map { it.id } else emptyList())).toList()
                         } else {
                             hiddenSeriesCategories.toList()
                         }
@@ -2213,190 +2226,262 @@ fun TvHomeScreen(
                         }
 
                         6 -> {
-                            // ⚙️ PANEL ADMINISTRADOR & AJUSTES
-                            TvLazyColumn(
-                                modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(start = 32.dp, end = 48.dp, top = 16.dp, bottom = 48.dp)
+                            // ⚙️ PANEL ADMINISTRADOR & AJUSTES (ESTILO BIX PLUS / PORTAL DASHBOARD)
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        Brush.verticalGradient(
+                                            colors = listOf(
+                                                Color(0xFF2E0C06), // Ámbar/rojizo oscuro superior Bix Plus
+                                                Color(0xFF180703),
+                                                Color(0xFF090A0E),
+                                                Color(0xFF090A0E)
+                                            ),
+                                            startY = 0f,
+                                            endY = 850f
+                                        )
+                                    )
                             ) {
-                                item {
-                                    Text(
-                                        text = "⚙️ PANEL ADMINISTRADOR & AJUSTES",
-                                        color = LelouchCyanAccent,
-                                        fontSize = 22.sp,
-                                        fontWeight = FontWeight.Black,
-                                        letterSpacing = 1.sp
-                                    )
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        text = "Gestiona tus listas IPTV, sincroniza con la nube o cambia de cuenta.",
-                                        color = LelouchTextSecondary,
-                                        fontSize = 14.sp
-                                    )
-                                    Spacer(modifier = Modifier.height(20.dp))
-
-                                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                        ActionButton(
-                                            icon = Icons.Default.ArrowBack,
-                                            label = "⬅️ Inicio",
-                                            modifier = Modifier
-                                                .focusRequester(contentFocusRequester)
-                                                .focusProperties { left = sidebarRequesters[6] },
-                                            onClick = { selectedTopTab = 1 }
-                                        )
-                                        ActionButton(
-                                            icon = Icons.Default.FilterList,
-                                            label = "🎯 Filtrar Categorías",
-                                            onClick = { isCategoryManagerVisible = true }
-                                        )
-                                        ActionButton(
-                                            icon = Icons.Default.Add,
-                                            label = "➕ Gestionar / Añadir Cuenta",
-                                            onClick = { isAdminModalVisible = true }
-                                        )
-                                        ActionButton(
-                                            icon = Icons.Default.CloudSync,
-                                            label = "☁️ Sincronizar",
-                                            onClick = onSyncCloudSources
-                                        )
-                                        ActionButton(
-                                            icon = Icons.Default.Refresh,
-                                            label = "🔄 Recargar",
-                                            onClick = onForceSync
-                                        )
-                                        ActionButton(
-                                            icon = Icons.Default.Logout,
-                                            label = "🚪 Cerrar Sesión",
-                                            isDanger = true,
-                                            onClick = onLogout
-                                        )
-                                    }
-
-                                    Spacer(modifier = Modifier.height(24.dp))
-
-                                    // 🩺 FASE 33: DIAGNÓSTICO DE REPRODUCCIÓN
-                                    // Deja de adivinar: muestra la fuente activa, qué hay en Room
-                                    // para ese sourceId, cuántos canales carecen de URL y qué URL
-                                    // final recibiría el reproductor.
-                                    TvDiagnosticsSection(
-                                        activeSource = activeSource,
-                                        liveCount = liveChannels.size,
-                                        movieCount = movies.size,
-                                        seriesCount = seriesCategories.sumOf { it.itemCount }.takeIf { it > 0 } ?: seriesList.size,
-                                        blankUrlCount = liveChannels.count { it.streamUrl.isBlank() },
-                                        resolvedUrl = focusedChannel?.let { ch ->
-                                            StreamUrlResolver.resolveLive(ch.streamUrl, activeSource, ch.streamId)
-                                        },
-                                        focusedChannelName = focusedChannel?.name,
-                                        playbackState = playbackState,
-                                        syncStateText = syncStateText,
-                                        diagnosticInfo = diagnosticInfo
-                                    )
-
-                                    // 🎯 GESTIÓN DE CATEGORÍAS VISIBLES (Exacto al diseño Web solicitado)
-                                    TvCategoryVisibilitySection(
-                                        liveTotal = liveCategoryItemModels.size,
-                                        liveHiddenCount = liveCategoryItemModels.count { hiddenLiveCategories.contains(it.name) || hiddenLiveCategories.contains(it.id) },
-                                        moviesTotal = movieCategoryItemModels.size,
-                                        moviesHiddenCount = movieCategoryItemModels.count { hiddenMovieCategories.contains(it.name) || hiddenMovieCategories.contains(it.id) },
-                                        seriesTotal = seriesCategoryItemModels.size,
-                                        seriesHiddenCount = seriesCategoryItemModels.count { hiddenSeriesCategories.contains(it.name) || hiddenSeriesCategories.contains(it.id) },
-                                        onOpenManager = { scope ->
-                                            categoryManagerInitialScope = scope
-                                            isCategoryManagerVisible = true
-                                        }
-                                    )
-
-                                    Spacer(modifier = Modifier.height(28.dp))
-                                    Text(
-                                        text = "📋 LISTAS IPTV DISPONIBLES (${allSources.size}):",
-                                        color = LelouchTextPrimary,
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                }
-
-                                itemsIndexed(allSources) { _, source ->
-                                    val isActive = (source.id == activeSource?.id || source.isActive)
-                                    var isCardFocused by remember { mutableStateOf(false) }
-                                    Surface(
-                                        onClick = {
-                                            if (!isActive) {
-                                                onActivateSource(source.id)
-                                                selectedTopTab = 1
-                                            }
-                                        },
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 6.dp)
-                                            .focusProperties { left = sidebarRequesters[6] }
-                                            .onFocusChanged { isCardFocused = it.isFocused },
-                                        shape = ClickableSurfaceDefaults.shape(
-                                            shape = RoundedCornerShape(12.dp),
-                                            focusedShape = RoundedCornerShape(12.dp)
-                                        ),
-                                        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
-                                        colors = ClickableSurfaceDefaults.colors(
-                                            containerColor = if (isActive) Color(0xFF0F2338) else LelouchSurface,
-                                            focusedContainerColor = Color(0xFF1E3A5F),
-                                            pressedContainerColor = Color(0xFF1E3A5F)
-                                        ),
-                                        border = ClickableSurfaceDefaults.border(
-                                            border = Border(androidx.compose.foundation.BorderStroke(if (isActive) 1.5.dp else 1.dp, if (isActive) Color(0xFF10B981) else LelouchBorder)),
-                                            focusedBorder = Border(androidx.compose.foundation.BorderStroke(3.dp, LelouchCyanAccent))
-                                        )
-                                    ) {
+                                TvLazyColumn(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentPadding = PaddingValues(start = 32.dp, end = 48.dp, top = 20.dp, bottom = 48.dp)
+                                ) {
+                                    item {
+                                        // 0. CABECERA: ICONO CIRCULAR + LELOUCH OPCIONES EN LETRAS
                                         Row(
-                                            modifier = Modifier.fillMaxWidth().padding(18.dp),
+                                            modifier = Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.SpaceBetween,
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(42.dp)
+                                                        .clip(CircleShape)
+                                                        .background(
+                                                            Brush.linearGradient(
+                                                                listOf(Color(0xFFFF6B00), Color(0xFFD9480F))
+                                                            )
+                                                        )
+                                                        .border(1.5.dp, Color.White.copy(alpha = 0.35f), CircleShape),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
                                                     Text(
-                                                        text = source.name,
-                                                        color = if (isCardFocused) Color.White else (if (isActive) LelouchCyanAccent else LelouchTextPrimary),
-                                                        fontSize = 17.sp,
-                                                        fontWeight = FontWeight.Bold
+                                                        text = "L",
+                                                        color = Color.White,
+                                                        fontWeight = FontWeight.Black,
+                                                        fontSize = 22.sp
                                                     )
-                                                    Spacer(modifier = Modifier.width(10.dp))
-                                                    if (isActive) {
-                                                        Box(modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Color(0xFF10B981)).padding(horizontal = 8.dp, vertical = 3.dp)) {
-                                                            Text("🟢 ACTIVA", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black)
-                                                        }
-                                                    }
-                                                    if (isCardFocused) {
-                                                        Spacer(modifier = Modifier.width(8.dp))
-                                                        Box(modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(LelouchCyanAccent).padding(horizontal = 8.dp, vertical = 3.dp)) {
-                                                            Text("PRESIONA OK", color = Color.Black, fontSize = 9.sp, fontWeight = FontWeight.Black)
-                                                        }
-                                                    }
                                                 }
-                                                Spacer(modifier = Modifier.height(4.dp))
-                                                Text(
-                                                    text = "Servidor: ${source.serverUrl}  •  Usuario: ${source.username}",
-                                                    color = if (isCardFocused) Color(0xFFE2E8F0) else LelouchTextSecondary,
-                                                    fontSize = 13.sp
-                                                )
-                                            }
 
-                                            if (!isActive) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .clip(RoundedCornerShape(6.dp))
-                                                        .background(if (isCardFocused) Color.White else LelouchCyanAccent)
-                                                        .padding(horizontal = 14.dp, vertical = 8.dp)
-                                                ) {
-                                                    Text("⚡ ACTIVAR", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                                                Spacer(modifier = Modifier.width(14.dp))
+
+                                                Column {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Text(
+                                                            text = "LELOUCH",
+                                                            color = Color.White,
+                                                            fontSize = 22.sp,
+                                                            fontWeight = FontWeight.Black,
+                                                            letterSpacing = 1.sp
+                                                        )
+                                                        Spacer(modifier = Modifier.width(6.dp))
+                                                        Text(
+                                                            text = "OPCIONES & AJUSTES",
+                                                            color = Color(0xFFFF6B00),
+                                                            fontSize = 22.sp,
+                                                            fontWeight = FontWeight.Black,
+                                                            letterSpacing = 1.sp
+                                                        )
+                                                    }
+                                                    Spacer(modifier = Modifier.height(2.dp))
+                                                    Text(
+                                                        text = "Gestiona tus listas IPTV, modo adultos, sincronización y diagnóstico de red.",
+                                                        color = Color.White.copy(alpha = 0.65f),
+                                                        fontSize = 13.sp
+                                                    )
                                                 }
-                                            } else {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .clip(RoundedCornerShape(6.dp))
-                                                        .background(Color(0xFF10B981))
-                                                        .padding(horizontal = 14.dp, vertical = 8.dp)
-                                                ) {
-                                                    Text("✓ EN USO", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.height(20.dp))
+
+                                        // 1. BARRA DE ACCIONES RÁPIDAS
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            ActionButton(
+                                                icon = Icons.Default.ArrowBack,
+                                                label = "⬅️ Inicio",
+                                                modifier = Modifier
+                                                    .focusRequester(contentFocusRequester)
+                                                    .focusProperties { left = sidebarRequesters[6] },
+                                                onClick = { selectedTopTab = 1 }
+                                            )
+                                            ActionButton(
+                                                icon = if (isAdultModeEnabled) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                                label = if (isAdultModeEnabled) "🔞 Modo +18: ON" else "🔞 Modo +18: OFF",
+                                                onClick = { toggleAdultMode(!isAdultModeEnabled) }
+                                            )
+                                            ActionButton(
+                                                icon = Icons.Default.Refresh,
+                                                label = "🚀 Actualizaciones",
+                                                onClick = { isUpdateModalVisible = true }
+                                            )
+                                            ActionButton(
+                                                icon = Icons.Default.FilterList,
+                                                label = "🎯 Filtrar Categorías",
+                                                onClick = { isCategoryManagerVisible = true }
+                                            )
+                                            ActionButton(
+                                                icon = Icons.Default.Add,
+                                                label = "➕ Gestionar / Añadir",
+                                                onClick = { isAdminModalVisible = true }
+                                            )
+                                            ActionButton(
+                                                icon = Icons.Default.CloudSync,
+                                                label = "☁️ Sincronizar",
+                                                onClick = onSyncCloudSources
+                                            )
+                                            ActionButton(
+                                                icon = Icons.Default.Refresh,
+                                                label = "🔄 Recargar",
+                                                onClick = onForceSync
+                                            )
+                                            ActionButton(
+                                                icon = Icons.Default.Logout,
+                                                label = "🚪 Cerrar Sesión",
+                                                isDanger = true,
+                                                onClick = onLogout
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.height(24.dp))
+
+                                        // 🩺 DIAGNÓSTICO DE REPRODUCCIÓN (Mantenido intacto)
+                                        TvDiagnosticsSection(
+                                            activeSource = activeSource,
+                                            liveCount = liveChannels.size,
+                                            movieCount = movies.size,
+                                            seriesCount = seriesCategories.sumOf { it.itemCount }.takeIf { it > 0 } ?: seriesList.size,
+                                            blankUrlCount = liveChannels.count { it.streamUrl.isBlank() },
+                                            resolvedUrl = focusedChannel?.let { ch ->
+                                                StreamUrlResolver.resolveLive(ch.streamUrl, activeSource, ch.streamId)
+                                            },
+                                            focusedChannelName = focusedChannel?.name,
+                                            playbackState = playbackState,
+                                            syncStateText = syncStateText,
+                                            diagnosticInfo = diagnosticInfo
+                                        )
+
+                                        // 🎯 GESTIÓN DE CATEGORÍAS VISIBLES (Mantenido intacto)
+                                        TvCategoryVisibilitySection(
+                                            liveTotal = liveCategoryItemModels.size,
+                                            liveHiddenCount = liveCategoryItemModels.count { hiddenLiveCategories.contains(it.name) || hiddenLiveCategories.contains(it.id) },
+                                            moviesTotal = movieCategoryItemModels.size,
+                                            moviesHiddenCount = movieCategoryItemModels.count { hiddenMovieCategories.contains(it.name) || hiddenMovieCategories.contains(it.id) },
+                                            seriesTotal = seriesCategoryItemModels.size,
+                                            seriesHiddenCount = seriesCategoryItemModels.count { hiddenSeriesCategories.contains(it.name) || hiddenSeriesCategories.contains(it.id) },
+                                            onOpenManager = { scope ->
+                                                categoryManagerInitialScope = scope
+                                                isCategoryManagerVisible = true
+                                            }
+                                        )
+
+                                        Spacer(modifier = Modifier.height(28.dp))
+                                        Text(
+                                            text = "📋 LISTAS IPTV DISPONIBLES (${allSources.size}):",
+                                            color = Color.White,
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                    }
+
+                                    itemsIndexed(allSources) { _, source ->
+                                        val isActive = (source.id == activeSource?.id || source.isActive)
+                                        var isCardFocused by remember { mutableStateOf(false) }
+                                        Surface(
+                                            onClick = {
+                                                if (!isActive) {
+                                                    onActivateSource(source.id)
+                                                    selectedTopTab = 1
+                                                }
+                                            },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 6.dp)
+                                                .focusProperties { left = sidebarRequesters[6] }
+                                                .onFocusChanged { isCardFocused = it.isFocused },
+                                            shape = ClickableSurfaceDefaults.shape(
+                                                shape = RoundedCornerShape(14.dp),
+                                                focusedShape = RoundedCornerShape(14.dp)
+                                            ),
+                                            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
+                                            colors = ClickableSurfaceDefaults.colors(
+                                                containerColor = if (isActive) Color(0xFF161F2E) else Color(0xFF14161F),
+                                                focusedContainerColor = Color(0xFF1E2638),
+                                                pressedContainerColor = Color(0xFF1E2638)
+                                            ),
+                                            border = ClickableSurfaceDefaults.border(
+                                                border = Border(androidx.compose.foundation.BorderStroke(if (isActive) 1.5.dp else 1.dp, if (isActive) Color(0xFF10B981) else Color.White.copy(alpha = 0.08f))),
+                                                focusedBorder = Border(androidx.compose.foundation.BorderStroke(2.5.dp, Color(0xFFFF6B00)))
+                                            )
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth().padding(18.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Text(
+                                                            text = source.name,
+                                                            color = if (isCardFocused) Color.White else (if (isActive) Color(0xFFFF6B00) else Color.White),
+                                                            fontSize = 17.sp,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                        Spacer(modifier = Modifier.width(10.dp))
+                                                        if (isActive) {
+                                                            Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Color(0xFF10B981)).padding(horizontal = 8.dp, vertical = 3.dp)) {
+                                                                Text("🟢 ACTIVA", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                                                            }
+                                                        }
+                                                        if (isCardFocused) {
+                                                            Spacer(modifier = Modifier.width(8.dp))
+                                                            Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Color(0xFFFF6B00)).padding(horizontal = 8.dp, vertical = 3.dp)) {
+                                                                Text("PRESIONA OK", color = Color.Black, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                                                            }
+                                                        }
+                                                    }
+                                                    Spacer(modifier = Modifier.height(4.dp))
+                                                    Text(
+                                                        text = "Servidor: ${source.serverUrl}  •  Usuario: ${source.username}",
+                                                        color = if (isCardFocused) Color(0xFFE2E8F0) else Color.White.copy(alpha = 0.55f),
+                                                        fontSize = 13.sp
+                                                    )
+                                                }
+
+                                                if (!isActive) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .clip(RoundedCornerShape(8.dp))
+                                                            .background(if (isCardFocused) Color.White else Color(0xFFFF6B00))
+                                                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                                                    ) {
+                                                        Text("⚡ ACTIVAR", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                                                    }
+                                                } else {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .clip(RoundedCornerShape(8.dp))
+                                                            .background(Color(0xFF10B981))
+                                                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                                                    ) {
+                                                        Text("✓ EN USO", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                                                    }
                                                 }
                                             }
                                         }

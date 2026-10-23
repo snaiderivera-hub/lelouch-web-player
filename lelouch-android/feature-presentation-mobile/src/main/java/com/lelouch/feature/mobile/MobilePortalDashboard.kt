@@ -105,32 +105,57 @@ fun MobilePortalDashboard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Icono Circular estilizado Lelouch
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(
+                            Brush.linearGradient(
+                                listOf(BixOrangeAccent, Color(0xFFD9480F))
+                            )
+                        )
+                        .border(1.5.dp, Color.White.copy(alpha = 0.35f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
                     Text(
-                        text = "LELOUCH",
+                        text = "L",
                         color = Color.White,
                         fontWeight = FontWeight.Black,
-                        fontSize = 24.sp,
-                        letterSpacing = 0.5.sp
-                    )
-                    Spacer(Modifier.width(5.dp))
-                    Text(
-                        text = "PLUS",
-                        color = BixOrangeAccent,
-                        fontWeight = FontWeight.Black,
-                        fontSize = 24.sp,
-                        letterSpacing = 0.5.sp
+                        fontSize = 20.sp
                     )
                 }
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    text = "PELICULAS, SERIES, TV EN VIVO",
-                    color = BixTextMuted,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.2.sp
-                )
+
+                Spacer(Modifier.width(10.dp))
+
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "LELOUCH",
+                            color = Color.White,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 22.sp,
+                            letterSpacing = 0.5.sp
+                        )
+                        Spacer(Modifier.width(5.dp))
+                        Text(
+                            text = "PLUS",
+                            color = BixOrangeAccent,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 22.sp,
+                            letterSpacing = 0.5.sp
+                        )
+                    }
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = "PELICULAS, SERIES, TV EN VIVO",
+                        color = BixTextMuted,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.2.sp
+                    )
+                }
             }
 
             Box(

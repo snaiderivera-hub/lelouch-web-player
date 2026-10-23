@@ -77,6 +77,17 @@ fun TvMediaDetailModal(
         mutableIntStateOf(media.seasons.firstOrNull() ?: 1)
     }
 
+    LaunchedEffect(media.seasons, media.episodes) {
+        val availableSeasons = if (media.episodes.isNotEmpty()) {
+            media.episodes.map { it.seasonNumber }.distinct().sorted()
+        } else {
+            media.seasons
+        }
+        if (availableSeasons.isNotEmpty() && selectedSeason !in availableSeasons) {
+            selectedSeason = availableSeasons.first()
+        }
+    }
+
     val playFocusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         try {
@@ -375,7 +386,9 @@ fun TvMediaDetailModal(
                         modifier = Modifier.padding(bottom = 8.dp)
                     )
 
-                    val seasonsToShow = if (media.seasons.isNotEmpty()) media.seasons else listOf(1)
+                    val seasonsToShow = if (media.episodes.isNotEmpty()) {
+                        media.episodes.map { it.seasonNumber }.distinct().sorted()
+                    } else if (media.seasons.isNotEmpty()) media.seasons else listOf(1)
 
                     // Selector de Temporadas con foco para mando TV
                     Row(
