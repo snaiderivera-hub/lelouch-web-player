@@ -86,6 +86,7 @@ fun LelouchVideoPlayer(
     playerEngine: LelouchPlayerEngine,
     modifier: Modifier = Modifier,
     resizeMode: Int = AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
+    isLive: Boolean = true,
     overlayContent: @Composable () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -103,10 +104,11 @@ fun LelouchVideoPlayer(
 
     var isBufferTimeout by remember { mutableStateOf(false) }
 
-    LaunchedEffect(playbackState) {
+    LaunchedEffect(playbackState, isLive) {
         if (playbackState is PlaybackState.Buffering) {
             isBufferTimeout = false
-            kotlinx.coroutines.delay(10000L)
+            // En vivo: 10s (sin cambios). VOD: los MKV/MP4 progresivos tardan más en abrir.
+            kotlinx.coroutines.delay(if (isLive) 10000L else 40000L)
             isBufferTimeout = true
         } else {
             isBufferTimeout = false
@@ -147,7 +149,9 @@ fun LelouchVideoPlayer(
         // ── FASE 33 & 34: Overlay de estado — error visible / fuera de línea + loader discreto ──
         when (val state = playbackState) {
             is PlaybackState.Error -> ErrorOverlay(
-                message = state.errorMessage,
+                message = if (!isLive && state.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS)
+                    "🎬 El servidor del proveedor rechazó la película (límite de conexiones / Error 429).\nCierra otros dispositivos con la misma cuenta, espera unos segundos y pulsa Reintentar."
+                else state.errorMessage,
                 errorCode = state.errorCode,
                 canRetry = state.canRetry,
                 onRetry = { playerEngine.retry() },
@@ -157,7 +161,10 @@ fun LelouchVideoPlayer(
                 if (isBufferTimeout) {
                     // Si el stream no responde tras 10s continuos de buffering, notificar fuera de línea
                     ErrorOverlay(
-                        message = "📡 Canal fuera de línea o sin señal del proveedor.\nEl servidor no está emitiendo este stream.",
+                        message = if (isLive)
+                            "📡 Canal fuera de línea o sin señal del proveedor.\nEl servidor no está emitiendo este stream."
+                        else
+                            "🎬 La película está tardando demasiado en cargar desde el servidor del proveedor.\nPulsa Reintentar.",
                         errorCode = -1,
                         canRetry = true,
                         onRetry = {

@@ -86,8 +86,15 @@ fun TvPortalDashboard(
     val pillRequesters = remember { List(4) { FocusRequester() } }
 
     val featuredMovie = remember(visibleMovies) {
-        visibleMovies.firstOrNull { !it.backdropPath.isNullOrBlank() || !it.streamIcon.isNullOrBlank() }
-            ?: visibleMovies.firstOrNull()
+        val pool = visibleMovies.filter { !it.name.isBlank() }
+        val withBackdrop = pool.filter { !it.backdropPath.isNullOrBlank() }
+        val topCandidates = withBackdrop.filter { it.rating >= 6.0 || (it.plot?.length ?: 0) > 40 }
+        when {
+            topCandidates.isNotEmpty() -> topCandidates.shuffled().first()
+            withBackdrop.isNotEmpty() -> withBackdrop.shuffled().first()
+            pool.isNotEmpty() -> pool.shuffled().first()
+            else -> null
+        }
     }
     val featuredSeries = remember(visibleSeriesList) {
         visibleSeriesList.firstOrNull { !it.backdropPath.isNullOrBlank() || !it.cover.isNullOrBlank() }
@@ -106,18 +113,6 @@ fun TvPortalDashboard(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFF2E0C06), // Ámbar/rojizo oscuro superior Bix Plus
-                        Color(0xFF180703),
-                        Color(0xFF090A0E),
-                        Color(0xFF090A0E)
-                    ),
-                    startY = 0f,
-                    endY = 850f
-                )
-            )
             .padding(horizontal = 32.dp, vertical = 16.dp)
     ) {
         // ══════════════════════════════════════════════════════════════════════
@@ -194,7 +189,10 @@ fun TvPortalDashboard(
                     modifier = Modifier
                         .size(44.dp)
                         .focusRequester(headerFocusRequester)
-                        .focusProperties { right = settingsFocusRequester },
+                        .focusProperties {
+                            right = settingsFocusRequester
+                            down = heroBtnRequester
+                        },
                     shape = ClickableSurfaceDefaults.shape(CircleShape),
                     scale = ClickableSurfaceDefaults.scale(focusedScale = 1.15f),
                     colors = ClickableSurfaceDefaults.colors(
@@ -226,7 +224,10 @@ fun TvPortalDashboard(
                     modifier = Modifier
                         .size(44.dp)
                         .focusRequester(settingsFocusRequester)
-                        .focusProperties { left = headerFocusRequester },
+                        .focusProperties {
+                            left = headerFocusRequester
+                            down = heroBtnRequester
+                        },
                     shape = ClickableSurfaceDefaults.shape(CircleShape),
                     scale = ClickableSurfaceDefaults.scale(focusedScale = 1.15f),
                     colors = ClickableSurfaceDefaults.colors(
@@ -271,6 +272,7 @@ fun TvPortalDashboard(
                 infoFocusRequester = heroInfoRequester,
                 sidebarRequester = sidebarRequester,
                 downRequester = pillRequesters[0],
+                upRequester = headerFocusRequester,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(230.dp)
@@ -289,6 +291,7 @@ fun TvPortalDashboard(
                 infoFocusRequester = heroInfoRequester,
                 sidebarRequester = sidebarRequester,
                 downRequester = pillRequesters[0],
+                upRequester = headerFocusRequester,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(230.dp)
@@ -466,6 +469,7 @@ private fun TvHeroBanner(
     infoFocusRequester: FocusRequester,
     sidebarRequester: FocusRequester?,
     downRequester: FocusRequester?,
+    upRequester: FocusRequester? = null,
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -588,6 +592,7 @@ private fun TvHeroBanner(
                             left = sidebarRequester ?: FocusRequester.Cancel
                             right = infoFocusRequester
                             if (downRequester != null) down = downRequester
+                            if (upRequester != null) up = upRequester
                         },
                     shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
                     scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
@@ -623,6 +628,7 @@ private fun TvHeroBanner(
                         .focusProperties {
                             left = playFocusRequester
                             if (downRequester != null) down = downRequester
+                            if (upRequester != null) up = upRequester
                         },
                     shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
                     scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),

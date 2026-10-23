@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.91",
-  "versionCode": 1000091,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.91/app-debug.apk",
-  "changelog": "• Botón circular de Ajustes (⚙️) incorporado a la par de la lupa en la cabecera principal de TV Box.\n• Navegación fluida D-Pad entre Lupa y Ajustes.\n• Zona Blindada (FASE 34): LelouchPlayerEngine y PlayerConfig 100% intactos."
+  "versionName": "1.0.94",
+  "versionCode": 1000094,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.94/app-debug.apk",
+  "changelog": "- Peliculas/Series: tiempo de espera de carga ampliado a 40s (antes se cortaban a los 10s).\n- Mensajes de error especificos para peliculas (Error 429 / limite de conexiones).\n- Canales en vivo sin cambios (FASE 34 intacta)."
 }

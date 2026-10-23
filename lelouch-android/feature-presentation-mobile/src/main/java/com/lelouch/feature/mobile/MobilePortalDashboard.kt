@@ -73,8 +73,15 @@ fun MobilePortalDashboard(
 ) {
     // Selección dinámica del ítem destacado para el Hero Banner
     val featuredMovie = remember(movies) {
-        movies.firstOrNull { !it.backdropPath.isNullOrBlank() || !it.streamIcon.isNullOrBlank() }
-            ?: movies.firstOrNull()
+        val pool = movies.filter { !it.name.isBlank() }
+        val withBackdrop = pool.filter { !it.backdropPath.isNullOrBlank() }
+        val topCandidates = withBackdrop.filter { (it.rating ?: 0.0) >= 6.0 || (it.plot?.length ?: 0) > 40 }
+        when {
+            topCandidates.isNotEmpty() -> topCandidates.shuffled().first()
+            withBackdrop.isNotEmpty() -> withBackdrop.shuffled().first()
+            pool.isNotEmpty() -> pool.shuffled().first()
+            else -> null
+        }
     }
     val featuredSeries = remember(seriesList) {
         seriesList.firstOrNull { !it.backdropPath.isNullOrBlank() || !it.cover.isNullOrBlank() }

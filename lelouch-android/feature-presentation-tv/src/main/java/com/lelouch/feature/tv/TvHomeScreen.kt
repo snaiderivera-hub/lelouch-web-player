@@ -964,7 +964,16 @@ fun TvHomeScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(LelouchBackground)
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFF2E0C06), // Ámbar/rojizo oscuro superior Bix Plus
+                        Color(0xFF180703),
+                        Color(0xFF090A0E),
+                        Color(0xFF090A0E)
+                    )
+                )
+            )
     ) {
         // Capa de control D-pad para Pantalla Completa
         if (isFullscreen) {
@@ -1183,7 +1192,8 @@ fun TvHomeScreen(
                 LelouchVideoPlayer(
                     playerEngine = playerEngine,
                     modifier = Modifier.fillMaxSize(),
-                    resizeMode = if (isPlayingLive) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    resizeMode = if (isPlayingLive) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT,
+                    isLive = isPlayingLive
                 )
             }
         }
@@ -2227,26 +2237,10 @@ fun TvHomeScreen(
 
                         6 -> {
                             // ⚙️ PANEL ADMINISTRADOR & AJUSTES (ESTILO BIX PLUS / PORTAL DASHBOARD)
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(
-                                        Brush.verticalGradient(
-                                            colors = listOf(
-                                                Color(0xFF2E0C06), // Ámbar/rojizo oscuro superior Bix Plus
-                                                Color(0xFF180703),
-                                                Color(0xFF090A0E),
-                                                Color(0xFF090A0E)
-                                            ),
-                                            startY = 0f,
-                                            endY = 850f
-                                        )
-                                    )
+                            TvLazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(start = 32.dp, end = 48.dp, top = 20.dp, bottom = 48.dp)
                             ) {
-                                TvLazyColumn(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentPadding = PaddingValues(start = 32.dp, end = 48.dp, top = 20.dp, bottom = 48.dp)
-                                ) {
                                     item {
                                         // 0. CABECERA: ICONO CIRCULAR + LELOUCH OPCIONES EN LETRAS
                                         Row(
@@ -2307,55 +2301,68 @@ fun TvHomeScreen(
 
                                         Spacer(modifier = Modifier.height(20.dp))
 
-                                        // 1. BARRA DE ACCIONES RÁPIDAS
-                                        Row(
+                                        // 1. BARRA DE ACCIONES RÁPIDAS (ORGANIZADA EN 2 FILAS LIMPIAS PARA EVITAR DESBORDES)
+                                        Column(
                                             modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                            verticalArrangement = Arrangement.spacedBy(10.dp)
                                         ) {
-                                            ActionButton(
-                                                icon = Icons.Default.ArrowBack,
-                                                label = "⬅️ Inicio",
-                                                modifier = Modifier
-                                                    .focusRequester(contentFocusRequester)
-                                                    .focusProperties { left = sidebarRequesters[6] },
-                                                onClick = { selectedTopTab = 1 }
-                                            )
-                                            ActionButton(
-                                                icon = if (isAdultModeEnabled) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                                label = if (isAdultModeEnabled) "🔞 Modo +18: ON" else "🔞 Modo +18: OFF",
-                                                onClick = { toggleAdultMode(!isAdultModeEnabled) }
-                                            )
-                                            ActionButton(
-                                                icon = Icons.Default.Refresh,
-                                                label = "🚀 Actualizaciones",
-                                                onClick = { isUpdateModalVisible = true }
-                                            )
-                                            ActionButton(
-                                                icon = Icons.Default.FilterList,
-                                                label = "🎯 Filtrar Categorías",
-                                                onClick = { isCategoryManagerVisible = true }
-                                            )
-                                            ActionButton(
-                                                icon = Icons.Default.Add,
-                                                label = "➕ Gestionar / Añadir",
-                                                onClick = { isAdminModalVisible = true }
-                                            )
-                                            ActionButton(
-                                                icon = Icons.Default.CloudSync,
-                                                label = "☁️ Sincronizar",
-                                                onClick = onSyncCloudSources
-                                            )
-                                            ActionButton(
-                                                icon = Icons.Default.Refresh,
-                                                label = "🔄 Recargar",
-                                                onClick = onForceSync
-                                            )
-                                            ActionButton(
-                                                icon = Icons.Default.Logout,
-                                                label = "🚪 Cerrar Sesión",
-                                                isDanger = true,
-                                                onClick = onLogout
-                                            )
+                                            // Fila 1: Navegación y Preferencias
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                            ) {
+                                                ActionButton(
+                                                    icon = Icons.Default.ArrowBack,
+                                                    label = "Volver al Inicio",
+                                                    modifier = Modifier
+                                                        .focusRequester(contentFocusRequester)
+                                                        .focusProperties { left = sidebarRequesters[6] },
+                                                    onClick = { selectedTopTab = 1 }
+                                                )
+                                                ActionButton(
+                                                    icon = if (isAdultModeEnabled) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                                    label = if (isAdultModeEnabled) "Modo +18: ON" else "Modo +18: OFF",
+                                                    onClick = { toggleAdultMode(!isAdultModeEnabled) }
+                                                )
+                                                ActionButton(
+                                                    icon = Icons.Default.Refresh,
+                                                    label = "Actualizaciones",
+                                                    onClick = { isUpdateModalVisible = true }
+                                                )
+                                                ActionButton(
+                                                    icon = Icons.Default.FilterList,
+                                                    label = "Filtrar Categorías",
+                                                    onClick = { isCategoryManagerVisible = true }
+                                                )
+                                            }
+
+                                            // Fila 2: Cuentas y Operaciones
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                            ) {
+                                                ActionButton(
+                                                    icon = Icons.Default.Add,
+                                                    label = "Gestionar Cuentas",
+                                                    onClick = { isAdminModalVisible = true }
+                                                )
+                                                ActionButton(
+                                                    icon = Icons.Default.CloudSync,
+                                                    label = "Sincronizar Nube",
+                                                    onClick = onSyncCloudSources
+                                                )
+                                                ActionButton(
+                                                    icon = Icons.Default.Refresh,
+                                                    label = "Recargar Catálogo",
+                                                    onClick = onForceSync
+                                                )
+                                                ActionButton(
+                                                    icon = Icons.Default.Logout,
+                                                    label = "Cerrar Sesión",
+                                                    isDanger = true,
+                                                    onClick = onLogout
+                                                )
+                                            }
                                         }
 
                                         Spacer(modifier = Modifier.height(24.dp))
@@ -2492,7 +2499,6 @@ fun TvHomeScreen(
                     }
                 }
             }
-        }
 
 
         // CAPA 5: Mini-Guía Carrusel HUD en Pantalla Completa (con iconos de canales)

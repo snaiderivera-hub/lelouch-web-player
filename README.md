@@ -36,7 +36,7 @@ Flexibilidad total para disfrutar tu lista personalizada según el dispositivo o
 - **Control Parental & Categorías:** Oculta, reorganiza o bloquea con PIN categorías de adultos o canales sensibles.
 - **Diagnóstico de Servidor:** Prueba de latencia, ping y estado de paneles Xtream Codes.
 
-### 4. 📱 App Nativa Android TV & Mobile (`lelouch-android` v1.0.82)
+### 4. 📱 App Nativa Android TV & Mobile (`lelouch-android` v1.0.94)
 - Diseñada con **Jetpack Compose Multiplatform** y **Material 3**.
 - Optimización de foco mediante control remoto D-Pad para Xiaomi TV Stick, Chromecast con Google TV y Smart TVs.
 - **Interfaz "EveryCine" (FASE 32):** Dashboard unificado con fondo personalizado (Estilo Tecnológico Neón), tarjetas hero interactivas y reloj regional automático.
@@ -47,6 +47,14 @@ Flexibilidad total para disfrutar tu lista personalizada según el dispositivo o
   - **Sincronización Instantánea Reactiva (0.05s):** Cambio de cuenta inmediato sin bloqueos de red ni pantallas congeladas.
 - **Gestor de Categorías Visibles Mobile-First:** Selector horizontal de pestañas (`📺 En Vivo`, `🎬 Películas`, `🎭 Series`) que ocupa el 100% de la pantalla del móvil, eliminando columnas rígidas o cortes de texto.
 - **Actualizaciones OTA (Over-The-Air) por Wi-Fi:** Notifica e instala automáticamente nuevas versiones del APK sin requerir cables ni formateos.
+
+#### Novedades recientes (v1.0.87 → v1.0.94)
+- **Diseño unificado estilo Bix Plus** en Móvil y TV Box: cabecera con icono circular "L" + `LELOUCH PLUS`, botones de 🔍 Búsqueda y ⚙️ Ajustes, y fondo degradado continuo a pantalla completa.
+- **Película destacada aleatoria** con backdrop HD (TV y Móvil).
+- **Ajustes reorganizados** en 2 filas compactas, conservando modo adulto, cuentas y diagnóstico.
+- **Series en Móvil:** corregida la carga de capítulos.
+- **Películas/Series (v1.0.94):** tiempo de espera de carga VOD ampliado a 40 s (antes se cortaban a los 10 s con "Canal fuera de línea") y mensajes de error específicos para VOD (p. ej. Error 429 / límite de conexiones del proveedor).
+- **Zona Blindada (FASE 34):** `LelouchPlayerEngine.kt` y `PlayerConfig.kt` sin modificaciones; los canales en vivo conservan su comportamiento.
 
 ### 5. ⚡ Web Player Enriquecido (Playlists Guardadas)
 - Tarjetas idénticas con cálculo automático de vigencia en días restantes y conexiones concurrentes.
