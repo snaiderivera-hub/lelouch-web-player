@@ -38,6 +38,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -351,7 +352,7 @@ fun MobileHomeScreen(
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
-            containerColor = LelouchBackground,
+            containerColor = BixDarkBackground,
             topBar = {
                 if (selectedTab != 0) {
                     MobileTopBar(
@@ -359,9 +360,17 @@ fun MobileHomeScreen(
                         showSearch = selectedTab != 4,
                         searchQuery = searchQuery,
                         onSearchChange = { searchQuery = it },
-                        onSettingsTap = { showPinDialog = true },
+                        onSettingsTap = { selectedTab = 4 },
                         selectedTab = selectedTab,
                         onBackTap = { selectedTab = 0 }
+                    )
+                }
+            },
+            bottomBar = {
+                if (!isPlayerFullscreen) {
+                    MobileBottomNavBar(
+                        selectedTab = selectedTab,
+                        onTabChange = { selectedTab = it }
                     )
                 }
             }
@@ -405,13 +414,23 @@ fun MobileHomeScreen(
                             onChannelClick = { ch, url -> isPlayerFullscreen = true; isLivePlayback = true; activeChannelName = ch; activeStreamUrl = url },
                             onMovieClick = { selectedMovie = it },
                             onSeriesClick = { selectedSeries = it },
-                            onSeeAllLive = { selectedTab = 1 },
-                            onSeeAllMovies = { selectedTab = 2 },
-                            onSeeAllSeries = { selectedTab = 3 },
+                            onSeeAllLive = { selectedTab = 2 },
+                            onSeeAllMovies = { selectedTab = 1 },
+                            onSeeAllSeries = { selectedTab = 1 },
                             onReloadCatalog = onForceSync,
-                            onOpenSettings = { showPinDialog = true }
+                            onOpenSettings = { selectedTab = 4 }
                         )
-                        1 -> MobileLiveTab(
+                        1 -> MobileVodTab(
+                            movies = if (searchQuery.isBlank()) filteredMovies
+                                     else filteredMovies.filter { it.name.contains(searchQuery, ignoreCase = true) },
+                            movieCategories = movieCategoryList,
+                            onMovieClick = { selectedMovie = it },
+                            seriesList = if (searchQuery.isBlank()) filteredSeriesList
+                                         else filteredSeriesList.filter { it.name.contains(searchQuery, ignoreCase = true) },
+                            seriesCategories = seriesCategoryList,
+                            onSeriesClick = { selectedSeries = it }
+                        )
+                        2 -> MobileLiveTab(
                             channels = if (searchQuery.isBlank()) cleanLiveChannels
                                        else cleanLiveChannels.filter { it.name.contains(searchQuery, ignoreCase = true) },
                             activeSource = activeSource,
@@ -420,17 +439,14 @@ fun MobileHomeScreen(
                             onToggleFavorite = onToggleFavoriteChannel,
                             onChannelClick = { ch, url -> isPlayerFullscreen = true; isLivePlayback = true; activeChannelName = ch; activeStreamUrl = url }
                         )
-                        2 -> MobileMoviesTab(
-                            movies = if (searchQuery.isBlank()) filteredMovies
-                                     else filteredMovies.filter { it.name.contains(searchQuery, ignoreCase = true) },
-                            categories = movieCategoryList,
-                            onMovieClick = { selectedMovie = it }
-                        )
-                        3 -> MobileSeriesTab(
-                            seriesList = if (searchQuery.isBlank()) filteredSeriesList
-                                         else filteredSeriesList.filter { it.name.contains(searchQuery, ignoreCase = true) },
-                            categories = seriesCategoryList,
-                            onSeriesClick = { selectedSeries = it }
+                        3 -> MobileFavoritesTab(
+                            favoriteChannels = favoriteChannels,
+                            favoriteMovies = favoriteMovies,
+                            activeSource = activeSource,
+                            onChannelClick = { ch, url -> isPlayerFullscreen = true; isLivePlayback = true; activeChannelName = ch; activeStreamUrl = url },
+                            onMovieClick = { selectedMovie = it },
+                            onToggleFavoriteChannel = onToggleFavoriteChannel,
+                            onToggleFavoriteMovie = onToggleFavoriteMovie
                         )
                         4 -> MobileSettingsTab(
                             activeSource = activeSource, allSources = allSources,
@@ -443,6 +459,7 @@ fun MobileHomeScreen(
                             },
                             onSyncCloud = onSyncCloudSources, onForceSync = onForceSync, onLogout = onLogout,
                             onOpenUpdate = { isUpdateModalOpen = true },
+                            onNavigateToFavorites = { selectedTab = 3 },
                             liveTotal = liveCategories.size,
                             liveHiddenCount = liveCategories.count { hiddenLiveCategories.contains(it.categoryName) || hiddenLiveCategories.contains(it.categoryId) },
                             moviesTotal = vodCategories.size,
@@ -879,25 +896,46 @@ private fun MobileTopBar(
     }
 }
 
-// BOTTOM NAV
+// BOTTOM NAV (ESTILO BIX PLUS - 5 PESTAÑAS)
 @Composable
 private fun MobileBottomNavBar(selectedTab: Int, onTabChange: (Int) -> Unit) {
-    NavigationBar(containerColor = LelouchSurface, tonalElevation = 8.dp) {
-        listOf(
-            Icons.Default.Home to "Inicio",
-            Icons.Default.LiveTv to "En Vivo",
-            Icons.Default.Movie to "Peliculas",
-            Icons.Default.Tv to "Series"
-        ).forEachIndexed { index, (icon, label) ->
+    NavigationBar(
+        containerColor = BixDarkBackground,
+        tonalElevation = 10.dp
+    ) {
+        val navItems = listOf(
+            Triple(Icons.Default.Home, "Inicio", 0),
+            Triple(Icons.Default.Movie, "Películas", 1),
+            Triple(Icons.Default.LiveTv, "En Vivo", 2),
+            Triple(Icons.Default.Favorite, "Favoritos", 3),
+            Triple(Icons.Default.Menu, "Más", 4)
+        )
+        navItems.forEach { (icon, label, index) ->
+            val isSelected = selectedTab == index
             NavigationBarItem(
-                selected = selectedTab == index,
+                selected = isSelected,
                 onClick = { onTabChange(index) },
-                icon = { Icon(icon, contentDescription = label) },
-                label = { Text(label, maxLines = 1, fontSize = 10.sp) },
+                icon = {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = label,
+                        modifier = Modifier.size(24.dp)
+                    )
+                },
+                label = {
+                    Text(
+                        text = label,
+                        maxLines = 1,
+                        fontSize = 11.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                    )
+                },
                 colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = LelouchCyanAccent, selectedTextColor = LelouchCyanAccent,
-                    indicatorColor = LelouchSurfaceVariant,
-                    unselectedIconColor = LelouchTextSecondary, unselectedTextColor = LelouchTextSecondary
+                    selectedIconColor = BixOrangeAccent,
+                    selectedTextColor = BixOrangeAccent,
+                    indicatorColor = BixOrangeAccent.copy(alpha = 0.15f),
+                    unselectedIconColor = BixTextMuted,
+                    unselectedTextColor = BixTextMuted
                 )
             )
         }
@@ -1178,7 +1216,232 @@ private fun MobileSeriesTab(
     }
 }
 
-// TAB 4: AJUSTES/LISTAS
+// TAB 1: PELÍCULAS Y SERIES COMBINADO CON SUB-TABS ESTILO BIX PLUS
+@Composable
+private fun MobileVodTab(
+    movies: List<VodMovie>,
+    movieCategories: List<MobileCategoryItem>,
+    onMovieClick: (VodMovie) -> Unit,
+    seriesList: List<Series>,
+    seriesCategories: List<MobileCategoryItem>,
+    onSeriesClick: (Series) -> Unit
+) {
+    var subTab by remember { mutableIntStateOf(0) } // 0: Películas, 1: Series
+
+    Column(modifier = Modifier.fillMaxSize().background(BixDarkBackground)) {
+        // Selector tipo cápsula Bix Plus
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            val isMovies = subTab == 0
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (isMovies) BixOrangeAccent else BixSurfaceCard)
+                    .border(1.dp, if (isMovies) BixOrangeAccent else Color.White.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
+                    .clickable { subTab = 0 }
+                    .padding(vertical = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Movie, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "Películas (${movies.size})",
+                        color = Color.White,
+                        fontWeight = if (isMovies) FontWeight.Bold else FontWeight.Medium,
+                        fontSize = 13.sp
+                    )
+                }
+            }
+
+            val isSeries = subTab == 1
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (isSeries) BixOrangeAccent else BixSurfaceCard)
+                    .border(1.dp, if (isSeries) BixOrangeAccent else Color.White.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
+                    .clickable { subTab = 1 }
+                    .padding(vertical = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Tv, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "Series (${seriesList.size})",
+                        color = Color.White,
+                        fontWeight = if (isSeries) FontWeight.Bold else FontWeight.Medium,
+                        fontSize = 13.sp
+                    )
+                }
+            }
+        }
+
+        if (subTab == 0) {
+            MobileMoviesTab(movies = movies, categories = movieCategories, onMovieClick = onMovieClick)
+        } else {
+            MobileSeriesTab(seriesList = seriesList, categories = seriesCategories, onSeriesClick = onSeriesClick)
+        }
+    }
+}
+
+// TAB 3: FAVORITOS (DISEÑO BIX PLUS CON EMPTY STATE EXACTO CAPTURA 8)
+@Composable
+private fun MobileFavoritesTab(
+    favoriteChannels: List<LiveStream>,
+    favoriteMovies: List<VodMovie>,
+    activeSource: SourceConfig?,
+    onChannelClick: (String, String) -> Unit,
+    onMovieClick: (VodMovie) -> Unit,
+    onToggleFavoriteChannel: (Int, Boolean) -> Unit,
+    onToggleFavoriteMovie: (Int, Boolean) -> Unit
+) {
+    var favSubTab by remember { mutableIntStateOf(0) } // 0: Canales, 1: Películas
+
+    if (favoriteChannels.isEmpty() && favoriteMovies.isEmpty()) {
+        // EMPTY STATE EXACTO CAPTURA 8 BIX PLUS
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(BixDarkBackground)
+                .padding(32.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Círculo Naranja con Play
+                Box(
+                    modifier = Modifier
+                        .size(86.dp)
+                        .clip(CircleShape)
+                        .background(BixOrangeAccent),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(46.dp)
+                    )
+                }
+
+                Text(
+                    text = "No se encontró",
+                    color = Color.White,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Text(
+                    text = "Cuando guardes títulos como favoritos aparecerán aquí.",
+                    color = BixTextMuted,
+                    fontSize = 13.sp,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+            }
+        }
+        return
+    }
+
+    Column(modifier = Modifier.fillMaxSize().background(BixDarkBackground)) {
+        // Selector tipo cápsula para cambiar entre Canales y Películas Favoritas
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            val isCh = favSubTab == 0
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (isCh) BixOrangeAccent else BixSurfaceCard)
+                    .clickable { favSubTab = 0 }
+                    .padding(vertical = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "Canales (${favoriteChannels.size})",
+                    color = Color.White,
+                    fontWeight = if (isCh) FontWeight.Bold else FontWeight.Medium,
+                    fontSize = 13.sp
+                )
+            }
+
+            val isMov = favSubTab == 1
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (isMov) BixOrangeAccent else BixSurfaceCard)
+                    .clickable { favSubTab = 1 }
+                    .padding(vertical = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "Películas (${favoriteMovies.size})",
+                    color = Color.White,
+                    fontWeight = if (isMov) FontWeight.Bold else FontWeight.Medium,
+                    fontSize = 13.sp
+                )
+            }
+        }
+
+        if (favSubTab == 0) {
+            if (favoriteChannels.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("No tienes canales favoritos guardados.", color = BixTextMuted, fontSize = 14.sp)
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(favoriteChannels, key = { "fav_ch_${it.streamId}" }) { ch ->
+                        val url = StreamUrlResolver.resolveLive(ch.streamUrl, activeSource, ch.streamId)
+                        ChannelListItem(
+                            channel = ch,
+                            isFavorite = true,
+                            onToggleFavorite = { onToggleFavoriteChannel(ch.streamId, false) },
+                            onClick = { onChannelClick(ch.name, url) }
+                        )
+                    }
+                }
+            }
+        } else {
+            if (favoriteMovies.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("No tienes películas favoritas guardadas.", color = BixTextMuted, fontSize = 14.sp)
+                }
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(85.dp),
+                    contentPadding = PaddingValues(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    items(favoriteMovies, key = { "fav_mov_${it.streamId}" }) { mov ->
+                        MovieGridCard(movie = mov, onClick = { onMovieClick(mov) })
+                    }
+                }
+            }
+        }
+    }
+}
+
+// TAB 4: AJUSTES/OPCIONES (ESTILO BIX PLUS FASE 35)
 @Composable
 private fun MobileSettingsTab(
     activeSource: SourceConfig?, allSources: List<SourceConfig>,
@@ -1187,114 +1450,284 @@ private fun MobileSettingsTab(
     onOpenExtractModal: (SourceConfig) -> Unit,
     onSyncCloud: () -> Unit, onForceSync: () -> Unit, onLogout: () -> Unit,
     onOpenUpdate: () -> Unit,
+    onNavigateToFavorites: () -> Unit = {},
     liveTotal: Int, liveHiddenCount: Int,
     moviesTotal: Int, moviesHiddenCount: Int,
     seriesTotal: Int, seriesHiddenCount: Int,
     onOpenCategoryManager: (MobileCategoryScope) -> Unit
 ) {
-    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    var adultModeEnabled by remember { mutableStateOf(false) }
+    var seriesOptimizedView by remember { mutableStateOf(true) }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(BixDarkBackground),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // 1. CABECERA: TÍTULO "Opciones"
         item {
-            Text("Gestor de Listas IPTV", color = LelouchTextPrimary, fontWeight = FontWeight.Black, fontSize = 20.sp)
-            Text("Cambia entre tus cuentas o anade un nuevo proveedor.", color = LelouchTextSecondary, fontSize = 13.sp)
-            Spacer(Modifier.height(8.dp))
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp, bottom = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                MobileActionButton("☁️ Nube", Modifier.weight(1f), onClick = onSyncCloud)
-                MobileActionButton("🔄 Sync", Modifier.weight(1f), onClick = onForceSync)
-                MobileActionButton("📲 OTA", Modifier.weight(1f), onClick = onOpenUpdate)
-                MobileDangerButton("🚪 Salir", Modifier.weight(1f), onClick = onLogout)
+                Text(
+                    text = "Opciones",
+                    color = Color.White,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 28.sp,
+                    letterSpacing = (-0.5).sp
+                )
+                IconButton(onClick = onForceSync) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Buscar opciones",
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
             }
         }
-        
+
+        // 2. TRES ACCESOS DIRECTOS CIRCULARES DE COLOR (BIX PLUS)
         item {
-            MobileCategoryVisibilitySection(
-                liveTotal = liveTotal,
-                liveHiddenCount = liveHiddenCount,
-                moviesTotal = moviesTotal,
-                moviesHiddenCount = moviesHiddenCount,
-                seriesTotal = seriesTotal,
-                seriesHiddenCount = seriesHiddenCount,
-                onOpenManager = onOpenCategoryManager
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // 🟢 Actualizaciones
+                CircleActionItem(
+                    icon = Icons.Default.Refresh,
+                    label = "Actualizaciones",
+                    bgColor = BixCircleGreen,
+                    onClick = onOpenUpdate
+                )
+                // 💖 Favoritos
+                CircleActionItem(
+                    icon = Icons.Default.Favorite,
+                    label = "Favoritos",
+                    bgColor = BixCirclePink,
+                    onClick = onNavigateToFavorites
+                )
+                // 🔵 Historial
+                CircleActionItem(
+                    icon = Icons.Default.History,
+                    label = "Historial",
+                    bgColor = BixCircleBlue,
+                    onClick = onNavigateToFavorites
+                )
+            }
         }
-        
+
+        // 3. SECCIÓN PREFERENCIAS (ESTILO BIX PLUS)
         item {
+            Text(
+                text = "PREFERENCIAS",
+                color = BixTextMuted,
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp,
+                letterSpacing = 1.sp,
+                modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+            )
+
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(
-                        Brush.horizontalGradient(
-                            listOf(
-                                LelouchCyanAccent.copy(alpha = 0.15f),
-                                LelouchBlueSecondary.copy(alpha = 0.15f)
-                            )
-                        )
-                    )
-                    .border(1.dp, LelouchCyanAccent.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
-                    .clickable { onOpenUpdate() }
-                    .padding(14.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(BixSurfaceCard)
+                    .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(16.dp))
+                    .padding(16.dp)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    // Item 1: Mostrar modo +18
                     Row(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpenCategoryManager(MobileCategoryScope.LIVE) },
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(38.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(LelouchCyanAccent.copy(alpha = 0.2f)),
+                                .size(42.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFF8B5CF6).copy(alpha = 0.2f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                Icons.Default.SystemUpdate,
+                                imageVector = Icons.Default.Visibility,
                                 contentDescription = null,
-                                tint = LelouchCyanAccent,
-                                modifier = Modifier.size(20.dp)
+                                tint = Color(0xFFA78BFA),
+                                modifier = Modifier.size(22.dp)
                             )
                         }
-                        Spacer(Modifier.width(12.dp))
-                        Column {
+                        Spacer(Modifier.width(14.dp))
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                "Actualizaciones de App (OTA)",
-                                color = LelouchTextPrimary,
+                                text = "Mostrar modo +18 / Categorías",
+                                color = Color.White,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 14.sp
                             )
                             Text(
-                                "Actualiza por Wi-Fi sin memorias USB",
-                                color = LelouchTextSecondary,
+                                text = "Gestiona la visibilidad de canales y categorías.",
+                                color = BixTextMuted,
                                 fontSize = 11.sp
                             )
                         }
+                        Switch(
+                            checked = adultModeEnabled,
+                            onCheckedChange = {
+                                adultModeEnabled = it
+                                onOpenCategoryManager(MobileCategoryScope.LIVE)
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = BixOrangeAccent,
+                                uncheckedThumbColor = Color.White.copy(0.6f),
+                                uncheckedTrackColor = Color.White.copy(0.15f)
+                            )
+                        )
                     }
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(LelouchCyanAccent)
-                            .padding(horizontal = 10.dp, vertical = 6.dp)
+
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+
+                    // Item 2: Vista optimizada de series
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            "BUSCAR",
-                            color = Color.Black,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Black
+                        Box(
+                            modifier = Modifier
+                                .size(42.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFF0284C7).copy(alpha = 0.2f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.VideoLibrary,
+                                contentDescription = null,
+                                tint = Color(0xFF38BDF8),
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Vista optimizada de series",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                            Text(
+                                text = "Agrupa episodios en temporadas para navegar más rápido.",
+                                color = BixTextMuted,
+                                fontSize = 11.sp
+                            )
+                        }
+                        Switch(
+                            checked = seriesOptimizedView,
+                            onCheckedChange = { seriesOptimizedView = it },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = BixOrangeAccent,
+                                uncheckedThumbColor = Color.White.copy(0.6f),
+                                uncheckedTrackColor = Color.White.copy(0.15f)
+                            )
+                        )
+                    }
+
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+
+                    // Botones rápidos Cloud Sync
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = onSyncCloud,
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.08f)),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("☁️ Nube", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Button(
+                            onClick = onForceSync,
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.08f)),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("🔄 Recargar", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+
+                    // Botón para administrar categorías ocultas
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpenCategoryManager(MobileCategoryScope.LIVE) },
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color.White.copy(alpha = 0.08f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.Tune,
+                                    contentDescription = null,
+                                    tint = BixOrangeAccent,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    "Categorías Ocultas",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                                Text(
+                                    "Ocultos: $liveHiddenCount TV • $moviesHiddenCount Pelis • $seriesHiddenCount Series",
+                                    color = BixTextMuted,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                        Icon(
+                            Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = BixTextMuted,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }
             }
         }
+
         item {
-            Text("Listas Registradas (${allSources.size}):", color = LelouchCyanAccent,
-                fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Text(
+                "LISTAS REGISTRADAS (${allSources.size})",
+                color = BixTextMuted,
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp,
+                letterSpacing = 1.sp,
+                modifier = Modifier.padding(start = 4.dp, top = 4.dp)
+            )
         }
         items(allSources) { source ->
             val isActive = source.id == activeSource?.id
@@ -2429,5 +2862,40 @@ private fun MobileDangerButton(label: String, modifier: Modifier = Modifier, onC
         colors = ButtonDefaults.buttonColors(containerColor = LelouchLiveRed.copy(alpha = 0.2f)),
         shape = RoundedCornerShape(8.dp)) {
         Text(label, fontSize = 11.sp, color = LelouchLiveRed, maxLines = 1)
+    }
+}
+
+@Composable
+private fun CircleActionItem(
+    icon: ImageVector,
+    label: String,
+    bgColor: Color,
+    onClick: () -> Unit
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.clickable(onClick = onClick)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(62.dp)
+                .clip(CircleShape)
+                .background(bgColor),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = Color.White,
+                modifier = Modifier.size(28.dp)
+            )
+        }
+        Text(
+            text = label,
+            color = Color.White,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium
+        )
     }
 }

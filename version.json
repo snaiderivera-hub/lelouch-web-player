@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.86",
-  "versionCode": 1000086,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.86/app-debug.apk",
-  "changelog": "• Posicionamiento centrado absoluto del indicador circular en la pantalla.\n• Diseño continuo fino con aro blanco y degradé neón (sin números ni porcentajes).\n• Blindaje total de reproducción en vivo intacto."
+  "versionName": "1.0.87",
+  "versionCode": 1000087,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.87/app-debug.apk",
+  "changelog": "• Rediseño Mobile estilo Bix Plus con 5 pestañas de navegación.\n• 3 Accesos Directos Circulares en Opciones: 🟢 Actualizaciones, 💖 Favoritos, 🔵 Historial.\n• Empty State de Favoritos con círculo naranja y play.\n• Panel Administrador de cuentas, sincronización y listas 100% conservado."
 }
