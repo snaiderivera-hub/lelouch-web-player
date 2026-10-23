@@ -101,6 +101,7 @@ fun TvPortalDashboard(
     }
 
     val headerFocusRequester = remember { FocusRequester() }
+    val settingsFocusRequester = remember { FocusRequester() }
 
     Column(
         modifier = modifier
@@ -182,34 +183,73 @@ fun TvPortalDashboard(
                 }
             }
 
-            // Botón Circular de Acceso Rápido / Estado D-Pad compatible
-            Surface(
-                onClick = onNavigateToSearch,
-                modifier = Modifier
-                    .size(44.dp)
-                    .focusRequester(headerFocusRequester),
-                shape = ClickableSurfaceDefaults.shape(CircleShape),
-                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.15f),
-                colors = ClickableSurfaceDefaults.colors(
-                    containerColor = Color(0xFF1A1C23),
-                    focusedContainerColor = Color(0xFFFF6B00)
-                ),
-                border = ClickableSurfaceDefaults.border(
-                    border = Border(BorderStroke(1.dp, Color(0xFF334155))),
-                    focusedBorder = Border(BorderStroke(2.dp, Color.White))
-                )
+            // Botones Circulares de Acceso Rápido: Lupa (Buscar) y Engranaje (Ajustes)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                var isBtnFocused by remember { mutableStateOf(false) }
-                Box(
+                // 1. Lupa (Buscar)
+                Surface(
+                    onClick = onNavigateToSearch,
                     modifier = Modifier
-                        .fillMaxSize()
-                        .onFocusChanged { isBtnFocused = it.isFocused },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "🔍",
-                        fontSize = 18.sp
+                        .size(44.dp)
+                        .focusRequester(headerFocusRequester)
+                        .focusProperties { right = settingsFocusRequester },
+                    shape = ClickableSurfaceDefaults.shape(CircleShape),
+                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.15f),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = Color(0xFF1A1C23),
+                        focusedContainerColor = Color(0xFFFF6B00)
+                    ),
+                    border = ClickableSurfaceDefaults.border(
+                        border = Border(BorderStroke(1.dp, Color(0xFF334155))),
+                        focusedBorder = Border(BorderStroke(2.dp, Color.White))
                     )
+                ) {
+                    var isBtnFocused by remember { mutableStateOf(false) }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .onFocusChanged { isBtnFocused = it.isFocused },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "🔍",
+                            fontSize = 18.sp
+                        )
+                    }
+                }
+
+                // 2. Engranaje (Ajustes & Opciones)
+                Surface(
+                    onClick = onOpenSettings,
+                    modifier = Modifier
+                        .size(44.dp)
+                        .focusRequester(settingsFocusRequester)
+                        .focusProperties { left = headerFocusRequester },
+                    shape = ClickableSurfaceDefaults.shape(CircleShape),
+                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.15f),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = Color(0xFF1A1C23),
+                        focusedContainerColor = Color(0xFFFF6B00)
+                    ),
+                    border = ClickableSurfaceDefaults.border(
+                        border = Border(BorderStroke(1.dp, Color(0xFF334155))),
+                        focusedBorder = Border(BorderStroke(2.dp, Color.White))
+                    )
+                ) {
+                    var isBtnFocused by remember { mutableStateOf(false) }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .onFocusChanged { isBtnFocused = it.isFocused },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "⚙️",
+                            fontSize = 18.sp
+                        )
+                    }
                 }
             }
         }
