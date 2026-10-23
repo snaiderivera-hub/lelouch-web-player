@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.87",
-  "versionCode": 1000087,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.87/app-debug.apk",
-  "changelog": "• Rediseño Mobile estilo Bix Plus con 5 pestañas de navegación.\n• 3 Accesos Directos Circulares en Opciones: 🟢 Actualizaciones, 💖 Favoritos, 🔵 Historial.\n• Empty State de Favoritos con círculo naranja y play.\n• Panel Administrador de cuentas, sincronización y listas 100% conservado."
+  "versionName": "1.0.89",
+  "versionCode": 1000089,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.89/app-debug.apk",
+  "changelog": "• Corrección y soporte completo de capítulos y temporadas de series en Mobile.\n• Parser híbrido tolerante (JSONObject y JSONArray) para Xtream Codes.\n• Diseño Bix Plus con degradado cálido, buscador ovalado y sin tarjetas redundantes."
 }

@@ -123,6 +123,17 @@ fun MobileHomeScreen(
         hiddenPrefs.edit().putStringSet("series", newSet).apply()
     }
 
+    var isAdultModeEnabled by remember { mutableStateOf(hiddenPrefs.getBoolean("adult_mode_enabled", false)) }
+    fun saveAdultMode(enabled: Boolean) {
+        isAdultModeEnabled = enabled
+        hiddenPrefs.edit().putBoolean("adult_mode_enabled", enabled).apply()
+    }
+
+    // Detector exhaustivo de contenido para adultos (+18)
+    val adultContentRegex = remember {
+        Regex("(?i)\\b(xxx|adult|adultos|\\+18|erotic|forbiden|playboy|venus|penthouse|brazzers|redlight|hustler|babes|porn)\\b")
+    }
+
     // FASE 32: Permitir rotación automática controlada
     DisposableEffect(Unit) {
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
@@ -146,11 +157,12 @@ fun MobileHomeScreen(
 
     // FASE 33: Regex defensivo para filtrar episodios de series en pantalla de canales en vivo
     val seriesLeakRegex = remember { Regex("(?i)\\b(s\\d{1,2}|t\\d{1,2}|cap\\.?\\s*\\d+|ep\\.?\\s*\\d+)\\b") }
-    val cleanLiveChannels = remember(liveChannels, hiddenLiveCategories) {
+    val cleanLiveChannels = remember(liveChannels, hiddenLiveCategories, isAdultModeEnabled) {
         liveChannels.filter { stream ->
             (stream.streamType.isBlank() || stream.streamType.equals("live", ignoreCase = true)) &&
             !seriesLeakRegex.containsMatchIn(stream.name) &&
-            stream.categoryId !in hiddenLiveCategories && stream.categoryName !in hiddenLiveCategories
+            stream.categoryId !in hiddenLiveCategories && stream.categoryName !in hiddenLiveCategories &&
+            (isAdultModeEnabled || (!adultContentRegex.containsMatchIn(stream.name) && !adultContentRegex.containsMatchIn(stream.categoryName)))
         }.distinctBy { ch -> ch.streamUrl.ifBlank { ch.name } }
     }
 
@@ -258,11 +270,14 @@ fun MobileHomeScreen(
         listOf(MobileCategoryItem(id = "all", name = "Todos")) + combined
     }
 
-    val filteredMovies = remember(movies, hiddenMovieCategories) {
-        movies.filter { it.categoryId !in hiddenMovieCategories && it.categoryName !in hiddenMovieCategories }
+    val filteredMovies = remember(movies, hiddenMovieCategories, isAdultModeEnabled) {
+        movies.filter {
+            it.categoryId !in hiddenMovieCategories && it.categoryName !in hiddenMovieCategories &&
+            (isAdultModeEnabled || (!adultContentRegex.containsMatchIn(it.name) && !adultContentRegex.containsMatchIn(it.categoryName)))
+        }
     }
 
-    val movieCategoryList = remember(vodCategories, filteredMovies, hiddenMovieCategories) {
+    val movieCategoryList = remember(vodCategories, filteredMovies, hiddenMovieCategories, isAdultModeEnabled) {
         val fromDb = vodCategories.map { MobileCategoryItem(id = it.categoryId, name = it.categoryName) }
         val fromMovies = filteredMovies.mapNotNull { mov ->
             if (mov.categoryName.isNotBlank() && mov.categoryId.isNotBlank()) {
@@ -271,15 +286,19 @@ fun MobileHomeScreen(
         }.distinctBy { it.id }
         val combined = (fromDb + fromMovies)
             .filter { it.id !in hiddenMovieCategories && it.name !in hiddenMovieCategories }
+            .filter { isAdultModeEnabled || (!adultContentRegex.containsMatchIn(it.name) && !adultContentRegex.containsMatchIn(it.id)) }
             .distinctBy { it.id }.sortedBy { it.name }
         listOf(MobileCategoryItem(id = "all", name = "Todas")) + combined
     }
 
-    val filteredSeriesList = remember(seriesList, hiddenSeriesCategories) {
-        seriesList.filter { it.categoryId !in hiddenSeriesCategories && it.categoryName !in hiddenSeriesCategories }
+    val filteredSeriesList = remember(seriesList, hiddenSeriesCategories, isAdultModeEnabled) {
+        seriesList.filter {
+            it.categoryId !in hiddenSeriesCategories && it.categoryName !in hiddenSeriesCategories &&
+            (isAdultModeEnabled || (!adultContentRegex.containsMatchIn(it.name) && !adultContentRegex.containsMatchIn(it.categoryName)))
+        }
     }
 
-    val seriesCategoryList = remember(seriesCategories, filteredSeriesList, hiddenSeriesCategories) {
+    val seriesCategoryList = remember(seriesCategories, filteredSeriesList, hiddenSeriesCategories, isAdultModeEnabled) {
         val fromDb = seriesCategories.map { MobileCategoryItem(id = it.categoryId, name = it.categoryName) }
         val fromSeries = filteredSeriesList.mapNotNull { s ->
             if (s.categoryName.isNotBlank() && s.categoryId.isNotBlank()) {
@@ -288,6 +307,7 @@ fun MobileHomeScreen(
         }.distinctBy { it.id }
         val combined = (fromDb + fromSeries)
             .filter { it.id !in hiddenSeriesCategories && it.name !in hiddenSeriesCategories }
+            .filter { isAdultModeEnabled || (!adultContentRegex.containsMatchIn(it.name) && !adultContentRegex.containsMatchIn(it.id)) }
             .distinctBy { it.id }.sortedBy { it.name }
         listOf(MobileCategoryItem(id = "all", name = "Todas")) + combined
     }
@@ -418,7 +438,8 @@ fun MobileHomeScreen(
                             onSeeAllMovies = { selectedTab = 1 },
                             onSeeAllSeries = { selectedTab = 1 },
                             onReloadCatalog = onForceSync,
-                            onOpenSettings = { selectedTab = 4 }
+                            onOpenSettings = { selectedTab = 4 },
+                            onSearchClick = { selectedTab = 1 }
                         )
                         1 -> MobileVodTab(
                             movies = if (searchQuery.isBlank()) filteredMovies
@@ -460,6 +481,8 @@ fun MobileHomeScreen(
                             onSyncCloud = onSyncCloudSources, onForceSync = onForceSync, onLogout = onLogout,
                             onOpenUpdate = { isUpdateModalOpen = true },
                             onNavigateToFavorites = { selectedTab = 3 },
+                            isAdultModeEnabled = isAdultModeEnabled,
+                            onToggleAdultMode = { saveAdultMode(it) },
                             liveTotal = liveCategories.size,
                             liveHiddenCount = liveCategories.count { hiddenLiveCategories.contains(it.categoryName) || hiddenLiveCategories.contains(it.categoryId) },
                             moviesTotal = vodCategories.size,
@@ -951,7 +974,8 @@ private fun MobileHomeTab(
     onSeriesClick: (Series) -> Unit, onSeeAllLive: () -> Unit,
     onSeeAllMovies: () -> Unit, onSeeAllSeries: () -> Unit,
     onReloadCatalog: () -> Unit = {},
-    onOpenSettings: () -> Unit = {}
+    onOpenSettings: () -> Unit = {},
+    onSearchClick: () -> Unit = onSeeAllMovies
 ) {
     val context = LocalContext.current
     val sportsCount = remember(liveChannels) {
@@ -980,6 +1004,7 @@ private fun MobileHomeTab(
                 },
                 onReloadCatalog = onReloadCatalog,
                 onOpenSettings = onOpenSettings,
+                onSearchClick = onSearchClick,
                 liveChannels = liveChannels,
                 movies = movies,
                 seriesList = seriesList,
@@ -1451,12 +1476,13 @@ private fun MobileSettingsTab(
     onSyncCloud: () -> Unit, onForceSync: () -> Unit, onLogout: () -> Unit,
     onOpenUpdate: () -> Unit,
     onNavigateToFavorites: () -> Unit = {},
+    isAdultModeEnabled: Boolean = false,
+    onToggleAdultMode: (Boolean) -> Unit = {},
     liveTotal: Int, liveHiddenCount: Int,
     moviesTotal: Int, moviesHiddenCount: Int,
     seriesTotal: Int, seriesHiddenCount: Int,
     onOpenCategoryManager: (MobileCategoryScope) -> Unit
 ) {
-    var adultModeEnabled by remember { mutableStateOf(false) }
     var seriesOptimizedView by remember { mutableStateOf(true) }
 
     LazyColumn(
@@ -1570,22 +1596,22 @@ private fun MobileSettingsTab(
                         Spacer(Modifier.width(14.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Mostrar modo +18 / Categorías",
+                                text = "Mostrar modo +18 / Adultos",
                                 color = Color.White,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 14.sp
                             )
                             Text(
-                                text = "Gestiona la visibilidad de canales y categorías.",
-                                color = BixTextMuted,
-                                fontSize = 11.sp
+                                text = if (isAdultModeEnabled) "Canales y películas +18 visibles" else "Contenido adulto oculto",
+                                color = if (isAdultModeEnabled) Color(0xFFEF4444) else BixTextMuted,
+                                fontSize = 11.sp,
+                                fontWeight = if (isAdultModeEnabled) FontWeight.Bold else FontWeight.Normal
                             )
                         }
                         Switch(
-                            checked = adultModeEnabled,
-                            onCheckedChange = {
-                                adultModeEnabled = it
-                                onOpenCategoryManager(MobileCategoryScope.LIVE)
+                            checked = isAdultModeEnabled,
+                            onCheckedChange = { enable ->
+                                onToggleAdultMode(enable)
                             },
                             colors = SwitchDefaults.colors(
                                 checkedThumbColor = Color.White,
@@ -2363,13 +2389,18 @@ private fun MobileSeriesDetailDialog(
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     val context = LocalContext.current
 
+    val seasons = remember(episodes) {
+        val list = episodes.map { it.seasonNumber }.distinct().sorted()
+        if (list.isEmpty()) listOf(1) else list
+    }
+
     LaunchedEffect(series.seriesId) {
         isLoading = true
         try {
             if (onFetchSeriesDetails != null) {
                 val (seasonList, epList) = onFetchSeriesDetails(series.seriesId)
                 episodes = epList
-                val sList = if (seasonList.isNotEmpty()) seasonList else epList.map { it.seasonNumber }.distinct().sorted()
+                val sList = epList.map { it.seasonNumber }.distinct().sorted().ifEmpty { seasonList }
                 selectedSeason = sList.firstOrNull() ?: 1
             } else {
                 episodes = emptyList()
@@ -2381,15 +2412,19 @@ private fun MobileSeriesDetailDialog(
         }
     }
 
-    val seasons = remember(episodes) {
-        episodes.map { it.seasonNumber }.distinct().sorted()
+    LaunchedEffect(seasons) {
+        if (selectedSeason == null || selectedSeason !in seasons) {
+            selectedSeason = seasons.firstOrNull() ?: 1
+        }
     }
+
     val currentEpisodes = remember(episodes, selectedSeason) {
-        if (selectedSeason != null) {
+        val filtered = if (selectedSeason != null) {
             episodes.filter { it.seasonNumber == selectedSeason }
         } else {
             episodes
         }
+        if (filtered.isEmpty() && episodes.isNotEmpty()) episodes else filtered
     }
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
@@ -2492,10 +2527,10 @@ private fun MobileSeriesDetailDialog(
 
                         // Lista de Episodios
                         LazyColumn(
-                            modifier = Modifier.fillMaxWidth().heightIn(max = 240.dp),
+                            modifier = Modifier.fillMaxWidth().heightIn(max = 280.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            items(currentEpisodes, key = { it.episodeId }) { ep ->
+                            items(currentEpisodes, key = { "${it.seasonNumber}_${it.episodeNumber}_${it.episodeId}_${it.id}" }) { ep ->
                                 val streamUrl = StreamUrlResolver.resolve(
                                     directUrl = ep.streamUrl,
                                     source = activeSource,
