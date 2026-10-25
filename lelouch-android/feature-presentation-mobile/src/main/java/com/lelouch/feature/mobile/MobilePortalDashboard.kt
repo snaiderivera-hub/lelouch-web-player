@@ -155,13 +155,26 @@ fun MobilePortalDashboard(
                         )
                     }
                     Spacer(Modifier.height(2.dp))
-                    Text(
-                        text = "PELICULAS, SERIES, TV EN VIVO",
-                        color = BixTextMuted,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.2.sp
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "PELICULAS, SERIES, TV EN VIVO",
+                            color = BixTextMuted,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.2.sp
+                        )
+                        // FASE 35: estado real de la conexión de la fuente activa.
+                        sourceConnectionLabel(activeSource)?.let { label ->
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = label,
+                                color = BixOrangeAccent,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1
+                            )
+                        }
+                    }
                 }
             }
 

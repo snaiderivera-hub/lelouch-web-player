@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.96",
-  "versionCode": 1000096,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.96/app-debug.apk",
-  "changelog": "- DLNA Cast: transmision directa a Smart TVs sin Google Play Services.\n- Pistas y Subtitulos: selector de resolucion, audio multi-idioma y subtitulos para VOD.\n- Historial y Continuar Viendo: persistencia de avance en peliculas y series con reanudacion segura.\n- Optimizacion Movil: arranque instantaneo de canales en vivo y gestos tactiles calibrados.\n- Zona Blindada (FASE 34): canales en vivo 100% protegidos e intocables."
+  "versionName": "1.0.97",
+  "versionCode": 1000097,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.97/app-debug.apk",
+  "changelog": "- Lista Personalizada retirada: se elimino su lectura en la nube y se purga su catalogo local (canales, peliculas, series, categorias, favoritos e historial).\n- Sincronizacion mas rapida: se elimino la estrategia de 50.000 items que bloqueaba las listas reales.\n- Conexiones reales: la tarjeta de cuenta y la cabecera muestran X/Y conexiones de Xtream, actualizadas al sincronizar o recargar; las listas M3U muestran M3U.\n- Alta de listas sin reinicios: la nueva lista se activa y sincroniza en la misma pantalla, sin doble sincronizacion ni pantallazo.\n- Borrado de listas purga su catalogo local y conserva las demas listas del dispositivo.\n- Zona Blindada (FASE 34): motor de reproduccion y buffers intactos."
 }

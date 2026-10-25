@@ -31,7 +31,6 @@ import com.lelouch.player.bootstrap.SourceBootstrapState
 import com.lelouch.player.bootstrap.SourceBootstrapViewModel
 import com.lelouch.feature.tv.components.TvBootstrapRecoveryScreen
 import com.lelouch.feature.tv.components.TvAdminPanelModal
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 
@@ -64,6 +63,11 @@ class MainActivity : ComponentActivity() {
 
             var errorMessage by remember { mutableStateOf<String?>(null) }
             var isManualAdminModalVisible by remember { mutableStateOf(false) }
+            // FASE 41: fuerza la próxima sincronización de la fuente que se está activando.
+            // Antes «🔄 Recargar» activaba y llamaba a onForceSync(), pero ese callback leía
+            // `effectiveActiveSource`, que en ese instante todavía era la lista anterior: se
+            // recargaba la lista vieja y la nueva quedaba vacía.
+            var forceSyncSourceId by remember { mutableStateOf<String?>(null) }
 
             val syncStatusText = when {
                 bootstrapState is SourceBootstrapState.UsingLocalCache -> (bootstrapState as SourceBootstrapState.UsingLocalCache).warning
@@ -85,6 +89,12 @@ class MainActivity : ComponentActivity() {
                 errorMessage = (syncState as SyncState.Error).message
             }
 
+            // Un error de sincronización deja de ser vigente en cuanto una sincronización
+            // posterior termina correctamente; si no, el aviso rojo quedaría pegado.
+            LaunchedEffect(syncState) {
+                if (syncState is SyncState.Completed) errorMessage = null
+            }
+
             val allSources by app.authRepository.getAllSources().collectAsStateWithLifecycle(initialValue = emptyList())
 
             fun onLogin(serverUrl: String, user: String, pass: String) {
@@ -92,8 +102,8 @@ class MainActivity : ComponentActivity() {
                 lifecycleScope.launch {
                     val authResult = app.authRepository.validateXtream(serverUrl, user, pass)
                     authResult.onSuccess { source ->
-                        app.syncManager.syncAll(source.id, serverUrl, user, pass)
-                        bootstrapViewModel.retry()
+                        forceSyncSourceId = source.id
+                        bootstrapViewModel.onSourceAdded(source)
                     }.onFailure { error ->
                         errorMessage = error.localizedMessage ?: "Error al conectar con el servidor IPTV"
                     }
@@ -101,36 +111,73 @@ class MainActivity : ComponentActivity() {
             }
 
             fun onActivateSource(sourceId: String) {
+                errorMessage = null
                 lifecycleScope.launch {
                     val activated = app.authRepository.activateSource(sourceId)
-                    if (activated != null) {
-                        bootstrapViewModel.retry()
-                        launch(Dispatchers.IO) {
-                            app.syncManager.syncIfNeeded(
-                                sourceId = activated.id,
-                                serverUrl = activated.serverUrl,
-                                user = activated.username,
-                                pass = activated.password,
-                                sourceType = activated.type
-                            )
+                    if (activated == null) {
+                        errorMessage = "No se pudo activar la lista seleccionada."
+                    }
+                    // No se refresca la nube aquí: eso ponía la pantalla en Loading y mantenía
+                    // el estado anterior el tiempo suficiente para sincronizar la lista vieja.
+                    // El cambio de fuente dispara LaunchedEffect, que sincroniza la nueva.
+                }
+            }
+
+            /**
+             * Activa la lista y fuerza su sincronización. Se usa desde el botón «Recargar» de
+             * los ajustes móviles, donde antes se activaba una lista y se recargaba otra.
+             */
+            fun onReloadSource(sourceId: String) {
+                errorMessage = null
+                lifecycleScope.launch {
+                    val alreadyActive = activeSource?.id == sourceId
+                    // Se marca ANTES de activar: si se marca después, el flujo de la fuente ya
+                    // pudo emitir y LaunchedEffect habría arrancado con force = false.
+                    if (!alreadyActive) forceSyncSourceId = sourceId
+                    val activated = app.authRepository.activateSource(sourceId)
+                    if (activated == null) {
+                        forceSyncSourceId = null
+                        errorMessage = "No se pudo activar la lista seleccionada."
+                        return@launch
+                    }
+                    if (alreadyActive) {
+                        // Misma fuente: LaunchedEffect no se vuelve a ejecutar.
+                        val result = app.syncManager.syncAll(
+                            sourceId = activated.id,
+                            serverUrl = activated.serverUrl,
+                            user = activated.username,
+                            pass = activated.password,
+                            sourceType = activated.type,
+                            force = true
+                        )
+                        result.onFailure { error ->
+                            errorMessage = error.localizedMessage ?: "No se pudo recargar la lista."
                         }
                     }
+                    // Si la fuente cambia, LaunchedEffect consume la petición forzada.
                 }
             }
 
             fun onDeleteSource(sourceId: String) {
                 lifecycleScope.launch {
                     app.authRepository.removeSource(sourceId)
+                    // El catálogo de la lista borrada no debe seguir en Room: alimentaba
+                    // favoritos y raíles con contenido huérfano.
+                    app.purgeSourceData(sourceId)
                     bootstrapViewModel.retry()
                 }
             }
 
             fun onAddSource(serverUrl: String, user: String, pass: String, name: String) {
+                errorMessage = null
                 lifecycleScope.launch {
                     val authResult = app.authRepository.validateXtream(serverUrl, user, pass, name)
                     authResult.onSuccess { source ->
-                        app.syncManager.syncAll(source.id, source.serverUrl, source.username, source.password)
-                        bootstrapViewModel.retry()
+                        // FASE 35: la fuente ya quedó guardada y activa. No se vuelve a
+                        // sincronizar la nube ni se llama a syncAll: el LaunchedEffect de la
+                        // pantalla sincroniza el catálogo con su indicador de progreso.
+                        forceSyncSourceId = source.id
+                        bootstrapViewModel.onSourceAdded(source)
                     }.onFailure { error ->
                         errorMessage = error.localizedMessage ?: "Error al conectar"
                     }
@@ -138,11 +185,12 @@ class MainActivity : ComponentActivity() {
             }
 
             fun onAddSourceSmart(rawUrl: String, customName: String) {
+                errorMessage = null
                 lifecycleScope.launch {
                     val authResult = app.authRepository.addSourceFromUrl(rawUrl, customName)
                     authResult.onSuccess { source ->
-                        app.syncManager.syncAll(source.id, source.serverUrl, source.username, source.password, source.type)
-                        bootstrapViewModel.retry()
+                        forceSyncSourceId = source.id
+                        bootstrapViewModel.onSourceAdded(source)
                     }.onFailure { error ->
                         errorMessage = error.localizedMessage ?: "Error al conectar"
                     }
@@ -150,9 +198,9 @@ class MainActivity : ComponentActivity() {
             }
 
             suspend fun onExtractContent(sourceId: String, categoryNames: Set<String>, type: String): Int {
-                val count = app.syncManager.extractChannelsToCustomPlaylist(sourceId, categoryNames)
-                bootstrapViewModel.retry()
-                return count
+                // FASE 35: la extracción ya no crea una fuente local, así que no hay nada que
+                // recargar aquí; un retry solo mostraría el spinner de arranque sin motivo.
+                return app.syncManager.extractChannelsToCustomPlaylist(sourceId, categoryNames)
             }
 
             fun onSyncCloud() {
@@ -194,16 +242,25 @@ class MainActivity : ComponentActivity() {
             // ── FASE P0 #5: Arranque inteligente — catálogo local Room primero, sync solo si cambió ──
             LaunchedEffect(effectiveActiveSource?.id) {
                 val src = effectiveActiveSource ?: return@LaunchedEffect
+                val force = forceSyncSourceId == src.id
+                if (force) forceSyncSourceId = null
                 if (activeSource == null) {
                     app.authRepository.activateSource(src.id)
                 }
-                app.syncManager.syncIfNeeded(
+                val result = app.syncManager.syncAll(
                     sourceId = src.id,
                     serverUrl = src.serverUrl,
                     user = src.username,
                     pass = src.password,
-                    sourceType = src.type
+                    sourceType = src.type,
+                    force = force
                 )
+                result.onFailure { error ->
+                    val msg = error.localizedMessage ?: "No se pudo sincronizar la lista."
+                    // El mutex devuelve esto cuando dos pantallas piden la misma fuente a la
+                    // vez; no es un fallo para el usuario.
+                    if (!msg.contains("ya en curso")) errorMessage = msg
+                }
             }
 
             val liveChannels by (if (!isTv && effectiveActiveSource != null) app.channelRepository.getAllChannels(effectiveActiveSource.id) else kotlinx.coroutines.flow.emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
@@ -331,7 +388,6 @@ class MainActivity : ComponentActivity() {
                                 onDeleteSource = ::onDeleteSource,
                                 onAddSource = { url, user, pass, name ->
                                     onAddSource(url, user, pass, name)
-                                    bootstrapViewModel.retry()
                                     isManualAdminModalVisible = false
                                 },
                                 onSyncCloudSources = {
@@ -376,6 +432,9 @@ class MainActivity : ComponentActivity() {
                                 onExtractContent = ::onExtractContent,
                                 onSyncCloudSources = ::onSyncCloud,
                                 onForceSync = ::onForceSync,
+                                onReloadSource = ::onReloadSource,
+                                syncStatusText = errorMessage ?: syncStatusText,
+                                syncIsError = errorMessage != null || syncState is SyncState.Error,
                                 onLogout = ::onLogout,
                                 playbackHistory = app.playbackHistoryRepository,
                                 onFetchSeriesDetails = { seriesId ->

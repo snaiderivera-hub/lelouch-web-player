@@ -60,6 +60,18 @@ interface CatalogStagingDao {
     @Query("DELETE FROM categories_staging WHERE sourceId = :sourceId AND syncId != :activeSyncId")
     suspend fun cleanupOrphanCategoriesStaging(sourceId: String, activeSyncId: String = "")
 
+    @Query("DELETE FROM channels_staging WHERE sourceId = :sourceId")
+    suspend fun deleteStagingChannelsBySource(sourceId: String)
+
+    @Query("DELETE FROM movies_staging WHERE sourceId = :sourceId")
+    suspend fun deleteStagingMoviesBySource(sourceId: String)
+
+    @Query("DELETE FROM series_staging WHERE sourceId = :sourceId")
+    suspend fun deleteStagingSeriesBySource(sourceId: String)
+
+    @Query("DELETE FROM categories_staging WHERE sourceId = :sourceId")
+    suspend fun deleteStagingCategoriesBySource(sourceId: String)
+
     @Query("""
         UPDATE channels_staging 
         SET isFavorite = 1 

@@ -24,4 +24,7 @@ interface FavoriteDao {
 
     @Query("SELECT * FROM favorites WHERE sourceId = :sourceId ORDER BY addedAt DESC")
     fun getAllFavorites(sourceId: String): Flow<List<FavoriteEntity>>
+
+    @Query("DELETE FROM favorites WHERE sourceId = :sourceId")
+    suspend fun deleteFavoritesBySource(sourceId: String)
 }

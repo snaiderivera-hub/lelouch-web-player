@@ -110,6 +110,9 @@ fun MobileHomeScreen(
     onExtractContent: (suspend (sourceId: String, categoryNames: Set<String>, type: String) -> Int)? = null,
     onSyncCloudSources: () -> Unit = {},
     onForceSync: () -> Unit = {},
+    onReloadSource: (String) -> Unit = {},
+    syncStatusText: String = "",
+    syncIsError: Boolean = false,
     onLogout: () -> Unit = {},
     onFetchSeriesDetails: (suspend (seriesId: Int) -> Pair<List<Int>, List<Episode>>)? = null,
     playbackHistory: PlaybackHistoryRepository? = null,
@@ -658,6 +661,8 @@ fun MobileHomeScreen(
                                 extractTargetSource = target
                             },
                             onSyncCloud = onSyncCloudSources, onForceSync = onForceSync, onLogout = onLogout,
+                            onReloadSource = onReloadSource,
+                            syncStatusText = syncStatusText, syncIsError = syncIsError,
                             onOpenUpdate = { isUpdateModalOpen = true },
                             onNavigateToFavorites = { selectedTab = 3 },
                             onOpenHistory = { isHistoryVisible = true },
@@ -1245,7 +1250,18 @@ private fun MobileTopBar(
                             Spacer(Modifier.width(4.dp))
                             Text(activeSource.name, color = LelouchCyanAccent, fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.widthIn(max = 110.dp))
+                                modifier = Modifier.widthIn(max = 84.dp))
+                            // FASE 35: datos reales de la cuenta en la cabecera.
+                            sourceConnectionLabel(activeSource)?.let { label ->
+                                Spacer(Modifier.width(5.dp))
+                                Text(
+                                    label,
+                                    color = LelouchTextSecondary,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1
+                                )
+                            }
                         }
                     }
                 }
@@ -1813,6 +1829,8 @@ private fun MobileSettingsTab(
     onAddSourceSmart: (String, String) -> Unit,
     onOpenExtractModal: (SourceConfig) -> Unit,
     onSyncCloud: () -> Unit, onForceSync: () -> Unit, onLogout: () -> Unit,
+    onReloadSource: (String) -> Unit = {},
+    syncStatusText: String = "", syncIsError: Boolean = false,
     onOpenUpdate: () -> Unit,
     onNavigateToFavorites: () -> Unit = {},
     onOpenHistory: () -> Unit = {},
@@ -2085,6 +2103,29 @@ private fun MobileSettingsTab(
             }
         }
 
+        // Estado de sincronización visible en móvil (antes solo se mostraba en TV, así que un
+        // cambio de lista fallido dejaba la pantalla vacía sin explicación).
+        if (syncStatusText.isNotBlank()) {
+            item {
+                val accent = if (syncIsError) LelouchLiveRed else Color(0xFF38BDF8)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(accent.copy(alpha = 0.12f))
+                        .border(1.dp, accent.copy(alpha = 0.45f), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                ) {
+                    Text(
+                        text = syncStatusText,
+                        color = accent,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
         item {
             Text(
                 "LISTAS REGISTRADAS (${allSources.size})",
@@ -2098,7 +2139,7 @@ private fun MobileSettingsTab(
         items(allSources) { source ->
             val isActive = source.id == activeSource?.id
             val daysRem = source.expireDaysRemaining
-            val isCustom = source.type == SourceType.M3U || source.id.startsWith("custom_")
+            val isM3u = source.type == SourceType.M3U
 
             Box(
                 modifier = Modifier
@@ -2169,7 +2210,7 @@ private fun MobileSettingsTab(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        if (isCustom || source.expireDate.isNullOrBlank()) {
+                        if (isM3u || source.expireDate.isNullOrBlank()) {
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(4.dp))
@@ -2178,7 +2219,7 @@ private fun MobileSettingsTab(
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
                                 Text(
-                                    "♾️ Ilimitado",
+                                    if (isM3u) "♾️ M3U" else "♾️ Ilimitado",
                                     color = Color(0xFF10B981),
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold
@@ -2211,7 +2252,7 @@ private fun MobileSettingsTab(
                             }
                         }
 
-                        if (source.maxConnections > 0 && !isCustom) {
+                        if (source.maxConnections > 0 && !isM3u) {
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(4.dp))
@@ -2277,10 +2318,7 @@ private fun MobileSettingsTab(
                             }
 
                             OutlinedButton(
-                                onClick = {
-                                    onActivateSource(source.id)
-                                    onForceSync()
-                                },
+                                onClick = { onReloadSource(source.id) },
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                                 shape = RoundedCornerShape(6.dp),
                                 border = androidx.compose.foundation.BorderStroke(1.dp, LelouchBorder)
@@ -2288,7 +2326,7 @@ private fun MobileSettingsTab(
                                 Text("🔄 Recargar", color = LelouchTextPrimary, fontSize = 11.sp)
                             }
 
-                            if (!isCustom) {
+                            if (!isM3u) {
                                 OutlinedButton(
                                     onClick = { onOpenExtractModal(source) },
                                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
@@ -3302,3 +3340,16 @@ private suspend fun PlaybackHistoryRepository?.safeResumePositionMs(
 }
 
 private const val RESUME_LOOKUP_TIMEOUT_MS = 3_000L
+
+/**
+ * FASE 35 (1.0.97): etiqueta compacta con el estado real de la conexión de la fuente activa.
+ * Xtream expone conexiones simultáneas; M3U no tiene panel de conexiones por protocolo.
+ */
+internal fun sourceConnectionLabel(source: SourceConfig?): String? {
+    val current = source ?: return null
+    return when {
+        current.type == SourceType.M3U -> "♾️ M3U"
+        current.maxConnections > 0 -> "👥 ${current.activeConnections}/${current.maxConnections}"
+        else -> "👥 —"
+    }
+}

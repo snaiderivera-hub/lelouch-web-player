@@ -2,6 +2,7 @@ package com.lelouch.core.data.preferences
 
 import android.content.Context
 import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
@@ -10,7 +11,6 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.lelouch.core.model.SourceConfig
-import com.lelouch.core.model.SourceType
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -62,11 +62,12 @@ class UserPreferencesDataSource private constructor(
     val defaultInitialSources = emptyList<SourceConfig>()
 
     /**
-     * Deduplica en memoria el JSON crudo de fuentes.
+     * Filtra y deduplica en memoria el JSON crudo de fuentes.
      *
-     * Cualquier entrada que parezca la lista personalizada (dominio Vercel, usuario LELOUCH,
-     * nombre "Mi Lista"/"Personalizada" o id `custom_*`) se colapsa en UNA sola fuente
-     * canónica `custom_lelouch`; el resto se deduplica por (servidor + usuario).
+     * FASE 35 (1.0.97): la lista personalizada alojada en Supabase quedó retirada. Sus filas
+     * heredadas (`custom_lelouch`, cualquier `custom_*` o el manifiesto de Lelouch) se descartan
+     * aquí, que es el único punto de lectura de fuentes. Ya no se sintetiza ni se colapsa nada:
+     * el resto se deduplica por (servidor + usuario) conservando la primera entrada.
      *
      * Extraído a función para que [allSources] y [activeSource] compartan EXACTAMENTE el
      * mismo resultado: así el id que ve la UI, con el que se consulta Room y con el que se
@@ -83,54 +84,28 @@ class UserPreferencesDataSource private constructor(
             emptyList()
         }
 
-        val isCustom = { s: SourceConfig ->
-            s.serverUrl.contains("vercel.app") ||
-            s.username.equals("LELOUCH", ignoreCase = true) ||
-            s.name.contains("Personalizada", ignoreCase = true) ||
-            s.name.contains("Mi Lista", ignoreCase = true) ||
-            s.id.startsWith("custom_")
-        }
-
-        val customItems = list.filter { isCustom(it) }
-        val normalItems = list.filterNot { isCustom(it) }
         val deduplicated = mutableListOf<SourceConfig>()
-
-        if (customItems.isNotEmpty()) {
-            val best = customItems.find { it.accessToken?.isNotBlank() == true || it.serverUrl.contains("token=") || it.serverUrl.contains("/api/playlist/") } ?: customItems.first()
-            val token = best.accessToken.takeIf { !it.isNullOrBlank() }
-                ?: (when {
-                    best.serverUrl.contains("/api/playlist/") -> best.serverUrl.substringAfter("/api/playlist/").substringBefore("?").trim()
-                    best.serverUrl.contains("token=") -> best.serverUrl.substringAfter("token=").substringBefore("&").trim()
-                    else -> "pByk2IfABSGuLwSC9b14z6Y7penWElnYjbgzmI3R"
-                })
-            val tokenUrl = "https://lelouch-web-player.vercel.app/api/playlist?token=$token"
-            val isCustomActive = if (activeId != null) activeId == "custom_lelouch" else customItems.any { it.isActive }
-            deduplicated.add(
-                SourceConfig(
-                    id = "custom_lelouch",
-                    name = "⭐ Mi Lista Personalizada LELOUCH",
-                    serverUrl = tokenUrl,
-                    username = "",
-                    password = "",
-                    type = SourceType.M3U,
-                    isActive = isCustomActive,
-                    accessToken = token
-                )
-            )
-        }
-
         val seen = mutableSetOf<String>()
-        for (src in normalItems) {
+        for (src in list) {
+            if (isRetiredCustomSource(src.id, src.serverUrl)) continue
             val key = (src.serverUrl.trimEnd('/') + "|" + src.username.trim().lowercase())
-            if (!seen.contains(key)) {
-                seen.add(key)
+            if (seen.add(key)) {
                 deduplicated.add(src)
             }
         }
 
+        // FASE 35: el puntero activo puede apuntar a una fila que ya no existe (por ejemplo la
+        // lista retirada de la que era activa). Sin este fallback todas las fuentes quedarían
+        // con isActive=false y la app mostraría «sin listas activas» aunque hubiera listas.
+        val effectiveActiveId = when {
+            activeId == null -> null
+            deduplicated.any { it.id == activeId } -> activeId
+            else -> deduplicated.firstOrNull()?.id
+        }
+
         return deduplicated.map { source ->
-            val isCurrentActive = if (activeId != null) {
-                source.id == activeId
+            val isCurrentActive = if (effectiveActiveId != null) {
+                source.id == effectiveActiveId
             } else {
                 source.isActive
             }
@@ -160,21 +135,26 @@ class UserPreferencesDataSource private constructor(
         if (list.isEmpty()) null else (list.firstOrNull { it.id == activeId } ?: list.firstOrNull { it.isActive })
     }
 
+    /** Único punto que escribe el puntero activo y sus claves derivadas. */
+    private fun MutablePreferences.applyActiveSource(source: SourceConfig) {
+        this[PreferencesKeys.SOURCE_ID] = source.id
+        this[PreferencesKeys.SOURCE_NAME] = source.name
+        this[PreferencesKeys.SERVER_URL] = source.serverUrl
+        this[PreferencesKeys.USERNAME] = source.username
+        this[PreferencesKeys.PASSWORD] = source.password
+        this[PreferencesKeys.SOURCE_TYPE] = source.type.name
+        this[PreferencesKeys.MAX_CONNECTIONS] = source.maxConnections
+        this[PreferencesKeys.ACTIVE_CONNECTIONS] = source.activeConnections
+        this[PreferencesKeys.EXPIRE_DATE] = source.expireDate ?: ""
+        this[PreferencesKeys.IS_TRIAL] = source.isTrial
+        this[PreferencesKeys.IS_LOGGED_IN] = true
+        this[PreferencesKeys.ACTIVE_SOURCE_ID] = source.id
+    }
+
     suspend fun saveActiveSource(source: SourceConfig) {
         dataStore.edit { preferences ->
-            preferences[PreferencesKeys.SOURCE_ID] = source.id
-            preferences[PreferencesKeys.SOURCE_NAME] = source.name
-            preferences[PreferencesKeys.SERVER_URL] = source.serverUrl
-            preferences[PreferencesKeys.USERNAME] = source.username
-            preferences[PreferencesKeys.PASSWORD] = source.password
-            preferences[PreferencesKeys.SOURCE_TYPE] = source.type.name
-            preferences[PreferencesKeys.MAX_CONNECTIONS] = source.maxConnections
-            preferences[PreferencesKeys.ACTIVE_CONNECTIONS] = source.activeConnections
-            preferences[PreferencesKeys.EXPIRE_DATE] = source.expireDate ?: ""
-            preferences[PreferencesKeys.IS_TRIAL] = source.isTrial
-            preferences[PreferencesKeys.IS_LOGGED_IN] = true
+            preferences.applyActiveSource(source)
             preferences[PreferencesKeys.LAST_SYNC_TIMESTAMP] = System.currentTimeMillis()
-            preferences[PreferencesKeys.ACTIVE_SOURCE_ID] = source.id
 
             // Upsert en la lista multi-cuentas
             val rawJson = preferences[PreferencesKeys.SAVED_SOURCES_JSON]
@@ -182,7 +162,9 @@ class UserPreferencesDataSource private constructor(
                 try { json.decodeFromString<List<SourceConfig>>(rawJson) } catch (e: Exception) { defaultInitialSources }
             } else defaultInitialSources
 
-            val updated = currentList.filter { it.id != source.id && it.serverUrl != source.serverUrl }.toMutableList()
+            val updated = currentList.filter {
+                it.id != source.id && it.serverUrl != source.serverUrl && !isRetiredCustomSource(it.id, it.serverUrl)
+            }.toMutableList()
             updated.add(0, source.copy(isActive = true))
             preferences[PreferencesKeys.SAVED_SOURCES_JSON] = json.encodeToString(updated)
         }
@@ -194,19 +176,9 @@ class UserPreferencesDataSource private constructor(
             val rawJson = preferences[PreferencesKeys.SAVED_SOURCES_JSON]
             val currentList = deduplicatedSources(rawJson, sourceId)
 
-            val isCustomId = sourceId == "custom_lelouch" || sourceId.startsWith("custom_")
-            val target = currentList.find { 
-                it.id == sourceId || (isCustomId && (it.id == "custom_lelouch" || it.serverUrl.contains("vercel.app") || it.name.contains("Personalizada", ignoreCase = true)))
-            }
+            val target = currentList.find { it.id == sourceId }
             if (target != null) {
-                preferences[PreferencesKeys.ACTIVE_SOURCE_ID] = target.id
-                preferences[PreferencesKeys.SOURCE_ID] = target.id
-                preferences[PreferencesKeys.SOURCE_NAME] = target.name
-                preferences[PreferencesKeys.SERVER_URL] = target.serverUrl
-                preferences[PreferencesKeys.USERNAME] = target.username
-                preferences[PreferencesKeys.PASSWORD] = target.password
-                preferences[PreferencesKeys.SOURCE_TYPE] = target.type.name
-                preferences[PreferencesKeys.IS_LOGGED_IN] = true
+                preferences.applyActiveSource(target)
                 preferences[PreferencesKeys.LAST_SYNC_TIMESTAMP] = System.currentTimeMillis()
                 active = target.copy(isActive = true)
 
@@ -225,29 +197,119 @@ class UserPreferencesDataSource private constructor(
                 try { json.decodeFromString<List<SourceConfig>>(rawJson) } catch (e: Exception) { emptyList() }
             } else emptyList()
 
-            val updated = currentList.filter { it.id != sourceId }
+            val updated = currentList.filter { it.id != sourceId && !isRetiredCustomSource(it.id, it.serverUrl) }
             preferences[PreferencesKeys.SAVED_SOURCES_JSON] = json.encodeToString(updated)
 
-            if (preferences[PreferencesKeys.ACTIVE_SOURCE_ID] == sourceId) {
+            // La metadata de frescura pertenece a la fuente: si se borra la fuente, su
+            // metadata no debe sobrevivir y hacer que un id reutilizado parezca sincronizado.
+            val rawMetadata = preferences[PreferencesKeys.SYNC_METADATA_JSON]
+            if (!rawMetadata.isNullOrBlank()) {
+                try {
+                    val metadata = json.decodeFromString<Map<String, SourceSyncMetadata>>(rawMetadata).toMutableMap()
+                    metadata.remove(sourceId)
+                    preferences[PreferencesKeys.SYNC_METADATA_JSON] = json.encodeToString(metadata)
+                } catch (_: Exception) {
+                    preferences.remove(PreferencesKeys.SYNC_METADATA_JSON)
+                }
+            }
+
+            val activeId = preferences[PreferencesKeys.ACTIVE_SOURCE_ID] ?: preferences[PreferencesKeys.SOURCE_ID]
+            if (activeId == sourceId) {
                 val next = updated.firstOrNull()
                 if (next != null) {
-                    preferences[PreferencesKeys.ACTIVE_SOURCE_ID] = next.id
-                    preferences[PreferencesKeys.SOURCE_ID] = next.id
-                    preferences[PreferencesKeys.SOURCE_NAME] = next.name
-                    preferences[PreferencesKeys.SERVER_URL] = next.serverUrl
-                    preferences[PreferencesKeys.USERNAME] = next.username
-                    preferences[PreferencesKeys.PASSWORD] = next.password
+                    preferences.applyActiveSource(next)
                 } else {
                     preferences.remove(PreferencesKeys.ACTIVE_SOURCE_ID)
+                    preferences.remove(PreferencesKeys.SOURCE_ID)
                     preferences.remove(PreferencesKeys.IS_LOGGED_IN)
                 }
             }
         }
     }
 
-    suspend fun saveAllSources(sources: List<SourceConfig>) {
+    /**
+     * FASE 35 (1.0.97): elimina físicamente del JSON las filas heredadas de la lista
+     * personalizada y repara el puntero activo si apuntaba a una de ellas.
+     *
+     * Idempotente: si no hay filas retiradas ni el puntero está roto, no escribe nada.
+     */
+    suspend fun purgeRetiredSources() {
         dataStore.edit { preferences ->
-            preferences[PreferencesKeys.SAVED_SOURCES_JSON] = json.encodeToString(sources)
+            val rawJson = preferences[PreferencesKeys.SAVED_SOURCES_JSON] ?: return@edit
+            val currentList = try {
+                json.decodeFromString<List<SourceConfig>>(rawJson)
+            } catch (_: Exception) {
+                return@edit
+            }
+
+            val kept = currentList
+                .filterNot { isRetiredCustomSource(it.id, it.serverUrl) }
+                .distinctBy { it.serverUrl.trimEnd('/') + "|" + it.username.trim().lowercase() }
+            if (kept.size != currentList.size) {
+                preferences[PreferencesKeys.SAVED_SOURCES_JSON] = json.encodeToString(kept)
+            }
+
+            val activeId = preferences[PreferencesKeys.ACTIVE_SOURCE_ID] ?: preferences[PreferencesKeys.SOURCE_ID]
+            if (kept.isEmpty()) {
+                if (activeId != null) {
+                    preferences.remove(PreferencesKeys.ACTIVE_SOURCE_ID)
+                    preferences.remove(PreferencesKeys.SOURCE_ID)
+                    preferences.remove(PreferencesKeys.IS_LOGGED_IN)
+                }
+                return@edit
+            }
+            if (activeId == null || kept.none { it.id == activeId }) {
+                preferences.applyActiveSource(kept.first())
+            }
+        }
+    }
+
+    suspend fun saveAllSources(sources: List<SourceConfig>) {
+        val sanitized = sources.filterNot { isRetiredCustomSource(it.id, it.serverUrl) }
+        dataStore.edit { preferences ->
+            preferences[PreferencesKeys.SAVED_SOURCES_JSON] = json.encodeToString(sanitized)
+        }
+    }
+
+    /**
+     * FASE 35 (1.0.97): persiste los datos reales de la cuenta Xtream obtenidos en la
+     * autenticación (conexiones simultáneas y vencimiento). Sin esto la UI mostraba los
+     * valores de la validación inicial aunque el panel cambiara.
+     */
+    suspend fun updateSourceAccountInfo(
+        sourceId: String,
+        activeConnections: Int,
+        maxConnections: Int,
+        expireDate: String?,
+        isTrial: Boolean = false
+    ) {
+        dataStore.edit { preferences ->
+            val rawJson = preferences[PreferencesKeys.SAVED_SOURCES_JSON] ?: return@edit
+            val currentList = try {
+                json.decodeFromString<List<SourceConfig>>(rawJson)
+            } catch (_: Exception) {
+                return@edit
+            }
+            val updated = currentList.map { source ->
+                if (source.id == sourceId) {
+                    source.copy(
+                        activeConnections = activeConnections,
+                        maxConnections = maxConnections,
+                        expireDate = expireDate ?: source.expireDate,
+                        isTrial = isTrial
+                    )
+                } else source
+            }
+            preferences[PreferencesKeys.SAVED_SOURCES_JSON] = json.encodeToString(updated)
+
+            if (preferences[PreferencesKeys.SOURCE_ID] == sourceId ||
+                preferences[PreferencesKeys.ACTIVE_SOURCE_ID] == sourceId
+            ) {
+                preferences[PreferencesKeys.ACTIVE_CONNECTIONS] = activeConnections
+                preferences[PreferencesKeys.MAX_CONNECTIONS] = maxConnections
+                if (!expireDate.isNullOrBlank()) preferences[PreferencesKeys.EXPIRE_DATE] = expireDate
+                preferences[PreferencesKeys.IS_TRIAL] = isTrial
+            }
         }
     }
 
@@ -283,6 +345,21 @@ class UserPreferencesDataSource private constructor(
             }
             map[metadata.sourceId] = metadata
             preferences[PreferencesKeys.SYNC_METADATA_JSON] = json.encodeToString(map)
+        }
+    }
+
+    /** Elimina la metadata de frescura de una fuente retirada o borrada. */
+    suspend fun removeSyncMetadata(sourceId: String) {
+        dataStore.edit { preferences ->
+            val rawJson = preferences[PreferencesKeys.SYNC_METADATA_JSON] ?: return@edit
+            val map = try {
+                json.decodeFromString<Map<String, SourceSyncMetadata>>(rawJson).toMutableMap()
+            } catch (_: Exception) {
+                return@edit
+            }
+            if (map.remove(sourceId) != null) {
+                preferences[PreferencesKeys.SYNC_METADATA_JSON] = json.encodeToString(map)
+            }
         }
     }
 }

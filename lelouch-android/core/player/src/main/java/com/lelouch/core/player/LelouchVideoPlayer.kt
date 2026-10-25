@@ -104,7 +104,12 @@ fun LelouchVideoPlayer(
 
     var isBufferTimeout by remember { mutableStateOf(false) }
 
-    LaunchedEffect(playbackState, isLive) {
+    // FASE 40: el aviso de "canal fuera de línea" pertenece al stream que lo provocó. Al cambiar
+    // de canal (o al reintentar) hay que retirarlo y volver a contar el margen del nuevo enlace;
+    // si no, seguiría tapando la pantalla aunque el canal nuevo ya estuviera cargando.
+    val currentUrl by playerEngine.currentUrl.collectAsState()
+
+    LaunchedEffect(currentUrl, playbackState, isLive) {
         if (playbackState is PlaybackState.Buffering) {
             isBufferTimeout = false
             // En vivo: 22s (margen para canales pesados o congestión temporal del proveedor sin cortar a los 10s).

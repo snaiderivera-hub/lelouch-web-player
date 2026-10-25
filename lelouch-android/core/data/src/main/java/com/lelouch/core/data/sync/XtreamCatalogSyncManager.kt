@@ -30,10 +30,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 
 sealed interface SyncState {
     data object Idle : SyncState
@@ -105,8 +101,6 @@ class XtreamCatalogSyncManager private constructor(
 
     // PASO 5: Mutex por sourceId para evitar múltiples syncs concurrentes de la misma fuente
     private val sourceSyncMutexes = ConcurrentHashMap<String, Mutex>()
-
-    private val json = Json { ignoreUnknownKeys = true }
 
     private fun detectMediaType(mediaType: String?, name: String, group: String, url: String): String {
         val mt = mediaType?.lowercase()?.trim().orEmpty()
@@ -243,10 +237,6 @@ class XtreamCatalogSyncManager private constructor(
                 val metadata = preferencesDataSource?.getSyncMetadata(sourceId)
 
                 val freshness = when {
-                    // Tipo A: Lelouch / Supabase
-                    effectiveType == com.lelouch.core.model.SourceType.M3U && isLelouchOrSupabase(serverUrl, sourceId) -> {
-                        checkLelouchRemoteVersion(sourceId, serverUrl, metadata)
-                    }
                     // Tipo B: Xtream Directo
                     effectiveType == com.lelouch.core.model.SourceType.XTREAM -> {
                         checkXtreamFreshness(sourceId, metadata)
@@ -299,7 +289,7 @@ class XtreamCatalogSyncManager private constructor(
                 android.util.Log.w("XtreamCatalogSync", "Limpieza de huérfanos omitida: ${e.message}")
             }
 
-            // ── FASE 32: Listas M3U/Custom resueltas en Supabase / Vercel ──────────
+            // ── Listas M3U (#EXTINF) directas ──────────────────────────────────────
             if (effectiveType == com.lelouch.core.model.SourceType.M3U) {
                 return@withContext syncM3uToStaging(sourceId, syncId, serverUrl, remoteVersionToSave, remoteEtagToSave)
             }
@@ -316,112 +306,8 @@ class XtreamCatalogSyncManager private constructor(
         }
     }
 
-    private fun isLelouchOrSupabase(serverUrl: String, sourceId: String): Boolean {
-        return serverUrl.contains("rotupbdeljgfddywryhk.supabase.co") ||
-                serverUrl.contains("/api/playlist") ||
-                serverUrl.contains("token=") ||
-                sourceId == "custom_lelouch" ||
-                sourceId.startsWith("custom_")
-    }
-
     private fun isLocalFile(serverUrl: String): Boolean {
         return serverUrl.startsWith("file://") || serverUrl.startsWith("/") || serverUrl.contains("content://")
-    }
-
-    /**
-     * PASO 2: Verificación de frescura para listas Lelouch/Supabase vía endpoint de version o Supabase.
-     */
-    suspend fun checkLelouchRemoteVersion(
-        sourceId: String,
-        serverUrl: String,
-        metadata: SourceSyncMetadata?
-    ): FreshnessResult = withContext(Dispatchers.IO) {
-        try {
-            val tokenFromUrl = when {
-                serverUrl.contains("/api/playlist/version/") -> serverUrl.substringAfter("/api/playlist/version/").substringBefore("?").trim()
-                serverUrl.contains("/api/playlist/") -> serverUrl.substringAfter("/api/playlist/").substringBefore("?").trim()
-                serverUrl.contains("token=") -> serverUrl.substringAfter("token=").substringBefore("&").trim()
-                else -> ""
-            }
-
-            val localVer = metadata?.lastSuccessfulVersion.orEmpty()
-
-            // 1. Intentar endpoint de versión de Vercel (/api/playlist/version/<token>)
-            if (tokenFromUrl.isNotBlank()) {
-                val verUrl = "https://lelouch-web-player.vercel.app/api/playlist/version/$tokenFromUrl"
-                val reqBuilder = Request.Builder().url(verUrl)
-                if (localVer.isNotBlank()) {
-                    reqBuilder.addHeader("x-local-version", localVer)
-                    reqBuilder.addHeader("If-None-Match", "\"v$localVer\"")
-                }
-                val res = httpClient.newCall(reqBuilder.build()).execute()
-                if (res.code == 304) {
-                    return@withContext FreshnessResult.Unchanged(version = localVer)
-                }
-                if (res.isSuccessful) {
-                    val body = res.body?.string() ?: ""
-                    val obj = json.parseToJsonElement(body).jsonObject
-                    val ver = obj["version"]?.jsonPrimitive?.content ?: obj["updatedAt"]?.jsonPrimitive?.content ?: ""
-                    val etag = res.header("ETag")?.trim('"') ?: ""
-                    if (ver.isNotBlank() && ver == localVer) {
-                        return@withContext FreshnessResult.Unchanged(version = ver, etag = etag)
-                    } else if (ver.isNotBlank()) {
-                        return@withContext FreshnessResult.Changed(newVersion = ver, newEtag = etag)
-                    }
-                }
-            }
-
-            // 2. Consulta directa a Supabase (custom_playlists version y updated_at)
-            val cleanPlaylistId = if (sourceId == "custom_lelouch" || sourceId.startsWith("custom_")) {
-                val cpReq = Request.Builder()
-                    .url("https://rotupbdeljgfddywryhk.supabase.co/rest/v1/custom_playlists?select=id,version,updated_at&order=updated_at.desc&limit=1")
-                    .addHeader("apikey", SUPABASE_ANON_KEY)
-                    .addHeader("Authorization", "Bearer $SUPABASE_ANON_KEY")
-                    .build()
-                val cpRes = httpClient.newCall(cpReq).execute()
-                if (cpRes.isSuccessful) {
-                    val body = cpRes.body?.string() ?: ""
-                    val arr = json.parseToJsonElement(body).jsonArray
-                    val first = arr.firstOrNull()?.jsonObject
-                    val ver = first?.get("version")?.jsonPrimitive?.content ?: first?.get("updated_at")?.jsonPrimitive?.content ?: ""
-                    if (ver.isNotBlank() && ver == localVer) {
-                        return@withContext FreshnessResult.Unchanged(version = ver)
-                    } else if (ver.isNotBlank()) {
-                        return@withContext FreshnessResult.Changed(newVersion = ver)
-                    }
-                    first?.get("id")?.jsonPrimitive?.content ?: "c9da4a22-534c-41f9-af70-42ee9f6682df"
-                } else {
-                    "c9da4a22-534c-41f9-af70-42ee9f6682df"
-                }
-            } else {
-                sourceId.removePrefix("custom_")
-            }
-
-            val cpUrl = "https://rotupbdeljgfddywryhk.supabase.co/rest/v1/custom_playlists?select=version,updated_at&id=eq.$cleanPlaylistId"
-            val req = Request.Builder()
-                .url(cpUrl)
-                .addHeader("apikey", SUPABASE_ANON_KEY)
-                .addHeader("Authorization", "Bearer $SUPABASE_ANON_KEY")
-                .build()
-            val res = httpClient.newCall(req).execute()
-            if (res.isSuccessful) {
-                val body = res.body?.string() ?: ""
-                val arr = json.parseToJsonElement(body).jsonArray
-                val first = arr.firstOrNull()?.jsonObject
-                val ver = first?.get("version")?.jsonPrimitive?.content ?: first?.get("updated_at")?.jsonPrimitive?.content ?: ""
-                if (ver.isNotBlank() && ver == localVer) {
-                    FreshnessResult.Unchanged(version = ver)
-                } else if (ver.isNotBlank()) {
-                    FreshnessResult.Changed(newVersion = ver)
-                } else {
-                    FreshnessResult.Changed(newVersion = System.currentTimeMillis().toString())
-                }
-            } else {
-                FreshnessResult.CheckFailed("HTTP ${res.code}")
-            }
-        } catch (e: Exception) {
-            FreshnessResult.CheckFailed(e.message ?: e.javaClass.simpleName)
-        }
     }
 
     /**
@@ -556,175 +442,17 @@ class XtreamCatalogSyncManager private constructor(
 
             val strategyErrors = mutableListOf<String>()
 
-            // ── ESTRATEGIA 1: Consulta DIRECTA a Supabase v_resolved_playlist_items ──
-            val isSupabasePlaylist = isLelouchOrSupabase(serverUrl, sourceId)
-
-            if (isSupabasePlaylist) {
-                try {
-                    val cleanPlaylistId = if (sourceId == "custom_lelouch" || sourceId.startsWith("custom_")) {
-                        val cpReq = Request.Builder()
-                            .url("https://rotupbdeljgfddywryhk.supabase.co/rest/v1/custom_playlists?select=id&order=updated_at.desc&limit=1")
-                            .addHeader("apikey", SUPABASE_ANON_KEY)
-                            .addHeader("Authorization", "Bearer $SUPABASE_ANON_KEY")
-                            .build()
-                        val cpRes = httpClient.newCall(cpReq).execute()
-                        val cpBody = if (cpRes.isSuccessful) cpRes.body?.string() ?: "" else ""
-                        try {
-                            val cpArr = json.parseToJsonElement(cpBody).jsonArray
-                            cpArr.firstOrNull()?.jsonObject?.get("id")?.jsonPrimitive?.content ?: "c9da4a22-534c-41f9-af70-42ee9f6682df"
-                        } catch (_: Exception) {
-                            "c9da4a22-534c-41f9-af70-42ee9f6682df"
-                        }
-                    } else {
-                        sourceId.removePrefix("custom_")
-                    }
-
-                    var offset = 0
-                    val pageSize = 1000
-                    var hasMore = true
-                    var count = 0
-
-                    while (hasMore && offset < 50000) {
-                        _syncState.value = SyncState.SyncingLive(offset)
-                        val itemsUrl = "https://rotupbdeljgfddywryhk.supabase.co/rest/v1/v_resolved_playlist_items?playlist_id=eq.$cleanPlaylistId&enabled=eq.true&order=position.asc&limit=$pageSize&offset=$offset"
-                        val req = Request.Builder()
-                            .url(itemsUrl)
-                            .addHeader("apikey", SUPABASE_ANON_KEY)
-                            .addHeader("Authorization", "Bearer $SUPABASE_ANON_KEY")
-                            .build()
-                        val res = httpClient.newCall(req).execute()
-                        if (res.isSuccessful) {
-                            val body = res.body?.string() ?: ""
-                            val jsonArray = try { json.parseToJsonElement(body).jsonArray } catch (_: Exception) { kotlinx.serialization.json.JsonArray(emptyList()) }
-                            if (jsonArray.isEmpty()) break
-
-                            for (element in jsonArray) {
-                                val obj = element.jsonObject
-                                val itemId = obj["id"]?.jsonPrimitive?.content ?: continue
-                                val name = obj["name"]?.jsonPrimitive?.content ?: "Elemento"
-                                val group = obj["group"]?.jsonPrimitive?.content ?: "General"
-                                val logo = obj["logo"]?.jsonPrimitive?.content
-                                val directUrl = obj["resolved_stream_url"]?.jsonPrimitive?.content
-                                    ?: obj["direct_url"]?.jsonPrimitive?.content ?: ""
-
-                                val isHeaderSeparator = name.matches(Regex("^[\\s\\-=*#_]{3,}.*")) ||
-                                    name.matches(Regex(".*[\\s\\-=*#_]{3,}$")) ||
-                                    name.trim().startsWith("---") ||
-                                    name.trim().startsWith("===")
-
-                                val isValidUrl = directUrl.isNotBlank() &&
-                                    (directUrl.startsWith("http://", ignoreCase = true) || directUrl.startsWith("https://", ignoreCase = true)) &&
-                                    !directUrl.contains("localhost") &&
-                                    !directUrl.contains("undefined")
-
-                                if (!isValidUrl || isHeaderSeparator) {
-                                    continue
-                                }
-
-                                val mediaType = (obj["media_type"]?.jsonPrimitive?.content ?: "").lowercase()
-                                val pos = obj["position"]?.jsonPrimitive?.content?.toIntOrNull() ?: count
-                                val streamId = (name + directUrl).hashCode().let { if (it == Int.MIN_VALUE) 0 else kotlin.math.abs(it) }
-
-                                val resolvedType = detectMediaType(mediaType, name, group, directUrl)
-
-                                if (resolvedType == "movie") {
-                                    vodCategories.add(group)
-                                    movieStagingBatch.add(
-                                        MovieStagingEntity(
-                                            syncId = syncId,
-                                            id = "$sourceId-$itemId",
-                                            streamId = streamId,
-                                            num = pos,
-                                            name = name,
-                                            title = name,
-                                            streamIcon = logo,
-                                            categoryId = "$sourceId-${group.hashCode()}",
-                                            categoryName = group,
-                                            containerExtension = "mp4",
-                                            streamUrl = directUrl,
-                                            sourceId = sourceId
-                                        )
-                                    )
-                                } else if (resolvedType == "series") {
-                                    seriesCategories.add(group)
-                                    seriesStagingBatch.add(
-                                        SeriesStagingEntity(
-                                            syncId = syncId,
-                                            id = "$sourceId-$itemId",
-                                            seriesId = streamId,
-                                            num = pos,
-                                            name = name,
-                                            title = name,
-                                            cover = logo,
-                                            categoryId = "$sourceId-${group.hashCode()}",
-                                            categoryName = group,
-                                            sourceId = sourceId
-                                        )
-                                    )
-                                } else {
-                                    liveCategories.add(group)
-                                    channelStagingBatch.add(
-                                        ChannelStagingEntity(
-                                            syncId = syncId,
-                                            id = "$sourceId-$itemId",
-                                            streamId = streamId,
-                                            num = pos,
-                                            name = name,
-                                            streamType = "live",
-                                            streamIcon = logo,
-                                            categoryId = "$sourceId-${group.hashCode()}",
-                                            categoryName = group,
-                                            streamUrl = directUrl,
-                                            containerExtension = "m3u8",
-                                            sourceId = sourceId
-                                        )
-                                    )
-                                }
-                                count++
-                            }
-
-                            // Insertar lote en staging
-                            if (channelStagingBatch.isNotEmpty()) {
-                                database.catalogStagingDao().insertChannelsStaging(channelStagingBatch)
-                                channelStagingBatch.clear()
-                            }
-                            if (movieStagingBatch.isNotEmpty()) {
-                                database.catalogStagingDao().insertMoviesStaging(movieStagingBatch)
-                                movieStagingBatch.clear()
-                            }
-                            if (seriesStagingBatch.isNotEmpty()) {
-                                database.catalogStagingDao().insertSeriesStaging(seriesStagingBatch)
-                                seriesStagingBatch.clear()
-                            }
-
-                            if (jsonArray.size < pageSize) {
-                                hasMore = false
-                            } else {
-                                offset += pageSize
-                            }
-                        } else {
-                            strategyErrors.add("Vista Supabase: HTTP ${res.code}")
-                            hasMore = false
-                        }
-                    }
-                } catch (e: Exception) {
-                    strategyErrors.add("Vista Supabase: ${e.message ?: e.javaClass.simpleName}")
-                }
-            }
-
-            // ── ESTRATEGIA 2: Fallback M3U / #EXTINF Directo ──
+            // ── ESTRATEGIA ÚNICA: M3U / #EXTINF Directo ──
+            // FASE 35: la consulta directa a `v_resolved_playlist_items` (hasta 50.000 ítems)
+            // se retiró junto con la lista personalizada. Bloqueaba la sincronización de las
+            // listas reales y solo servía a la fuente retirada.
             val totalInStaging = database.catalogStagingDao().getStagingChannelCount(syncId) +
                 database.catalogStagingDao().getStagingMovieCount(syncId) +
                 database.catalogStagingDao().getStagingSeriesCount(syncId)
 
             if (totalInStaging == 0 && (serverUrl.startsWith("http") || isLocalFile(serverUrl))) {
                 try {
-                    val m3uUrl = if (serverUrl.contains("/api/playlist/") && !serverUrl.contains("?token=")) {
-                        val tok = serverUrl.substringAfterLast("/").substringBefore("?").trim()
-                        "https://lelouch-web-player.vercel.app/api/playlist?token=$tok"
-                    } else serverUrl
-
-                    val m3uReq = Request.Builder().url(m3uUrl).build()
+                    val m3uReq = Request.Builder().url(serverUrl).build()
                     val m3uRes = httpClient.newCall(m3uReq).execute()
                     if (m3uRes.isSuccessful) {
                         val body = m3uRes.body?.string() ?: ""
@@ -960,6 +688,20 @@ class XtreamCatalogSyncManager private constructor(
                 val errorMsg = "La cuenta IPTV no está activa (Estado: ${userInfo.status})"
                 _syncState.value = SyncState.Error(errorMsg)
                 return Result.failure(IllegalStateException(errorMsg))
+            }
+
+            // FASE 35 (1.0.97): persistir los datos reales de la cuenta en cada sincronización
+            // (incluido «🔄 Recargar»). Antes solo se guardaban al validar por primera vez.
+            try {
+                preferencesDataSource?.updateSourceAccountInfo(
+                    sourceId = sourceId,
+                    activeConnections = userInfo.activeCons.toIntOrNull() ?: 0,
+                    maxConnections = userInfo.maxConnections.toIntOrNull() ?: 1,
+                    expireDate = userInfo.expDate,
+                    isTrial = userInfo.isTrial == "1"
+                )
+            } catch (e: Exception) {
+                android.util.Log.w("XtreamCatalogSync", "No se pudo actualizar la info de cuenta: ${e.message}")
             }
 
             // 2. Sincronizar Categorías en Staging (Live, VOD, Series)
@@ -1207,8 +949,9 @@ class XtreamCatalogSyncManager private constructor(
 
     /**
      * FASE 33 — Extrae canales de un proveedor hacia "Mi Lista Personalizada LELOUCH".
-     * Inserta los canales en Room DB bajo sourceId = "custom_lelouch" y los sincroniza
-     * con Supabase en la tabla playlist_items.
+     * Extrae los canales de las categorías indicadas y los publica en la playlist del
+     * reproductor web (Supabase `playlist_items`). Ya no crea una fuente local: la lista
+     * personalizada fue retirada de la APK en la FASE 35.
      */
     suspend fun extractChannelsToCustomPlaylist(
         sourceId: String,
@@ -1219,29 +962,9 @@ class XtreamCatalogSyncManager private constructor(
             val toExtract = allChannels.filter { categoryNames.contains(it.categoryName) }
             if (toExtract.isEmpty()) return@withContext 0
 
-            val customEntities = toExtract.mapIndexed { idx, ch ->
-                ch.copy(
-                    id = "custom_lelouch-${ch.streamId}",
-                    sourceId = "custom_lelouch",
-                    num = idx + 1,
-                    categoryId = "custom_lelouch-${ch.categoryName.hashCode()}"
-                )
-            }
-            database.channelDao().insertChannels(customEntities)
-
-            val customCategories = toExtract.map { it.categoryName }.distinct().map { catName ->
-                com.lelouch.core.database.entity.CategoryEntity(
-                    id = "custom_lelouch-LIVE-$catName",
-                    categoryId = "custom_lelouch-${catName.hashCode()}",
-                    categoryName = catName,
-                    parentId = 0,
-                    type = "LIVE",
-                    itemCount = customEntities.count { it.categoryName == catName },
-                    isAdult = false,
-                    sourceId = "custom_lelouch"
-                )
-            }
-            database.categoryDao().insertCategories(customCategories)
+            // FASE 35: ya no se escribe una copia local bajo `custom_lelouch`. Esa fuente está
+            // retirada y esas filas solo alimentaban los 3.594 ítems fantasma que se purgaron.
+            // La extracción conserva su único destino útil: la playlist del reproductor web.
 
             // Sincronizar en segundo plano a Supabase playlist_items
             try {
@@ -1264,7 +987,7 @@ class XtreamCatalogSyncManager private constructor(
                 }
             } catch (_: Exception) {}
 
-            return@withContext customEntities.size
+            return@withContext toExtract.size
         } catch (e: Exception) {
             return@withContext 0
         }

@@ -3,6 +3,7 @@ package com.lelouch.player.bootstrap
 import com.lelouch.core.domain.repository.AuthRepository
 import com.lelouch.core.model.SourceConfig
 import com.lelouch.core.model.SourceType
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -10,6 +11,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
@@ -38,7 +40,7 @@ class SourceBootstrapViewModelTest {
     private class FakeAuthRepository : AuthRepository {
         val activeSourceFlow = MutableStateFlow<SourceConfig?>(null)
         val allSourcesFlow = MutableStateFlow<List<SourceConfig>>(emptyList())
-        var syncCloudSourcesHandler: () -> List<SourceConfig> = { emptyList() }
+        var syncCloudSourcesHandler: suspend () -> List<SourceConfig> = { emptyList() }
         var syncCallCount = 0
         override var isLastSyncFromCache: Boolean = false
 
@@ -62,22 +64,23 @@ class SourceBootstrapViewModelTest {
         override suspend fun logout() {}
     }
 
-    private val validCustomSource = SourceConfig(
-        id = "custom_lelouch",
-        name = "⭐ Mi Lista Personalizada LELOUCH",
-        serverUrl = "https://lelouch-web-player.vercel.app/api/playlist?token=valid_tok",
-        type = SourceType.M3U,
-        isActive = true,
-        accessToken = "valid_tok"
+    private val validSource = SourceConfig(
+        id = "xtream_valid",
+        name = "LionTV",
+        serverUrl = "http://liontv.example:8080",
+        username = "user1",
+        password = "pass1",
+        type = SourceType.XTREAM,
+        isActive = true
     )
 
-    // ── TEST A: custom source válida -> Ready -> Home ──
+    // ── TEST A: fuente válida -> Ready -> Home ──
     @Test
-    fun testA_customSourceValid_readyHome() = runTest(testDispatcher) {
+    fun testA_validSource_readyHome() = runTest(testDispatcher) {
         val fakeRepo = FakeAuthRepository().apply {
-            syncCloudSourcesHandler = { listOf(validCustomSource) }
-            activeSourceFlow.value = validCustomSource
-            allSourcesFlow.value = listOf(validCustomSource)
+            syncCloudSourcesHandler = { listOf(validSource) }
+            activeSourceFlow.value = validSource
+            allSourcesFlow.value = listOf(validSource)
         }
 
         val viewModel = SourceBootstrapViewModel(fakeRepo)
@@ -85,7 +88,7 @@ class SourceBootstrapViewModelTest {
 
         val state = viewModel.bootstrapState.value
         assertTrue("Estado debe ser Ready", state is SourceBootstrapState.Ready)
-        assertEquals("custom_lelouch", (state as SourceBootstrapState.Ready).source.id)
+        assertEquals("xtream_valid", (state as SourceBootstrapState.Ready).source.id)
     }
 
     // ── TEST B: SUCCESS_EMPTY -> Empty -> spinner off ──
@@ -162,7 +165,7 @@ class SourceBootstrapViewModelTest {
                 if (attempts == 1) {
                     throw IOException("Network timeout")
                 } else {
-                    listOf(validCustomSource)
+                    listOf(validSource)
                 }
             }
         }
@@ -173,20 +176,20 @@ class SourceBootstrapViewModelTest {
         assertTrue("Primer intento debe terminar en Error", viewModel.bootstrapState.value is SourceBootstrapState.ErrorNoSource)
 
         // Simular que el segundo intento tiene la fuente activa disponible
-        fakeRepo.activeSourceFlow.value = validCustomSource
+        fakeRepo.activeSourceFlow.value = validSource
         viewModel.retry()
         advanceUntilIdle()
 
         assertTrue("Segundo intento debe ser Ready", viewModel.bootstrapState.value is SourceBootstrapState.Ready)
-        assertEquals("custom_lelouch", (viewModel.bootstrapState.value as SourceBootstrapState.Ready).source.id)
+        assertEquals("xtream_valid", (viewModel.bootstrapState.value as SourceBootstrapState.Ready).source.id)
     }
 
     // ── TEST F: Retry pulsado varias veces rápidamente -> solo una carga activa ──
     @Test
     fun testF_rapidMultipleRetries_singleActiveSync() = runTest(testDispatcher) {
         val fakeRepo = FakeAuthRepository().apply {
-            syncCloudSourcesHandler = { listOf(validCustomSource) }
-            activeSourceFlow.value = validCustomSource
+            syncCloudSourcesHandler = { listOf(validSource) }
+            activeSourceFlow.value = validSource
         }
 
         val viewModel = SourceBootstrapViewModel(fakeRepo)
@@ -200,38 +203,12 @@ class SourceBootstrapViewModelTest {
         assertEquals("Debe haberse ejecutado solo 1 sync concurrente", 1, fakeRepo.syncCallCount)
     }
 
-    // ── TEST G: token revocado sin otra fuente -> recovery UI ──
+    // ── TEST G: recomposición -> no duplica bootstrap requests ──
     @Test
-    fun testG_tokenRevoked_recoveryUI() = runTest(testDispatcher) {
-        val revokedSource = SourceConfig(
-            id = "custom_lelouch",
-            name = "⭐ Mi Lista Personalizada LELOUCH",
-            serverUrl = "https://lelouch-web-player.vercel.app/api/playlist?token=revoked",
-            type = SourceType.M3U,
-            isActive = false,
-            accessToken = null
-        )
+    fun testG_recomposition_doesNotDuplicateRequests() = runTest(testDispatcher) {
         val fakeRepo = FakeAuthRepository().apply {
-            syncCloudSourcesHandler = { listOf(revokedSource) }
-            activeSourceFlow.value = revokedSource
-            allSourcesFlow.value = listOf(revokedSource)
-        }
-
-        val viewModel = SourceBootstrapViewModel(fakeRepo)
-        advanceUntilIdle()
-
-        val state = viewModel.bootstrapState.value
-        assertTrue("Token revocado debe mostrar ErrorNoSource", state is SourceBootstrapState.ErrorNoSource)
-        val errorState = state as SourceBootstrapState.ErrorNoSource
-        assertTrue("Mensaje debe advertir sobre token revocado", errorState.message.contains("token"))
-    }
-
-    // ── TEST H: recomposición -> no duplica bootstrap requests ──
-    @Test
-    fun testH_recomposition_doesNotDuplicateRequests() = runTest(testDispatcher) {
-        val fakeRepo = FakeAuthRepository().apply {
-            syncCloudSourcesHandler = { listOf(validCustomSource) }
-            activeSourceFlow.value = validCustomSource
+            syncCloudSourcesHandler = { listOf(validSource) }
+            activeSourceFlow.value = validSource
         }
 
         val viewModel = SourceBootstrapViewModel(fakeRepo)
@@ -244,5 +221,49 @@ class SourceBootstrapViewModelTest {
         val state2 = viewModel.bootstrapState.value
         assertEquals(state1, state2)
         assertEquals(1, fakeRepo.syncCallCount)
+    }
+
+    // ── TEST H: una fuente recién agregada pasa a Ready sin volver a sincronizar la nube ──
+    @Test
+    fun testH_onSourceAdded_readyWithoutCloudSync() = runTest(testDispatcher) {
+        val fakeRepo = FakeAuthRepository().apply {
+            syncCloudSourcesHandler = { emptyList() }
+        }
+
+        val viewModel = SourceBootstrapViewModel(fakeRepo)
+        advanceUntilIdle()
+        assertEquals(1, fakeRepo.syncCallCount)
+
+        viewModel.onSourceAdded(validSource)
+
+        val state = viewModel.bootstrapState.value
+        assertTrue("La fuente agregada debe estar lista de inmediato", state is SourceBootstrapState.Ready)
+        assertEquals("xtream_valid", (state as SourceBootstrapState.Ready).source.id)
+        assertEquals("No debe repetirse el bootstrap de la nube", 1, fakeRepo.syncCallCount)
+    }
+
+    // ── TEST I: un bootstrap en vuelo no pisa el Ready de la lista recién agregada ──
+    @Test
+    fun testI_onSourceAdded_cancelsInFlightBootstrap() = runTest(testDispatcher) {
+        val gate = CompletableDeferred<Unit>()
+        val fakeRepo = FakeAuthRepository().apply {
+            syncCloudSourcesHandler = {
+                gate.await()
+                emptyList()
+            }
+        }
+
+        val viewModel = SourceBootstrapViewModel(fakeRepo)
+        runCurrent() // El bootstrap queda suspendido esperando la red
+
+        val added = validSource.copy(id = "xtream_recien_agregada")
+        viewModel.onSourceAdded(added)
+
+        gate.complete(Unit)
+        advanceUntilIdle()
+
+        val state = viewModel.bootstrapState.value
+        assertTrue("El bootstrap viejo no debe pisar el Ready", state is SourceBootstrapState.Ready)
+        assertEquals("xtream_recien_agregada", (state as SourceBootstrapState.Ready).source.id)
     }
 }

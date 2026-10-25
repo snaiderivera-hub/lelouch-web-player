@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lelouch.core.domain.repository.AuthRepository
 import com.lelouch.core.model.SourceConfig
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -28,6 +29,19 @@ class SourceBootstrapViewModel(
         syncSources()
     }
 
+    /**
+     * FASE 35 (1.0.97): una fuente recién agregada ya está guardada y activa, así que la
+     * pantalla puede pasar a Home de inmediato. No se vuelve a llamar a `syncCloudSources()`
+     * (eso producía doble sincronización y el pantallazo de carga); el `LaunchedEffect` de la
+     * pantalla sincroniza el catálogo mostrando su indicador de progreso.
+     */
+    fun onSourceAdded(source: SourceConfig) {
+        // Un bootstrap en vuelo leyó la nube antes de esta alta; si termina después, pisaría
+        // el estado Ready (o incluso el Empty) de la lista recién agregada.
+        syncJob?.cancel()
+        _bootstrapState.value = SourceBootstrapState.Ready(source)
+    }
+
     fun syncSources() {
         if (syncJob?.isActive == true) return // Evita dobles requests concurrentes (TEST F)
 
@@ -36,6 +50,8 @@ class SourceBootstrapViewModel(
             try {
                 val sources = authRepository.syncCloudSources()
                 processSources(sources)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 handleSyncException(e)
             }
@@ -57,17 +73,6 @@ class SourceBootstrapViewModel(
             return
         }
 
-        val isRevoked = (activeSource.accessToken == null || activeSource.accessToken == "revoked" || activeSource.serverUrl.contains("token=revoked")) &&
-                activeSource.id.startsWith("custom_")
-
-        if (isRevoked) {
-            _bootstrapState.value = SourceBootstrapState.ErrorNoSource(
-                message = "El token de acceso fue revocado o expiró. Por favor configura o agrega una lista válida.",
-                retryable = true
-            )
-            return
-        }
-
         if (authRepository.isLastSyncFromCache) {
             _bootstrapState.value = SourceBootstrapState.UsingLocalCache(
                 source = activeSource,
@@ -83,11 +88,7 @@ class SourceBootstrapViewModel(
         val localActive = authRepository.getActiveSource().first()
             ?: localSources.firstOrNull { it.isActive }
 
-        val isLocalRevoked = localActive != null &&
-                (localActive.accessToken == null || localActive.accessToken == "revoked" || localActive.serverUrl.contains("token=revoked")) &&
-                localActive.id.startsWith("custom_")
-
-        if (localActive != null && !isLocalRevoked) {
+        if (localActive != null) {
             _bootstrapState.value = SourceBootstrapState.UsingLocalCache(
                 source = localActive,
                 warning = "Sin conexión — usando catálogo local"

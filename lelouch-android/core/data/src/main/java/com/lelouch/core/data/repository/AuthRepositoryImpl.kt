@@ -1,6 +1,7 @@
 package com.lelouch.core.data.repository
 
 import com.lelouch.core.data.preferences.UserPreferencesDataSource
+import com.lelouch.core.data.preferences.isRetiredCustomSource
 import com.lelouch.core.domain.repository.AuthRepository
 import com.lelouch.core.model.SourceConfig
 import com.lelouch.core.model.SourceType
@@ -50,23 +51,30 @@ class AuthRepositoryImpl(
     }
 
     override suspend fun removeSource(sourceId: String) {
+        val source = preferencesDataSource.allSources.first().firstOrNull { it.id == sourceId }
         preferencesDataSource.removeSource(sourceId)
+        // La lista personalizada retirada ya no tiene identidad en la nube (su id local no es
+        // un UUID). No se emite ningún DELETE: solo se purga el dispositivo.
+        if (isRetiredCustomSource(sourceId, "")) return
         withContext(Dispatchers.IO) {
             try {
                 val supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvdHVwYmRlbGpnZmRkeXdyeWhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzNjA2MzksImV4cCI6MjEwNTkzNjYzOX0.zDVgrQo_IU5FhfSMpl0-MbS9Eod43czS21TBi5Z3Lvo"
-                val deleteUrl = if (sourceId.startsWith("custom_")) {
-                    val cleanId = sourceId.removePrefix("custom_")
-                    "$supabaseBaseUrl/rest/v1/custom_playlists?id=eq.$cleanId"
-                } else {
-                    "$supabaseBaseUrl/rest/v1/playlists?id=eq.$sourceId"
+                // Las filas de `playlists` usan un UUID, pero el dispositivo conserva el id
+                // local del catálogo. Se localiza la fila por identidad, no por id.
+                val filter = when {
+                    source == null -> "id=eq.${encode(sourceId)}"
+                    source.type == SourceType.M3U || source.username.isBlank() ->
+                        "url=eq.${encode(source.serverUrl)}"
+                    else ->
+                        "server_url=eq.${encode(source.serverUrl)}&username=eq.${encode(source.username)}"
                 }
                 val delReq = Request.Builder()
-                    .url(deleteUrl)
+                    .url("$supabaseBaseUrl/rest/v1/playlists?$filter")
                     .delete()
                     .addHeader("apikey", supabaseKey)
                     .addHeader("Authorization", "Bearer $supabaseKey")
                     .build()
-                httpClient.newCall(delReq).execute()
+                httpClient.newCall(delReq).execute().close()
             } catch (_: Exception) {}
         }
     }
@@ -110,6 +118,7 @@ class AuthRepositoryImpl(
             )
 
             saveSource(source)
+            activateSource(source.id)
             Result.success(source)
         } catch (e: Exception) {
             Result.failure(e)
@@ -165,11 +174,8 @@ class AuthRepositoryImpl(
     }
 
     override suspend fun syncCloudSources(): List<SourceConfig> = withContext(Dispatchers.IO) {
-        val currentSources = preferencesDataSource.allSources.first()
-        val currentPasswordMap = currentSources.associate { (it.serverUrl + it.username) to it.password }
-        val currentActiveId = currentSources.firstOrNull { it.isActive }?.id
-        val wasCustomActive = currentActiveId == "custom_lelouch" || (currentActiveId == null && currentSources.any { it.id == "custom_lelouch" && it.isActive })
-
+        // Las fuentes locales se leen DESPUÉS de la red (no al entrar): así una lista agregada
+        // mientras el bootstrap está en vuelo no se pierde al reconciliar con una foto vieja.
         val supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvdHVwYmRlbGpnZmRkeXdyeWhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzNjA2MzksImV4cCI6MjEwNTkzNjYzOX0.zDVgrQo_IU5FhfSMpl0-MbS9Eod43czS21TBi5Z3Lvo"
         val cloudSources = mutableListOf<SourceConfig>()
         var atLeastOneEndpointSuccessful = false
@@ -222,13 +228,15 @@ class AuthRepositoryImpl(
                             else -> null
                         }
 
-                        val normalizedM3uUrl = if (url.contains("/api/playlist/") && !url.contains("?token=")) {
-                            val tok = url.substringAfter("/api/playlist/").substringBefore("?").trim()
-                            "https://lelouch-web-player.vercel.app/api/playlist?token=$tok"
-                        } else url
-
                         val finalType = if (isM3u) SourceType.M3U else SourceType.XTREAM
-                        val finalServerUrl = if (isM3u && normalizedM3uUrl.isNotBlank()) normalizedM3uUrl else cleanServer.trimEnd('/')
+                        val finalServerUrl = if (isM3u && url.isNotBlank()) url else cleanServer.trimEnd('/')
+
+                        // FASE 35: una fila legacy de la lista personalizada retirada no debe
+                        // resucitar la fuente en el dispositivo.
+                        if (isRetiredCustomSource(id, finalServerUrl)) {
+                            android.util.Log.d("AuthRepository", "SOURCE_SYNC_SKIPPED_RETIRED: $id")
+                            continue
+                        }
 
                         val expireDateCloud = try { obj["expires_at"]?.jsonPrimitive?.content } catch (_: Exception) { null }
                         val maxConsCloud = try { obj["max_connections"]?.jsonPrimitive?.content?.toIntOrNull() } catch (_: Exception) { null } ?: 1
@@ -262,210 +270,85 @@ class AuthRepositoryImpl(
             android.util.Log.w("AuthRepository", "SOURCE_SYNC_LEGACY_FAILED: ${e.message}")
         }
 
-        // ── 2. Fuentes ACTUALES AUTORIZADAS (custom_playlists) ──
-        val revokedPlaylistIds = mutableSetOf<String>()
-        try {
-            val customSupabaseUrl = "$supabaseBaseUrl/rest/v1/custom_playlists?select=*&order=updated_at.desc"
-            val customReq = Request.Builder()
-                .url(customSupabaseUrl)
-                .addHeader("apikey", supabaseKey)
-                .addHeader("Authorization", "Bearer $supabaseKey")
-                .build()
-            val customRes = httpClient.newCall(customReq).execute()
-            if (customRes.isSuccessful) {
-                atLeastOneEndpointSuccessful = true
-                val customBody = customRes.body?.string() ?: ""
-                try {
-                    val customJsonArray = json.parseToJsonElement(customBody).jsonArray
-
-                    // Consulta de tokens activos y revocados
-                    val validTokenMap = mutableMapOf<String, String>()
-                    try {
-                        val tokensUrl = "$supabaseBaseUrl/rest/v1/playlist_access_tokens?select=*&order=created_at.asc"
-                        val tokensReq = Request.Builder()
-                            .url(tokensUrl)
-                            .addHeader("apikey", supabaseKey)
-                            .addHeader("Authorization", "Bearer $supabaseKey")
-                            .build()
-                        val tokensRes = httpClient.newCall(tokensReq).execute()
-                        if (tokensRes.isSuccessful) {
-                            val tokensBody = tokensRes.body?.string() ?: ""
-                            val tokensArray = json.parseToJsonElement(tokensBody).jsonArray
-                            for (t in tokensArray) {
-                                val tObj = t.jsonObject
-                                val pid = tObj["playlist_id"]?.jsonPrimitive?.content ?: continue
-                                val isTokenActive = tObj["is_active"]?.jsonPrimitive?.content?.toBoolean() ?: true
-                                val isTokenEnabled = tObj["enabled"]?.jsonPrimitive?.content?.toBoolean() ?: true
-                                if (!isTokenActive || !isTokenEnabled) {
-                                    revokedPlaylistIds.add(pid)
-                                    continue
-                                }
-                                val tok = tObj["token"]?.jsonPrimitive?.content
-                                    ?: tObj["token_preview"]?.jsonPrimitive?.content
-                                    ?: continue
-                                if (!validTokenMap.containsKey(pid)) {
-                                    validTokenMap[pid] = tok
-                                }
-                            }
-                        }
-                    } catch (te: Exception) {
-                        android.util.Log.w("AuthRepository", "Token fetch note: ${te.message}")
-                    }
-
-                    var addedCustom = 0
-                    for (el in customJsonArray) {
-                        val cObj = el.jsonObject
-                        val cId = cObj["id"]?.jsonPrimitive?.content ?: continue
-                        val cName = cObj["name"]?.jsonPrimitive?.content ?: "Mi Lista Personalizada"
-                        val cIsEnabled = cObj["enabled"]?.jsonPrimitive?.content?.toBoolean() ?: true
-                        if (!cIsEnabled) continue // Playlist deshabilitada por backend
-
-                        val isRevoked = revokedPlaylistIds.contains(cId) && !validTokenMap.containsKey(cId)
-                        val cIsActive = if (isRevoked) false else (cObj["is_active"]?.jsonPrimitive?.content?.toBoolean() ?: false)
-                        val cToken = if (isRevoked) null else validTokenMap[cId]
-
-                        val cleanName = if (cName.startsWith("⭐")) cName else "⭐ $cName"
-                        val customUrl = if (!cToken.isNullOrBlank()) {
-                            "https://lelouch-web-player.vercel.app/api/playlist?token=$cToken"
-                        } else if (!isRevoked) {
-                            "https://lelouch-web-player.vercel.app/api/playlist?token=pByk2IfABSGuLwSC9b14z6Y7penWElnYjbgzmI3R"
-                        } else {
-                            ""
-                        }
-
-                        if (customUrl.isNotBlank()) {
-                            cloudSources.add(
-                                SourceConfig(
-                                    id = "custom_lelouch",
-                                    name = cleanName,
-                                    serverUrl = customUrl,
-                                    username = "",
-                                    password = "",
-                                    type = SourceType.M3U,
-                                    isActive = cIsActive,
-                                    accessToken = cToken ?: "pByk2IfABSGuLwSC9b14z6Y7penWElnYjbgzmI3R"
-                                )
-                            )
-                            addedCustom++
-                        } else if (isRevoked) {
-                            // Se registra fuente revocada como inactiva (TEST E)
-                            cloudSources.add(
-                                SourceConfig(
-                                    id = "custom_lelouch",
-                                    name = cleanName,
-                                    serverUrl = "https://lelouch-web-player.vercel.app/api/playlist?token=revoked",
-                                    username = "",
-                                    password = "",
-                                    type = SourceType.M3U,
-                                    isActive = false,
-                                    accessToken = null
-                                )
-                            )
-                        }
-                    }
-                    android.util.Log.d("AuthRepository", "SOURCE_SYNC_CUSTOM_OK: $addedCustom fuentes agregadas")
-                } catch (e: Exception) {
-                    android.util.Log.w("AuthRepository", "SOURCE_SYNC_CUSTOM_FAILED: Parse error")
-                }
-            } else {
-                android.util.Log.w("AuthRepository", "SOURCE_SYNC_CUSTOM_FAILED: HTTP ${customRes.code}")
-            }
-        } catch (e: Exception) {
-            android.util.Log.w("AuthRepository", "SOURCE_SYNC_CUSTOM_FAILED: ${e.message}")
-        }
-
-        // ── 3. Manejo de Errores vs Lista Vacía vs Éxito ──
+        // ── 2. Manejo de Errores vs Lista Vacía vs Éxito ──
         if (!atLeastOneEndpointSuccessful) {
+            val currentSources = preferencesDataSource.allSources.first()
             isLastSyncFromCache = true
             if (currentSources.isNotEmpty()) {
                 // TEST G: ya existe source local, red falla -> conservar source local usable
                 android.util.Log.w("AuthRepository", "SOURCE_SYNC_USING_LOCAL_CACHE: Error de conexión a la nube; preservando caché local (${currentSources.size} fuentes)")
                 return@withContext currentSources
             } else {
-                // TEST D: custom endpoint timeout/error sin fuentes locales -> ERROR_LOADING_SOURCES
-                android.util.Log.e("AuthRepository", "SOURCE_SYNC_CUSTOM_FAILED: No se pudo conectar a la nube y no hay caché local")
+                // TEST D: la nube falla y no hay fuentes locales -> ERROR_LOADING_SOURCES
+                android.util.Log.e("AuthRepository", "SOURCE_SYNC_FAILED: No se pudo conectar a la nube y no hay caché local")
                 throw java.io.IOException("ERROR_LOADING_SOURCES: Fallo de red al conectar con fuentes en la nube")
             }
         }
         isLastSyncFromCache = false
 
         if (cloudSources.isEmpty()) {
-            // TEST C: la nube respondió correctamente pero 0 fuentes -> SUCCESS_EMPTY
-            android.util.Log.d("AuthRepository", "SOURCE_SYNC_EMPTY: La nube respondió que no hay fuentes disponibles. Borrando caché local para sincronizar con la nube.")
-            preferencesDataSource.saveAllSources(emptyList())
-            return@withContext emptyList()
-        }
-
-        // ── 4. CONSOLIDACIÓN ESTRICTA (FASE 32) ──
-        val isCustomSource = { s: SourceConfig ->
-            s.serverUrl.contains("vercel.app") ||
-            s.username.equals("LELOUCH", ignoreCase = true) ||
-            s.name.contains("Personalizada", ignoreCase = true) ||
-            s.name.contains("Mi Lista", ignoreCase = true) ||
-            s.id.startsWith("custom_")
-        }
-
-        val customList = cloudSources.filter { isCustomSource(it) }
-        val normalList = cloudSources.filterNot { isCustomSource(it) }
-
-        val consolidatedSources = mutableListOf<SourceConfig>()
-
-        if (customList.isNotEmpty()) {
-            val validCustomTokens = customList.mapNotNull { it.accessToken }.filter { it.isNotBlank() && it != "revoked" }
-            val hasRevocation = customList.any { it.serverUrl.contains("token=revoked") || it.accessToken == null }
-            val bestToken = validCustomTokens.firstOrNull()
-
-            val wasCustomActive = if (bestToken == null) false else (currentActiveId == "custom_lelouch" || (currentActiveId == null && customList.any { it.isActive }))
-            val canonicalCustomUrl = if (bestToken != null) {
-                "https://lelouch-web-player.vercel.app/api/playlist?token=$bestToken"
-            } else {
-                "https://lelouch-web-player.vercel.app/api/playlist?token=revoked"
+            // FASE 35: la nube puede responder 200 sin filas utilizables (por ejemplo, solo la
+            // lista personalizada retirada). Vaciar las fuentes locales aquí borraba las listas
+            // Xtream del usuario y dejaba la pantalla sin nada. Se preservan las locales.
+            val currentSources = preferencesDataSource.allSources.first()
+            if (currentSources.isEmpty()) {
+                android.util.Log.d("AuthRepository", "SOURCE_SYNC_EMPTY: sin fuentes locales ni remotas")
+                preferencesDataSource.saveAllSources(emptyList())
+                return@withContext emptyList()
             }
+            android.util.Log.d("AuthRepository", "SOURCE_SYNC_EMPTY: la nube no tiene fuentes utilizables; preservando ${currentSources.size} fuentes locales")
+            return@withContext currentSources
+        }
 
+        // ── 3. Reconciliación por identidad (servidor + usuario) ──
+        // Las filas de `playlists` traen ids UUID, mientras que Room indexa los catálogos por
+        // el id local (`xtream_...`/`m3u_...`). Reutilizar el id local evita que un sync de la
+        // nube deje huérfano el catálogo ya descargado.
+        val currentSources = preferencesDataSource.allSources.first()
+        val currentPasswordMap = currentSources.associate { sourceKey(it.serverUrl, it.username) to it.password }
+        val currentActiveId = currentSources.firstOrNull { it.isActive }?.id
+        val localIdByKey = currentSources.associate { sourceKey(it.serverUrl, it.username) to it.id }
+        val consolidatedSources = mutableListOf<SourceConfig>()
+        val seenKeys = mutableSetOf<String>()
+
+        for (src in cloudSources) {
+            if (isRetiredCustomSource(src.id, src.serverUrl)) continue
+            val key = sourceKey(src.serverUrl, src.username)
+            if (!seenKeys.add(key)) continue
+
+            val existingPass = currentPasswordMap[key]
+            val resolvedPass = if (src.password.isNotBlank()) src.password else (existingPass ?: "")
+            val resolvedId = localIdByKey[key] ?: src.id
+            val isSourceActive = if (currentActiveId != null) {
+                resolvedId == currentActiveId
+            } else {
+                src.isActive
+            }
             consolidatedSources.add(
-                SourceConfig(
-                    id = "custom_lelouch",
-                    name = "⭐ Mi Lista Personalizada LELOUCH",
-                    serverUrl = canonicalCustomUrl,
-                    username = "",
-                    password = "",
-                    type = SourceType.M3U,
-                    isActive = wasCustomActive,
-                    accessToken = bestToken
+                src.copy(
+                    id = resolvedId,
+                    password = resolvedPass,
+                    isActive = isSourceActive
                 )
             )
         }
 
-        // Desduplicar fuentes normales por (servidor + usuario) y restaurar contraseñas
-        val seenKeys = mutableSetOf<String>()
-        for (src in normalList) {
-            val cleanUrl = src.serverUrl.trimEnd('/')
-            val cleanUser = src.username.trim().lowercase()
-            val key = "$cleanUrl|$cleanUser"
-            if (!seenKeys.contains(key)) {
-                seenKeys.add(key)
-                val existingPass = currentPasswordMap[src.serverUrl + src.username]
-                val resolvedPass = if (src.password.isNotBlank()) src.password else (existingPass ?: "")
-                val isSourceActive = if (currentActiveId != null) (src.id == currentActiveId) else (src.isActive && !wasCustomActive)
-                consolidatedSources.add(
-                    src.copy(
-                        password = resolvedPass,
-                        isActive = isSourceActive
-                    )
-                )
+        // La nube es un espejo parcial: las altas manuales Xtream nunca se subieron a
+        // `playlists` y desaparecían en el siguiente arranque. Se conservan las locales que la
+        // nube no menciona.
+        for (local in currentSources) {
+            if (isRetiredCustomSource(local.id, local.serverUrl)) continue
+            val key = sourceKey(local.serverUrl, local.username)
+            if (seenKeys.add(key)) {
+                val isLocalActive = local.id == currentActiveId ||
+                    (currentActiveId == null && local.isActive)
+                consolidatedSources.add(local.copy(isActive = isLocalActive))
             }
         }
 
-        // Si ninguna fuente está activa pero hay fuentes disponibles, activar la primera VÁLIDA (TEST E & TEST F)
+        // Si ninguna fuente quedó activa, activar la primera disponible.
         val finalSources = if (consolidatedSources.isNotEmpty() && consolidatedSources.none { it.isActive }) {
-            val firstValidIdx = consolidatedSources.indexOfFirst { s ->
-                !(isCustomSource(s) && (s.accessToken == null || s.serverUrl.contains("token=revoked")))
-            }
-            if (firstValidIdx >= 0) {
-                consolidatedSources.mapIndexed { idx, s -> s.copy(isActive = idx == firstValidIdx) }
-            } else {
-                consolidatedSources
-            }
+            consolidatedSources.mapIndexed { idx, s -> s.copy(isActive = idx == 0) }
         } else {
             consolidatedSources
         }
@@ -484,4 +367,11 @@ class AuthRepositoryImpl(
     override suspend fun logout() {
         preferencesDataSource.clearSession()
     }
+
+    /** Identidad de una fuente para reconciliar nube y dispositivo sin depender del id. */
+    private fun sourceKey(serverUrl: String, username: String): String =
+        serverUrl.trimEnd('/') + "|" + username.trim().lowercase()
+
+    /** Codificación de un valor para un filtro PostgREST (`eq.<valor>`). */
+    private fun encode(value: String): String = java.net.URLEncoder.encode(value, "UTF-8")
 }
