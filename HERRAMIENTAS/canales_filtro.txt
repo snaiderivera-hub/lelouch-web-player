@@ -1,0 +1,38 @@
+# ============================================================
+# Lista de Canales o Palabras Clave a Filtrar
+# Escribe un nombre o palabra clave por línea.
+# Las líneas que empiezan por # son comentarios y se ignoran.
+# ============================================================
+
+# Deportes
+ESPN
+Fox Sports
+DAZN
+Directv Sports
+TyC Sports
+TUDN
+Liga de Campeones
+LaLiga
+NBA TV
+NFL RedZone
+UFC Fight Pass
+
+# Noticias y Generalistas
+CNN
+BBC
+Telemundo
+Univision
+Discovery Channel
+National Geographic
+History Channel
+
+# Cine y Entretenimiento
+HBO
+Star Channel
+Warner Channel
+TNT
+Cinemax
+Universal
+Paramount
+Cartoon Network
+Disney Channel

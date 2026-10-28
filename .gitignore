@@ -12,11 +12,13 @@ exports/
 logs/
 temp/
 _backup_*/
+backups/
 *.zip
 *.rar
 *.log
 RESPALDOS_Y_DATOS/
 *.apk
+apks/
 .freebuff/
 current_device_screen_*.png
 tv_screen_*.png

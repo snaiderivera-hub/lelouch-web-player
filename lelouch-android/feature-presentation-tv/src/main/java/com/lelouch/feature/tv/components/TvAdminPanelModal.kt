@@ -338,6 +338,58 @@ fun TvAdminPanelModal(
                                                     }
                                                 }
                                                 Spacer(modifier = Modifier.height(6.dp))
+                                                Row(
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    val daysRem = source.expireDaysRemaining
+                                                    val expColor = when {
+                                                        daysRem != null && daysRem <= 0 -> Color(0xFFEF4444)
+                                                        daysRem != null && daysRem <= 15 -> Color(0xFFF59E0B)
+                                                        else -> Color(0xFF10B981)
+                                                    }
+                                                    val expLabel = when {
+                                                        source.expireDate.isNullOrBlank() -> "♾️ Sin fecha / Ilimitado"
+                                                        daysRem != null && daysRem <= 0 -> "🔴 Venció: ${source.formattedExpireDate}"
+                                                        daysRem != null -> "📅 Vence: ${source.formattedExpireDate} (${daysRem} días)"
+                                                        else -> "📅 Vence: ${source.formattedExpireDate}"
+                                                    }
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .clip(RoundedCornerShape(4.dp))
+                                                            .background(expColor.copy(alpha = 0.18f))
+                                                            .border(1.dp, expColor.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                                                            .padding(horizontal = 7.dp, vertical = 2.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = expLabel,
+                                                            color = expColor,
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
+
+                                                    val maxC = source.maxConnections.coerceAtLeast(1)
+                                                    val actC = source.activeConnections.coerceAtLeast(0)
+                                                    val isBusy = actC >= maxC
+                                                    val connColor = if (isBusy) Color(0xFFEF4444) else Color(0xFF10B981)
+                                                    val connText = if (isBusy) "🔴 LISTA OCUPADA ($actC/$maxC Conex.)" else "🟢 LIBRE ($actC/$maxC Conex.)"
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .clip(RoundedCornerShape(4.dp))
+                                                            .background(connColor.copy(alpha = 0.18f))
+                                                            .border(1.dp, connColor.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                                                            .padding(horizontal = 7.dp, vertical = 2.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = connText,
+                                                            color = connColor,
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
+                                                }
+                                                Spacer(modifier = Modifier.height(5.dp))
                                                 Text(
                                                     text = "Servidor: ${source.serverUrl}  •  Usuario: ${source.username}",
                                                     color = if (isCardFocused) Color(0xFFE2E8F0) else LelouchTextSecondary,

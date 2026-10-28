@@ -948,48 +948,12 @@ class XtreamCatalogSyncManager private constructor(
     )
 
     /**
-     * FASE 33 — Extrae canales de un proveedor hacia "Mi Lista Personalizada LELOUCH".
-     * Extrae los canales de las categorías indicadas y los publica en la playlist del
-     * reproductor web (Supabase `playlist_items`). Ya no crea una fuente local: la lista
-     * personalizada fue retirada de la APK en la FASE 35.
+     * FASE 35 — La lista personalizada fue retirada; no se suben canales a Supabase.
      */
     suspend fun extractChannelsToCustomPlaylist(
         sourceId: String,
         categoryNames: Set<String>
     ): Int = withContext(Dispatchers.IO) {
-        try {
-            val allChannels = database.channelDao().getAllChannelsBySource(sourceId).first()
-            val toExtract = allChannels.filter { categoryNames.contains(it.categoryName) }
-            if (toExtract.isEmpty()) return@withContext 0
-
-            // FASE 35: ya no se escribe una copia local bajo `custom_lelouch`. Esa fuente está
-            // retirada y esas filas solo alimentaban los 3.594 ítems fantasma que se purgaron.
-            // La extracción conserva su único destino útil: la playlist del reproductor web.
-
-            // Sincronizar en segundo plano a Supabase playlist_items
-            try {
-                val cleanPlaylistId = "c9da4a22-534c-41f9-af70-42ee9f6682df"
-                val batchSize = 200
-                for (i in toExtract.indices step batchSize) {
-                    val chunk = toExtract.subList(i, minOf(i + batchSize, toExtract.size))
-                    val jsonRows = chunk.mapIndexed { idx, ch ->
-                        """{"playlist_id":"$cleanPlaylistId","item_type":"direct","media_type":"live","direct_name":"${ch.name.replace("\"", "\\\"")}","direct_url":"${ch.streamUrl.replace("\"", "\\\"")}","direct_group":"${ch.categoryName.replace("\"", "\\\"")}","direct_logo":"${ch.streamIcon ?: ""}","position":${i + idx},"enabled":true}"""
-                    }.joinToString(",", "[", "]")
-
-                    val req = Request.Builder()
-                        .url("https://rotupbdeljgfddywryhk.supabase.co/rest/v1/playlist_items")
-                        .post(jsonRows.toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull()))
-                        .addHeader("apikey", SUPABASE_ANON_KEY)
-                        .addHeader("Authorization", "Bearer $SUPABASE_ANON_KEY")
-                        .addHeader("Prefer", "resolution=merge-duplicates")
-                        .build()
-                    httpClient.newCall(req).execute().close()
-                }
-            } catch (_: Exception) {}
-
-            return@withContext toExtract.size
-        } catch (e: Exception) {
-            return@withContext 0
-        }
+        0
     }
 }

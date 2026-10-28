@@ -101,14 +101,23 @@ fun TvPortalDashboard(
             ?: visibleSeriesList.firstOrNull()
     }
 
-    LaunchedEffect(Unit) {
-        try {
-            heroBtnRequester.requestFocus()
-        } catch (_: Exception) {}
-    }
-
     val headerFocusRequester = remember { FocusRequester() }
     val settingsFocusRequester = remember { FocusRequester() }
+
+    // Una cuenta sin películas ni series destacadas no compone el hero. Sus FocusRequester
+    // quedan sin `Modifier.focusRequester` adjunto y mover el D-Pad hacia ellos lanza
+    // "FocusRequester is not initialized". Sin hero el foco baja a la primera píldora y
+    // hacia arriba va a la cabecera (lupa/engranaje), que siempre está adjunta.
+    val hasHero = featuredMovie != null || featuredSeries != null
+    val heroPlayTarget = if (hasHero) heroBtnRequester else pillRequesters[0]
+    val heroUpTarget = if (hasHero) heroBtnRequester else headerFocusRequester
+    val heroInfoUpTarget = if (hasHero) heroInfoRequester else settingsFocusRequester
+
+    LaunchedEffect(Unit) {
+        try {
+            if (hasHero) heroBtnRequester.requestFocus() else pillRequesters[0].requestFocus()
+        } catch (_: Exception) {}
+    }
 
     Column(
         modifier = modifier
@@ -191,7 +200,7 @@ fun TvPortalDashboard(
                         .focusRequester(headerFocusRequester)
                         .focusProperties {
                             right = settingsFocusRequester
-                            down = heroBtnRequester
+                            down = heroPlayTarget
                         },
                     shape = ClickableSurfaceDefaults.shape(CircleShape),
                     scale = ClickableSurfaceDefaults.scale(focusedScale = 1.15f),
@@ -226,7 +235,7 @@ fun TvPortalDashboard(
                         .focusRequester(settingsFocusRequester)
                         .focusProperties {
                             left = headerFocusRequester
-                            down = heroBtnRequester
+                            down = heroPlayTarget
                         },
                     shape = ClickableSurfaceDefaults.shape(CircleShape),
                     scale = ClickableSurfaceDefaults.scale(focusedScale = 1.15f),
@@ -326,7 +335,7 @@ fun TvPortalDashboard(
                 modifier = Modifier.weight(1f).focusProperties {
                     left = sidebarRequester ?: FocusRequester.Cancel
                     right = pillRequesters[1]
-                    up = heroBtnRequester
+                    up = heroUpTarget
                 }
             )
             TvCategoryPill(
@@ -338,7 +347,7 @@ fun TvPortalDashboard(
                 modifier = Modifier.weight(1f).focusProperties {
                     left = pillRequesters[0]
                     right = pillRequesters[2]
-                    up = heroBtnRequester
+                    up = heroUpTarget
                 }
             )
             TvCategoryPill(
@@ -350,7 +359,7 @@ fun TvPortalDashboard(
                 modifier = Modifier.weight(1f).focusProperties {
                     left = pillRequesters[1]
                     right = pillRequesters[3]
-                    up = heroInfoRequester
+                    up = heroInfoUpTarget
                 }
             )
             TvCategoryPill(
@@ -362,7 +371,7 @@ fun TvPortalDashboard(
                 modifier = Modifier.weight(1f).focusProperties {
                     left = pillRequesters[2]
                     right = FocusRequester.Cancel
-                    up = heroInfoRequester
+                    up = heroInfoUpTarget
                 }
             )
         }

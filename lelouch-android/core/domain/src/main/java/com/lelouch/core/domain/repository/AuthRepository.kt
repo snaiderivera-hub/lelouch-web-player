@@ -12,6 +12,7 @@ interface AuthRepository {
     suspend fun validateXtream(serverUrl: String, user: String, pass: String, customName: String? = null): Result<SourceConfig>
     suspend fun addSourceFromUrl(rawUrl: String, customName: String? = null): Result<SourceConfig>
     suspend fun syncCloudSources(): List<SourceConfig>
+    suspend fun refreshAllSourcesStatus(): List<SourceConfig> = emptyList()
     suspend fun logout()
     val isLastSyncFromCache: Boolean get() = false
 }

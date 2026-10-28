@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Servidor HTTP local para servir la aplicación IPTV Data Architect en el navegador.
+    Servidor HTTP local para servir la aplicación LELOUCH PLUS Web Player en el navegador.
     Busca un puerto libre automáticamente empezando en 8686.
 #>
 
@@ -41,10 +41,10 @@ $mimeTypes = @{
 }
 
 Write-Host '==================================================' -ForegroundColor Cyan
-Write-Host '  IPTV Data Architect — Servidor Local' -ForegroundColor Cyan
+Write-Host '  LELOUCH PLUS WEB PLAYER — Servidor Local' -ForegroundColor Cyan
 Write-Host ('  Abierto en: http://localhost:' + $port) -ForegroundColor Green
-Write-Host '  Deja esta ventana abierta.' -ForegroundColor Yellow
-Write-Host '  Ctrl+C para detener.' -ForegroundColor Gray
+Write-Host '  Cache-Control: no-store activo (siempre actualizado).' -ForegroundColor Green
+Write-Host '  Deja esta ventana abierta. Ctrl+C para detener.' -ForegroundColor Yellow
 Write-Host '==================================================' -ForegroundColor Cyan
 
 Start-Process ('http://localhost:' + $port)
@@ -67,6 +67,8 @@ while ($listener.IsListening) {
             $content = [System.IO.File]::ReadAllBytes($filePath)
             $res.StatusCode = 200
             $res.ContentType = $contentType
+            $res.Headers.Add("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            $res.Headers.Add("Pragma", "no-cache")
             $res.ContentLength64 = $content.Length
             $res.OutputStream.Write($content, 0, $content.Length)
         } else {

@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.97",
-  "versionCode": 1000097,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.97/app-debug.apk",
-  "changelog": "- Lista Personalizada retirada: se elimino su lectura en la nube y se purga su catalogo local (canales, peliculas, series, categorias, favoritos e historial).\n- Sincronizacion mas rapida: se elimino la estrategia de 50.000 items que bloqueaba las listas reales.\n- Conexiones reales: la tarjeta de cuenta y la cabecera muestran X/Y conexiones de Xtream, actualizadas al sincronizar o recargar; las listas M3U muestran M3U.\n- Alta de listas sin reinicios: la nueva lista se activa y sincroniza en la misma pantalla, sin doble sincronizacion ni pantallazo.\n- Borrado de listas purga su catalogo local y conserva las demas listas del dispositivo.\n- Zona Blindada (FASE 34): motor de reproduccion y buffers intactos."
+  "versionName": "1.0.99",
+  "versionCode": 1000099,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.99/app-debug.apk",
+  "changelog": "- Selector de DNS Inteligente (Cloudflare 1.1.1.1, Google 8.8.8.8, Control D y AdGuard) con medicion de latencia UDP en ms, insignia MEJOR y cache RAM de IPs (0 ms en zapping) tanto en Telefono como en TV Box.\n- Selector de Aceleracion por Hardware (HW+ DirectSurface, HW Estandar, SW CPU) y Motor de Audio de Baja Latencia (OpenSL ES PCM 16-bit vs AudioTrack).\n- Semaforo en vivo de ocupacion de listas (LIBRE vs LISTA OCUPADA X/X conexiones) y fechas de vencimiento visibles en Telefono y TV Box + Test de Lista y Red completo en movil.\n- Visor de Mis Descargas en movil (/Download/LelouchPlus_...) con cabecera IPTVSmartersPlayer y reproduccion integrada.\n- Zona Blindada (FASE 34) intacta."
 }

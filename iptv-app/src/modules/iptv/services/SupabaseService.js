@@ -40,19 +40,35 @@ class SupabaseService {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       const data = await res.json();
-      return (data || []).map(row => ({
-        id: row.id,
-        name: row.name,
-        url: row.url,
-        serverBaseUrl: row.server_url,
-        username: row.username,
-        isActive: row.is_active,
-        expiresAt: row.expires_at || null,
-        channelsCount: row.channels_count,
-        moviesCount: row.movies_count,
-        seriesCount: row.series_count,
-        updatedAt: row.updated_at
-      }));
+      return (data || [])
+        .filter(row => {
+          const u = (row.url || '').toLowerCase();
+          const s = (row.server_url || '').toLowerCase();
+          return !u.includes('/api/playlist') && !s.includes('vercel.app') && row.username !== 'LELOUCH';
+        })
+        .map(row => {
+          let fullUrl = row.url || '';
+          const srv = (row.server_url || '').replace(/\/+$/, '');
+          const usr = row.username || '';
+          const pwd = (row.password && row.password !== '••••••••') ? row.password : '';
+          if (srv && usr && pwd && !fullUrl.includes('username=')) {
+            fullUrl = `${srv}/get.php?username=${encodeURIComponent(usr)}&password=${encodeURIComponent(pwd)}&type=m3u_plus&output=ts`;
+          }
+          return {
+            id: row.id,
+            name: row.name,
+            url: fullUrl,
+            serverBaseUrl: row.server_url,
+            username: row.username,
+            password: pwd,
+            isActive: row.is_active,
+            expiresAt: row.expires_at || null,
+            channelsCount: row.channels_count,
+            moviesCount: row.movies_count,
+            seriesCount: row.series_count,
+            updatedAt: row.updated_at
+          };
+        });
     } catch (e) {
       console.warn('[SupabaseService] Error al obtener playlists de la nube:', e);
       return [];
@@ -61,17 +77,42 @@ class SupabaseService {
 
   /**
    * Guarda o actualiza una playlist en Supabase (Upsert).
+   * Solo aloja cuentas/listas en public.playlists (no sube canales).
    * @param {Object} playlist
    */
   async savePlaylist(playlist) {
     if (!this.isAvailable || !playlist || !playlist.url) return null;
+    if (
+      playlist.id === 'custom_lelouch_playlist' ||
+      String(playlist.url).includes('/api/playlist') ||
+      String(playlist.serverBaseUrl || '').includes('vercel.app')
+    ) {
+      return null;
+    }
     try {
+      const rawUrl = String(playlist.url || '');
+      const uMatch = rawUrl.match(/[?&]username=([^&]+)/i);
+      const pMatch = rawUrl.match(/[?&]password=([^&]+)/i);
+      const urlUser = uMatch ? decodeURIComponent(uMatch[1]) : '';
+      const urlPass = pMatch ? decodeURIComponent(pMatch[1]) : '';
+
+      const rawUser = playlist.rawUsername || playlist.username || '';
+      const cleanUsername = (rawUser && !rawUser.includes('*')) ? rawUser : urlUser;
+      const cleanPassword = (playlist.password && playlist.password !== '••••••••')
+        ? playlist.password
+        : (urlPass || '••••••••');
+
+      const cleanServer = String(playlist.serverBaseUrl || '').replace(/\/+$/, '');
+      const canonicalUrl = (cleanServer && cleanUsername && cleanPassword && cleanPassword !== '••••••••')
+        ? `${cleanServer}/get.php?username=${encodeURIComponent(cleanUsername)}&password=${encodeURIComponent(cleanPassword)}&type=m3u_plus&output=ts`
+        : playlist.url;
+
       const body = {
         name: playlist.name || 'Playlist',
-        url: playlist.url,
-        server_url: playlist.serverBaseUrl || '',
-        username: playlist.username || '',
-        password: playlist.password || '••••••••',
+        url: canonicalUrl,
+        server_url: cleanServer,
+        username: cleanUsername,
+        password: cleanPassword,
         is_active: Boolean(playlist.isActive),
         expires_at: playlist.expiresAt || playlist.expires_at || null,
         channels_count: playlist.channelsCount || 0,
@@ -79,6 +120,29 @@ class SupabaseService {
         series_count: playlist.seriesCount || 0,
         updated_at: new Date().toISOString()
       };
+
+      // Primero verificar si ya existe una fila con el mismo server_url + username para actualizarla sin duplicar
+      if (cleanServer && cleanUsername) {
+        const checkRes = await fetch(
+          `${this.url}/rest/v1/playlists?select=id&server_url=eq.${encodeURIComponent(cleanServer)}&username=eq.${encodeURIComponent(cleanUsername)}`,
+          { headers: this._getHeaders() }
+        );
+        if (checkRes.ok) {
+          const existingRows = await checkRes.json();
+          if (existingRows && existingRows.length > 0) {
+            const targetId = existingRows[0].id;
+            const patchRes = await fetch(`${this.url}/rest/v1/playlists?id=eq.${encodeURIComponent(targetId)}`, {
+              method: 'PATCH',
+              headers: this._getHeaders({ 'Prefer': 'return=representation' }),
+              body: JSON.stringify(body)
+            });
+            if (patchRes.ok) {
+              const patched = await patchRes.json();
+              return patched?.[0] || null;
+            }
+          }
+        }
+      }
 
       const res = await fetch(`${this.url}/rest/v1/playlists?on_conflict=url`, {
         method: 'POST',
@@ -89,13 +153,23 @@ class SupabaseService {
       });
 
       if (!res.ok) {
-        const errText = await res.text();
-        console.warn('[SupabaseService] No se pudo guardar la playlist en Supabase:', errText);
-        return null;
+        // Fallback: POST directo si la tabla no tuviera constraint en url
+        const fallbackRes = await fetch(`${this.url}/rest/v1/playlists`, {
+          method: 'POST',
+          headers: this._getHeaders({ 'Prefer': 'return=representation' }),
+          body: JSON.stringify(body)
+        });
+        if (!fallbackRes.ok) {
+          const errText = await fallbackRes.text();
+          console.warn('[SupabaseService] No se pudo guardar la playlist en Supabase:', errText);
+          return null;
+        }
+        const savedFallback = await fallbackRes.json();
+        return savedFallback?.[0] || null;
       }
 
       const saved = await res.json();
-      console.log('☁️ [SupabaseService] Playlist sincronizada en Supabase con éxito:', playlist.name);
+      console.log('☁️ [SupabaseService] Cuenta sincronizada en Supabase con éxito:', playlist.name);
       return saved?.[0] || null;
     } catch (e) {
       console.warn('[SupabaseService] Excepción al guardar en Supabase:', e);
@@ -104,17 +178,52 @@ class SupabaseService {
   }
 
   /**
-   * Elimina una playlist de Supabase por su URL.
-   * @param {string} url
+   * Elimina una playlist de Supabase por objeto, ID, URL o servidor+usuario.
+   * @param {string|Object} targetOrUrl
    */
-  async deletePlaylist(url) {
-    if (!this.isAvailable || !url) return false;
+  async deletePlaylist(targetOrUrl) {
+    if (!this.isAvailable || !targetOrUrl) return false;
     try {
-      const res = await fetch(`${this.url}/rest/v1/playlists?url=eq.${encodeURIComponent(url)}`, {
-        method: 'DELETE',
-        headers: this._getHeaders()
-      });
-      return res.ok;
+      const isObj = typeof targetOrUrl === 'object';
+      const id = isObj ? targetOrUrl.id : null;
+      const url = isObj ? targetOrUrl.url : String(targetOrUrl);
+      const serverUrl = isObj ? String(targetOrUrl.serverBaseUrl || '').replace(/\/+$/, '') : '';
+      const rawUser = isObj ? (targetOrUrl.rawUsername || targetOrUrl.username || '') : '';
+      const cleanUser = rawUser && !rawUser.includes('*') ? rawUser : '';
+
+      let ok = false;
+
+      // 1. Si el ID es un UUID de Supabase, borrar por ID
+      if (id && /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(id)) {
+        const resId = await fetch(`${this.url}/rest/v1/playlists?id=eq.${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+          headers: this._getHeaders()
+        });
+        if (resId.ok) ok = true;
+      }
+
+      // 2. Borrar por server_url + username (infalible aunque cambie output=ts / output=m3u8)
+      if (serverUrl && cleanUser) {
+        const resSrv = await fetch(
+          `${this.url}/rest/v1/playlists?server_url=eq.${encodeURIComponent(serverUrl)}&username=eq.${encodeURIComponent(cleanUser)}`,
+          {
+            method: 'DELETE',
+            headers: this._getHeaders()
+          }
+        );
+        if (resSrv.ok) ok = true;
+      }
+
+      // 3. Borrar por URL exacta
+      if (url) {
+        const resUrl = await fetch(`${this.url}/rest/v1/playlists?url=eq.${encodeURIComponent(url)}`, {
+          method: 'DELETE',
+          headers: this._getHeaders()
+        });
+        if (resUrl.ok) ok = true;
+      }
+
+      return ok;
     } catch (e) {
       console.warn('[SupabaseService] Error al eliminar playlist de Supabase:', e);
       return false;

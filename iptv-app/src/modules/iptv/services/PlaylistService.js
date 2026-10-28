@@ -2,7 +2,7 @@
  * @module PlaylistService
  * Gestión de playlists y cuentas guardadas (Xtream Codes, M3U).
  * Permite agregar, activar, editar, eliminar y probar conexiones.
- * Oculta contraseñas en representaciones públicas para la UI.
+ * Sincroniza estrictamente con Supabase (public.playlists como única fuente de la verdad).
  */
 
 import { cacheService } from './CacheService.js';
@@ -12,27 +12,48 @@ import { maskUsername } from '../utils/security.js';
 
 class PlaylistService {
   /**
-   * Obtiene la lista de playlists guardadas con credenciales enmascaradas.
-   * Sincroniza bidireccionalmente con Supabase y garantiza que haya una activa marcada.
+   * Obtiene la lista de playlists guardadas.
+   * Reconcilia estrictamente con Supabase public.playlists (elimina de IndexedDB las que ya no estén en Supabase).
    */
   async getAll() {
-    let lists = await cacheService.getPlaylists();
+    let lists = (await cacheService.getPlaylists()) || [];
+
+    // Purgar cualquier rastro local de la lista personalizada retirada
+    const retiredIds = lists
+      .filter(l => l.id === 'custom_lelouch_playlist' || String(l.url || '').includes('/api/playlist') || String(l.serverBaseUrl || '').includes('vercel.app'))
+      .map(l => l.id);
+    for (const rid of retiredIds) {
+      await cacheService.deletePlaylist(rid);
+    }
+    lists = lists.filter(l => !retiredIds.includes(l.id));
 
     try {
       if (supabaseService.isAvailable) {
         const cloudLists = await supabaseService.getPlaylists();
-        if (cloudLists && cloudLists.length > 0) {
+        if (Array.isArray(cloudLists)) {
+          const matchedLocalIds = new Set();
+          const reconciled = [];
+
           for (const cPl of cloudLists) {
-            const exists = lists.find(l => l.url === cPl.url || l.id === cPl.id);
+            const parsed = parseIPTVUrl(cPl.url);
+            const cleanServer = (cPl.serverBaseUrl || parsed.serverBaseUrl || '').replace(/\/+$/, '');
+            const cleanUser = (cPl.username && !cPl.username.includes('*')) ? cPl.username : (parsed.username || '');
+
+            const exists = lists.find(l =>
+              l.id === cPl.id ||
+              l.url === cPl.url ||
+              (cleanServer && cleanUser && (l.serverBaseUrl || '').replace(/\/+$/, '') === cleanServer && (l.username || '') === cleanUser)
+            );
+
             if (!exists) {
-              const parsed = parseIPTVUrl(cPl.url);
               const newLocalPl = {
-                id: cPl.id || `pl_${Date.now()}`,
+                id: cPl.id || `pl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
                 name: cPl.name,
                 url: cPl.url,
-                serverBaseUrl: cPl.serverBaseUrl || parsed.serverBaseUrl,
-                username: cPl.username || parsed.username || '',
-                maskedUsername: cPl.username ? maskUsername(cPl.username) : '',
+                serverBaseUrl: cleanServer || parsed.serverBaseUrl,
+                username: cleanUser,
+                password: cPl.password || parsed._password || '',
+                maskedUsername: cleanUser ? maskUsername(cleanUser) : '',
                 sourceType: parsed.sourceType,
                 isActive: !!cPl.isActive,
                 expiresAt: cPl.expiresAt || null,
@@ -43,12 +64,43 @@ class PlaylistService {
                 lastUsedAt: Date.now()
               };
               await cacheService.savePlaylist(newLocalPl);
-              lists.push(newLocalPl);
-            } else if (cPl.expiresAt && !exists.expiresAt) {
-              exists.expiresAt = cPl.expiresAt;
-              await cacheService.savePlaylist(exists);
+              matchedLocalIds.add(newLocalPl.id);
+              reconciled.push(newLocalPl);
+            } else {
+              matchedLocalIds.add(exists.id);
+              let changed = false;
+              if (cPl.url && exists.url !== cPl.url) {
+                exists.url = cPl.url;
+                changed = true;
+              }
+              if (cPl.expiresAt && exists.expiresAt !== cPl.expiresAt) {
+                exists.expiresAt = cPl.expiresAt;
+                changed = true;
+              }
+              if (cleanUser && exists.username !== cleanUser) {
+                exists.username = cleanUser;
+                exists.maskedUsername = maskUsername(cleanUser);
+                changed = true;
+              }
+              if (cPl.name && exists.name !== cPl.name) {
+                exists.name = cPl.name;
+                changed = true;
+              }
+              if (changed) {
+                await cacheService.savePlaylist(exists);
+              }
+              reconciled.push(exists);
             }
           }
+
+          // Purgar de IndexedDB cualquier lista vieja/fantasma que ya fue borrada en Supabase
+          for (const localItem of lists) {
+            if (!matchedLocalIds.has(localItem.id)) {
+              await cacheService.deletePlaylist(localItem.id);
+            }
+          }
+
+          lists = reconciled;
         }
       }
     } catch (e) {
@@ -85,13 +137,14 @@ class PlaylistService {
    * Obtiene la playlist activa (con URL real para uso del servicio).
    */
   async getActive() {
+    await this.getAll();
     const lists = await cacheService.getPlaylists();
     if (!lists || lists.length === 0) return null;
 
     const savedActiveId = (typeof localStorage !== 'undefined') ? localStorage.getItem('iptv_active_playlist_id') : null;
     let active = null;
 
-    if (savedActiveId) {
+    if (savedActiveId && savedActiveId !== 'custom_lelouch_playlist') {
       active = lists.find(p => p.id === savedActiveId);
     }
     if (!active) {
@@ -115,7 +168,7 @@ class PlaylistService {
   }
 
   /**
-   * Agrega o actualiza una playlist en IndexedDB y la nube Supabase.
+   * Agrega o actualiza una playlist en IndexedDB y en la nube Supabase (esperando confirmación).
    * @param {string} rawUrl
    * @param {string} customName
    */
@@ -125,57 +178,66 @@ class PlaylistService {
       cleanUrl = cleanUrl.replace('liontv.es:80/', 'liontv.es:8080/');
     }
     const parsed = parseIPTVUrl(cleanUrl);
-    const id = `pl_${btoa(unescape(encodeURIComponent(parsed.serverBaseUrl + '_' + (parsed.username || 'anon')))).replace(/[^a-zA-Z0-9]/g, '').slice(0, 16)}`;
-
-    const existingLists = await cacheService.getPlaylists();
-    
-    // Buscar si ya existe una lista con la misma URL exacta O el mismo servidor+usuario
-    const existing = existingLists.find(p => 
-      p.id === id || 
-      p.url === cleanUrl ||
-      p.url === rawUrl ||
-      (p.serverBaseUrl === parsed.serverBaseUrl && p.username === (parsed.username || ''))
-    );
-
-    if (existing && !customName) {
-      // Si ya existe y no estamos solo actualizando el nombre, bloquear la duplicación.
-      throw new Error(`Esta playlist ya está registrada como "${existing.name}". No se permiten listas repetidas.`);
+    const cleanServer = String(parsed.serverBaseUrl || '').replace(/\/+$/, '');
+    const cleanUser = parsed.username || '';
+    const cleanPass = parsed._password || '';
+    if (cleanServer && cleanUser && cleanPass) {
+      cleanUrl = `${cleanServer}/get.php?username=${encodeURIComponent(cleanUser)}&password=${encodeURIComponent(cleanPass)}&type=m3u_plus&output=ts`;
     }
 
-    const finalId = existing ? existing.id : id;
+    const fallbackId = `pl_${btoa(unescape(encodeURIComponent(cleanServer + '_' + (cleanUser || 'anon')))).replace(/[^a-zA-Z0-9]/g, '').slice(0, 16)}`;
+
+    const existingLists = (await cacheService.getPlaylists()) || [];
+
+    const existing = existingLists.find(p =>
+      p.id === fallbackId ||
+      p.url === cleanUrl ||
+      p.url === rawUrl ||
+      (cleanServer && cleanUser && String(p.serverBaseUrl || '').replace(/\/+$/, '') === cleanServer && (p.username || '') === cleanUser)
+    );
+
     const savedActiveId = (typeof localStorage !== 'undefined') ? localStorage.getItem('iptv_active_playlist_id') : null;
     const isFirst = existingLists.length === 0;
-
-    // Preservar si ya era activa o si es la primera
     const shouldBeActive = existing ? (existing.isActive || existing.id === savedActiveId) : (isFirst || !savedActiveId);
 
     const playlist = {
-      id: finalId,
-      name: customName.trim() || (existing && existing.name) || `${parsed.hostname} (${parsed.username ? maskUsername(parsed.username) : 'Playlist'})`,
+      id: existing ? existing.id : fallbackId,
+      name: customName.trim() || (existing && existing.name) || `${parsed.hostname} (${cleanUser || 'Playlist'})`,
       url: cleanUrl,
-      serverBaseUrl: parsed.serverBaseUrl,
-      username: parsed.username || '',
-      maskedUsername: parsed.username ? maskUsername(parsed.username) : '',
+      serverBaseUrl: cleanServer,
+      username: cleanUser,
+      rawUsername: cleanUser,
+      password: cleanPass || (existing && existing.password) || '',
+      maskedUsername: cleanUser ? maskUsername(cleanUser) : '',
       sourceType: parsed.sourceType,
       isActive: shouldBeActive,
+      expiresAt: existing ? existing.expiresAt : null,
       createdAt: existing ? existing.createdAt : Date.now(),
       lastUsedAt: Date.now()
     };
 
-    if (shouldBeActive && typeof localStorage !== 'undefined') {
-      localStorage.setItem('iptv_active_playlist_id', id);
+    // 1. Subir a Supabase primero para obtener su ID canónico de nube
+    try {
+      const savedCloud = await supabaseService.savePlaylist(playlist);
+      if (savedCloud && savedCloud.id) {
+        if (existing && existing.id !== savedCloud.id) {
+          await cacheService.deletePlaylist(existing.id);
+        }
+        playlist.id = savedCloud.id;
+      }
+    } catch (err) {
+      console.warn('[PlaylistService] Fallo al subir playlist a Supabase:', err);
     }
 
-    // 1. Guardar localmente en IndexedDB
+    if (shouldBeActive && typeof localStorage !== 'undefined') {
+      localStorage.setItem('iptv_active_playlist_id', playlist.id);
+    }
+
+    // 2. Guardar localmente en IndexedDB
     await cacheService.savePlaylist(playlist);
     if (shouldBeActive) {
-      await cacheService.setActivePlaylist(id);
+      await cacheService.setActivePlaylist(playlist.id);
     }
-
-    // 2. Guardar en la nube Supabase
-    supabaseService.savePlaylist(playlist).catch(err => {
-      console.warn('[PlaylistService] Fallo al subir playlist a Supabase:', err);
-    });
 
     return this._sanitize(playlist);
   }
@@ -190,23 +252,21 @@ class PlaylistService {
     await cacheService.setActivePlaylist(id);
     const active = await this.getActive();
     if (active) {
-      supabaseService.savePlaylist({ ...active, isActive: true }).catch(() => {});
+      await supabaseService.savePlaylist({ ...active, isActive: true }).catch(() => {});
     }
     return active;
   }
 
   /**
-   * Elimina una playlist por ID de IndexedDB y Supabase.
+   * Elimina una playlist por ID de Supabase y de IndexedDB esperando confirmación real.
    */
   async remove(id) {
-    const lists = await cacheService.getPlaylists();
+    const lists = (await cacheService.getPlaylists()) || [];
     const target = lists.find(p => p.id === id);
-    if (target && target.url) {
-      supabaseService.deletePlaylist(target.url).catch(() => {});
-    }
-    // FASE 33: También intentar borrar si es una custom_playlist
-    if (supabaseService.deleteCustomPlaylist) {
-      supabaseService.deleteCustomPlaylist(id).catch(() => {});
+    if (target) {
+      await supabaseService.deletePlaylist(target);
+    } else {
+      await supabaseService.deletePlaylist({ id });
     }
     const currentActiveId = (typeof localStorage !== 'undefined') ? localStorage.getItem('iptv_active_playlist_id') : null;
     if (currentActiveId === id && typeof localStorage !== 'undefined') {
@@ -227,8 +287,8 @@ class PlaylistService {
       name: playlist.name,
       url: playlist.url,
       serverBaseUrl: playlist.serverBaseUrl,
-      username: playlist.maskedUsername || maskUsername(playlist.username || ''),
-      rawUsername: playlist.username || '',
+      username: playlist.username || playlist.rawUsername || '',
+      rawUsername: playlist.username || playlist.rawUsername || '',
       sourceType: playlist.sourceType,
       isActive: isActive,
       expiresAt: playlist.expiresAt || playlist.expires_at || null,

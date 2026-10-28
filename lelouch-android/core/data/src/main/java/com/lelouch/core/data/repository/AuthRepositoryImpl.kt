@@ -66,7 +66,7 @@ class AuthRepositoryImpl(
                     source.type == SourceType.M3U || source.username.isBlank() ->
                         "url=eq.${encode(source.serverUrl)}"
                     else ->
-                        "server_url=eq.${encode(source.serverUrl)}&username=eq.${encode(source.username)}"
+                        "server_url=eq.${encode(source.serverUrl.trimEnd('/'))}&username=eq.${encode(source.username.trim())}"
                 }
                 val delReq = Request.Builder()
                     .url("$supabaseBaseUrl/rest/v1/playlists?$filter")
@@ -75,6 +75,17 @@ class AuthRepositoryImpl(
                     .addHeader("Authorization", "Bearer $supabaseKey")
                     .build()
                 httpClient.newCall(delReq).execute().close()
+
+                // Si el sourceId también es un UUID de Supabase, asegurar borrado directo por id
+                if (Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$").matches(sourceId)) {
+                    val delByIdReq = Request.Builder()
+                        .url("$supabaseBaseUrl/rest/v1/playlists?id=eq.${encode(sourceId)}")
+                        .delete()
+                        .addHeader("apikey", supabaseKey)
+                        .addHeader("Authorization", "Bearer $supabaseKey")
+                        .build()
+                    httpClient.newCall(delByIdReq).execute().close()
+                }
             } catch (_: Exception) {}
         }
     }
@@ -119,6 +130,7 @@ class AuthRepositoryImpl(
 
             saveSource(source)
             activateSource(source.id)
+            saveToCloudPlaylists(source)
             Result.success(source)
         } catch (e: Exception) {
             Result.failure(e)
@@ -132,11 +144,7 @@ class AuthRepositoryImpl(
         try {
             val parsed = com.lelouch.core.data.util.SmartUrlParser.parse(rawUrl, customName)
             if (parsed.type == SourceType.XTREAM) {
-                val authResult = validateXtream(parsed.serverUrl, parsed.username, parsed.password, parsed.suggestedName)
-                authResult.onSuccess { src ->
-                    saveToCloudPlaylists(src)
-                }
-                return@withContext authResult
+                return@withContext validateXtream(parsed.serverUrl, parsed.username, parsed.password, parsed.suggestedName)
             } else {
                 val source = SourceConfig(
                     id = "m3u_${System.currentTimeMillis()}",
@@ -161,7 +169,24 @@ class AuthRepositoryImpl(
     private fun saveToCloudPlaylists(source: SourceConfig) {
         try {
             val supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvdHVwYmRlbGpnZmRkeXdyeWhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzNjA2MzksImV4cCI6MjEwNTkzNjYzOX0.zDVgrQo_IU5FhfSMpl0-MbS9Eod43czS21TBi5Z3Lvo"
-            val payload = """{"name":"${source.name.replace("\"", "\\\"")}","url":"${source.serverUrl.replace("\"", "\\\"")}","server_url":"${source.serverUrl.replace("\"", "\\\"")}","username":"${source.username.replace("\"", "\\\"")}","password":"${source.password.replace("\"", "\\\"")}","is_active":true}"""
+            val cleanBase = source.serverUrl.trimEnd('/')
+            val fullUrl = if (source.type == SourceType.XTREAM && source.username.isNotBlank()) {
+                "$cleanBase/get.php?username=${encode(source.username)}&password=${encode(source.password)}&type=m3u_plus&output=ts"
+            } else {
+                source.serverUrl
+            }
+            val isoExp = source.expireDate?.trim()?.let { raw ->
+                val secs = raw.toLongOrNull()
+                if (secs != null && secs > 1000000L) {
+                    java.time.Instant.ofEpochSecond(secs).toString()
+                } else if (raw.contains("T")) {
+                    raw
+                } else {
+                    null
+                }
+            }
+            val expJson = if (isoExp != null) """"expires_at":"$isoExp",""" else ""
+            val payload = """{"name":"${source.name.replace("\"", "\\\"")}","url":"${fullUrl.replace("\"", "\\\"")}","server_url":"${cleanBase.replace("\"", "\\\"")}","username":"${source.username.replace("\"", "\\\"")}","password":"${source.password.replace("\"", "\\\"")}",""" + expJson + """"is_active":true}"""
             val req = Request.Builder()
                 .url("$supabaseBaseUrl/rest/v1/playlists?on_conflict=url")
                 .post(payload.toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull()))
@@ -202,11 +227,22 @@ class AuthRepositoryImpl(
                         val url = obj["url"]?.jsonPrimitive?.content ?: ""
                         val serverUrl = obj["server_url"]?.jsonPrimitive?.content ?: ""
                         val username = obj["username"]?.jsonPrimitive?.content ?: ""
+                        val passwordCol = obj["password"]?.jsonPrimitive?.content ?: ""
                         val isActive = obj["is_active"]?.jsonPrimitive?.content?.toBoolean() ?: false
 
-                        // Extraer usuario y password de la URL si están presentes
-                        val userMatch = Regex("[?&]username=([^&]+)").find(url)?.groupValues?.get(1) ?: username
-                        val passMatch = Regex("[?&]password=([^&]+)").find(url)?.groupValues?.get(1) ?: ""
+                        // Extraer usuario y password de la URL o de las columnas de Supabase
+                        val userFromUrl = Regex("[?&]username=([^&]+)").find(url)?.groupValues?.get(1)
+                        val passFromUrl = Regex("[?&]password=([^&]+)").find(url)?.groupValues?.get(1)
+                        val userMatch = when {
+                            !userFromUrl.isNullOrBlank() -> userFromUrl
+                            username.isNotBlank() && !username.contains("*") -> username
+                            else -> username
+                        }
+                        val passMatch = when {
+                            !passFromUrl.isNullOrBlank() -> passFromUrl
+                            passwordCol.isNotBlank() && passwordCol != "••••••••" -> passwordCol
+                            else -> ""
+                        }
 
                         val cleanServer = if (serverUrl.isNotBlank()) {
                             if (!serverUrl.startsWith("http")) "http://$serverUrl" else serverUrl
@@ -305,9 +341,8 @@ class AuthRepositoryImpl(
         // el id local (`xtream_...`/`m3u_...`). Reutilizar el id local evita que un sync de la
         // nube deje huérfano el catálogo ya descargado.
         val currentSources = preferencesDataSource.allSources.first()
-        val currentPasswordMap = currentSources.associate { sourceKey(it.serverUrl, it.username) to it.password }
+        val localByKey = currentSources.associateBy { sourceKey(it.serverUrl, it.username) }
         val currentActiveId = currentSources.firstOrNull { it.isActive }?.id
-        val localIdByKey = currentSources.associate { sourceKey(it.serverUrl, it.username) to it.id }
         val consolidatedSources = mutableListOf<SourceConfig>()
         val seenKeys = mutableSetOf<String>()
 
@@ -316,9 +351,16 @@ class AuthRepositoryImpl(
             val key = sourceKey(src.serverUrl, src.username)
             if (!seenKeys.add(key)) continue
 
-            val existingPass = currentPasswordMap[key]
-            val resolvedPass = if (src.password.isNotBlank()) src.password else (existingPass ?: "")
-            val resolvedId = localIdByKey[key] ?: src.id
+            val localMatch = localByKey[key]
+            val resolvedPass = if (src.password.isNotBlank()) src.password else (localMatch?.password ?: "")
+            val resolvedId = localMatch?.id ?: src.id
+            val resolvedExpire = if (!src.expireDate.isNullOrBlank() && src.expireDate != "null") {
+                src.expireDate
+            } else {
+                localMatch?.expireDate
+            }
+            val resolvedMaxCons = if (src.maxConnections > 1) src.maxConnections else (localMatch?.maxConnections ?: 1)
+            val resolvedActiveCons = if (src.activeConnections > 0) src.activeConnections else (localMatch?.activeConnections ?: 0)
             val isSourceActive = if (currentActiveId != null) {
                 resolvedId == currentActiveId
             } else {
@@ -328,6 +370,10 @@ class AuthRepositoryImpl(
                 src.copy(
                     id = resolvedId,
                     password = resolvedPass,
+                    expireDate = resolvedExpire,
+                    maxConnections = resolvedMaxCons,
+                    activeConnections = resolvedActiveCons,
+                    isTrial = localMatch?.isTrial ?: src.isTrial,
                     isActive = isSourceActive
                 )
             )
@@ -362,6 +408,47 @@ class AuthRepositoryImpl(
             }
         }
         return@withContext finalSources
+    }
+
+    override suspend fun refreshAllSourcesStatus(): List<SourceConfig> = withContext(Dispatchers.IO) {
+        val currentSources = preferencesDataSource.allSources.first()
+        if (currentSources.isEmpty()) return@withContext emptyList()
+
+        val updatedSources = currentSources.map { src ->
+            if (src.type == SourceType.XTREAM && src.serverUrl.isNotBlank() && src.username.isNotBlank() && src.password.isNotBlank()) {
+                try {
+                    val cleanBase = src.serverUrl.trimEnd('/')
+                    val apiService = NetworkClient.createXtreamApiService(cleanBase, httpClient)
+                    val response = apiService.authenticate(src.username, src.password)
+                    val userInfo = response.userInfo
+                    if (userInfo != null) {
+                        val maxCons = userInfo.maxConnections.toIntOrNull() ?: src.maxConnections
+                        val activeCons = userInfo.activeCons.toIntOrNull() ?: src.activeConnections
+                        val expDate = userInfo.expDate?.takeIf { it.isNotBlank() && it != "null" } ?: src.expireDate
+                        val isTrial = userInfo.isTrial == "1"
+                        src.copy(
+                            maxConnections = maxCons,
+                            activeConnections = activeCons,
+                            expireDate = expDate,
+                            isTrial = isTrial
+                        )
+                    } else {
+                        src
+                    }
+                } catch (_: Exception) {
+                    src
+                }
+            } else {
+                src
+            }
+        }
+
+        preferencesDataSource.saveAllSources(updatedSources)
+        val activeUpdated = updatedSources.firstOrNull { it.isActive }
+        if (activeUpdated != null) {
+            preferencesDataSource.saveActiveSource(activeUpdated)
+        }
+        return@withContext updatedSources
     }
 
     override suspend fun logout() {

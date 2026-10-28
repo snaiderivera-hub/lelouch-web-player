@@ -23,6 +23,9 @@ import com.lelouch.core.designsystem.LelouchBackground
 import com.lelouch.core.designsystem.LelouchCyanAccent
 import com.lelouch.core.designsystem.LelouchTheme
 import com.lelouch.core.designsystem.LelouchTvTheme
+import com.lelouch.core.model.SourceType
+import com.lelouch.core.network.diagnostics.IptvDiagnostics
+import com.lelouch.core.network.dns.LelouchDnsManager
 import com.lelouch.feature.mobile.MobileHomeScreen
 import com.lelouch.feature.mobile.MobileLoginScreen
 import com.lelouch.feature.tv.TvHomeScreen
@@ -96,6 +99,20 @@ class MainActivity : ComponentActivity() {
             }
 
             val allSources by app.authRepository.getAllSources().collectAsStateWithLifecycle(initialValue = emptyList())
+
+            fun onRefreshAccountsStatus() {
+                lifecycleScope.launch {
+                    LelouchDnsManager.prewarmHosts(allSources.map { it.serverUrl })
+                    app.authRepository.refreshAllSourcesStatus()
+                }
+            }
+
+            LaunchedEffect(allSources.map { it.id }.joinToString(",")) {
+                if (allSources.isNotEmpty()) {
+                    LelouchDnsManager.prewarmHosts(allSources.map { it.serverUrl })
+                    app.authRepository.refreshAllSourcesStatus()
+                }
+            }
 
             fun onLogin(serverUrl: String, user: String, pass: String) {
                 errorMessage = null
@@ -308,9 +325,26 @@ class MainActivity : ComponentActivity() {
                                 onAddSource = ::onAddSource,
                                 onSyncCloudSources = ::onSyncCloud,
                                 onForceSync = ::onForceSync,
+                                onRefreshAccountsStatus = ::onRefreshAccountsStatus,
                                 onLogout = ::onLogout,
                                 syncStateText = syncStatusText,
                                 playbackHistory = app.playbackHistoryRepository,
+                                onRunDiagnostics = { source, onProgress ->
+                                    app.diagnostics.run(
+                                        config = IptvDiagnostics.Config(
+                                            serverUrl = source.serverUrl,
+                                            username = source.username,
+                                            password = source.password,
+                                            m3uListUrl = if (source.type == SourceType.M3U) {
+                                                source.serverUrl
+                                            } else {
+                                                null
+                                            },
+                                            systemDnsServers = currentDnsServers()
+                                        ),
+                                        onProgress = onProgress
+                                    )
+                                },
                                 onFetchSeriesDetails = { seriesId ->
                                     app.seriesRepository.getSeriesDetailAndEpisodes(
                                         effectiveActiveSource.serverUrl,
@@ -433,6 +467,23 @@ class MainActivity : ComponentActivity() {
                                 onSyncCloudSources = ::onSyncCloud,
                                 onForceSync = ::onForceSync,
                                 onReloadSource = ::onReloadSource,
+                                onRefreshAccountsStatus = ::onRefreshAccountsStatus,
+                                onRunDiagnostics = { source, onProgress ->
+                                    app.diagnostics.run(
+                                        config = IptvDiagnostics.Config(
+                                            serverUrl = source.serverUrl,
+                                            username = source.username,
+                                            password = source.password,
+                                            m3uListUrl = if (source.type == SourceType.M3U) {
+                                                source.serverUrl
+                                            } else {
+                                                null
+                                            },
+                                            systemDnsServers = currentDnsServers()
+                                        ),
+                                        onProgress = onProgress
+                                    )
+                                },
                                 syncStatusText = errorMessage ?: syncStatusText,
                                 syncIsError = errorMessage != null || syncState is SyncState.Error,
                                 onLogout = ::onLogout,
@@ -601,6 +652,21 @@ class MainActivity : ComponentActivity() {
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         isInPictureInPicture = isInPictureInPictureMode
+    }
+
+    /**
+     * Servidores DNS que usa la red activa. Se pasan al test para comparar el DNS del router
+     * con 1.1.1.1 sin que el módulo de red dependa del contexto de Android.
+     */
+    private fun currentDnsServers(): List<String> {
+        return runCatching {
+            val manager = getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+                ?: return emptyList()
+            val network = manager.activeNetwork ?: return emptyList()
+            manager.getLinkProperties(network)?.dnsServers
+                ?.mapNotNull { it.hostAddress }
+                .orEmpty()
+        }.getOrDefault(emptyList())
     }
 
     private fun isAndroidTvDevice(): Boolean {

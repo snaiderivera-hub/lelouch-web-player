@@ -18,6 +18,7 @@ import com.lelouch.core.domain.repository.ChannelRepository
 import com.lelouch.core.domain.repository.PlaybackHistoryRepository
 import com.lelouch.core.domain.repository.SeriesRepository
 import com.lelouch.core.domain.repository.VodRepository
+import com.lelouch.core.network.diagnostics.IptvDiagnostics
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -53,11 +54,16 @@ class LelouchApplication : Application(), ImageLoaderFactory {
     lateinit var playbackHistoryRepository: PlaybackHistoryRepository
         private set
 
+    /** Diagnóstico de cuenta/lista/red que se ejecuta desde Ajustes (test manual). */
+    lateinit var diagnostics: IptvDiagnostics
+        private set
+
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
         super.onCreate()
         instance = this
+        com.lelouch.core.network.dns.LelouchDnsManager.init(this)
 
         database = LelouchDatabase.getInstance(this)
         preferencesDataSource = UserPreferencesDataSource(this)
@@ -68,6 +74,7 @@ class LelouchApplication : Application(), ImageLoaderFactory {
         vodRepository = VodRepositoryImpl(database.movieDao(), database.categoryDao(), syncManager, database.searchDao())
         seriesRepository = SeriesRepositoryImpl(database.seriesDao(), database.categoryDao(), syncManager, database.searchDao())
         playbackHistoryRepository = PlaybackHistoryRepositoryImpl(database.watchHistoryDao())
+        diagnostics = IptvDiagnostics()
 
         // FASE 35 (1.0.97): la lista personalizada quedó retirada. Se purga su catálogo local
         // (incluidos los 3.594 ítems de la última sincronización) en cada arranque. Las

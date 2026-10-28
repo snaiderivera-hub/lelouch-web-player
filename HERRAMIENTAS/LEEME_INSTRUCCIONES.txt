@@ -1,0 +1,45 @@
+================================================================================
+  SUITE DE HERRAMIENTAS Y UTILIDADES IPTV - LELOUCH PLUS
+================================================================================
+
+Todas las herramientas de esta carpeta son 100% PORTABLES.
+Puedes copiar toda la carpeta "HERRAMIENTAS" o la carpeta principal a cualquier
+otra computadora con Windows (Windows 10 u 11) y funcionará de inmediato con doble clic,
+sin necesidad de instalar software adicional ni configurar rutas absolutas.
+
+--------------------------------------------------------------------------------
+¿PARA QUÉ SIRVE CADA LANZADOR?
+--------------------------------------------------------------------------------
+
+1. "1_ANALIZADOR_VISUAL_Y_SALUD_M3U.bat"
+   - Doble clic abre el analizador visual en tu navegador (Chrome, Edge o Brave).
+   - Puedes arrastrar un archivo .m3u o pegar la URL de una lista.
+   - Cuenta con "Stream Health Verifier": prueba las conexiones en vivo con Hls.js
+     y te marca en verde (Online) y rojo (Offline) los canales caídos.
+   - Permite filtrar canales por nombre/categoría y exportar a .m3u o .csv.
+
+2. "2_FILTRAR_CANALES_M3U.bat"
+   - Menú por consola en PowerShell 7 / Windows PowerShell.
+   - Lee el archivo "canales_filtro.txt" para extraer solo tus canales preferidos
+     y descartar canales basura o repetidos.
+
+3. "3_PROCESAR_XTREAM_JSON.bat"
+   - Conecta con un panel Xtream Codes (usuario, contraseña y host) y descarga
+     la estructura completa de canales en vivo y VOD (Películas/Series) en JSON.
+
+4. "4_ESCANEAR_TVBOX_ADB.bat"
+   - Busca en tu red WiFi local las direcciones IP de tus TV Box o Smart TVs
+     que tengan habilitado el puerto ADB (puerto 5555) para instalar APKs remotas.
+
+--------------------------------------------------------------------------------
+¿CÓMO LLEVARTE ESTO A OTRA PC?
+--------------------------------------------------------------------------------
+- Para las herramientas de esta carpeta:
+  Copia la carpeta "HERRAMIENTAS" completa a tu memoria USB o disco externo.
+  Al estar basada en rutas relativas (%~dp0), funciona en cualquier PC.
+
+- Para el reproductor Web local (Web Player):
+  Copia las carpetas "iptv-app" e "INICIAR_LELOUCH_WEB_PLAYER.bat" juntas.
+  Al hacer doble clic en el .bat, levantará el proxy y servidor en la otra PC.
+================================================================================
+

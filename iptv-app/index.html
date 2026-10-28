@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="src/styles/main.css?v=2.5" />
+  <link rel="stylesheet" href="src/styles/main.css?v=3.0" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
   <script src="https://unpkg.com/@phosphor-icons/web"></script>
   <script src="src/proxy-config.js"></script>
@@ -22,14 +22,17 @@
 
 <div id="app" class="app-container">
 
-  <!-- ════════════ HEADER SUPERIOR COMPACTO (54px) ════════════ -->
+  <!-- ════════════ HEADER SUPERIOR ESTILO LELOUCH PLUS (MÓVIL & TV BOX) ════════════ -->
   <header id="top-header" class="top-header">
     <div class="header-left">
       <div class="brand-logo" id="brand-logo-btn">
-        <span class="brand-bolt">⚡</span>
+        <div class="brand-circle-l">L</div>
         <div class="brand-info">
-          <span class="brand-name">LELOUCH</span>
-          <span class="brand-tag">REPRODUCTOR WEB</span>
+          <div class="brand-title-row">
+            <span class="brand-name-white">LELOUCH</span>
+            <span class="brand-name-plus">PLUS</span>
+          </div>
+          <span class="brand-tag">PELICULAS, SERIES, TV EN VIVO</span>
         </div>
       </div>
 
@@ -110,26 +113,32 @@
     <section id="page-home" class="page-view active">
       <div class="xalb-home-wrapper">
         
-        <!-- HERO CENTRAL LIMPIO -->
+        <!-- HERO CENTRAL LELOUCH PLUS (ESTILO UNIFICADO TELÉFONO Y TV BOX) -->
         <div class="xalb-hero">
-          <div class="xalb-hero-badge">
-            <span class="live-pulse"></span>
-            <span>TODO TU ENTRETENIMIENTO</span>
-          </div>
-          <h1 class="xalb-hero-title">REPRODUCTOR LELOUCH</h1>
-          <p class="xalb-hero-subtitle">M3U · XTREAM CODES · HLS</p>
-
-          <div class="xalb-hero-controls">
-            <div class="xalb-playlist-chip">
-              <span class="chip-icon">🌐</span>
-              <span id="hero-playlist-name" class="chip-name">LionTV (Principal)</span>
+          <div class="bix-portal-topbar">
+            <div class="bix-portal-brand">
+              <div class="brand-circle-l brand-circle-lg">L</div>
+              <div>
+                <div class="bix-portal-title-row">
+                  <span class="bix-title-main">LELOUCH</span>
+                  <span class="bix-title-plus">PLUS</span>
+                </div>
+                <div class="bix-portal-sub">PELICULAS, SERIES, TV EN VIVO • SINCRONIZADO CON SUPABASE</div>
+              </div>
             </div>
-            <button id="hero-reload-btn" class="xalb-btn-reload" title="Recargar catálogo completo">
-              <span class="reload-icon">🔄</span>
-              <span>RECARGAR</span>
-            </button>
-            <div class="xalb-subscription-note">
-              Vence: <span id="home-account-expiry" class="highlight-date">—</span>
+
+            <div class="xalb-hero-controls">
+              <div class="xalb-playlist-chip" id="hero-account-chip-btn" title="Cambiar o gestionar listas guardadas" style="cursor:pointer;">
+                <span class="chip-icon">🌐</span>
+                <span id="hero-playlist-name" class="chip-name">Cargando cuenta...</span>
+              </div>
+              <button id="hero-reload-btn" class="xalb-btn-reload" title="Recargar catálogo completo">
+                <span class="reload-icon">🔄</span>
+                <span>RECARGAR</span>
+              </button>
+              <div class="xalb-subscription-note">
+                Vence: <span id="home-account-expiry" class="highlight-date">—</span>
+              </div>
             </div>
           </div>
         </div>
@@ -148,7 +157,41 @@
           </div>
         </div>
 
-        <!-- TARJETAS PRINCIPALES IPTV (GLOWING BLUE CARDS — ESTILO DEL USUARIO) -->
+        <!-- HERO BANNER CINEMÁTICO DESTACADO ("LO MÁS POPULAR" — IGUAL QUE EN TELÉFONO Y TV BOX) -->
+        <div id="home-featured-hero" class="bix-hero-featured-banner" style="display:none;">
+          <div class="bix-hero-backdrop" id="home-featured-backdrop"></div>
+          <div class="bix-hero-gradient"></div>
+          <div class="bix-hero-content">
+            <div class="bix-hero-top-tag">
+              <span class="bix-popular-pill">🔥 LO MÁS POPULAR</span>
+              <span class="bix-imdb-pill" id="home-featured-rating">★ 8.5 IMDb</span>
+              <span class="bix-year-pill" id="home-featured-year">2026</span>
+              <span class="bix-cat-pill" id="home-featured-cat">Destacado</span>
+            </div>
+            <h2 class="bix-hero-movie-title" id="home-featured-title">Cargando destacado...</h2>
+            <p class="bix-hero-movie-plot" id="home-featured-plot"></p>
+            <div class="bix-hero-actions">
+              <button class="bix-btn-play-hero" id="btn-home-featured-play">
+                <i class="ph-fill ph-play"></i>
+                <span>REPRODUCIR AHORA</span>
+              </button>
+              <button class="bix-btn-info-hero" id="btn-home-featured-shuffle" title="Mostrar otra recomendación">
+                <i class="ph-bold ph-shuffle"></i>
+                <span>Otra sugerencia</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- SECCIÓN EXPLORAR CATÁLOGO (PÍLDORAS Y TARJETAS UNIFICADAS) -->
+        <div class="bix-explore-header">
+          <div>
+            <h3 class="bix-section-heading">EXPLORAR CATÁLOGO</h3>
+            <p class="bix-section-subheading">Explora por categoría en tiempo real</p>
+          </div>
+        </div>
+
+        <!-- TARJETAS PRINCIPALES IPTV -->
         <div class="iptv-hero-cards-grid">
           
           <!-- TARJETA 1: LIVE TV -->
@@ -306,6 +349,42 @@
           </div>
         </div>
 
+        <!-- CARRUSEL 1: EN VIVO & DEPORTES (ESTILO MÓVIL Y TV BOX) -->
+        <div class="home-section" id="section-home-live" style="display:none">
+          <div class="section-header bix-swimlane-header">
+            <div>
+              <h2 class="section-title">🔴 En Vivo & Deportes</h2>
+              <span class="section-sub"> Sintoniza canales en directo al instante</span>
+            </div>
+            <button class="bix-see-all-btn" id="btn-home-see-all-live">Ver todos &gt;</button>
+          </div>
+          <div class="horizontal-scroll-row bix-swimlane-row" id="home-live-row"></div>
+        </div>
+
+        <!-- CARRUSEL 2: SERIES POPULARES (ESTILO MÓVIL Y TV BOX) -->
+        <div class="home-section" id="section-home-series" style="display:none">
+          <div class="section-header bix-swimlane-header">
+            <div>
+              <h2 class="section-title">🎞️ Series Populares</h2>
+              <span class="section-sub">Temporadas y episodios completos</span>
+            </div>
+            <button class="bix-see-all-btn" id="btn-home-see-all-series">Ver todas &gt;</button>
+          </div>
+          <div class="horizontal-scroll-row bix-swimlane-row" id="home-series-row"></div>
+        </div>
+
+        <!-- CARRUSEL 3: PELÍCULAS RECOMENDADAS (ESTILO MÓVIL Y TV BOX) -->
+        <div class="home-section" id="section-home-movies" style="display:none">
+          <div class="section-header bix-swimlane-header">
+            <div>
+              <h2 class="section-title">🎬 Películas Recomendadas</h2>
+              <span class="section-sub">Catálogo VOD destacado</span>
+            </div>
+            <button class="bix-see-all-btn" id="btn-home-see-all-movies">Ver todas &gt;</button>
+          </div>
+          <div class="horizontal-scroll-row bix-swimlane-row" id="home-movies-row"></div>
+        </div>
+
         <!-- SECCIÓN: CONTINUAR VIENDO -->
         <div class="home-section" id="section-continue-watching" style="display:none">
           <div class="section-header">
@@ -415,7 +494,6 @@
                 <span class="stream-badge-quality" id="integrated-quality-badge">AUTO</span>
                 <button id="btn-integrated-stats" class="tool-btn tool-btn-stats" title="Estadísticas en tiempo real">📊 Estadísticas</button>
                 <button id="btn-integrated-copy-url" class="tool-btn" title="Copiar enlace de streaming directo">🔗 Copiar Enlace</button>
-                <button id="btn-integrated-add-m3u" class="tool-btn" title="Añadir a Mi Lista M3U Personalizada">➕ Mi Lista M3U</button>
                 <button id="btn-integrated-fav" class="tool-btn" title="Agregar a favoritos">☆</button>
                 <button id="btn-integrated-rewind" class="tool-btn" title="Retroceder 10s (←)">⏪</button>
                 <button id="btn-integrated-forward" class="tool-btn" title="Adelantar / En Vivo (→)">⏩</button>
@@ -542,8 +620,7 @@
 
         <!-- Pestañas de Ajustes -->
         <div class="settings-tabs-nav">
-          <button class="settings-tab-btn active" data-tab="playlists"><i class="ph ph-list-dashes"></i> Playlists Guardadas</button>
-          <button class="settings-tab-btn" data-tab="custom-m3u"><i class="ph ph-playlist"></i> Creador de Lista M3U</button>
+          <button class="settings-tab-btn active" data-tab="playlists"><i class="ph ph-list-dashes"></i> Cuentas y Listas Guardadas</button>
           <button class="settings-tab-btn" data-tab="diagnostics"><i class="ph ph-stethoscope"></i> Diagnóstico de Servidor</button>
           <button class="settings-tab-btn" data-tab="export"><i class="ph ph-export"></i> Exportar Catálogo</button>
           <button class="settings-tab-btn" data-tab="categories"><i class="ph-fill ph-funnel"></i> Categorías Visibles</button>
@@ -588,9 +665,17 @@
           </div>
 
           <div class="settings-card">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem;">
-              <h3 style="margin:0">Tus Playlists Registradas</h3>
-              <span class="badge-mini" style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:4px 10px; border-radius:6px; font-size:11px; font-weight:700;">☁️ Sincronización en la Nube</span>
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom: 1rem;">
+              <div>
+                <h3 style="margin:0">Tus Cuentas y Listas Registradas</h3>
+                <p style="margin:3px 0 0 0; font-size:0.78rem; color:var(--text-secondary);">Sincronizadas con Teléfono y TV Box mediante Supabase (solo cuentas, los canales se guardan en cada dispositivo).</p>
+              </div>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <button id="btn-sync-cloud-playlists" class="btn btn-secondary btn-sm" title="Actualizar cuentas desde Supabase Cloud">
+                  🔄 Sincronizar Cuentas Nube
+                </button>
+                <span class="badge-mini" style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:4px 10px; border-radius:6px; font-size:11px; font-weight:700;">☁️ Supabase Activo</span>
+              </div>
             </div>
             <div class="playlists-list" id="saved-playlists-list">
               <!-- Render dinámico -->
@@ -812,7 +897,6 @@
                 <p class="card-desc" style="margin:0.25rem 0 0">Selecciona qué categorías y listas deseas que aparezcan en pantalla y cuáles ocultar.</p>
               </div>
               <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
-                <button class="btn btn-secondary" id="btn-open-import-from-cat-manager" style="color:var(--accent-cyan); border-color:rgba(0,229,255,0.4); font-weight:700;"><i class="ph ph-package"></i> 📥 Extraer a Mi Lista</button>
                 <button class="btn btn-primary" id="btn-open-cat-manager-settings"><i class="ph-fill ph-funnel"></i> Abrir Selector de Categorías</button>
               </div>
             </div>

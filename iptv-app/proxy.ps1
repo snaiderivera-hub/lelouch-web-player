@@ -9,6 +9,13 @@
     - Soporte de streaming para fragmentos de video y respuestas JSON.
 #>
 
+try {
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls13
+} catch {
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+}
+[System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+
 $root = $PSScriptRoot
 $port = 7878
 $maxPort = 7890
@@ -39,8 +46,8 @@ $configJs = "window.IPTV_PROXY_PORT = $port;"
 Set-Content -Path $configPath -Value $configJs -Encoding UTF8
 
 Write-Host '==================================================' -ForegroundColor Cyan
-Write-Host ('  NEXUS IPTV CORS GATEWAY en http://localhost:' + $port + '/') -ForegroundColor Cyan
-Write-Host '  Filtro anti-SSRF y proteccion de credenciales activas.' -ForegroundColor Green
+Write-Host ('  LELOUCH PLUS CORS GATEWAY en http://localhost:' + $port + '/') -ForegroundColor Cyan
+Write-Host '  Filtro anti-SSRF, TLS 1.2/1.3 y User-Agent IPTV activos.' -ForegroundColor Green
 Write-Host '  Presiona Ctrl+C para detener.' -ForegroundColor Gray
 Write-Host '==================================================' -ForegroundColor Cyan
 
@@ -54,30 +61,23 @@ function Get-SafeLogUrl([string]$rawUrl) {
 }
 
 function Test-IsSafeTargetUri([System.Uri]$uri) {
-    # Solo protocolos HTTP y HTTPS permitidos
     if ($uri.Scheme -ne 'http' -and $uri.Scheme -ne 'https') {
         return $false
     }
 
     $hostStr = $uri.Host.ToLower()
 
-    # Bloquear localhost y loopback
     if ($hostStr -eq 'localhost' -or $hostStr -eq '127.0.0.1' -or $hostStr -eq '::1' -or $hostStr -eq '0.0.0.0') {
         return $false
     }
 
-    # Bloquear IPs privadas (RFC 1918 y Link-Local)
     [System.Net.IPAddress]$ip = $null
     if ([System.Net.IPAddress]::TryParse($hostStr, [ref]$ip)) {
         $bytes = $ip.GetAddressBytes()
         if ($bytes.Length -eq 4) {
-            # 10.0.0.0/8
             if ($bytes[0] -eq 10) { return $false }
-            # 172.16.0.0/12
             if ($bytes[0] -eq 172 -and ($bytes[1] -ge 16 -and $bytes[1] -le 31)) { return $false }
-            # 192.168.0.0/16
             if ($bytes[0] -eq 192 -and $bytes[1] -eq 168) { return $false }
-            # 169.254.0.0/16 (Link Local)
             if ($bytes[0] -eq 169 -and $bytes[1] -eq 254) { return $false }
         }
     }
@@ -91,7 +91,6 @@ while ($listener.IsListening) {
         $req = $ctx.Request
         $res = $ctx.Response
 
-        # CORS headers
         $res.Headers.Add("Access-Control-Allow-Origin", "*")
         $res.Headers.Add("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         $res.Headers.Add("Access-Control-Allow-Headers", "*")
@@ -102,7 +101,6 @@ while ($listener.IsListening) {
             continue
         }
 
-        # Obtener parametro target
         $targetEncoded = $req.QueryString["target"]
         if (-not $targetEncoded) {
             $body = [System.Text.Encoding]::UTF8.GetBytes('{"error":"Parametro target requerido"}')
@@ -117,7 +115,6 @@ while ($listener.IsListening) {
         $targetUrl = [System.Uri]::UnescapeDataString($targetEncoded)
         $safeLogUrl = Get-SafeLogUrl $targetUrl
 
-        # Validación anti-SSRF
         $parsedUri = $null
         if (-not [System.Uri]::TryCreate($targetUrl, [System.UriKind]::Absolute, [ref]$parsedUri) -or -not (Test-IsSafeTargetUri $parsedUri)) {
             $body = [System.Text.Encoding]::UTF8.GetBytes('{"error":"Destino no permitido por politica de seguridad anti-SSRF"}')
@@ -134,12 +131,11 @@ while ($listener.IsListening) {
 
         try {
             $wc = [System.Net.WebClient]::new()
-            $wc.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) NexusIPTV/2.0")
-            
-            # Descargar stream o JSON
+            $wc.Headers.Add("User-Agent", "IPTVSmartersPlayer")
+            $wc.Headers.Add("Accept", "*/*")
+
             $bodyBytes = $wc.DownloadData($targetUrl)
 
-            # Determinar Content-Type
             $contentType = "application/json; charset=utf-8"
             if ($targetUrl -like "*.m3u8*" -or $targetUrl -like "*type=m3u*") {
                 $contentType = "application/vnd.apple.mpegurl"
@@ -156,7 +152,8 @@ while ($listener.IsListening) {
             $res.ContentLength64 = $bodyBytes.Length
             $res.OutputStream.Write($bodyBytes, 0, $bodyBytes.Length)
         } catch {
-            $errBody = [System.Text.Encoding]::UTF8.GetBytes("{`"error`":`"$($_.Exception.Message)`"}")
+            $msg = $_.Exception.Message -replace '"', "'"
+            $errBody = [System.Text.Encoding]::UTF8.GetBytes("{`"error`":`"$msg`"}")
             $res.StatusCode = 502
             $res.ContentType = "application/json"
             $res.ContentLength64 = $errBody.Length

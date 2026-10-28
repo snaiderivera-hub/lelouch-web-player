@@ -65,6 +65,8 @@ import com.lelouch.core.model.ContentType
 import com.lelouch.core.model.ContinueWatchingItem
 import com.lelouch.core.domain.repository.PlaybackHistoryRepository
 import com.lelouch.core.network.StreamUrlResolver
+import com.lelouch.core.network.diagnostics.IptvDiagnostics
+import com.lelouch.core.network.dns.LelouchDnsManager
 import com.lelouch.core.player.LelouchVideoPlayer
 import com.lelouch.core.player.PlayerGestureLayer
 import com.lelouch.core.player.rememberLelouchPlayer
@@ -111,6 +113,8 @@ fun MobileHomeScreen(
     onSyncCloudSources: () -> Unit = {},
     onForceSync: () -> Unit = {},
     onReloadSource: (String) -> Unit = {},
+    onRefreshAccountsStatus: () -> Unit = {},
+    onRunDiagnostics: (suspend (SourceConfig, suspend (String) -> Unit) -> IptvDiagnostics.Report)? = null,
     syncStatusText: String = "",
     syncIsError: Boolean = false,
     onLogout: () -> Unit = {},
@@ -421,6 +425,9 @@ fun MobileHomeScreen(
     var selectedSeries by remember { mutableStateOf<Series?>(null) }
     var isUpdateModalOpen by remember { mutableStateOf(false) }
     var extractTargetSource by remember { mutableStateOf<SourceConfig?>(null) }
+    var isDnsSelectorOpen by remember { mutableStateOf(false) }
+    var isDownloadsDialogOpen by remember { mutableStateOf(false) }
+    var diagnosticsTargetSource by remember { mutableStateOf<SourceConfig?>(null) }
 
     // FASE 39: arranque de reproducción.
     // - Directo: `playStream` se ejecuta sin ninguna suspensión previa (nada que esperar).
@@ -662,6 +669,12 @@ fun MobileHomeScreen(
                             },
                             onSyncCloud = onSyncCloudSources, onForceSync = onForceSync, onLogout = onLogout,
                             onReloadSource = onReloadSource,
+                            onRefreshAccountsStatus = onRefreshAccountsStatus,
+                            onOpenDnsSelector = { isDnsSelectorOpen = true },
+                            onOpenDownloads = { isDownloadsDialogOpen = true },
+                            onOpenDiagnostics = { src ->
+                                diagnosticsTargetSource = src ?: activeSource ?: allSources.firstOrNull()
+                            },
                             syncStatusText = syncStatusText, syncIsError = syncIsError,
                             onOpenUpdate = { isUpdateModalOpen = true },
                             onNavigateToFavorites = { selectedTab = 3 },
@@ -1196,6 +1209,34 @@ fun MobileHomeScreen(
                 }
             },
             onDismiss = { extractTargetSource = null }
+        )
+    }
+
+    if (isDnsSelectorOpen) {
+        MobileDnsSelectorDialog(
+            onDismiss = { isDnsSelectorOpen = false }
+        )
+    }
+
+    if (isDownloadsDialogOpen) {
+        MobileDownloadsDialog(
+            onPlayLocalFile = { fileUri, title ->
+                isDownloadsDialogOpen = false
+                activeChannelName = title
+                activeContentMeta = ActiveContentMeta(title, type = ContentType.VOD)
+                startPlayback(fileUri, false)
+            },
+            onDismiss = { isDownloadsDialogOpen = false }
+        )
+    }
+
+    diagnosticsTargetSource?.let { targetSource ->
+        MobileDiagnosticsDialog(
+            initialSource = targetSource,
+            allSources = allSources,
+            onRunDiagnostics = onRunDiagnostics,
+            onRefreshAccountsStatus = onRefreshAccountsStatus,
+            onDismiss = { diagnosticsTargetSource = null }
         )
     }
 }
@@ -1830,6 +1871,10 @@ private fun MobileSettingsTab(
     onOpenExtractModal: (SourceConfig) -> Unit,
     onSyncCloud: () -> Unit, onForceSync: () -> Unit, onLogout: () -> Unit,
     onReloadSource: (String) -> Unit = {},
+    onRefreshAccountsStatus: () -> Unit = {},
+    onOpenDnsSelector: () -> Unit = {},
+    onOpenDownloads: () -> Unit = {},
+    onOpenDiagnostics: (SourceConfig?) -> Unit = {},
     syncStatusText: String = "", syncIsError: Boolean = false,
     onOpenUpdate: () -> Unit,
     onNavigateToFavorites: () -> Unit = {},
@@ -1842,6 +1887,10 @@ private fun MobileSettingsTab(
     onOpenCategoryManager: (MobileCategoryScope) -> Unit
 ) {
     var seriesOptimizedView by remember { mutableStateOf(true) }
+    var videoDecoderMode by remember { mutableStateOf(LelouchDnsManager.getVideoDecoderMode()) }
+    var audioEngineMode by remember { mutableStateOf(LelouchDnsManager.getAudioEngineMode()) }
+    val dnsEnabled = LelouchDnsManager.isEnabled()
+    val dnsProvider = LelouchDnsManager.getSelectedProvider()
 
     LazyColumn(
         modifier = Modifier
@@ -1877,7 +1926,7 @@ private fun MobileSettingsTab(
             }
         }
 
-        // 2. TRES ACCESOS DIRECTOS CIRCULARES DE COLOR (BIX PLUS)
+        // 2. ACCESOS DIRECTOS CIRCULARES DE COLOR (BIX PLUS + DNS + DESCARGAS)
         item {
             Row(
                 modifier = Modifier
@@ -1886,10 +1935,24 @@ private fun MobileSettingsTab(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // 🌐 DNS Selector
+                CircleActionItem(
+                    icon = Icons.Default.Dns,
+                    label = if (dnsEnabled) "DNS Activo" else "DNS",
+                    bgColor = Color(0xFF00D2B8),
+                    onClick = onOpenDnsSelector
+                )
+                // 📥 Mis Descargas
+                CircleActionItem(
+                    icon = Icons.Default.Download,
+                    label = "Descargas",
+                    bgColor = Color(0xFF6366F1),
+                    onClick = onOpenDownloads
+                )
                 // 🟢 Actualizaciones
                 CircleActionItem(
                     icon = Icons.Default.Refresh,
-                    label = "Actualizaciones",
+                    label = "Actualizar",
                     bgColor = BixCircleGreen,
                     onClick = onOpenUpdate
                 )
@@ -1907,6 +1970,259 @@ private fun MobileSettingsTab(
                     bgColor = BixCircleBlue,
                     onClick = onOpenHistory
                 )
+            }
+        }
+
+        // 2.5 SECCIÓN MOTOR DE TRANSMISIÓN, DNS, ACELERACIÓN HW+ Y OPENSL ES (ESTILO XUPER)
+        item {
+            Text(
+                text = "MOTOR DE TRANSMISIÓN Y RED (ESTILO XUPER)",
+                color = Color(0xFF2DD4BF),
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp,
+                letterSpacing = 1.sp,
+                modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+            )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(BixSurfaceCard)
+                    .border(1.dp, Color(0xFF2DD4BF).copy(alpha = 0.35f), RoundedCornerShape(16.dp))
+                    .padding(16.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    // 1. Selector DNS Inteligente
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpenDnsSelector() },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(42.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFF14B8A6).copy(alpha = 0.2f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Dns,
+                                contentDescription = null,
+                                tint = Color(0xFF2DD4BF),
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "Resolver DNS del Dispositivo",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(if (dnsEnabled) Color(0xFF10B981).copy(0.2f) else Color.White.copy(0.1f))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = if (dnsEnabled) "ACTIVO" else "INACTIVO",
+                                        color = if (dnsEnabled) Color(0xFF10B981) else BixTextMuted,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Black
+                                    )
+                                }
+                            }
+                            Text(
+                                text = if (dnsEnabled) "${dnsProvider.title} (${dnsProvider.primaryIp}) • Caché RAM: ${LelouchDnsManager.cachedIpCount()} IPs"
+                                else "Toca para elegir Cloudflare (1.1.1.1), Google, Control D o AdGuard",
+                                color = if (dnsEnabled) Color(0xFF2DD4BF) else BixTextMuted,
+                                fontSize = 11.sp
+                            )
+                        }
+                        Icon(
+                            Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = Color(0xFF2DD4BF),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+
+                    // 2. Aceleración por Hardware (HW+ / HW / SW)
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color(0xFFF59E0B).copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Memory,
+                                    contentDescription = null,
+                                    tint = Color(0xFFFBBF24),
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                            Spacer(Modifier.width(14.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Decodificador de Video (Aceleración HW)",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                                Text(
+                                    text = videoDecoderMode.subtitle,
+                                    color = BixTextMuted,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            LelouchDnsManager.VideoDecoderMode.entries.forEach { mode ->
+                                val selected = videoDecoderMode == mode
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (selected) Color(0xFF2DD4BF).copy(0.2f) else Color.White.copy(0.06f))
+                                        .border(
+                                            1.dp,
+                                            if (selected) Color(0xFF2DD4BF) else Color.White.copy(0.12f),
+                                            RoundedCornerShape(8.dp)
+                                        )
+                                        .clickable {
+                                            videoDecoderMode = mode
+                                            LelouchDnsManager.setVideoDecoderMode(mode)
+                                        }
+                                        .padding(vertical = 8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = when (mode) {
+                                            LelouchDnsManager.VideoDecoderMode.HW_PLUS -> "⚡ HW+ (GPU)"
+                                            LelouchDnsManager.VideoDecoderMode.HW_ONLY -> "🔧 HW"
+                                            LelouchDnsManager.VideoDecoderMode.SW_ONLY -> "💻 SW (CPU)"
+                                        },
+                                        color = if (selected) Color(0xFF2DD4BF) else Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+
+                    // 3. Motor de Audio (OpenSL ES Baja Latencia vs AudioTrack)
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color(0xFF3B82F6).copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.GraphicEq,
+                                    contentDescription = null,
+                                    tint = Color(0xFF60A5FA),
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                            Spacer(Modifier.width(14.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Motor de Audio (OpenSL ES)",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                                Text(
+                                    text = audioEngineMode.subtitle,
+                                    color = BixTextMuted,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            LelouchDnsManager.AudioEngineMode.entries.forEach { mode ->
+                                val selected = audioEngineMode == mode
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (selected) Color(0xFF38BDF8).copy(0.2f) else Color.White.copy(0.06f))
+                                        .border(
+                                            1.dp,
+                                            if (selected) Color(0xFF38BDF8) else Color.White.copy(0.12f),
+                                            RoundedCornerShape(8.dp)
+                                        )
+                                        .clickable {
+                                            audioEngineMode = mode
+                                            LelouchDnsManager.setAudioEngineMode(mode)
+                                        }
+                                        .padding(vertical = 8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = when (mode) {
+                                            LelouchDnsManager.AudioEngineMode.OPENSL_ES -> "🔊 OpenSL ES (Baja Latencia)"
+                                            LelouchDnsManager.AudioEngineMode.AUDIOTRACK -> "🔈 AudioTrack Estándar"
+                                        },
+                                        color = if (selected) Color(0xFF38BDF8) else Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+
+                    // 4. Test de Cuenta, Lista Ocupada y Red + Mis Descargas
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { onOpenDiagnostics(activeSource) },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7).copy(alpha = 0.25f)),
+                            border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("🩺 Test de Lista / Red", color = Color(0xFF38BDF8), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Button(
+                            onClick = onOpenDownloads,
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6366F1).copy(alpha = 0.25f)),
+                            border = BorderStroke(1.dp, Color(0xFF818CF8).copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("📥 Mis Descargas", color = Color(0xFFA5B4FC), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
             }
         }
 
@@ -2127,14 +2443,30 @@ private fun MobileSettingsTab(
         }
 
         item {
-            Text(
-                "LISTAS REGISTRADAS (${allSources.size})",
-                color = BixTextMuted,
-                fontWeight = FontWeight.Bold,
-                fontSize = 12.sp,
-                letterSpacing = 1.sp,
-                modifier = Modifier.padding(start = 4.dp, top = 4.dp)
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(start = 4.dp, top = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "LISTAS REGISTRADAS (${allSources.size})",
+                    color = BixTextMuted,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                    letterSpacing = 1.sp
+                )
+                TextButton(
+                    onClick = onRefreshAccountsStatus,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        "🔄 Verificar Fechas y Ocupación",
+                        color = Color(0xFF2DD4BF),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
         }
         items(allSources) { source ->
             val isActive = source.id == activeSource?.id
@@ -2204,7 +2536,7 @@ private fun MobileSettingsTab(
                         }
                     }
 
-                    // FILA 2: Badges de Expiración y Conexiones Simultáneas
+                    // FILA 2: Badges de Expiración y Semáforo de Ocupación en Vivo
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -2219,7 +2551,7 @@ private fun MobileSettingsTab(
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
                                 Text(
-                                    if (isM3u) "♾️ M3U" else "♾️ Ilimitado",
+                                    if (isM3u) "♾️ M3U" else "♾️ Sin fecha / Ilimitado",
                                     color = Color(0xFF10B981),
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold
@@ -2250,19 +2582,39 @@ private fun MobileSettingsTab(
                                     fontWeight = FontWeight.Bold
                                 )
                             }
-                        }
-
-                        if (source.maxConnections > 0 && !isM3u) {
+                        } else {
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(4.dp))
-                                    .background(Color(0xFF8B5CF6).copy(alpha = 0.15f))
-                                    .border(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.4f), RoundedCornerShape(4.dp))
+                                    .background(Color(0xFF10B981).copy(alpha = 0.15f))
+                                    .border(1.dp, Color(0xFF10B981).copy(alpha = 0.4f), RoundedCornerShape(4.dp))
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
                                 Text(
-                                    "👥 ${source.activeConnections}/${source.maxConnections} Conex.",
-                                    color = Color(0xFFC084FC),
+                                    "📅 Vence: ${source.formattedExpireDate}",
+                                    color = Color(0xFF10B981),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        if (!isM3u) {
+                            val maxC = source.maxConnections.coerceAtLeast(1)
+                            val actC = source.activeConnections.coerceAtLeast(0)
+                            val isBusy = actC >= maxC
+                            val connColor = if (isBusy) Color(0xFFEF4444) else Color(0xFF10B981)
+                            val connLabel = if (isBusy) "🔴 OCUPADA ($actC/$maxC)" else "🟢 LIBRE ($actC/$maxC)"
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(connColor.copy(alpha = 0.15f))
+                                    .border(1.dp, connColor.copy(alpha = 0.45f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    connLabel,
+                                    color = connColor,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -2285,14 +2637,14 @@ private fun MobileSettingsTab(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             if (isActive) {
                                 Box(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(6.dp))
                                         .background(Color(0xFF10B981).copy(alpha = 0.15f))
                                         .border(1.dp, Color(0xFF10B981).copy(alpha = 0.35f), RoundedCornerShape(6.dp))
-                                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                                        .padding(horizontal = 10.dp, vertical = 6.dp)
                                 ) {
                                     Text(
                                         "✓ En uso",
@@ -2305,7 +2657,7 @@ private fun MobileSettingsTab(
                                 Button(
                                     onClick = { onActivateSource(source.id) },
                                     colors = ButtonDefaults.buttonColors(containerColor = LelouchCyanAccent),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                                     shape = RoundedCornerShape(6.dp)
                                 ) {
                                     Text(
@@ -2326,15 +2678,13 @@ private fun MobileSettingsTab(
                                 Text("🔄 Recargar", color = LelouchTextPrimary, fontSize = 11.sp)
                             }
 
-                            if (!isM3u) {
-                                OutlinedButton(
-                                    onClick = { onOpenExtractModal(source) },
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                                    shape = RoundedCornerShape(6.dp),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, LelouchCyanAccent.copy(alpha = 0.5f))
-                                ) {
-                                    Text("📥 Extraer", color = LelouchCyanAccent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                }
+                            OutlinedButton(
+                                onClick = { onOpenDiagnostics(source) },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                shape = RoundedCornerShape(6.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.5f))
+                            ) {
+                                Text("🩺 Test", color = Color(0xFF38BDF8), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
                         }
 
@@ -2712,15 +3062,22 @@ private fun MobileMovieDetailDialog(
                                     if (dm != null && streamUrl.isNotBlank()) {
                                         val cleanName = movie.name.replace(Regex("[^a-zA-Z0-9.-]"), "_")
                                         val ext = if (movie.containerExtension.isNotBlank()) movie.containerExtension else "mp4"
+                                        val fileName = "LelouchPlus_${cleanName}.${ext}"
                                         val request = android.app.DownloadManager.Request(android.net.Uri.parse(streamUrl))
-                                            .setTitle(movie.name)
-                                            .setDescription("Descargando película...")
+                                            .addRequestHeader("User-Agent", "IPTVSmartersPlayer")
+                                            .addRequestHeader("Accept", "*/*")
+                                            .setTitle("Lelouch Plus: ${movie.name}")
+                                            .setDescription("Guardando en /Download/$fileName")
                                             .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                                            .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, "${cleanName}.${ext}")
+                                            .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, fileName)
                                             .setAllowedOverMetered(true)
                                             .setAllowedOverRoaming(true)
                                         dm.enqueue(request)
-                                        android.widget.Toast.makeText(context, "📥 Descarga iniciada: ${movie.name}", android.widget.Toast.LENGTH_LONG).show()
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "📥 Descargando en /Download/$fileName (Ver en Opciones -> Descargas)",
+                                            android.widget.Toast.LENGTH_LONG
+                                        ).show()
                                     }
                                 } catch (e: Exception) {
                                     android.widget.Toast.makeText(context, "Error al descargar: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
@@ -2955,15 +3312,22 @@ private fun MobileSeriesDetailDialog(
                                                     if (dm != null && streamUrl.isNotBlank()) {
                                                         val cleanName = "${series.name}_${epTitle}".replace(Regex("[^a-zA-Z0-9.-]"), "_")
                                                         val ext = if (ep.containerExtension.isNotBlank()) ep.containerExtension else "mp4"
+                                                        val fileName = "LelouchPlus_${cleanName}.${ext}"
                                                         val request = android.app.DownloadManager.Request(android.net.Uri.parse(streamUrl))
-                                                            .setTitle("${series.name} - $epTitle")
-                                                            .setDescription("Descargando episodio...")
+                                                            .addRequestHeader("User-Agent", "IPTVSmartersPlayer")
+                                                            .addRequestHeader("Accept", "*/*")
+                                                            .setTitle("Lelouch Plus: ${series.name} - $epTitle")
+                                                            .setDescription("Guardando en /Download/$fileName")
                                                             .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                                                            .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, "${cleanName}.${ext}")
+                                                            .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, fileName)
                                                             .setAllowedOverMetered(true)
                                                             .setAllowedOverRoaming(true)
                                                         dm.enqueue(request)
-                                                        android.widget.Toast.makeText(context, "📥 Descargando: $epTitle", android.widget.Toast.LENGTH_LONG).show()
+                                                        android.widget.Toast.makeText(
+                                                            context,
+                                                            "📥 Descargando en /Download/$fileName (Ver en Opciones -> Descargas)",
+                                                            android.widget.Toast.LENGTH_LONG
+                                                        ).show()
                                                     }
                                                 } catch (e: Exception) {
                                                     android.widget.Toast.makeText(context, "Error al descargar: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
@@ -3349,7 +3713,795 @@ internal fun sourceConnectionLabel(source: SourceConfig?): String? {
     val current = source ?: return null
     return when {
         current.type == SourceType.M3U -> "♾️ M3U"
-        current.maxConnections > 0 -> "👥 ${current.activeConnections}/${current.maxConnections}"
+        current.maxConnections > 0 -> {
+            val isBusy = current.activeConnections >= current.maxConnections
+            if (isBusy) "🔴 ${current.activeConnections}/${current.maxConnections}"
+            else "🟢 ${current.activeConnections}/${current.maxConnections}"
+        }
         else -> "👥 —"
+    }
+}
+
+/**
+ * Selector de DNS del dispositivo (réplica exacta de diseño cian/esmeralda + medición UDP en tiempo real).
+ */
+@Composable
+private fun MobileDnsSelectorDialog(
+    onDismiss: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var isEnabled by remember { mutableStateOf(LelouchDnsManager.isEnabled()) }
+    var selectedProvider by remember { mutableStateOf(LelouchDnsManager.getSelectedProvider()) }
+    var results by remember { mutableStateOf<List<LelouchDnsManager.DnsBenchmarkResult>>(emptyList()) }
+    var isTesting by remember { mutableStateOf(true) }
+
+    fun runProbes() {
+        scope.launch {
+            isTesting = true
+            results = LelouchDnsManager.measureAllProviders()
+            isTesting = false
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        runProbes()
+    }
+
+    val cyanAccent = Color(0xFF2DD4BF)
+    val darkModalBg = Color(0xFF0A1217)
+    val cardBg = Color(0xFF0F1920)
+    val selectedCardBg = Color(0xFF0F2427)
+
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .clip(RoundedCornerShape(26.dp))
+                .background(darkModalBg)
+                .border(1.dp, cyanAccent.copy(alpha = 0.25f), RoundedCornerShape(26.dp))
+                .padding(22.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Cabecera: DNS + ACTIVO/INACTIVO
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "DNS",
+                            color = Color.White,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            text = "Elige el resolver DNS del dispositivo",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 13.sp
+                        )
+                    }
+                    Text(
+                        text = if (isEnabled) "ACTIVO" else "INACTIVO",
+                        color = if (isEnabled) cyanAccent else Color(0xFF94A3B8),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 0.8.sp
+                    )
+                }
+
+                Spacer(Modifier.height(4.dp))
+
+                // Lista de los 4 proveedores DNS
+                LelouchDnsManager.DnsProvider.entries.forEach { provider ->
+                    val isSelected = selectedProvider == provider
+                    val probe = results.find { it.provider == provider }
+                    val isBest = probe?.isBest == true
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(if (isSelected) selectedCardBg else cardBg)
+                            .border(
+                                width = if (isSelected) 1.8.dp else 1.dp,
+                                color = if (isSelected) cyanAccent else Color.White.copy(alpha = 0.08f),
+                                shape = RoundedCornerShape(18.dp)
+                            )
+                            .clickable {
+                                selectedProvider = provider
+                                LelouchDnsManager.setSelectedProvider(provider)
+                            }
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            // Radio Button personalizado
+                            Box(
+                                modifier = Modifier
+                                    .size(22.dp)
+                                    .clip(CircleShape)
+                                    .border(
+                                        width = 2.dp,
+                                        color = if (isSelected) cyanAccent else Color(0xFF475569),
+                                        shape = CircleShape
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isSelected) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(11.dp)
+                                            .clip(CircleShape)
+                                            .background(cyanAccent)
+                                    )
+                                }
+                            }
+
+                            Spacer(Modifier.width(14.dp))
+
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = provider.title,
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp
+                                    )
+                                    if (isBest) {
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            text = "★ MEJOR",
+                                            color = Color(0xFFFBBF24),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Black
+                                        )
+                                    }
+                                }
+                                Spacer(Modifier.height(3.dp))
+                                Text(
+                                    text = "${provider.primaryIp}  /  ${provider.secondaryIp}",
+                                    color = Color(0xFF94A3B8),
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+
+                        // Latencia en ms
+                        Text(
+                            text = when {
+                                isTesting && probe == null -> "..."
+                                probe?.latencyMs != null -> "${probe.latencyMs} ms"
+                                else -> "— ms"
+                            },
+                            color = cyanAccent,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 15.sp
+                        )
+                    }
+                }
+
+                Text(
+                    text = "El video sigue directo; solo las consultas DNS pasan por LELOUCH.",
+                    color = Color(0xFF64748B),
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 6.dp)
+                )
+
+                // Botones inferiores: VOLVER A PROBAR + ACTIVAR DNS
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        onClick = { runProbes() },
+                        enabled = !isTesting,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
+                        shape = RoundedCornerShape(24.dp),
+                        border = BorderStroke(1.2.dp, cyanAccent.copy(alpha = 0.65f)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = cyanAccent)
+                    ) {
+                        Text(
+                            text = if (isTesting) "PROBANDO..." else "VOLVER A PROBAR",
+                            color = cyanAccent,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 11.sp
+                        )
+                    }
+
+                    Button(
+                        onClick = {
+                            val nextState = !isEnabled
+                            isEnabled = nextState
+                            LelouchDnsManager.setSelectedProvider(selectedProvider)
+                            LelouchDnsManager.setEnabled(nextState)
+                        },
+                        modifier = Modifier
+                            .weight(1.1f)
+                            .height(48.dp),
+                        shape = RoundedCornerShape(24.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isEnabled) Color(0xFFEF4444) else cyanAccent
+                        )
+                    ) {
+                        Text(
+                            text = if (isEnabled) "DESACTIVAR DNS" else "ACTIVAR DNS",
+                            color = if (isEnabled) Color.White else Color(0xFF042F2E),
+                            fontWeight = FontWeight.Black,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+
+                // Botón Cerrar alineado a la derecha
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text(
+                            text = "Cerrar",
+                            color = cyanAccent,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private data class DownloadedMediaEntry(
+    val id: Long,
+    val title: String,
+    val statusLabel: String,
+    val progressPercent: Int,
+    val sizeMb: String,
+    val filePath: String,
+    val playUri: String?,
+    val isCompleted: Boolean
+)
+
+/**
+ * Visor de Descargas de Películas y Series en móvil (muestra carpeta exacta, progreso % y botón Reproducir).
+ */
+@Composable
+private fun MobileDownloadsDialog(
+    onPlayLocalFile: (fileUri: String, title: String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    var downloads by remember { mutableStateOf<List<DownloadedMediaEntry>>(emptyList()) }
+    var refreshTrigger by remember { mutableIntStateOf(0) }
+
+    fun loadDownloads(): List<DownloadedMediaEntry> {
+        val list = mutableListOf<DownloadedMediaEntry>()
+        val seenPaths = mutableSetOf<String>()
+        try {
+            val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as? android.app.DownloadManager
+            if (dm != null) {
+                val query = android.app.DownloadManager.Query()
+                dm.query(query)?.use { cursor ->
+                    val idIdx = cursor.getColumnIndex(android.app.DownloadManager.COLUMN_ID)
+                    val titleIdx = cursor.getColumnIndex(android.app.DownloadManager.COLUMN_TITLE)
+                    val statusIdx = cursor.getColumnIndex(android.app.DownloadManager.COLUMN_STATUS)
+                    val totalIdx = cursor.getColumnIndex(android.app.DownloadManager.COLUMN_TOTAL_SIZE_BYTES)
+                    val soFarIdx = cursor.getColumnIndex(android.app.DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)
+                    val localUriIdx = cursor.getColumnIndex(android.app.DownloadManager.COLUMN_LOCAL_URI)
+
+                    while (cursor.moveToNext()) {
+                        val id = if (idIdx >= 0) cursor.getLong(idIdx) else 0L
+                        val title = if (titleIdx >= 0) cursor.getString(titleIdx).orEmpty() else "Archivo"
+                        val status = if (statusIdx >= 0) cursor.getInt(statusIdx) else 0
+                        val totalBytes = if (totalIdx >= 0) cursor.getLong(totalIdx) else -1L
+                        val downBytes = if (soFarIdx >= 0) cursor.getLong(soFarIdx) else 0L
+                        val localUri = if (localUriIdx >= 0) cursor.getString(localUriIdx) else null
+
+                        val progress = if (totalBytes > 0) ((downBytes * 100L) / totalBytes).toInt().coerceIn(0, 100)
+                        else if (status == android.app.DownloadManager.STATUS_SUCCESSFUL) 100 else 0
+
+                        val statusText = when (status) {
+                            android.app.DownloadManager.STATUS_SUCCESSFUL -> "✅ Completada"
+                            android.app.DownloadManager.STATUS_RUNNING -> "⬇️ Descargando ($progress%)"
+                            android.app.DownloadManager.STATUS_PENDING -> "⏳ En cola..."
+                            android.app.DownloadManager.STATUS_PAUSED -> "⏸️ Pausada ($progress%)"
+                            android.app.DownloadManager.STATUS_FAILED -> "❌ Falló (Servidor rechazó conexión)"
+                            else -> "En proceso"
+                        }
+
+                        val mb = if (totalBytes > 0) "%.1f MB".format(totalBytes / (1024.0 * 1024.0))
+                        else if (downBytes > 0) "%.1f MB".format(downBytes / (1024.0 * 1024.0))
+                        else "—"
+
+                        val decodedPath = localUri?.removePrefix("file://")?.let { android.net.Uri.decode(it) }
+                            ?: "/storage/emulated/0/Download/$title"
+                        seenPaths.add(decodedPath)
+
+                        val playableUri = if (status == android.app.DownloadManager.STATUS_SUCCESSFUL) {
+                            dm.getUriForDownloadedFile(id)?.toString() ?: localUri
+                        } else null
+
+                        list.add(
+                            DownloadedMediaEntry(
+                                id = id,
+                                title = title.removePrefix("Lelouch Plus: "),
+                                statusLabel = statusText,
+                                progressPercent = progress,
+                                sizeMb = mb,
+                                filePath = decodedPath,
+                                playUri = playableUri,
+                                isCompleted = status == android.app.DownloadManager.STATUS_SUCCESSFUL
+                            )
+                        )
+                    }
+                }
+            }
+
+            // También escanear archivos físicos en /storage/emulated/0/Download por si el historial de DownloadManager se limpió
+            val publicDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+            publicDir?.listFiles()?.filter { f ->
+                f.isFile && (f.name.startsWith("LelouchPlus_", ignoreCase = true) ||
+                        f.extension.lowercase() in setOf("mp4", "mkv", "avi", "ts"))
+            }?.sortedByDescending { it.lastModified() }?.forEach { file ->
+                if (file.absolutePath !in seenPaths) {
+                    list.add(
+                        DownloadedMediaEntry(
+                            id = file.NameHash(),
+                            title = file.name.removePrefix("LelouchPlus_"),
+                            statusLabel = "✅ En memoria interna",
+                            progressPercent = 100,
+                            sizeMb = "%.1f MB".format(file.length() / (1024.0 * 1024.0)),
+                            filePath = file.absolutePath,
+                            playUri = android.net.Uri.fromFile(file).toString(),
+                            isCompleted = true
+                        )
+                    )
+                }
+            }
+        } catch (_: Exception) {}
+        return list
+    }
+
+    LaunchedEffect(refreshTrigger) {
+        while (true) {
+            downloads = withContext(Dispatchers.IO) { loadDownloads() }
+            kotlinx.coroutines.delay(2000L)
+        }
+    }
+
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.95f)
+                .heightIn(max = 600.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(Color(0xFF0A1217))
+                .border(1.dp, LelouchCyanAccent.copy(alpha = 0.35f), RoundedCornerShape(20.dp))
+                .padding(18.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            "📥 Mis Descargas (Películas y Series)",
+                            color = Color.White,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 18.sp
+                        )
+                        Text(
+                            "Carpeta: /storage/emulated/0/Download/",
+                            color = Color(0xFF2DD4BF),
+                            fontSize = 11.sp
+                        )
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = Color.White)
+                    }
+                }
+
+                if (downloads.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(160.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(LelouchSurface),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(16.dp)) {
+                            Text("No hay descargas registradas todavía", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "Al tocar DESCARGAR en una Película o Serie, se guarda en la carpeta /Download de tu teléfono con cabecera IPTVSmartersPlayer.",
+                                color = LelouchTextSecondary,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.weight(1f, fill = false),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(downloads, key = { "${it.id}_${it.filePath}" }) { item ->
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(LelouchSurface)
+                                    .border(1.dp, LelouchBorder, RoundedCornerShape(12.dp))
+                                    .padding(12.dp)
+                            ) {
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = item.title,
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            text = item.sizeMb,
+                                            color = Color(0xFF2DD4BF),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+
+                                    Text(
+                                        text = item.statusLabel,
+                                        color = if (item.isCompleted) Color(0xFF10B981) else Color(0xFFFBBF24),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+
+                                    Text(
+                                        text = "📁 ${item.filePath}",
+                                        color = LelouchTextSecondary,
+                                        fontSize = 10.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.End,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        if (item.id > 0) {
+                                            TextButton(
+                                                onClick = {
+                                                    try {
+                                                        val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as? android.app.DownloadManager
+                                                        dm?.remove(item.id)
+                                                        refreshTrigger++
+                                                    } catch (_: Exception) {}
+                                                }
+                                            ) {
+                                                Text("🗑️ Quitar", color = LelouchLiveRed, fontSize = 11.sp)
+                                            }
+                                        }
+                                        if (item.isCompleted && !item.playUri.isNullOrBlank()) {
+                                            Spacer(Modifier.width(8.dp))
+                                            Button(
+                                                onClick = { onPlayLocalFile(item.playUri, item.title) },
+                                                colors = ButtonDefaults.buttonColors(containerColor = LelouchCyanAccent),
+                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                                shape = RoundedCornerShape(8.dp)
+                                            ) {
+                                                Text("▶ Reproducir", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun java.io.File.NameHash(): Long = -kotlin.math.abs(this.absolutePath.hashCode().toLong())
+
+/**
+ * Modal de Diagnóstico de Cuenta, Ocupación en Vivo y Red para Teléfono Móvil.
+ */
+@Composable
+private fun MobileDiagnosticsDialog(
+    initialSource: SourceConfig,
+    allSources: List<SourceConfig>,
+    onRunDiagnostics: (suspend (SourceConfig, suspend (String) -> Unit) -> IptvDiagnostics.Report)?,
+    onRefreshAccountsStatus: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    var selectedSource by remember { mutableStateOf(initialSource) }
+    var isRunning by remember { mutableStateOf(false) }
+    var progressText by remember { mutableStateOf("Iniciando prueba de lista y red...") }
+    var report by remember { mutableStateOf<IptvDiagnostics.Report?>(null) }
+    val scope = rememberCoroutineScope()
+
+    fun startTest(target: SourceConfig) {
+        if (onRunDiagnostics == null) return
+        scope.launch {
+            isRunning = true
+            report = null
+            progressText = "Conectando con ${target.serverUrl}..."
+            try {
+                report = onRunDiagnostics(target) { step ->
+                    progressText = step
+                }
+                onRefreshAccountsStatus()
+            } catch (e: Exception) {
+                progressText = "Error: ${e.message}"
+            } finally {
+                isRunning = false
+            }
+        }
+    }
+
+    LaunchedEffect(selectedSource.id) {
+        startTest(selectedSource)
+    }
+
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.95f)
+                .heightIn(max = 640.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(Color(0xFF0A1217))
+                .border(1.dp, Color(0xFF38BDF8).copy(alpha = 0.4f), RoundedCornerShape(20.dp))
+                .padding(18.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "🩺 Test de Lista, Ocupación y Red",
+                            color = Color.White,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 17.sp
+                        )
+                        Text(
+                            "Verifica si la cuenta está ocupada, fecha de vencimiento y velocidad",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 11.sp
+                        )
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = Color.White)
+                    }
+                }
+
+                // Selector rápido de cuenta a probar
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(allSources) { src ->
+                        val isSel = src.id == selectedSource.id
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(if (isSel) Color(0xFF2DD4BF) else LelouchSurface)
+                                .border(1.dp, if (isSel) Color(0xFF2DD4BF) else LelouchBorder, RoundedCornerShape(14.dp))
+                                .clickable { selectedSource = src }
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = src.name,
+                                color = if (isSel) Color.Black else Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+
+                if (isRunning) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator(color = Color(0xFF2DD4BF))
+                            Spacer(Modifier.height(10.dp))
+                            Text(progressText, color = Color(0xFF2DD4BF), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                } else if (report != null) {
+                    val r = report!!
+                    val acc = r.account
+                    val activeC = acc?.activeConnections ?: selectedSource.activeConnections
+                    val maxC = acc?.maxConnections ?: selectedSource.maxConnections.coerceAtLeast(1)
+                    val isBusy = maxC > 0 && activeC >= maxC
+
+                    // Tarjeta Semáforo Principal de Ocupación y Vencimiento
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isBusy) Color(0xFFEF4444).copy(0.15f) else Color(0xFF10B981).copy(0.15f))
+                            .border(
+                                1.5.dp,
+                                if (isBusy) Color(0xFFEF4444) else Color(0xFF10B981),
+                                RoundedCornerShape(12.dp)
+                            )
+                            .padding(12.dp)
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = if (isBusy) "🔴 LISTA OCUPADA ($activeC / $maxC conexiones en uso)"
+                                else "🟢 LISTA LIBRE Y DISPONIBLE ($activeC / $maxC conexiones en uso)",
+                                color = if (isBusy) Color(0xFFEF4444) else Color(0xFF10B981),
+                                fontWeight = FontWeight.Black,
+                                fontSize = 13.sp
+                            )
+                            Text(
+                                text = "📅 Vencimiento: ${acc?.expiry ?: selectedSource.formattedExpireDate} • Estado: ${acc?.status ?: "Active"}",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Veredicto: ${r.verdict} — ${r.verdictDetail}",
+                                color = Color(0xFF2DD4BF),
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+
+                    // Tarjetas detalladas del test (DNS, Panel TCP, Catálogo y Muestra de Canales)
+                    LazyColumn(
+                        modifier = Modifier.weight(1f, fill = false).heightIn(max = 310.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        r.dns?.let { dns ->
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(LelouchSurface)
+                                        .border(1.dp, Color(0xFF2DD4BF).copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                                        .padding(10.dp)
+                                ) {
+                                    Column {
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            Text("🌐 Resolución DNS (${dns.host})", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                            Text("${dns.publicMs ?: dns.routerMs ?: 0} ms", color = Color(0xFF2DD4BF), fontWeight = FontWeight.ExtraBold, fontSize = 11.sp)
+                                        }
+                                        Text("DNS Router: ${dns.routerMs ?: "—"} ms • DNS Público: ${dns.publicMs ?: "—"} ms", color = LelouchTextSecondary, fontSize = 11.sp)
+                                    }
+                                }
+                            }
+                        }
+
+                        r.panel?.let { panel ->
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(LelouchSurface)
+                                        .border(1.dp, Color(0xFF10B981).copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                                        .padding(10.dp)
+                                ) {
+                                    Column {
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            Text("🖧 Servidor IPTV (${panel.host}:${panel.port})", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                            Text("${panel.tcpAvgMs ?: 0} ms", color = Color(0xFF10B981), fontWeight = FontWeight.ExtraBold, fontSize = 11.sp)
+                                        }
+                                        Text("IP: ${panel.address ?: "—"} • TCP OK: ${panel.tcpOk}/${panel.tcpAttempts} ${panel.location?.let { "• $it" } ?: ""}", color = LelouchTextSecondary, fontSize = 11.sp)
+                                    }
+                                }
+                            }
+                        }
+
+                        r.playlist?.let { pl ->
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(LelouchSurface)
+                                        .border(1.dp, Color(0xFF38BDF8).copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                                        .padding(10.dp)
+                                ) {
+                                    Column {
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            Text("📋 Catálogo Descargado", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                            Text("%.1f Mbps".format(pl.downloadMbps), color = Color(0xFF38BDF8), fontWeight = FontWeight.ExtraBold, fontSize = 11.sp)
+                                        }
+                                        Text("📺 ${pl.live} TV • 🎬 ${pl.movies} Pelis • 🎞️ ${pl.series} Series (%.1f MB en %.1f s)".format(pl.sizeMb, pl.downloadSeconds), color = LelouchTextSecondary, fontSize = 11.sp)
+                                    }
+                                }
+                            }
+                        }
+
+                        items(r.channels) { ch ->
+                            val chColor = if (ch.ok) Color(0xFF10B981) else Color(0xFFEF4444)
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(LelouchSurface)
+                                    .border(1.dp, chColor.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                                    .padding(10.dp)
+                            ) {
+                                Column {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("📺 Prueba de Canal #${ch.number} (${ch.host})", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Text(
+                                            if (ch.ok) "TTFB: ${ch.ttfbMs} ms" else "FALLÓ",
+                                            color = chColor,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                    Spacer(Modifier.height(2.dp))
+                                    Text(
+                                        if (ch.ok) "Bitrate real: %.2f Mbps • Primer byte en ${ch.ttfbMs} ms".format(ch.bitrateMbps)
+                                        else "Error: ${ch.error ?: "Sin señal"}",
+                                        color = LelouchTextSecondary,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = { startTest(selectedSource) },
+                        enabled = !isRunning,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2DD4BF))
+                    ) {
+                        Text("🔄 Volver a Probar", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f),
+                        border = BorderStroke(1.dp, LelouchBorder)
+                    ) {
+                        Text("Cerrar", color = Color.White, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
     }
 }
