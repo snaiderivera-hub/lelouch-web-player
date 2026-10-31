@@ -1,12 +1,7 @@
 <#
 .SYNOPSIS
-    Proxy HTTP local seguro para resolver el problema de CORS al consultar APIs IPTV y flujos de video (.m3u8, .ts, .mp4).
-    Busca un puerto libre automáticamente empezando en 7878.
-    Escribe la configuración en src/proxy-config.js para que el cliente web conozca el puerto activo.
-    INCLUYE:
-    - Validación estricta anti-SSRF (bloquea IPs privadas, loopback, file://, localhost arbitrario).
-    - Enmascaramiento de contraseñas en los registros de consola.
-    - Soporte de streaming para fragmentos de video y respuestas JSON.
+    LELOUCH PLUS CORS GATEWAY (Puerto 7878)
+    Proxy HTTP local con Streaming en Tiempo Real (Chunked 64KB).
 #>
 
 try {
@@ -15,6 +10,7 @@ try {
     [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
 }
 [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+[System.Net.ServicePointManager]::DefaultConnectionLimit = 128
 
 $root = $PSScriptRoot
 $port = 7878
@@ -35,20 +31,21 @@ while ($port -le $maxPort) {
 }
 
 if ($null -eq $listener) {
-    Write-Host 'Error: No se pudo encontrar un puerto libre para el proxy entre 7878 y 7890.' -ForegroundColor Red
+    Write-Host 'Error: No se pudo encontrar un puerto libre entre 7878 y 7890.' -ForegroundColor Red
     pause
     exit 1
 }
 
-# Escribir proxy-config.js para la app web
+# Configuracion para el cliente Web Player
 $configPath = Join-Path $root 'src\proxy-config.js'
 $configJs = "window.IPTV_PROXY_PORT = $port;"
 Set-Content -Path $configPath -Value $configJs -Encoding UTF8
 
 Write-Host '==================================================' -ForegroundColor Cyan
 Write-Host ('  LELOUCH PLUS CORS GATEWAY en http://localhost:' + $port + '/') -ForegroundColor Cyan
-Write-Host '  Filtro anti-SSRF, TLS 1.2/1.3 y User-Agent IPTV activos.' -ForegroundColor Green
-Write-Host '  Presiona Ctrl+C para detener.' -ForegroundColor Gray
+Write-Host '  Modo Streaming por Bloques (Chunked 64KB) ACTIVO.' -ForegroundColor Green
+Write-Host '  Auto-fallback TLS/HTTP y User-Agent IPTV listos.' -ForegroundColor Green
+Write-Host '  Deja esta ventana abierta mientras usas la web.' -ForegroundColor Yellow
 Write-Host '==================================================' -ForegroundColor Cyan
 
 function Get-SafeLogUrl([string]$rawUrl) {
@@ -117,7 +114,7 @@ while ($listener.IsListening) {
 
         $parsedUri = $null
         if (-not [System.Uri]::TryCreate($targetUrl, [System.UriKind]::Absolute, [ref]$parsedUri) -or -not (Test-IsSafeTargetUri $parsedUri)) {
-            $body = [System.Text.Encoding]::UTF8.GetBytes('{"error":"Destino no permitido por politica de seguridad anti-SSRF"}')
+            $body = [System.Text.Encoding]::UTF8.GetBytes('{"error":"Destino no permitido por politica anti-SSRF"}')
             $res.StatusCode = 403
             $res.ContentType = "application/json"
             $res.ContentLength64 = $body.Length
@@ -127,48 +124,107 @@ while ($listener.IsListening) {
             continue
         }
 
-        Write-Host ("[PROXY] -> " + $safeLogUrl) -ForegroundColor DarkGray
-
-        try {
-            $wc = [System.Net.WebClient]::new()
-            $wc.Headers.Add("User-Agent", "IPTVSmartersPlayer")
-            $wc.Headers.Add("Accept", "*/*")
-
-            $bodyBytes = $wc.DownloadData($targetUrl)
-
-            $contentType = "application/json; charset=utf-8"
-            if ($targetUrl -like "*.m3u8*" -or $targetUrl -like "*type=m3u*") {
-                $contentType = "application/vnd.apple.mpegurl"
-            } elseif ($targetUrl -like "*.ts*") {
-                $contentType = "video/mp2t"
-            } elseif ($targetUrl -like "*.mp4*") {
-                $contentType = "video/mp4"
-            } elseif ($targetUrl -like "*.mkv*") {
-                $contentType = "video/x-matroska"
+        # Auto-fallback para puertos IPTV no-SSL
+        $effectiveUrl = $targetUrl
+        $nonSslPorts = @("80", "8080", "8880", "2095", "25461", "8000", "8888")
+        if ($effectiveUrl -match "^https://([^:/]+):(\d+)") {
+            $p = $matches[2]
+            if ($nonSslPorts -contains $p) {
+                $effectiveUrl = $effectiveUrl -replace "^https://", "http://"
             }
+        }
 
-            $res.StatusCode = 200
-            $res.ContentType = $contentType
-            $res.ContentLength64 = $bodyBytes.Length
-            $res.OutputStream.Write($bodyBytes, 0, $bodyBytes.Length)
+        Write-Host ("[STREAM] -> " + $safeLogUrl) -ForegroundColor DarkGray
+
+        # Crear HttpWebRequest para streaming de baja latencia
+        $webReq = $null
+        try {
+            $webReq = [System.Net.HttpWebRequest]::Create($effectiveUrl)
         } catch {
-            $msg = $_.Exception.Message -replace '"', "'"
-            $errBody = [System.Text.Encoding]::UTF8.GetBytes("{`"error`":`"$msg`"}")
-            $res.StatusCode = 502
-            $res.ContentType = "application/json"
-            $res.ContentLength64 = $errBody.Length
-            $res.OutputStream.Write($errBody, 0, $errBody.Length)
-            Write-Host ("  [ERR] " + $_.Exception.Message) -ForegroundColor Yellow
+            if ($effectiveUrl -like "https://*") {
+                $effectiveUrl = $effectiveUrl -replace "^https://", "http://"
+                $webReq = [System.Net.HttpWebRequest]::Create($effectiveUrl)
+            } else {
+                throw $_
+            }
+        }
+
+        $webReq.UserAgent = "IPTVSmartersPlayer"
+        $webReq.Accept = "*/*"
+        $webReq.Timeout = 20000
+        $webReq.ReadWriteTimeout = 30000
+        $webReq.AllowAutoRedirect = $true
+
+        $webRes = $null
+        try {
+            $webRes = $webReq.GetResponse()
+        } catch [System.Net.WebException] {
+            if ($effectiveUrl -like "https://*") {
+                $effectiveUrl = $effectiveUrl -replace "^https://", "http://"
+                $webReq = [System.Net.HttpWebRequest]::Create($effectiveUrl)
+                $webReq.UserAgent = "IPTVSmartersPlayer"
+                $webReq.Accept = "*/*"
+                $webReq.Timeout = 20000
+                $webReq.ReadWriteTimeout = 30000
+                $webRes = $webReq.GetResponse()
+            } else {
+                throw $_
+            }
+        }
+
+        # Determinar Content-Type
+        $contentType = $webRes.ContentType
+        if ([string]::IsNullOrWhiteSpace($contentType) -or $contentType -eq "application/octet-stream") {
+            if ($effectiveUrl -like "*.m3u8*" -or $effectiveUrl -like "*type=m3u*") {
+                $contentType = "application/vnd.apple.mpegurl"
+            } elseif ($effectiveUrl -like "*.ts*") {
+                $contentType = "video/mp2t"
+            } elseif ($effectiveUrl -like "*.mp4*") {
+                $contentType = "video/mp4"
+            } elseif ($effectiveUrl -like "*.mkv*") {
+                $contentType = "video/x-matroska"
+            } else {
+                $contentType = "application/json; charset=utf-8"
+            }
+        }
+
+        $res.StatusCode = [int]$webRes.StatusCode
+        $res.ContentType = $contentType
+
+        # Streaming directo por bloques de 64 KB en tiempo real (Chunked)
+        $inStream = $webRes.GetResponseStream()
+        $outStream = $res.OutputStream
+        $buffer = New-Object byte[] 65536
+        
+        try {
+            while (($bytesRead = $inStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                $outStream.Write($buffer, 0, $bytesRead)
+                $outStream.Flush()
+            }
+        } catch {
+            # Conexión cerrada normalmente al cambiar de canal
         } finally {
+            if ($null -ne $inStream) { $inStream.Close() }
+            if ($null -ne $webRes) { $webRes.Close() }
             try { $res.Close() } catch {}
         }
 
     } catch [System.Net.HttpListenerException] {
         break
     } catch {
-        Write-Host ("Error en proxy: " + $_.Exception.Message) -ForegroundColor Red
+        $msg = $_.Exception.Message -replace '"', "'"
+        $errBody = [System.Text.Encoding]::UTF8.GetBytes("{`"error`":`"$msg`"}")
+        $res.StatusCode = 502
+        $res.ContentType = "application/json"
+        $res.ContentLength64 = $errBody.Length
+        try {
+            $res.OutputStream.Write($errBody, 0, $errBody.Length)
+            $res.Close()
+        } catch {}
+        Write-Host ("  [ERR] " + $_.Exception.Message) -ForegroundColor Yellow
     }
 }
 
 $listener.Stop()
 Write-Host "Proxy detenido." -ForegroundColor Yellow
+

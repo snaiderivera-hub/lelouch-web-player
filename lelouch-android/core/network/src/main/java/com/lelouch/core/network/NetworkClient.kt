@@ -18,6 +18,7 @@ object NetworkClient {
     fun createOkHttpClient(): OkHttpClient {
         return OkHttpClient.Builder()
             .dns(com.lelouch.core.network.dns.LelouchDnsManager)
+            .connectionSpecs(listOf(okhttp3.ConnectionSpec.MODERN_TLS, okhttp3.ConnectionSpec.COMPATIBLE_TLS, okhttp3.ConnectionSpec.CLEARTEXT))
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(25, TimeUnit.SECONDS)
             .writeTimeout(25, TimeUnit.SECONDS)

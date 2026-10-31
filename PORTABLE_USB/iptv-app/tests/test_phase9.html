@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Test FASE 9 - No Guardar Token en Texto Plano (SHA-256 Hash)</title>
+  <style>
+    body { font-family: monospace; background: #0f172a; color: #f8fafc; padding: 2rem; }
+    .pass { color: #4ade80; font-weight: bold; }
+    .fail { color: #f87171; font-weight: bold; }
+    .log { margin: 4px 0; }
+    pre { background: #1e293b; padding: 1rem; border-radius: 8px; overflow: auto; }
+  </style>
+</head>
+<body data-completed="false">
+  <h1>🧪 Test de Validación FASE 9 — Almacenamiento Seguro por HASH SHA-256</h1>
+  <div id="results"></div>
+
+  <script type="module">
+    import { supabaseService } from '../src/modules/iptv/services/SupabaseService.js';
+
+    const resultsDiv = document.getElementById('results');
+
+    function log(msg, isPass) {
+      const el = document.createElement('div');
+      el.className = 'log ' + (isPass === true ? 'pass' : isPass === false ? 'fail' : '');
+      el.textContent = (isPass === true ? '✅ PASS: ' : isPass === false ? '❌ FAIL: ' : 'ℹ️ ') + msg;
+      resultsDiv.appendChild(el);
+      console.log(el.textContent);
+    }
+
+    async function runTests() {
+      try {
+        log('Iniciando tests de FASE 9: Seguridad de tokens...', null);
+
+        // 1. Obtener playlist
+        const pl = await supabaseService.getOrCreateDefaultCustomPlaylist('Test Security Phase 9');
+        log(`Playlist ID: ${pl?.id}`, Boolean(pl?.id));
+
+        // 2. Crear un token criptográfico
+        const created = await supabaseService.createAccessToken(pl.id, 'Test Dispositivo FASE 9');
+        if (!created) {
+          log('Detalle error Supabase: ' + supabaseService.lastError, false);
+          return;
+        }
+        log('Token devuelto al usuario en memoria: ' + created?.token, Boolean(created?.token));
+        log('Prefijo seguro devuelto: ' + created?.token_prefix, Boolean(created?.token_prefix));
+
+        const rawToken = created.token;
+        const prefix = created.token_prefix;
+        const tokenId = created.id;
+
+        // 3. Calcular hash SHA-256 en el cliente
+        const enc = new TextEncoder();
+        const hashBuf = await crypto.subtle.digest('SHA-256', enc.encode(rawToken));
+        const expectedHash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
+        log('Hash SHA-256 calculado: ' + expectedHash, expectedHash.length === 64);
+
+        // 4. Consultar DIRECTAMENTE la base de datos Supabase para auditar que NO existe el token en texto plano
+        const checkUrl = `${supabaseService.url}/rest/v1/playlist_access_tokens?id=eq.${tokenId}&select=*`;
+        const checkRes = await fetch(checkUrl, { headers: supabaseService._getHeaders() });
+        const rows = await checkRes.json();
+        const dbRow = rows?.[0];
+
+        log('Fila leída directamente de Supabase: ' + JSON.stringify(dbRow), true);
+
+        // Verificación CRÍTICA:
+        // A. La BD tiene el hash SHA-256
+        const hasHash = dbRow?.token_hash === expectedHash;
+        log('Supabase guarda el HASH SHA-256: ' + hasHash, hasHash);
+
+        // B. La BD NO tiene el token en texto plano en ninguna columna
+        const rowString = JSON.stringify(dbRow);
+        const containsRawToken = rowString.includes(rawToken);
+        log('AUDITORÍA DE SEGURIDAD: Token en texto plano NUNCA se guardó en la BD: ' + (!containsRawToken), !containsRawToken);
+
+        // C. Verificar columnas de FASE 9
+        log('Columna token_hash coincide exactamente: ' + (dbRow?.token_hash === expectedHash), dbRow?.token_hash === expectedHash);
+        log('Columna enabled es true: ' + (dbRow?.enabled !== false), dbRow?.enabled !== false);
+
+        // 5. Simular petición backend /api/playlist/<rawToken>
+        // El backend recibe el rawToken, calcula SHA-256 y busca por token_hash
+        const backendHash = expectedHash;
+        const backendLookupUrl = `${supabaseService.url}/rest/v1/playlist_access_tokens?token_hash=eq.${backendHash}&select=*`;
+        const backendRes = await fetch(backendLookupUrl, { headers: supabaseService._getHeaders() });
+        const backendRows = await backendRes.json();
+
+        log('Lookup por HASH SHA-256 exitoso: ' + (backendRows?.length === 1), backendRows?.length === 1);
+        log('Playlist asociada resuelta correctamente: ' + (backendRows?.[0]?.playlist_id === pl.id), backendRows?.[0]?.playlist_id === pl.id);
+
+        // 6. Limpieza
+        await supabaseService.revokeAccessToken(tokenId);
+        log('Token de prueba revocado y limpiado', true);
+
+        log('🎉 FASE 9 VALIDADA EXITOSAMENTE: Máxima seguridad por HASH sin almacenar tokens en texto plano.', true);
+        document.body.setAttribute('data-completed', 'true');
+      } catch (err) {
+        log('Error ejecutando tests: ' + err.message + '\n' + err.stack, false);
+        document.body.setAttribute('data-completed', 'true');
+      }
+    }
+
+    runTests();
+  </script>
+</body>
+</html>

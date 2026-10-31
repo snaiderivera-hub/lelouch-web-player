@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Test FASE 14 - Pantalla de Enlace M3U Lelouch</title>
+  <style>
+    body { font-family: monospace; background: #0a0e17; color: #e2e8f0; padding: 20px; }
+    .pass { color: #10b981; }
+    .fail { color: #ef4444; }
+    .test-box { border: 1px solid #1e293b; background: #0f172a; padding: 12px; margin-bottom: 12px; border-radius: 8px; }
+    pre { background: #020617; padding: 8px; border-radius: 4px; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <h1>Test Suite FASE 14: Enlace M3U Lelouch (Regenerar, Desactivar, Metadatos)</h1>
+  <div id="results">Ejecutando pruebas...</div>
+
+  <script type="module">
+    import { supabaseService } from '../src/modules/iptv/services/SupabaseService.js';
+
+    async function runTests() {
+      const results = [];
+      const container = document.getElementById('results');
+
+      // Test 1: Comprobar métodos de servicio FASE 14 en SupabaseService
+      try {
+        const hasInvalidate = typeof supabaseService.invalidateAllAccessTokens === 'function';
+        const hasSetEnabled = typeof supabaseService.setAccessTokenEnabled === 'function';
+        const hasCreate = typeof supabaseService.createAccessToken === 'function';
+        
+        results.push({
+          name: '1. Métodos de Servicio FASE 14 en SupabaseService',
+          passed: hasInvalidate && hasSetEnabled && hasCreate,
+          detail: `invalidateAllAccessTokens: ${hasInvalidate}, setAccessTokenEnabled: ${hasSetEnabled}, createAccessToken: ${hasCreate}`
+        });
+      } catch (err) {
+        results.push({ name: '1. Métodos de Servicio FASE 14', passed: false, detail: err.message });
+      }
+
+      // Test 2: Invalidador de tokens y regeneración criptográfica
+      try {
+        const pl = await supabaseService.getOrCreateDefaultCustomPlaylist('Test FASE 14');
+        if (!pl || !pl.id) {
+          throw new Error('Supabase no disponible para test');
+        }
+
+        // Crear token inicial
+        const token1 = await supabaseService.createAccessToken(pl.id, 'Token 1 Previo');
+        if (!token1 || !token1.token) throw new Error('Fallo al crear Token 1');
+
+        // Invalidar tokens previos de la playlist
+        const invalidated = await supabaseService.invalidateAllAccessTokens(pl.id);
+
+        // Crear token nuevo regenerado
+        const token2 = await supabaseService.createAccessToken(pl.id, 'Token 2 Regenerado');
+        if (!token2 || !token2.token) throw new Error('Fallo al crear Token 2');
+
+        const differentTokens = token1.token !== token2.token;
+
+        results.push({
+          name: '2. Regeneración con Invalidación de Token Anterior',
+          passed: invalidated && differentTokens && token2.token.length >= 32,
+          detail: `Invalidación ejecutada: ${invalidated}. Token 1 y Token 2 son diferentes: ${differentTokens} (Largo: ${token2.token.length})`
+        });
+      } catch (err) {
+        results.push({ name: '2. Regeneración con Invalidación', passed: false, detail: err.message });
+      }
+
+      // Test 3: Desactivar y Activar Token (Toggle Status)
+      try {
+        const pl = await supabaseService.getOrCreateDefaultCustomPlaylist('Test FASE 14 Toggle');
+        const tokenObj = await supabaseService.createAccessToken(pl.id, 'Token Toggle Test');
+
+        // Desactivar
+        const disabledOk = await supabaseService.setAccessTokenEnabled(tokenObj.id, false);
+        // Reactivar
+        const reenabledOk = await supabaseService.setAccessTokenEnabled(tokenObj.id, true);
+
+        results.push({
+          name: '3. Toggle de Estado (Activar / Desactivar enlace)',
+          passed: disabledOk && reenabledOk,
+          detail: `Desactivar: ${disabledOk}, Reactivar: ${reenabledOk}`
+        });
+      } catch (err) {
+        results.push({ name: '3. Toggle de Estado', passed: false, detail: err.message });
+      }
+
+      // Test 4: Formato de Fecha y Métricas
+      try {
+        const now = new Date('2026-09-30T12:00:00Z');
+        const day = String(now.getDate()).padStart(2, '0');
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const year = now.getFullYear();
+        const formatted = `${day}/${month}/${year}`;
+
+        const passed = formatted === '30/09/2026';
+        results.push({
+          name: '4. Formato de Fecha DD/MM/YYYY',
+          passed,
+          detail: `Formato generado: ${formatted}`
+        });
+      } catch (err) {
+        results.push({ name: '4. Formato de Fecha', passed: false, detail: err.message });
+      }
+
+      // Renderizar resultados
+      let allPassed = true;
+      let html = '';
+      for (const t of results) {
+        if (!t.passed) allPassed = false;
+        html += `
+          <div class="test-box">
+            <h3 class="${t.passed ? 'pass' : 'fail'}">${t.passed ? '✅ PASS' : '❌ FAIL'}: ${t.name}</h3>
+            <pre>${t.detail}</pre>
+          </div>
+        `;
+      }
+      html += `<h2 class="${allPassed ? 'pass' : 'fail'}">${allPassed ? '🎉 TODOS LOS TESTS DE FASE 14 PASARON' : '⚠️ ALGUNOS TESTS FALLARON'}</h2>`;
+      container.innerHTML = html;
+    }
+
+    runTests();
+  </script>
+</body>
+</html>

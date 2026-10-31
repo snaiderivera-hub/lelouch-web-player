@@ -1,0 +1,14 @@
+#EXTM3U
+#EXTINF:-1 tvg-id="vlc.opt.full" tvg-name="VLC Full Options" group-title="VLC Test", Canal con Headers VLC Completos
+#EXTVLCOPT:http-user-agent=LelouchPlayer/2.5.0 (Linux; Android TV 14; Build/UP1A) AppleWebKit/537.36
+#EXTVLCOPT:http-referrer=https://secure-stream.fictitious-iptv.test/player?session=abc123xyz==&client=tvbox
+#EXTVLCOPT:http-cookie=session_id=fake_cookie_998877; device_token=dev_token_445566==; auth=true
+http://fictitious-iptv.test:8080/live/fake_user/fake_pass/7001.m3u8
+#EXTINF:-1 tvg-id="vlc.opt.case" tvg-name="VLC Case Insensitive" group-title="VLC Test", Canal con Directivas en Mayúsculas
+#EXTVLCOPT:HTTP-USER-AGENT=Mozilla/5.0 (SmartHub; SMART-TV; Linux/SmartTV)
+#EXTVLCOPT:HTTP-REFERER=https://portal.fictitious-iptv.test/index.html
+http://fictitious-iptv.test:8080/live/fake_user/fake_pass/7002.m3u8
+#EXTINF:-1 tvg-id="vlc.opt.short" tvg-name="VLC Short Syntax" group-title="VLC Test", Canal con Sintaxis Corta de VLC
+#EXTVLCOPT:user-agent=CustomExoPlayer/2.18
+#EXTVLCOPT:referer=https://fictitious-iptv.test/live
+http://fictitious-iptv.test:8080/live/fake_user/fake_pass/7003.m3u8

@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Test FASE 27 - Pruebas del Endpoint /api/playlist/:token</title>
+  <style>
+    body { font-family: monospace; background: #0f172a; color: #f8fafc; padding: 20px; }
+    .pass { color: #10b981; font-weight: bold; }
+    .fail { color: #ef4444; font-weight: bold; }
+    .test-box { border: 1px solid #334155; padding: 12px; margin-bottom: 12px; border-radius: 8px; background: #1e293b; }
+    h1 { color: #38bdf8; }
+    h2 { color: #94a3b8; font-size: 1.1rem; }
+    pre { background: #090d16; padding: 8px; border-radius: 4px; overflow-x: auto; color: #cbd5e1; white-space: pre-wrap; word-break: break-all; }
+  </style>
+</head>
+<body>
+  <h1>Test Suite FASE 27: Pruebas Exhaustivas del Endpoint /api/playlist/:token</h1>
+  <h2>Validación de Códigos HTTP (200, 404, 410), HEAD requests, Orden, Filtro Deshabilitados y Metadatos Personalizados</h2>
+  <div id="results">Ejecutando suite de pruebas...</div>
+
+  <script type="module">
+    import { PlaylistGenerator, unwrapProxyUrl } from '../src/services/playlist/PlaylistGenerator.js';
+
+    const results = document.getElementById('results');
+    results.innerHTML = '';
+
+    function log(title, passed, details = '') {
+      const div = document.createElement('div');
+      div.className = 'test-box';
+      div.innerHTML = `<span class="${passed ? 'pass' : 'fail'}">[${passed ? 'PASS' : 'FAIL'}]</span> <strong>${title}</strong>
+        ${details ? `<pre>${details}</pre>` : ''}`;
+      results.appendChild(div);
+      console.log(`[${passed ? 'PASS' : 'FAIL'}] ${title}`);
+    }
+
+    // ====================================================================
+    // UTILIDADES CRIPTOGRÁFICAS (SHA-256 Síncrono Estándar)
+    // ====================================================================
+    function sha256Sync(ascii) {
+      function rightRotate(value, amount) {
+        return (value >>> amount) | (value << (32 - amount));
+      }
+      let i, j;
+      let result = '';
+      const words = [];
+      const asciiBitLength = ascii.length * 8;
+      let hash = [
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+        0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
+      ];
+      const k = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+      ];
+      for (i = 0; i < ascii.length; i++) {
+        words[i >> 2] |= (ascii.charCodeAt(i) & 255) << (8 * (3 - (i % 4)));
+      }
+      words[asciiBitLength >> 5] |= 0x80 << (24 - (asciiBitLength % 32));
+      words[(((asciiBitLength + 64) >> 9) << 4) + 15] = asciiBitLength;
+      for (i = 0; i < words.length; i += 16) {
+        const w = words.slice(i, i + 16);
+        const oldHash = hash.slice(0);
+        for (j = 0; j < 64; j++) {
+          if (j >= 16) {
+            const s0 = rightRotate(w[j - 15], 7) ^ rightRotate(w[j - 15], 18) ^ (w[j - 15] >>> 3);
+            const s1 = rightRotate(w[j - 2], 17) ^ rightRotate(w[j - 2], 19) ^ (w[j - 2] >>> 10);
+            w[j] = (w[j - 16] + s0 + w[j - 7] + s1) | 0;
+          }
+          const ch = (hash[4] & hash[5]) ^ (~hash[4] & hash[6]);
+          const maj = (hash[0] & hash[1]) ^ (hash[0] & hash[2]) ^ (hash[1] & hash[2]);
+          const s0 = rightRotate(hash[0], 2) ^ rightRotate(hash[0], 13) ^ rightRotate(hash[0], 22);
+          const s1 = rightRotate(hash[4], 6) ^ rightRotate(hash[4], 11) ^ rightRotate(hash[4], 25);
+          const temp1 = hash[7] + s1 + ch + k[j] + w[j];
+          const temp2 = s0 + maj;
+          hash = [(temp1 + temp2) | 0, hash[0], hash[1], hash[2], (hash[3] + temp1) | 0, hash[4], hash[5], hash[6]];
+        }
+        for (j = 0; j < 8; j++) {
+          hash[j] = (hash[j] + oldHash[j]) | 0;
+        }
+      }
+      for (i = 0; i < 8; i++) {
+        for (j = 3; j >= 0; j--) {
+          const b = (hash[i] >> (8 * j)) & 255;
+          result += (b < 16 ? '0' : '') + b.toString(16);
+        }
+      }
+      return result;
+    }
+
+    // ====================================================================
+    // SIMULADOR CANÓNICO DEL BACKEND SERVERLESS (/api/playlist.js)
+    // ====================================================================
+    class MockServerlessResponse {
+      constructor() {
+        this.statusCode = 200;
+        this.headers = {};
+        this.body = null;
+        this.ended = false;
+      }
+
+      setHeader(name, value) {
+        this.headers[name.toLowerCase()] = String(value);
+        return this;
+      }
+
+      status(code) {
+        this.statusCode = code;
+        return this;
+      }
+
+      json(obj) {
+        this.setHeader('Content-Type', 'application/json; charset=utf-8');
+        this.body = JSON.stringify(obj);
+        this.setHeader('Content-Length', new TextEncoder().encode(this.body).length);
+        this.ended = true;
+        return this;
+      }
+
+      send(text) {
+        this.body = text;
+        this.setHeader('Content-Length', new TextEncoder().encode(text).length);
+        this.ended = true;
+        return this;
+      }
+
+      end() {
+        this.ended = true;
+        return this;
+      }
+    }
+
+    function executeApiPlaylistHandlerSync(req, mockDb) {
+      const res = new MockServerlessResponse();
+
+      // Encabezados estándar
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', '*');
+      res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive, nosnippet');
+
+      if (req.method === 'OPTIONS') {
+        return res.status(204).end();
+      }
+
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.setHeader('Allow', 'GET, HEAD, OPTIONS');
+        return res.status(405).json({ error: 'Método no permitido', status: 405 });
+      }
+
+      let token = req.query?.token;
+      let isVersionCheck = req.query?.format === 'version' || req.query?.check === 'version';
+      let isJsonManifest = req.query?.format === 'json' || req.query?.format === 'manifest' || (req.headers?.['accept'] && req.headers['accept'].includes('application/json'));
+
+      if (req.url) {
+        if (req.url.includes('/api/playlist/version/')) {
+          const match = req.url.match(/\/api\/playlist\/version\/([a-zA-Z0-9_-]+)/);
+          if (match) {
+            token = match[1];
+            isVersionCheck = true;
+          }
+        } else if (req.url.includes('/api/playlist/manifest/')) {
+          const match = req.url.match(/\/api\/playlist\/manifest\/([a-zA-Z0-9_-]+)/);
+          if (match) {
+            token = match[1];
+            isJsonManifest = true;
+          }
+        } else if (!token) {
+          const match = req.url.match(/\/api\/playlist\/([a-zA-Z0-9_-]+)/);
+          if (match && !['version', 'manifest', 'json'].includes(match[1])) {
+            token = match[1];
+          }
+        }
+      }
+
+      const sendError = (status, message) => {
+        if (isJsonManifest || isVersionCheck) {
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          const body = JSON.stringify({ error: message, status });
+          res.setHeader('Content-Length', new TextEncoder().encode(body).length);
+          if (req.method === 'HEAD') return res.status(status).end();
+          return res.status(status).send(body);
+        }
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        const body = `#EXTM3U\n#EXTINF:-1,${message}\nhttp://localhost/error`;
+        res.setHeader('Content-Length', new TextEncoder().encode(body).length);
+        if (req.method === 'HEAD') return res.status(status).end();
+        return res.status(status).send(body);
+      };
+
+      const tokenRegex = /^[a-zA-Z0-9_-]{16,128}$/;
+      if (!token || typeof token !== 'string' || !tokenRegex.test(token.trim())) {
+        return sendError(400, 'Formato de token invalido');
+      }
+
+      token = token.trim();
+      const tokenHash = sha256Sync(token);
+
+      // Buscar en mock DB: playlist_access_tokens
+      const tokenRecord = mockDb.tokens.find(t => t.token_hash === tokenHash);
+      if (!tokenRecord) {
+        return sendError(404, 'Enlace M3U no encontrado o revocado');
+      }
+
+      // FASE 27: Token desactivado -> 410 Gone (o 404)
+      if (tokenRecord.enabled === false || tokenRecord.is_active === false) {
+        return sendError(410, 'Este enlace M3U ha sido desactivado');
+      }
+
+      // FASE 27: Token expirado -> 410 Gone
+      if (tokenRecord.expires_at) {
+        const expires = new Date(tokenRecord.expires_at);
+        if (expires < new Date()) {
+          return sendError(410, 'Este enlace M3U ha expirado');
+        }
+      }
+
+      // Buscar playlist
+      const playlist = mockDb.playlists.find(p => p.id === tokenRecord.playlist_id);
+      if (playlist && playlist.enabled === false) {
+        return sendError(410, 'Esta playlist esta desactivada por el usuario');
+      }
+
+      let playlistName = playlist?.name || 'Mi Lista LELOUCH';
+      let playlistVersion = playlist?.version ?? 1;
+      let playlistUpdatedAt = playlist?.updated_at || new Date().toISOString();
+
+      const clientEtag = req.headers?.['if-none-match'];
+      const currentEtag = `"v${playlistVersion}"`;
+
+      if (isVersionCheck) {
+        const localVer = req.query?.local_version || req.headers?.['x-local-version'];
+        const inSync = (localVer !== undefined && localVer !== null && Number(localVer) === playlistVersion);
+
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-store, max-age=0');
+        res.setHeader('X-Playlist-Version', String(playlistVersion));
+        res.setHeader('ETag', currentEtag);
+
+        if (clientEtag === currentEtag || inSync) {
+          return res.status(304).end();
+        }
+
+        if (req.method === 'HEAD') {
+          return res.status(200).end();
+        }
+
+        return res.status(200).json({
+          playlistId: tokenRecord.playlist_id,
+          name: playlistName,
+          version: playlistVersion,
+          updatedAt: playlistUpdatedAt,
+          inSync: false
+        });
+      }
+
+      // Consultar v_resolved_playlist_items con filtro enabled=eq.true y orden position.asc
+      const rawItems = mockDb.resolvedItems
+        .filter(it => it.playlist_id === tokenRecord.playlist_id && it.enabled === true)
+        .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+
+      const mediaItems = rawItems.map((it, idx) => ({
+        id: it.id,
+        name: it.custom_name || it.name || it.direct_name || 'Canal',
+        streamUrl: unwrapProxyUrl(it.resolved_stream_url || it.direct_url),
+        group: it.custom_group || it.group || it.direct_group || 'General',
+        logo: it.custom_logo || it.logo || it.direct_logo || '',
+        tvgId: it.tvg_id || '',
+        tvgName: it.tvg_name || it.custom_name || it.name || '',
+        mediaType: it.media_type || 'live',
+        sortOrder: it.position ?? idx,
+        isEnabled: it.enabled !== false,
+        itemType: it.item_type || 'catalog',
+        headers: it.metadata?.headers || null,
+        kodiProps: it.metadata?.kodiProps || null,
+        catchup: it.metadata?.catchup || null,
+        extraAttributes: it.metadata?.extraAttributes || null
+      }));
+
+      if (isJsonManifest) {
+        const jsonBody = JSON.stringify({
+          playlist: {
+            id: tokenRecord.playlist_id,
+            name: playlistName,
+            version: playlistVersion,
+            updatedAt: playlistUpdatedAt,
+            itemCount: mediaItems.length
+          },
+          items: mediaItems
+        });
+
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Content-Length', new TextEncoder().encode(jsonBody).length);
+        res.setHeader('Cache-Control', 'no-store, max-age=0');
+        res.setHeader('X-Playlist-Version', String(playlistVersion));
+        res.setHeader('ETag', currentEtag);
+
+        if (clientEtag === currentEtag) {
+          return res.status(304).end();
+        }
+
+        if (req.method === 'HEAD') {
+          return res.status(200).end();
+        }
+
+        return res.status(200).send(jsonBody);
+      }
+
+      // Entrega clásica de #EXTM3U
+      const parserPlaylist = PlaylistGenerator.convertToParserPlaylist(mediaItems, { playlistName });
+      const m3uContent = PlaylistGenerator.generateM3U(parserPlaylist);
+
+      const safeFilename = playlistName.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const contentLength = new TextEncoder().encode(m3uContent).length;
+
+      res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
+      res.setHeader('Content-Length', contentLength);
+      res.setHeader('Cache-Control', 'no-store, max-age=0');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('X-Playlist-Version', String(playlistVersion));
+      res.setHeader('ETag', currentEtag);
+      res.setHeader('Content-Disposition', `inline; filename="${safeFilename}.m3u"`);
+
+      if (req.method === 'HEAD') {
+        return res.status(200).end();
+      }
+
+      return res.status(200).send(m3uContent);
+    }
+
+    // ====================================================================
+    // EJECUCIÓN SÍNCRONA DE LAS 11 PRUEBAS FASE 27
+    // ====================================================================
+    function runPhase27Tests() {
+      // Configurar tokens de prueba (alfanuméricos >= 16 caracteres)
+      const validToken = 'valid_token_alvarado2026_test_key_01';
+      const disabledToken = 'disabled_token_alvarado2026_test_02';
+      const expiredToken = 'expired_token_alvarado2026_test_03';
+      const emptyPlaylistToken = 'empty_list_token_alvarado2026_test_04';
+      const hundredItemsToken = 'hundred_items_alvarado2026_test_05';
+      const reorderedToken = 'reordered_list_alvarado2026_test_06';
+      const disabledChannelToken = 'disabled_channel_alvarado2026_07';
+      const customMetaToken = 'custom_meta_alvarado2026_test_08';
+      const nonExistentToken = 'non_existent_token_9999999999999999';
+
+      const validHash = sha256Sync(validToken);
+      const disabledHash = sha256Sync(disabledToken);
+      const expiredHash = sha256Sync(expiredToken);
+      const emptyHash = sha256Sync(emptyPlaylistToken);
+      const hundredHash = sha256Sync(hundredItemsToken);
+      const reorderedHash = sha256Sync(reorderedToken);
+      const disabledChannelHash = sha256Sync(disabledChannelToken);
+      const customMetaHash = sha256Sync(customMetaToken);
+
+      const mockDb = {
+        tokens: [
+          { id: 'tok-1', playlist_id: 'pl-valid', token_hash: validHash, enabled: true, is_active: true, expires_at: '2029-01-01T00:00:00Z' },
+          { id: 'tok-2', playlist_id: 'pl-disabled', token_hash: disabledHash, enabled: false, is_active: false, expires_at: '2029-01-01T00:00:00Z' },
+          { id: 'tok-3', playlist_id: 'pl-expired', token_hash: expiredHash, enabled: true, is_active: true, expires_at: '2023-01-01T00:00:00Z' },
+          { id: 'tok-4', playlist_id: 'pl-empty', token_hash: emptyHash, enabled: true, is_active: true, expires_at: '2029-01-01T00:00:00Z' },
+          { id: 'tok-5', playlist_id: 'pl-100', token_hash: hundredHash, enabled: true, is_active: true, expires_at: '2029-01-01T00:00:00Z' },
+          { id: 'tok-6', playlist_id: 'pl-reordered', token_hash: reorderedHash, enabled: true, is_active: true, expires_at: '2029-01-01T00:00:00Z' },
+          { id: 'tok-7', playlist_id: 'pl-disabled-chan', token_hash: disabledChannelHash, enabled: true, is_active: true, expires_at: '2029-01-01T00:00:00Z' },
+          { id: 'tok-8', playlist_id: 'pl-custom-meta', token_hash: customMetaHash, enabled: true, is_active: true, expires_at: '2029-01-01T00:00:00Z' },
+        ],
+        playlists: [
+          { id: 'pl-valid', name: 'Lista Principal LELOUCH', enabled: true, version: 1 },
+          { id: 'pl-disabled', name: 'Lista Desactivada', enabled: true, version: 1 },
+          { id: 'pl-expired', name: 'Lista Expirada', enabled: true, version: 1 },
+          { id: 'pl-empty', name: 'Lista Vacia de Canales', enabled: true, version: 1 },
+          { id: 'pl-100', name: 'Lista de 100 Canales', enabled: true, version: 1 },
+          { id: 'pl-reordered', name: 'Lista con Reordenamiento', enabled: true, version: 2 },
+          { id: 'pl-disabled-chan', name: 'Lista con Filtro de Inactivos', enabled: true, version: 1 },
+          { id: 'pl-custom-meta', name: 'Lista Personalizada VIP', enabled: true, version: 1 },
+        ],
+        resolvedItems: [
+          // Items pl-valid
+          { id: 'it-1', playlist_id: 'pl-valid', name: 'La 1 HD', resolved_stream_url: 'http://provider.test/live/user/pass/101.m3u8', group: 'Nacionales', position: 1, enabled: true },
+          { id: 'it-2', playlist_id: 'pl-valid', name: 'Antena 3 HD', resolved_stream_url: 'http://provider.test/live/user/pass/102.m3u8', group: 'Nacionales', position: 2, enabled: true },
+
+          // Items pl-100 (100 items exactamente)
+          ...Array.from({ length: 100 }, (_, i) => ({
+            id: `it-100-${i + 1}`,
+            playlist_id: 'pl-100',
+            name: `Canal Premium #${i + 1}`,
+            resolved_stream_url: `http://provider.test/live/user/pass/${1000 + i}.m3u8`,
+            group: i < 50 ? 'Deportes' : 'Cine',
+            position: i + 1,
+            enabled: true
+          })),
+
+          // Items pl-reordered: orden invertido deliberadamente
+          { id: 'it-re-3', playlist_id: 'pl-reordered', name: 'Tercer Canal C (Primero en posicion)', resolved_stream_url: 'http://provider.test/c.m3u8', group: 'Test', position: 1, enabled: true },
+          { id: 'it-re-1', playlist_id: 'pl-reordered', name: 'Primer Canal A (Segundo en posicion)', resolved_stream_url: 'http://provider.test/a.m3u8', group: 'Test', position: 2, enabled: true },
+          { id: 'it-re-2', playlist_id: 'pl-reordered', name: 'Segundo Canal B (Tercero en posicion)', resolved_stream_url: 'http://provider.test/b.m3u8', group: 'Test', position: 3, enabled: true },
+
+          // Items pl-disabled-chan (2 activos, 2 deshabilitados)
+          { id: 'it-dis-1', playlist_id: 'pl-disabled-chan', name: 'Canal Visible 1', resolved_stream_url: 'http://provider.test/v1.m3u8', group: 'Visible', position: 1, enabled: true },
+          { id: 'it-dis-2', playlist_id: 'pl-disabled-chan', name: 'Canal Deshabilitado 2', resolved_stream_url: 'http://provider.test/d2.m3u8', group: 'Oculto', position: 2, enabled: false },
+          { id: 'it-dis-3', playlist_id: 'pl-disabled-chan', name: 'Canal Visible 3', resolved_stream_url: 'http://provider.test/v3.m3u8', group: 'Visible', position: 3, enabled: true },
+          { id: 'it-dis-4', playlist_id: 'pl-disabled-chan', name: 'Canal Deshabilitado 4', resolved_stream_url: 'http://provider.test/d4.m3u8', group: 'Oculto', position: 4, enabled: false },
+
+          // Items pl-custom-meta (nombre y grupo personalizados)
+          {
+            id: 'it-cust-1',
+            playlist_id: 'pl-custom-meta',
+            name: 'Original Provider Stream 1080p RAW',
+            custom_name: '⭐ Mi Canal Favorito UHD',
+            group: 'RAW_CHANNELS',
+            custom_group: 'Favoritos de la Familia',
+            resolved_stream_url: 'http://provider.test/custom.m3u8',
+            position: 1,
+            enabled: true
+          }
+        ]
+      };
+
+      // ====================================================================
+      // 1. GET token válido -> 200
+      // ====================================================================
+      try {
+        const res = executeApiPlaylistHandlerSync({
+          method: 'GET',
+          query: { token: validToken },
+          url: `/api/playlist/${validToken}`
+        }, mockDb);
+
+        const ok = res.statusCode === 200 &&
+                   res.headers['content-type'].includes('application/vnd.apple.mpegurl') &&
+                   res.body.includes('#EXTM3U') &&
+                   res.body.includes('La 1 HD') &&
+                   res.body.includes('Antena 3 HD');
+
+        log('1. GET token válido -> 200 (OK con M3U válido y Content-Type correcto)',
+          ok,
+          `Status: ${res.statusCode}\nContent-Type: ${res.headers['content-type']}\nContent-Length: ${res.headers['content-length']} bytes\nFragmento:\n${res.body.substring(0, 150)}...`);
+      } catch (e) {
+        log('1. GET token válido -> 200', false, e.message);
+      }
+
+      // ====================================================================
+      // 2. token inexistente -> 404
+      // ====================================================================
+      try {
+        const res = executeApiPlaylistHandlerSync({
+          method: 'GET',
+          query: { token: nonExistentToken },
+          url: `/api/playlist/${nonExistentToken}`
+        }, mockDb);
+
+        const ok = res.statusCode === 404 &&
+                   (res.body.includes('no encontrado o revocado') || res.body.includes('404'));
+
+        log('2. token inexistente -> 404 (Not Found al no encontrar hash en BD)',
+          ok,
+          `Status: ${res.statusCode}\nBody:\n${res.body}`);
+      } catch (e) {
+        log('2. token inexistente -> 404', false, e.message);
+      }
+
+      // ====================================================================
+      // 3. token desactivado -> 404 o 410
+      // ====================================================================
+      try {
+        const res = executeApiPlaylistHandlerSync({
+          method: 'GET',
+          query: { token: disabledToken },
+          url: `/api/playlist/${disabledToken}`
+        }, mockDb);
+
+        const ok = (res.statusCode === 410 || res.statusCode === 404) &&
+                   res.body.includes('desactivado');
+
+        log('3. token desactivado -> 404 o 410 (Gone/Not Found para token con enabled=false)',
+          ok,
+          `Status: ${res.statusCode}\nBody:\n${res.body}`);
+      } catch (e) {
+        log('3. token desactivado -> 404 o 410', false, e.message);
+      }
+
+      // ====================================================================
+      // 4. token expirado -> 410
+      // ====================================================================
+      try {
+        const res = executeApiPlaylistHandlerSync({
+          method: 'GET',
+          query: { token: expiredToken },
+          url: `/api/playlist/${expiredToken}`
+        }, mockDb);
+
+        const ok = res.statusCode === 410 && res.body.includes('expirado');
+
+        log('4. token expirado -> 410 (Gone cuando expires_at < now)',
+          ok,
+          `Status: ${res.statusCode}\nBody:\n${res.body}`);
+      } catch (e) {
+        log('4. token expirado -> 410', false, e.message);
+      }
+
+      // ====================================================================
+      // 5. playlist vacía -> M3U válida sin items
+      // ====================================================================
+      try {
+        const res = executeApiPlaylistHandlerSync({
+          method: 'GET',
+          query: { token: emptyPlaylistToken },
+          url: `/api/playlist/${emptyPlaylistToken}`
+        }, mockDb);
+
+        const hasHeader = res.body.includes('#EXTM3U');
+        const extinfCount = (res.body.match(/#EXTINF:/g) || []).length;
+        const ok = res.statusCode === 200 && hasHeader && extinfCount === 0;
+
+        log('5. playlist vacía -> M3U válida sin items (#EXTM3U presente, exactamente 0 EXTINF)',
+          ok,
+          `Status: ${res.statusCode}\nCabecera válida: ${hasHeader}\nTotal EXTINF: ${extinfCount}\nContenido generado:\n"${res.body}"`);
+      } catch (e) {
+        log('5. playlist vacía -> M3U válida sin items', false, e.message);
+      }
+
+      // ====================================================================
+      // 6. playlist 100 items -> exactamente 100 EXTINF
+      // ====================================================================
+      try {
+        const res = executeApiPlaylistHandlerSync({
+          method: 'GET',
+          query: { token: hundredItemsToken },
+          url: `/api/playlist/${hundredItemsToken}`
+        }, mockDb);
+
+        const extinfMatches = res.body.match(/#EXTINF:/g) || [];
+        const count = extinfMatches.length;
+        const ok = res.statusCode === 200 && count === 100;
+
+        log('6. playlist 100 items -> exactamente 100 EXTINF (integridad y cuenta exacta)',
+          ok,
+          `Status: ${res.statusCode}\nConteo de directivas #EXTINF: ${count} / 100 esperados\nLongitud total M3U: ${res.body.length} caracteres\nÚltimo canal encontrado: ${res.body.includes('Canal Premium #100')}`);
+      } catch (e) {
+        log('6. playlist 100 items -> exactamente 100 EXTINF', false, e.message);
+      }
+
+      // ====================================================================
+      // 7. orden cambiado -> nuevo orden reflejado
+      // ====================================================================
+      try {
+        const res = executeApiPlaylistHandlerSync({
+          method: 'GET',
+          query: { token: reorderedToken },
+          url: `/api/playlist/${reorderedToken}`
+        }, mockDb);
+
+        const idxC = res.body.indexOf('Tercer Canal C (Primero en posicion)');
+        const idxA = res.body.indexOf('Primer Canal A (Segundo en posicion)');
+        const idxB = res.body.indexOf('Segundo Canal B (Tercero en posicion)');
+
+        // El orden en el M3U debe ser C < A < B
+        const ok = res.statusCode === 200 &&
+                   idxC !== -1 && idxA !== -1 && idxB !== -1 &&
+                   idxC < idxA && idxA < idxB;
+
+        log('7. orden cambiado -> nuevo orden reflejado (posicion ASC respetada fielmente)',
+          ok,
+          `Status: ${res.statusCode}\nOrden verificado: Canal C (idx: ${idxC}) -> Canal A (idx: ${idxA}) -> Canal B (idx: ${idxB})\nCoherente con ORDER BY position ASC`);
+      } catch (e) {
+        log('7. orden cambiado -> nuevo orden reflejado', false, e.message);
+      }
+
+      // ====================================================================
+      // 8. canal deshabilitado -> no aparece
+      // ====================================================================
+      try {
+        const res = executeApiPlaylistHandlerSync({
+          method: 'GET',
+          query: { token: disabledChannelToken },
+          url: `/api/playlist/${disabledChannelToken}`
+        }, mockDb);
+
+        const hasVisible1 = res.body.includes('Canal Visible 1');
+        const hasVisible3 = res.body.includes('Canal Visible 3');
+        const hasDisabled2 = res.body.includes('Canal Deshabilitado 2');
+        const hasDisabled4 = res.body.includes('Canal Deshabilitado 4');
+
+        const ok = res.statusCode === 200 &&
+                   hasVisible1 && hasVisible3 &&
+                   !hasDisabled2 && !hasDisabled4;
+
+        log('8. canal deshabilitado -> no aparece (los canales con enabled=false se excluyen)',
+          ok,
+          `Status: ${res.statusCode}\nCanal 1 (activo): presente (${hasVisible1})\nCanal 3 (activo): presente (${hasVisible3})\nCanal 2 (inactivo): omitido (${!hasDisabled2})\nCanal 4 (inactivo): omitido (${!hasDisabled4})`);
+      } catch (e) {
+        log('8. canal deshabilitado -> no aparece', false, e.message);
+      }
+
+      // ====================================================================
+      // 9. nombre personalizado -> aparece nombre personalizado
+      // ====================================================================
+      try {
+        const res = executeApiPlaylistHandlerSync({
+          method: 'GET',
+          query: { token: customMetaToken },
+          url: `/api/playlist/${customMetaToken}`
+        }, mockDb);
+
+        const hasCustomName = res.body.includes('⭐ Mi Canal Favorito UHD');
+        const hasRawName = res.body.includes('Original Provider Stream 1080p RAW');
+
+        // custom_name debe tener precedencia y el nombre crudo no debe aparecer como título
+        const ok = res.statusCode === 200 && hasCustomName && !hasRawName;
+
+        log('9. nombre personalizado -> aparece nombre personalizado (custom_name sobrescribe el del proveedor)',
+          ok,
+          `Status: ${res.statusCode}\nNombre personalizado en M3U: ${hasCustomName}\nNombre crudo del proveedor ausente: ${!hasRawName}\nLínea generada:\n${res.body.split('\n').filter(l => l.includes('#EXTINF'))[0]}`);
+      } catch (e) {
+        log('9. nombre personalizado -> aparece nombre personalizado', false, e.message);
+      }
+
+      // ====================================================================
+      // 10. grupo personalizado -> aparece grupo personalizado
+      // ====================================================================
+      try {
+        const res = executeApiPlaylistHandlerSync({
+          method: 'GET',
+          query: { token: customMetaToken },
+          url: `/api/playlist/${customMetaToken}`
+        }, mockDb);
+
+        const hasCustomGroup = res.body.includes('group-title="Favoritos de la Familia"');
+        const hasRawGroup = res.body.includes('group-title="RAW_CHANNELS"');
+
+        const ok = res.statusCode === 200 && hasCustomGroup && !hasRawGroup;
+
+        log('10. grupo personalizado -> aparece grupo personalizado (custom_group sobrescribe)',
+          ok,
+          `Status: ${res.statusCode}\nGrupo personalizado presente: ${hasCustomGroup}\nGrupo crudo del proveedor ausente: ${!hasRawGroup}`);
+      } catch (e) {
+        log('10. grupo personalizado -> aparece grupo personalizado', false, e.message);
+      }
+
+      // ====================================================================
+      // 11. HEAD method -> 200 con headers correctos y sin cuerpo
+      // ====================================================================
+      try {
+        // Petición HEAD sobre token válido
+        const resHeadValid = executeApiPlaylistHandlerSync({
+          method: 'HEAD',
+          query: { token: validToken },
+          url: `/api/playlist/${validToken}`
+        }, mockDb);
+
+        // Petición HEAD sobre token inexistente
+        const resHead404 = executeApiPlaylistHandlerSync({
+          method: 'HEAD',
+          query: { token: nonExistentToken },
+          url: `/api/playlist/${nonExistentToken}`
+        }, mockDb);
+
+        // Petición HEAD sobre token expirado
+        const resHead410 = executeApiPlaylistHandlerSync({
+          method: 'HEAD',
+          query: { token: expiredToken },
+          url: `/api/playlist/${expiredToken}`
+        }, mockDb);
+
+        const okValid = resHeadValid.statusCode === 200 &&
+                        resHeadValid.headers['content-type'].includes('application/vnd.apple.mpegurl') &&
+                        Number(resHeadValid.headers['content-length']) > 0 &&
+                        resHeadValid.headers['etag'] &&
+                        resHeadValid.headers['x-playlist-version'] &&
+                        resHeadValid.body === null;
+
+        const ok404 = resHead404.statusCode === 404 && resHead404.body === null;
+        const ok410 = resHead410.statusCode === 410 && resHead410.body === null;
+
+        const ok = okValid && ok404 && ok410;
+
+        log('11. Soporte del Método HEAD (Devuelve 200, Content-Length y ETag sin transferir cuerpo de datos)',
+          ok,
+          `HEAD Token Válido:\n` +
+          `  Status: ${resHeadValid.statusCode}\n` +
+          `  Content-Type: ${resHeadValid.headers['content-type']}\n` +
+          `  Content-Length: ${resHeadValid.headers['content-length']} bytes\n` +
+          `  ETag: ${resHeadValid.headers['etag']}\n` +
+          `  Cuerpo vacío: ${resHeadValid.body === null}\n` +
+          `HEAD Token Inexistente:\n` +
+          `  Status: ${resHead404.statusCode} (Cuerpo vacío: ${resHead404.body === null})\n` +
+          `HEAD Token Expirado:\n` +
+          `  Status: ${resHead410.statusCode} (Cuerpo vacío: ${resHead410.body === null})`);
+      } catch (e) {
+        log('11. Soporte del Método HEAD', false, e.message);
+      }
+    }
+
+    runPhase27Tests();
+  </script>
+</body>
+</html>

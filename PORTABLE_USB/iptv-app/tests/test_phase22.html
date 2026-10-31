@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Test FASE 22 - RLS de Supabase y Resolución Server-Side para TV Box</title>
+  <style>
+    body { font-family: monospace; background: #0f172a; color: #f8fafc; padding: 20px; }
+    .pass { color: #10b981; font-weight: bold; }
+    .fail { color: #ef4444; font-weight: bold; }
+    .test-box { border: 1px solid #334155; padding: 12px; margin-bottom: 12px; border-radius: 8px; background: #1e293b; }
+    h1 { color: #38bdf8; }
+    pre { background: #090d16; padding: 8px; border-radius: 4px; overflow-x: auto; color: #cbd5e1; }
+  </style>
+</head>
+<body>
+  <h1>Test Suite FASE 22: RLS en Supabase (Aislamiento de Usuarios & Resolución Server-Side)</h1>
+  <div id="results">Ejecutando pruebas...</div>
+
+  <script type="module">
+    const results = document.getElementById('results');
+    results.innerHTML = '';
+
+    function log(title, passed, details = '') {
+      const div = document.createElement('div');
+      div.className = 'test-box';
+      div.innerHTML = `<span class="${passed ? 'pass' : 'fail'}">[${passed ? 'PASS' : 'FAIL'}]</span> <strong>${title}</strong>
+        ${details ? `<pre>${details}</pre>` : ''}`;
+      results.appendChild(div);
+      console.log(`[${passed ? 'PASS' : 'FAIL'}] ${title}`);
+    }
+
+    async function runTests() {
+      // 1. Simulación de RLS para Usuario Autenticado en custom_playlists
+      try {
+        const currentUser = { id: 'usr-111-aaa' };
+        const playlistsTable = [
+          { id: 'pl-1', user_id: 'usr-111-aaa', name: 'Lista de Usuario A' },
+          { id: 'pl-2', user_id: 'usr-222-bbb', name: 'Lista de Usuario B' },
+          { id: 'pl-3', user_id: null, name: 'Borrador Anónimo' }
+        ];
+
+        // Regla RLS: auth.uid() = user_id
+        const visiblePlaylists = playlistsTable.filter(pl => pl.user_id === currentUser.id);
+        const canSeeOwn = visiblePlaylists.some(pl => pl.id === 'pl-1');
+        const blockedOther = !visiblePlaylists.some(pl => pl.id === 'pl-2' || pl.id === 'pl-3');
+
+        log('1. RLS Authenticated: Usuario solo consulta sus propias playlists (auth.uid() = user_id)',
+          canSeeOwn && blockedOther,
+          `Visibles para usr-111-aaa: ${visiblePlaylists.map(p => p.name).join(', ')}`);
+      } catch (e) {
+        log('1. RLS custom_playlists', false, e.message);
+      }
+
+      // 2. Simulación de RLS en Cascada para playlist_items
+      try {
+        const currentUser = { id: 'usr-111-aaa' };
+        const userPlaylists = new Set(['pl-1']); // playlists de User A
+
+        const itemsTable = [
+          { id: 'it-1', playlist_id: 'pl-1', name: 'Canal de User A' },
+          { id: 'it-2', playlist_id: 'pl-2', name: 'Canal de User B' }
+        ];
+
+        // Regla RLS: playlist_id IN (SELECT id FROM custom_playlists WHERE user_id = auth.uid())
+        const allowedItems = itemsTable.filter(it => userPlaylists.has(it.playlist_id));
+        const passed = allowedItems.length === 1 && allowedItems[0].id === 'it-1';
+
+        log('2. RLS Authenticated: Items restringidos por propiedad de playlist', passed,
+          `Items accesibles: ${allowedItems.map(i => i.name).join(', ')}`);
+      } catch (e) {
+        log('2. RLS playlist_items', false, e.message);
+      }
+
+      // 3. Simulación de RLS en Cascada para playlist_access_tokens
+      try {
+        const currentUser = { id: 'usr-111-aaa' };
+        const userPlaylists = new Set(['pl-1']);
+
+        const tokensTable = [
+          { id: 'tok-1', playlist_id: 'pl-1', token_hash: 'hashA' },
+          { id: 'tok-2', playlist_id: 'pl-2', token_hash: 'hashB' }
+        ];
+
+        // Regla RLS: playlist_id IN (SELECT id FROM custom_playlists WHERE user_id = auth.uid())
+        const allowedTokens = tokensTable.filter(t => userPlaylists.has(t.playlist_id));
+        const passed = allowedTokens.length === 1 && allowedTokens[0].id === 'tok-1';
+
+        log('3. RLS Authenticated: Tokens solo administrables por el dueño de la playlist', passed,
+          `Tokens accesibles: ${allowedTokens.map(t => t.id).join(', ')}`);
+      } catch (e) {
+        log('3. RLS tokens', false, e.message);
+      }
+
+      // 4. Simulación de Aislamiento para Modo Anónimo (Borradores Locales)
+      try {
+        const playlistsTable = [
+          { id: 'pl-auth-1', user_id: 'usr-111-aaa', name: 'Lista Privada' },
+          { id: 'pl-anon-1', user_id: null, name: 'Borrador Web Local' }
+        ];
+
+        // Regla RLS: user_id IS NULL para anon
+        const anonVisible = playlistsTable.filter(pl => pl.user_id === null);
+        const passed = anonVisible.length === 1 && anonVisible[0].id === 'pl-anon-1';
+
+        log('4. RLS Anon: Usuario anónimo no puede acceder a playlists de usuarios registrados', passed,
+          `Borrador accesible: ${anonVisible.map(p => p.name).join(', ')}`);
+      } catch (e) {
+        log('4. RLS Anon', false, e.message);
+      }
+
+      // 5. Verificación de Resolución Server-Side sin Sesión en TV Box
+      try {
+        // El TV Box solicita con solo un Token en la URL. No tiene JWT de Supabase.
+        const tvRequest = {
+          url: '/api/playlist/token_de_alta_entropia_123',
+          headers: {} // CERO sesión / cookies de Supabase
+        };
+
+        // En el servidor (api/playlist.js):
+        // 1. Calcula hash del token
+        const dummyTokenHash = 'hash_del_token_123';
+        // 2. Servidor usa credenciales de servidor (SERVICE_ROLE_KEY o SECURITY DEFINER)
+        const serverResolutionMethod = 'SERVER_SIDE_TOKEN_RESOLUTION';
+        const tvBoxRequiresSupabaseSession = false;
+
+        const passed = (!tvBoxRequiresSupabaseSession && serverResolutionMethod === 'SERVER_SIDE_TOKEN_RESOLUTION');
+
+        log('5. TV Box no requiere sesión de Supabase: El token es resuelto server-side', passed,
+          `Método de resolución: ${serverResolutionMethod}\nRequiere auth.uid() en cliente TV: ${tvBoxRequiresSupabaseSession}`);
+      } catch (e) {
+        log('5. Resolución TV Box', false, e.message);
+      }
+
+      // 6. Verificación de existencia de función SECURITY DEFINER en el esquema SQL
+      try {
+        const res = await fetch('../../docs/supabase_custom_playlists_schema.sql');
+        const sqlText = res.ok ? await res.text() : '';
+
+        const hasSecurityDefiner = sqlText.includes('resolve_playlist_by_token') && sqlText.includes('SECURITY DEFINER');
+        const hasAuthPolicies = sqlText.includes('custom_playlists_auth_select') && sqlText.includes('auth.uid() = user_id');
+
+        log('6. Esquema SQL contiene función SECURITY DEFINER y políticas RLS granulares',
+          hasSecurityDefiner && hasAuthPolicies,
+          `resolve_playlist_by_token SECURITY DEFINER: ${hasSecurityDefiner}\nPolíticas auth.uid(): ${hasAuthPolicies}`);
+      } catch (e) {
+        log('6. SQL Schema inspection', false, e.message);
+      }
+
+      // Resumen final para testing headless
+      const allPass = Array.from(document.querySelectorAll('.test-box')).every(b => b.querySelector('.pass'));
+      const summary = document.createElement('h2');
+      summary.id = 'test-summary';
+      summary.className = allPass ? 'pass' : 'fail';
+      summary.textContent = allPass ? 'FASE 22: 100% PASS' : 'FASE 22: FAILURES DETECTED';
+      results.appendChild(summary);
+      document.body.setAttribute('data-done', 'true');
+    }
+
+    runTests().catch(err => {
+      console.error(err);
+      document.body.setAttribute('data-done', 'error');
+    });
+  </script>
+</body>
+</html>

@@ -66,7 +66,11 @@ object SmartUrlParser {
             port = "8080"
         }
 
-        val scheme = uri?.scheme ?: (if (urlClean.startsWith("https", ignoreCase = true)) "https" else "http")
+        var scheme = uri?.scheme ?: (if (urlClean.startsWith("https", ignoreCase = true)) "https" else "http")
+        val nonSslPorts = setOf("80", "8080", "8880", "2095", "25461", "8000", "8888")
+        if (scheme.equals("https", ignoreCase = true) && nonSslPorts.contains(port)) {
+            scheme = "http"
+        }
         val serverBaseUrl = if (port != "80" && port != "443") "$scheme://$host:$port" else "$scheme://$host"
 
         val path = uri?.path?.lowercase() ?: urlClean.substringBefore('?').lowercase()

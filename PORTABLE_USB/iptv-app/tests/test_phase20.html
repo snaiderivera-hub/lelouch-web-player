@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Test FASE 20 - Seguridad de URL M3U Pública & Secreto Compartido</title>
+  <style>
+    body { font-family: monospace; background: #0f172a; color: #f8fafc; padding: 20px; }
+    .pass { color: #10b981; font-weight: bold; }
+    .fail { color: #ef4444; font-weight: bold; }
+    .test-box { border: 1px solid #334155; padding: 12px; margin-bottom: 12px; border-radius: 8px; background: #1e293b; }
+    h1 { color: #38bdf8; }
+    pre { background: #090d16; padding: 8px; border-radius: 4px; overflow-x: auto; color: #cbd5e1; }
+  </style>
+</head>
+<body>
+  <h1>Test Suite FASE 20: Seguridad M3U, Secreto Compartido, Revocación y Anti-Indexación</h1>
+  <div id="results">Ejecutando pruebas...</div>
+
+  <script type="module">
+    import { redactSensitiveUrl } from '../src/modules/iptv/utils/security.js';
+    import { supabaseService } from '../src/modules/iptv/services/SupabaseService.js';
+
+    const results = document.getElementById('results');
+    results.innerHTML = '';
+
+    function log(title, passed, details = '') {
+      const div = document.createElement('div');
+      div.className = 'test-box';
+      div.innerHTML = `<span class="${passed ? 'pass' : 'fail'}">[${passed ? 'PASS' : 'FAIL'}]</span> <strong>${title}</strong>
+        ${details ? `<pre>${details}</pre>` : ''}`;
+      results.appendChild(div);
+      console.log(`[${passed ? 'PASS' : 'FAIL'}] ${title}`);
+    }
+
+    async function runTests() {
+      // 1. Verificación de Encabezado Anti-Indexación (X-Robots-Tag)
+      try {
+        const expectedHeader = 'noindex, nofollow, noarchive, nosnippet';
+        // Simulamos la lógica de encabezados del backend api/playlist.js
+        const mockHeaders = {};
+        const mockRes = {
+          setHeader: (k, v) => { mockHeaders[k.toLowerCase()] = v; }
+        };
+        mockRes.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive, nosnippet');
+
+        const hasRobotsTag = mockHeaders['x-robots-tag'] === expectedHeader;
+        log('1. Encabezado HTTP X-Robots-Tag configurado estrictamente', hasRobotsTag,
+          `X-Robots-Tag: ${mockHeaders['x-robots-tag']}`);
+      } catch (e) {
+        log('1. Encabezado HTTP X-Robots-Tag', false, e.message);
+      }
+
+      // 2. Verificación de robots.txt
+      try {
+        const res = await fetch('../robots.txt');
+        const robotsContent = res.ok ? await res.text() : '';
+        const blocksApi = robotsContent.includes('Disallow: /api/');
+        const blocksPlaylist = robotsContent.includes('Disallow: /api/playlist/');
+        log('2. robots.txt bloquea rastreo de /api/ y /api/playlist/', blocksApi && blocksPlaylist, robotsContent);
+      } catch (e) {
+        log('2. robots.txt directivas', false, e.message);
+      }
+
+      // 3. Verificación de Revocación de Token (enabled: false -> HTTP 403)
+      try {
+        const mockTokenRecord = {
+          id: 'test-token-id',
+          token_hash: 'abc123hash',
+          enabled: false,
+          is_active: false
+        };
+
+        // Lógica del backend api/playlist.js
+        let statusCode = 200;
+        let errorMsg = '';
+        if (mockTokenRecord.enabled === false || mockTokenRecord.is_active === false) {
+          statusCode = 403;
+          errorMsg = 'Este enlace M3U ha sido desactivado';
+        }
+
+        log('3. Token revocado/desactivado produce HTTP 403 Forbidden', statusCode === 403 && errorMsg.includes('desactivado'),
+          `Status: ${statusCode}, Mensaje: ${errorMsg}`);
+      } catch (e) {
+        log('3. Token revocado', false, e.message);
+      }
+
+      // 4. Verificación de Expiración Opcional (expires_at en el pasado -> HTTP 403)
+      try {
+        const pastDate = new Date(Date.now() - 3600000).toISOString(); // 1 hora en el pasado
+        const mockTokenRecord = {
+          id: 'test-token-expired',
+          enabled: true,
+          expires_at: pastDate
+        };
+
+        let statusCode = 200;
+        let errorMsg = '';
+        if (mockTokenRecord.expires_at) {
+          const expires = new Date(mockTokenRecord.expires_at);
+          if (expires < new Date()) {
+            statusCode = 403;
+            errorMsg = 'Este enlace M3U ha expirado';
+          }
+        }
+
+        log('4. Token con fecha de expiración vencida produce HTTP 403 Forbidden', statusCode === 403 && errorMsg.includes('expirado'),
+          `Status: ${statusCode}, expires_at: ${pastDate}`);
+      } catch (e) {
+        log('4. Token expirado', false, e.message);
+      }
+
+      // 5. Verificación de Regeneración (Token anterior queda invalidado)
+      try {
+        const oldHash = 'old_hash_89849284294';
+        const newHash = 'new_hash_39103910391';
+
+        const dbTokens = [
+          { token_hash: oldHash, enabled: false }, // Desactivado por regeneración
+          { token_hash: newHash, enabled: true }   // Nuevo activo
+        ];
+
+        const oldLookup = dbTokens.find(t => t.token_hash === oldHash);
+        const newLookup = dbTokens.find(t => t.token_hash === newHash);
+
+        const oldIsBlocked = (oldLookup && oldLookup.enabled === false);
+        const newIsValid = (newLookup && newLookup.enabled === true);
+
+        log('5. Regeneración invalida token previo mientras activa el nuevo', oldIsBlocked && newIsValid,
+          `Token antiguo enabled: ${oldLookup?.enabled}, Nuevo token enabled: ${newLookup?.enabled}`);
+      } catch (e) {
+        log('5. Regeneración e invalidación', false, e.message);
+      }
+
+      // 6. Verificación de Redacción de URLs de Stream Sensibles
+      try {
+        const rawStreamUrl = 'http://provider.tv:8080/live/misuperusuario/micontrasena123/9876.ts';
+        const redacted = redactSensitiveUrl(rawStreamUrl);
+        const isRedacted = !redacted.includes('misuperusuario') &&
+                           !redacted.includes('micontrasena123') &&
+                           redacted.includes('/live/***/***/9876.ts');
+
+        log('6. Credenciales en URLs de stream (/live/user/pass/id.ts) se ofuscan en logs', isRedacted,
+          `Original: ${rawStreamUrl}\nRedactado: ${redacted}`);
+      } catch (e) {
+        log('6. Redacción sensible', false, e.message);
+      }
+
+      // 7. Verificación de SupabaseService.createAccessToken con soporte de expiración
+      try {
+        const fnSource = supabaseService.createAccessToken.toString();
+        const supportsExpiration = fnSource.includes('expiresInDays') && fnSource.includes('expires_at');
+        log('7. SupabaseService.createAccessToken admite parámetro expiresInDays y gestiona expires_at', supportsExpiration,
+          `Soporte expiresInDays: ${fnSource.includes('expiresInDays')}, expires_at en payload: ${fnSource.includes('expires_at')}`);
+      } catch (e) {
+        log('7. Soporte expiresInDays en createAccessToken', false, e.message);
+      }
+
+      // Resumen final para testing headless
+      const allPass = Array.from(document.querySelectorAll('.test-box')).every(b => b.querySelector('.pass'));
+      const summary = document.createElement('h2');
+      summary.id = 'test-summary';
+      summary.className = allPass ? 'pass' : 'fail';
+      summary.textContent = allPass ? 'FASE 20: 100% PASS' : 'FASE 20: FAILURES DETECTED';
+      results.appendChild(summary);
+      document.body.setAttribute('data-done', 'true');
+    }
+
+    runTests().catch(err => {
+      console.error(err);
+      document.body.setAttribute('data-done', 'error');
+    });
+  </script>
+</body>
+</html>

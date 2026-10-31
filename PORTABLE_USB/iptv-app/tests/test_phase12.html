@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Test FASE 12 - convertToParserPlaylist() y generateM3U()</title>
+  <style>
+    body { font-family: monospace; background: #0f172a; color: #f8fafc; padding: 2rem; }
+    .pass { color: #4ade80; font-weight: bold; }
+    .fail { color: #f87171; font-weight: bold; }
+    .log { margin: 4px 0; }
+    pre { background: #1e293b; padding: 1rem; border-radius: 8px; overflow: auto; }
+  </style>
+</head>
+<body data-completed="false">
+  <h1>🧪 Test de Validación FASE 12 — Pipeline con generateM3U()</h1>
+  <div id="results"></div>
+
+  <script type="module">
+    import { PlaylistGenerator } from '../src/services/playlist/PlaylistGenerator.js';
+    import { M3uParserAdapter } from '../src/services/playlist/M3uParserAdapter.js';
+
+    const resultsDiv = document.getElementById('results');
+
+    function log(msg, isPass) {
+      const el = document.createElement('div');
+      el.className = 'log ' + (isPass === true ? 'pass' : isPass === false ? 'fail' : '');
+      el.textContent = (isPass === true ? '✅ PASS: ' : isPass === false ? '❌ FAIL: ' : 'ℹ️ ') + msg;
+      resultsDiv.appendChild(el);
+      console.log(el.textContent);
+    }
+
+    async function runTests() {
+      try {
+        log('Iniciando tests de FASE 12: Pipeline canónico con generateM3U()...', null);
+
+        // 1. Datos canónicos LelouchMediaItem[] (simulando los datos resueltos de Supabase)
+        const mediaItems = [
+          {
+            id: 'item-f12-1',
+            name: 'ESPN 1 FHD',
+            streamUrl: 'https://stream.server.com/live/espn1.m3u8',
+            group: 'Deportes',
+            logo: 'https://images.live/espn1.png',
+            tvgId: 'espn.fhd',
+            tvgName: 'ESPN 1 FHD',
+            mediaType: 'live',
+            sortOrder: 0,
+            isEnabled: true,
+            headers: {
+              'User-Agent': 'TiviMate/4.8.0',
+              'Referer': 'https://espn.go.com'
+            },
+            catchup: {
+              type: 'append',
+              days: 7,
+              source: 'https://stream.server.com/catchup?id={id}&start={utc}'
+            },
+            kodiProps: {
+              'inputstream.adaptive.manifest_type': 'hls'
+            },
+            extraAttributes: {
+              'tvg-shift': '+1'
+            }
+          },
+          {
+            id: 'item-f12-2',
+            name: 'HBO Max Cinema',
+            streamUrl: 'https://stream.server.com/vod/hbo.mp4',
+            group: 'Cine Premium',
+            logo: 'https://images.live/hbo.png',
+            tvgId: 'hbo.cinema',
+            tvgName: 'HBO Max Cinema',
+            mediaType: 'movie',
+            sortOrder: 1,
+            isEnabled: true
+          }
+        ];
+
+        // 2. Paso 1 del pipeline: convertToParserPlaylist()
+        const parserPlaylist = PlaylistGenerator.convertToParserPlaylist(mediaItems, {
+          playlistName: 'Mi Lista Lelouch Pro',
+          epgUrl: 'https://epg.server.com/guide.xml'
+        });
+
+        log('Paso 1: convertToParserPlaylist() generó objeto con header: ' + Boolean(parserPlaylist?.header), Boolean(parserPlaylist?.header));
+        log('Header contiene name: ' + (parserPlaylist?.header?.attrs?.name === 'Mi Lista Lelouch Pro'), parserPlaylist?.header?.attrs?.name === 'Mi Lista Lelouch Pro');
+        log('Header contiene x-tvg-url: ' + (parserPlaylist?.header?.attrs?.['x-tvg-url'] === 'https://epg.server.com/guide.xml'), parserPlaylist?.header?.attrs?.['x-tvg-url'] === 'https://epg.server.com/guide.xml');
+        log('Items convertidos al formato del parser: ' + (parserPlaylist?.items?.length === 2), parserPlaylist?.items?.length === 2);
+
+        const parserItem1 = parserPlaylist.items[0];
+        log('Item 1 tiene tvg.id: ' + (parserItem1.tvg.id === 'espn.fhd'), parserItem1.tvg.id === 'espn.fhd');
+        log('Item 1 tiene group.title: ' + (parserItem1.group.title === 'Deportes'), parserItem1.group.title === 'Deportes');
+        log('Item 1 tiene catchup.type: ' + (parserItem1.catchup.type === 'append'), parserItem1.catchup.type === 'append');
+
+        // 3. Paso 2 del pipeline: generateM3U(parserPlaylist)
+        const generatedM3u = PlaylistGenerator.generateM3U(parserPlaylist);
+
+        log('Paso 2: generateM3U() produjo texto M3U válido: ' + Boolean(generatedM3u && generatedM3u.startsWith('#EXTM3U')), Boolean(generatedM3u && generatedM3u.startsWith('#EXTM3U')));
+        log('M3U contiene header name: ' + generatedM3u.includes('name="Mi Lista Lelouch Pro"'), generatedM3u.includes('name="Mi Lista Lelouch Pro"'));
+        log('M3U contiene x-tvg-url: ' + generatedM3u.includes('x-tvg-url="https://epg.server.com/guide.xml"'), generatedM3u.includes('x-tvg-url="https://epg.server.com/guide.xml"'));
+        log('M3U contiene primer canal con directiva #EXTINF: ' + generatedM3u.includes('#EXTINF:-1 tvg-id="espn.fhd"'), generatedM3u.includes('#EXTINF:-1 tvg-id="espn.fhd"'));
+        log('M3U preserva atributo desconocido extraAttributes (tvg-shift): ' + generatedM3u.includes('tvg-shift="+1"'), generatedM3u.includes('tvg-shift="+1"'));
+        log('M3U preserva catchup (tv-archive="1" catchup="append"): ' + generatedM3u.includes('tv-archive="1"') && generatedM3u.includes('catchup="append"'), generatedM3u.includes('catchup="append"'));
+        log('M3U contiene directiva #KODIPROP: ' + generatedM3u.includes('#KODIPROP:inputstream.adaptive.manifest_type=hls'), generatedM3u.includes('#KODIPROP:inputstream.adaptive.manifest_type=hls'));
+        log('M3U contiene directiva #EXTVLCOPT:http-user-agent: ' + generatedM3u.includes('#EXTVLCOPT:http-user-agent=TiviMate/4.8.0'), generatedM3u.includes('#EXTVLCOPT:http-user-agent=TiviMate/4.8.0'));
+        log('M3U contiene directiva #EXTVLCOPT:http-referrer: ' + generatedM3u.includes('#EXTVLCOPT:http-referrer=https://espn.go.com'), generatedM3u.includes('#EXTVLCOPT:http-referrer=https://espn.go.com'));
+        log('M3U contiene segundo canal (HBO Max Cinema): ' + generatedM3u.includes('HBO Max Cinema'), generatedM3u.includes('HBO Max Cinema'));
+
+        // 4. Round-trip validation: parse(generatedM3u) -> coincide con parserPlaylist
+        const reParsed = M3uParserAdapter.parse(generatedM3u);
+        log('Round-trip validation: Re-parseo obtuvo 2 items: ' + (reParsed.items.length === 2), reParsed.items.length === 2);
+        log('Round-trip tvg-id exacto: ' + (reParsed.items[0].tvg.id === 'espn.fhd'), reParsed.items[0].tvg.id === 'espn.fhd');
+
+        const pre = document.createElement('pre');
+        pre.textContent = generatedM3u;
+        resultsDiv.appendChild(pre);
+
+        log('🎉 FASE 12 COMPLETADA CON ÉXITO: Pipeline Supabase -> LelouchMediaItem[] -> convertToParserPlaylist() -> generateM3U() verificado al 100%.', true);
+        document.body.setAttribute('data-completed', 'true');
+      } catch (err) {
+        log('Error ejecutando tests: ' + err.message + '\n' + err.stack, false);
+        document.body.setAttribute('data-completed', 'true');
+      }
+    }
+
+    runTests();
+  </script>
+</body>
+</html>

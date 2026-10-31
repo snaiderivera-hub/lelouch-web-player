@@ -1,0 +1,1 @@
+﻿window.IPTV_PROXY_PORT = 7878;

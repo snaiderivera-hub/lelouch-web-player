@@ -97,8 +97,32 @@ class AuthRepositoryImpl(
         customName: String?
     ): Result<SourceConfig> = withContext(Dispatchers.IO) {
         try {
-            val api = NetworkClient.createXtreamApiService(serverUrl)
-            val response = api.authenticate(user, pass)
+            var effectiveServerUrl = serverUrl
+            val api = try {
+                NetworkClient.createXtreamApiService(effectiveServerUrl)
+            } catch (initErr: Exception) {
+                if (effectiveServerUrl.startsWith("https://", ignoreCase = true)) {
+                    effectiveServerUrl = "http://" + effectiveServerUrl.substring(8)
+                    NetworkClient.createXtreamApiService(effectiveServerUrl)
+                } else throw initErr
+            }
+
+            val response = try {
+                api.authenticate(user, pass)
+            } catch (authErr: Exception) {
+                // Si el servidor falla con error TLS/SSL o handshake, reintentar autom·ticamente con http://
+                val isTlsError = authErr is javax.net.ssl.SSLException ||
+                    authErr.message?.contains("TLS", ignoreCase = true) == true ||
+                    authErr.message?.contains("SSL", ignoreCase = true) == true ||
+                    authErr.message?.contains("handshake", ignoreCase = true) == true
+                if (isTlsError && effectiveServerUrl.startsWith("https://", ignoreCase = true)) {
+                    effectiveServerUrl = "http://" + effectiveServerUrl.substring(8)
+                    val fallbackApi = NetworkClient.createXtreamApiService(effectiveServerUrl)
+                    fallbackApi.authenticate(user, pass)
+                } else {
+                    throw authErr
+                }
+            }
             val userInfo = response.userInfo ?: return@withContext Result.failure(
                 IllegalArgumentException("Respuesta inv√°lida del servidor IPTV")
             )

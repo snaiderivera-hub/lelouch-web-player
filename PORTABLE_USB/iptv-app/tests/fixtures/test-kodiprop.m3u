@@ -1,0 +1,14 @@
+#EXTM3U
+#EXTINF:-1 tvg-id="kodi.dash.widevine" tvg-name="DASH Widevine Channel" group-title="DRM Kodi", Canal DASH con Widevine DRM
+#KODIPROP:inputstream=inputstream.adaptive
+#KODIPROP:inputstream.adaptive.manifest_type=mpd
+#KODIPROP:inputstream.adaptive.license_type=com.widevine.alpha
+#KODIPROP:inputstream.adaptive.license_key=https://license.fictitious-iptv.test/widevine/proxy?session_id=fake_sess==&device=tv
+#KODIPROP:inputstream.adaptive.stream_headers=User-Agent=LelouchKodi/1.0&Referer=https://portal.fictitious.test
+http://fictitious-iptv.test:8080/drm/live/fake_user/fake_pass/8001.mpd
+#EXTINF:-1 tvg-id="kodi.clearkey" tvg-name="ClearKey Channel" group-title="DRM Kodi", Canal HLS con ClearKey
+#KODIPROP:inputstream=inputstream.adaptive
+#KODIPROP:inputstream.adaptive.manifest_type=hls
+#KODIPROP:inputstream.adaptive.license_type=org.w3.clearkey
+#KODIPROP:inputstream.adaptive.license_key={"keys":[{"kty":"oct","k":"MDEyMzQ1Njc4OWFiY2RlZg==","kid":"MDEyMzQ1Njc4OWFiY2RlZg=="}]}
+http://fictitious-iptv.test:8080/drm/live/fake_user/fake_pass/8002.m3u8

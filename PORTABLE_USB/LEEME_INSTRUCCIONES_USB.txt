@@ -1,0 +1,45 @@
+================================================================================
+  LELOUCH PLUS IPTV — PAQUETE PORTABLE PARA MEMORIA USB (v1.0.100)
+================================================================================
+
+Este paquete está 100% listo y optimizado para ser transportado en una memoria USB 
+o disco duro externo y utilizarse en cualquier computadora con Windows 10 u 11 
+sin necesidad de instalar programas adicionales.
+
+--------------------------------------------------------------------------------
+📁 CONTENIDO DE ESTA MEMORIA USB:
+--------------------------------------------------------------------------------
+
+1. "INICIAR_LELOUCH_WEB_PLAYER.bat"  (⭐ LANZADOR PRINCIPAL PC)
+   - Doble clic para iniciar el reproductor en tu computadora.
+   - Abre automáticamente en tu navegador (http://localhost:8686).
+   - Conectado en vivo a Supabase con sincronización de cuentas compartidas.
+   - Incluye el nuevo motor de Streaming Chunked 64KB (sin congelamientos).
+
+2. "LELOUCH-PLUS-v1.0.100.apk"       (📱 INSTALADOR ANDROID)
+   - Archivo APK listo para copiar a tu TV Box o teléfono Android.
+   - Con selector DNS dinámico (Cloudflare/Google/Control D/AdGuard).
+   - Con auto-fallback anti-SSL (soluciona error de paquete TLS).
+   - Con terminal de descarga interactivo paso a paso estilo Web Player.
+
+3. "CERRAR_IPTV_Y_DESCONECTAR_USB.bat"
+   - Doble clic para cerrar los servidores en segundo plano y liberar los puertos
+     7878 y 8686 antes de retirar tu memoria USB.
+
+4. Carpeta "HERRAMIENTAS/"
+   - 1_ANALIZADOR_VISUAL_Y_SALUD_M3U.bat: Prueba canales en vivo con HLS y salud verde/roja.
+   - 2_FILTRAR_CANALES_M3U.bat: Filtra canales preferidos y exporta a .m3u / .csv.
+   - 3_PROCESAR_XTREAM_JSON.bat: Descarga canales y VOD a JSON estructurado.
+   - 4_ESCANEAR_TVBOX_ADB.bat: Escanea IPs de TV Boxes en tu red WiFi.
+
+5. Carpeta "iptv-app/"
+   - Código fuente completo del reproductor web local.
+
+--------------------------------------------------------------------------------
+¿CÓMO USARLO EN OTRA COMPUTADORA?
+--------------------------------------------------------------------------------
+1. Conecta la memoria USB en la otra PC.
+2. Abre la memoria USB y haz doble clic en "INICIAR_LELOUCH_WEB_PLAYER.bat".
+3. Al terminar de ver TV, haz doble clic en "CERRAR_IPTV_Y_DESCONECTAR_USB.bat"
+   para expulsar la memoria USB de forma limpia y segura.
+================================================================================

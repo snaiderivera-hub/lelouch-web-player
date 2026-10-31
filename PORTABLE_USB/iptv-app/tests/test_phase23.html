@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Test FASE 23 - Deduplicación Multi-Factor en Lelouch</title>
+  <style>
+    body { font-family: monospace; background: #0f172a; color: #f8fafc; padding: 20px; }
+    .pass { color: #10b981; font-weight: bold; }
+    .fail { color: #ef4444; font-weight: bold; }
+    .test-box { border: 1px solid #334155; padding: 12px; margin-bottom: 12px; border-radius: 8px; background: #1e293b; }
+    h1 { color: #38bdf8; }
+    pre { background: #090d16; padding: 8px; border-radius: 4px; overflow-x: auto; color: #cbd5e1; }
+  </style>
+</head>
+<body>
+  <h1>Test Suite FASE 23: Deduplicación Multi-Factor (Preservación Inter-Fuentes)</h1>
+  <div id="results">Ejecutando pruebas...</div>
+
+  <script type="module">
+    import { PlaylistDeduplicator } from '../src/services/playlist/PlaylistDeduplicator.js';
+
+    const results = document.getElementById('results');
+    results.innerHTML = '';
+
+    function log(title, passed, details = '') {
+      const div = document.createElement('div');
+      div.className = 'test-box';
+      div.innerHTML = `<span class="${passed ? 'pass' : 'fail'}">[${passed ? 'PASS' : 'FAIL'}]</span> <strong>${title}</strong>
+        ${details ? `<pre>${details}</pre>` : ''}`;
+      results.appendChild(div);
+      console.log(`[${passed ? 'PASS' : 'FAIL'}] ${title}`);
+    }
+
+    async function runTests() {
+      // 1. Escenario del Usuario: Fuente A (Canal X), Fuente B (Canal X), Fuente C (Canal Y)
+      try {
+        const rawList = [
+          {
+            id: 'item-a1',
+            sourceId: 'fuente-A',
+            name: 'Canal X',
+            streamUrl: 'http://server-a.com:8080/live/userA/passA/101.ts',
+            group: 'Deportes'
+          },
+          {
+            id: 'item-b1',
+            sourceId: 'fuente-B',
+            name: 'Canal X',
+            streamUrl: 'http://server-b.com:8080/live/userB/passB/505.ts',
+            group: 'Deportes'
+          },
+          {
+            id: 'item-c1',
+            sourceId: 'fuente-C',
+            name: 'Canal Y',
+            streamUrl: 'http://server-c.com:8080/live/userC/passC/999.ts',
+            group: 'Cine'
+          }
+        ];
+
+        const deduplicated = PlaylistDeduplicator.deduplicate(rawList, 'lelouch_multi_factor');
+        // Deben preservarse los 3: Fuente A y Fuente B tienen el mismo nombre pero son fuentes distintas
+        const preservedCount = deduplicated.length === 3;
+        const hasA = deduplicated.some(x => x.sourceId === 'fuente-A' && x.name === 'Canal X');
+        const hasB = deduplicated.some(x => x.sourceId === 'fuente-B' && x.name === 'Canal X');
+        const hasC = deduplicated.some(x => x.sourceId === 'fuente-C' && x.name === 'Canal Y');
+
+        log('1. Escenario FASE 23: Canales homónimos en distintas fuentes (Fuente A vs Fuente B) SE PRESERVAN',
+          preservedCount && hasA && hasB && hasC,
+          `Entradas iniciales: 3, Entradas finales: ${deduplicated.length}\nCanales resultantes: ${deduplicated.map(x => `${x.name} (${x.sourceId})`).join(', ')}`);
+      } catch (e) {
+        log('1. Escenario FASE 23', false, e.message);
+      }
+
+      // 2. Eliminación de Duplicados Reales dentro de la Misma Fuente
+      try {
+        const duplicateList = [
+          {
+            id: 'item-1',
+            sourceId: 'fuente-A',
+            catalogItemId: '101',
+            name: 'ESPN HD',
+            streamUrl: 'http://server-a.com:8080/live/userA/passA/101.ts',
+            group: 'Deportes'
+          },
+          {
+            id: 'item-2',
+            sourceId: 'fuente-A',
+            catalogItemId: '101', // Mismo ID en la misma fuente
+            name: 'ESPN HD',
+            streamUrl: 'http://server-a.com:8080/live/userA/passA/101.ts',
+            group: 'Deportes'
+          }
+        ];
+
+        const deduplicated = PlaylistDeduplicator.deduplicate(duplicateList, 'lelouch_multi_factor');
+        const passed = deduplicated.length === 1;
+
+        log('2. Mismo canal de la misma fuente agregado dos veces SE DEDUPLICA a 1', passed,
+          `Entradas iniciales: 2, Entradas finales: ${deduplicated.length}`);
+      } catch (e) {
+        log('2. Mismo canal misma fuente', false, e.message);
+      }
+
+      // 3. Normalización Avanzada de Stream URLs (Ignora tokens efímeros y credenciales)
+      try {
+        const url1 = 'http://edge.stream.tv:8080/live/user1/pass1/12345.ts?token=TOKEN_EFIMERO_1&expires=99999';
+        const url2 = 'http://edge.stream.tv:8080/live/user2/pass2/12345.ts?token=TOKEN_EFIMERO_2&sid=session_456';
+
+        const norm1 = PlaylistDeduplicator.normalizeStreamUrl(url1);
+        const norm2 = PlaylistDeduplicator.normalizeStreamUrl(url2);
+
+        const areEqual = (norm1 === norm2);
+        const expected = 'edge.stream.tv:8080/live/12345.ts';
+
+        log('3. normalizeStreamUrl() genera huella técnica idéntica ignorando credenciales y session tokens',
+          areEqual && norm1 === expected,
+          `URL 1 Normalizada: ${norm1}\nURL 2 Normalizada: ${norm2}\nHuella esperada: ${expected}`);
+      } catch (e) {
+        log('3. normalizeStreamUrl()', false, e.message);
+      }
+
+      // 4. compareItems() Multi-Factor
+      try {
+        const itemA = {
+          sourceId: 'provider-1',
+          name: 'FOX Sports',
+          streamUrl: 'http://p1.tv/live/user/pass/1.ts',
+          group: 'Deportes'
+        };
+        const itemB = {
+          sourceId: 'provider-2',
+          name: 'FOX Sports',
+          streamUrl: 'http://p2.tv/live/user/pass/2.ts',
+          group: 'Deportes'
+        };
+
+        const comparison = PlaylistDeduplicator.compareItems(itemA, itemB);
+        const passed = (comparison.isDuplicate === false && comparison.confidence === 'cross_source_distinct_kept');
+
+        log('4. compareItems() reconoce canales homónimos de diferentes fuentes como "cross_source_distinct_kept"',
+          passed,
+          `isDuplicate: ${comparison.isDuplicate}, confidence: ${comparison.confidence}, reason: ${comparison.reason}`);
+      } catch (e) {
+        log('4. compareItems()', false, e.message);
+      }
+
+      // 5. Fusión Inteligente con Preservación de Backup Streams
+      try {
+        const target = {
+          sourceId: 'prov-1',
+          catalogItemId: '701',
+          name: 'Discovery Channel',
+          streamUrl: 'http://prov.tv/live/user/pass/701.ts',
+          logo: ''
+        };
+        const candidate = {
+          sourceId: 'prov-1',
+          catalogItemId: '701',
+          name: 'Discovery Channel',
+          streamUrl: 'http://prov.tv/live/user/pass/701_backup.ts',
+          logo: 'http://logos.com/discovery.png',
+          tvgId: 'discovery.us'
+        };
+
+        const list = [target, candidate];
+        const deduplicated = PlaylistDeduplicator.deduplicate(list, 'catalog_id', true);
+
+        const merged = deduplicated[0];
+        const hasEnrichedLogo = merged.logo === 'http://logos.com/discovery.png';
+        const hasEnrichedTvgId = merged.tvgId === 'discovery.us';
+        const hasBackupStream = merged.metadata?.backupStreams?.includes('http://prov.tv/live/user/pass/701_backup.ts');
+
+        log('5. Fusión inteligente enriquece metadatos y preserva streams secundarios en metadata.backupStreams',
+          hasEnrichedLogo && hasEnrichedTvgId && hasBackupStream,
+          `Logo enriquecido: ${merged.logo}, tvgId: ${merged.tvgId}\nBackup streams: ${JSON.stringify(merged.metadata?.backupStreams)}`);
+      } catch (e) {
+        log('5. Fusión inteligente', false, e.message);
+      }
+
+      // Resumen final para testing headless
+      const allPass = Array.from(document.querySelectorAll('.test-box')).every(b => b.querySelector('.pass'));
+      const summary = document.createElement('h2');
+      summary.id = 'test-summary';
+      summary.className = allPass ? 'pass' : 'fail';
+      summary.textContent = allPass ? 'FASE 23: 100% PASS' : 'FASE 23: FAILURES DETECTED';
+      results.appendChild(summary);
+      document.body.setAttribute('data-done', 'true');
+    }
+
+    runTests().catch(err => {
+      console.error(err);
+      document.body.setAttribute('data-done', 'error');
+    });
+  </script>
+</body>
+</html>

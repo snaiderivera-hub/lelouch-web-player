@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Test FASE 17 - Sincronización Lelouch TV (JSON Manifest)</title>
+  <style>
+    body { font-family: monospace; background: #0a0e17; color: #e2e8f0; padding: 20px; }
+    .pass { color: #10b981; }
+    .fail { color: #ef4444; }
+    .test-box { border: 1px solid #1e293b; background: #0f172a; padding: 12px; margin-bottom: 12px; border-radius: 8px; }
+    pre { background: #020617; padding: 8px; border-radius: 4px; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <h1>Test Suite FASE 17: Sincronización LELOUCH TV (JSON Manifest sin re-parseo M3U)</h1>
+  <div id="results">Ejecutando pruebas...</div>
+
+  <script type="module">
+    import { supabaseService } from '../src/modules/iptv/services/SupabaseService.js';
+
+    async function runTests() {
+      const results = [];
+      const container = document.getElementById('results');
+
+      try {
+        // 1. Obtener o crear playlist de prueba
+        const pl = await supabaseService.getOrCreateDefaultCustomPlaylist('Test FASE 17 Lelouch TV');
+        if (!pl?.id) throw new Error('Supabase no disponible');
+
+        // Insertar items de prueba
+        const testItems = [
+          { name: 'ESPN Deportes', url: 'https://stream.net/espn.m3u8', group: 'Deportes', tvgId: 'espn.mx' },
+          { name: 'HBO Latino', url: 'https://stream.net/hbo.m3u8', group: 'Cine', tvgId: 'hbo.la' }
+        ];
+        await supabaseService.syncPlaylistItems(pl.id, testItems);
+
+        // Test 1: Comprobar getPlaylistManifest() devuelve estructura JSON nativa para Room
+        const manifest = await supabaseService.getPlaylistManifest(pl.id);
+        const validManifest = (
+          manifest &&
+          manifest.playlist &&
+          typeof manifest.playlist.version === 'number' &&
+          Array.isArray(manifest.items) &&
+          manifest.items.length === 2 &&
+          manifest.items[0].streamUrl &&
+          manifest.items[0].group
+        );
+
+        results.push({
+          name: '1. Generación de Playlist Manifest JSON Nativo (para Room/SQLite)',
+          passed: validManifest,
+          detail: `Playlist: ${manifest?.playlist?.name} (v${manifest?.playlist?.version})\nItems devueltos en JSON: ${manifest?.items?.length}\nPrimer canal: ${manifest?.items?.[0]?.name} -> ${manifest?.items?.[0]?.streamUrl}`
+        });
+
+        // Test 2: Comprobar flujo "¿cambió la versión?" para Lelouch TV
+        // Lelouch TV -> playlist/version -> ¿cambió?
+        const currentVer = manifest.playlist.version;
+        const checkSame = await supabaseService.checkPlaylistSync(pl.id, currentVer);
+        const checkDiff = await supabaseService.checkPlaylistSync(pl.id, currentVer - 1);
+
+        const versionFlowPassed = (checkSame.inSync === true && checkDiff.inSync === false);
+        results.push({
+          name: '2. Flujo de comprobación "¿cambió la versión?" para Lelouch TV',
+          passed: versionFlowPassed,
+          detail: `Versión Local == Servidor: inSync=${checkSame.inSync} (Lelouch TV NO hace nada)\nVersión Local != Servidor: inSync=${checkDiff.inSync} (Lelouch TV sincroniza manifest JSON)`
+        });
+
+        // Test 3: Creación de Token y Verificación de Doble Vía Arquitectónica
+        // Vía A: API LELOUCH -> JSON manifest (Lelouch TV & Phone)
+        // Vía B: M3U ENDPOINT -> #EXTM3U (TiviMate, VLC, OTT Navigator)
+        const tokenObj = await supabaseService.createAccessToken(pl.id, 'Token Dual Flow FASE 17');
+        const tokenCreated = (tokenObj && tokenObj.token && tokenObj.token.length >= 32);
+
+        results.push({
+          name: '3. Soporte Arquitectónico Dual (API JSON vs Endpoint M3U)',
+          passed: tokenCreated,
+          detail: `Token generado para acceso dual: ${tokenObj?.preview}\n- Lelouch TV: GET /api/playlist/manifest/${tokenObj?.token} (o ?format=json)\n- Apps Externas: GET /api/playlist/${tokenObj?.token} (#EXTM3U)`
+        });
+
+      } catch (err) {
+        results.push({ name: 'Error en Test FASE 17', passed: false, detail: err.message });
+      }
+
+      // Renderizar resultados
+      let allPassed = true;
+      let html = '';
+      for (const t of results) {
+        if (!t.passed) allPassed = false;
+        html += `
+          <div class="test-box">
+            <h3 class="${t.passed ? 'pass' : 'fail'}">${t.passed ? '✅ PASS' : '❌ FAIL'}: ${t.name}</h3>
+            <pre>${t.detail}</pre>
+          </div>
+        `;
+      }
+      html += `<h2 class="${allPassed ? 'pass' : 'fail'}">${allPassed ? '🎉 TODOS LOS TESTS DE FASE 17 PASARON' : '⚠️ ALGUNOS TESTS FALLARON'}</h2>`;
+      container.innerHTML = html;
+      document.title = allPassed ? 'TESTS_PASSED_PHASE_17' : 'TESTS_FAILED_PHASE_17';
+    }
+
+    runTests();
+  </script>
+</body>
+</html>

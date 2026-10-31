@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Test FASE 21 - Arquitectura de Streaming Directo (Sin Proxy por Vercel)</title>
+  <style>
+    body { font-family: monospace; background: #0f172a; color: #f8fafc; padding: 20px; }
+    .pass { color: #10b981; font-weight: bold; }
+    .fail { color: #ef4444; font-weight: bold; }
+    .test-box { border: 1px solid #334155; padding: 12px; margin-bottom: 12px; border-radius: 8px; background: #1e293b; }
+    h1 { color: #38bdf8; }
+    pre { background: #090d16; padding: 8px; border-radius: 4px; overflow-x: auto; color: #cbd5e1; }
+  </style>
+</head>
+<body>
+  <h1>Test Suite FASE 21: NO hacer proxy de vídeos por Vercel (Streaming Directo al Proveedor)</h1>
+  <div id="results">Ejecutando pruebas...</div>
+
+  <script type="module">
+    import { PlaylistGenerator, unwrapProxyUrl } from '../src/services/playlist/PlaylistGenerator.js';
+
+    const results = document.getElementById('results');
+    results.innerHTML = '';
+
+    function log(title, passed, details = '') {
+      const div = document.createElement('div');
+      div.className = 'test-box';
+      div.innerHTML = `<span class="${passed ? 'pass' : 'fail'}">[${passed ? 'PASS' : 'FAIL'}]</span> <strong>${title}</strong>
+        ${details ? `<pre>${details}</pre>` : ''}`;
+      results.appendChild(div);
+      console.log(`[${passed ? 'PASS' : 'FAIL'}] ${title}`);
+    }
+
+    async function runTests() {
+      // 1. Verificación de unwrapProxyUrl para eliminar wrappers de proxy
+      try {
+        const rawProviderUrl = 'http://xtream.provider.com:8080/live/user123/pass456/1001.ts';
+        const wrappedUrl = `https://lelouch-web-player.vercel.app/api/proxy?target=${encodeURIComponent(rawProviderUrl)}`;
+
+        const unwrapped = unwrapProxyUrl(wrappedUrl);
+        const passed = (unwrapped === rawProviderUrl);
+
+        log('1. unwrapProxyUrl() extrae correctamente la URL directa del proveedor', passed,
+          `Original Envuelto: ${wrappedUrl}\nResultado Desenvalado: ${unwrapped}\nEsperado: ${rawProviderUrl}`);
+      } catch (e) {
+        log('1. unwrapProxyUrl()', false, e.message);
+      }
+
+      // 2. Verificación de convertToParserPlaylist() con URLs directas
+      try {
+        const testItems = [
+          {
+            id: 'item-1',
+            name: 'Canal Directo',
+            streamUrl: 'http://stream.server.tv:8080/live/user/pass/101.ts',
+            group: 'Deportes'
+          },
+          {
+            id: 'item-2',
+            name: 'Canal Envuelto Accidentalmente',
+            streamUrl: 'https://lelouch-web-player.vercel.app/api/proxy?target=' + encodeURIComponent('http://stream.server.tv:8080/live/user/pass/102.ts'),
+            group: 'Noticias'
+          }
+        ];
+
+        const parserPlaylist = PlaylistGenerator.convertToParserPlaylist(testItems);
+        const item1Direct = parserPlaylist.items[0].url === 'http://stream.server.tv:8080/live/user/pass/101.ts';
+        const item2Direct = parserPlaylist.items[1].url === 'http://stream.server.tv:8080/live/user/pass/102.ts';
+        const hasNoProxy = !parserPlaylist.items.some(it => it.url.includes('/api/proxy'));
+
+        log('2. PlaylistGenerator.convertToParserPlaylist() garantiza URLs directas', item1Direct && item2Direct && hasNoProxy,
+          `Item 1: ${parserPlaylist.items[0].url}\nItem 2: ${parserPlaylist.items[1].url}`);
+      } catch (e) {
+        log('2. convertToParserPlaylist()', false, e.message);
+      }
+
+      // 3. Verificación de generateM3U() libre de proxies de Vercel
+      try {
+        const testItems = [
+          {
+            id: 'item-1',
+            name: 'ESPN HD',
+            streamUrl: 'http://cdn.iptv.com:8080/live/demo/demo/501.ts',
+            group: 'Deportes'
+          },
+          {
+            id: 'item-2',
+            name: 'FOX Sports',
+            streamUrl: 'https://lelouch-web-player.vercel.app/api/proxy?target=' + encodeURIComponent('http://cdn.iptv.com:8080/live/demo/demo/502.ts'),
+            group: 'Deportes'
+          }
+        ];
+
+        const parserPlaylist = PlaylistGenerator.convertToParserPlaylist(testItems);
+        const m3uOutput = PlaylistGenerator.generateM3U(parserPlaylist);
+
+        const containsDirect1 = m3uOutput.includes('http://cdn.iptv.com:8080/live/demo/demo/501.ts');
+        const containsDirect2 = m3uOutput.includes('http://cdn.iptv.com:8080/live/demo/demo/502.ts');
+        const zeroProxyOccurrences = !m3uOutput.includes('/api/proxy') && !m3uOutput.includes('proxy?target=');
+
+        log('3. PlaylistGenerator.generateM3U() emite texto #EXTM3U con 0 proxies de Vercel',
+          containsDirect1 && containsDirect2 && zeroProxyOccurrences,
+          m3uOutput.trim());
+      } catch (e) {
+        log('3. generateM3U()', false, e.message);
+      }
+
+      // 4. Verificación de generateManifestJson() libre de proxies para Android TV / Phone
+      try {
+        const testItems = [
+          {
+            id: 'item-tv-1',
+            name: 'HBO HD',
+            streamUrl: 'http://cdn.iptv.com:8080/movie/demo/demo/777.mp4',
+            group: 'Cine'
+          },
+          {
+            id: 'item-tv-2',
+            name: 'Cinecanal',
+            streamUrl: 'https://lelouch-web-player.vercel.app/api/proxy?target=' + encodeURIComponent('http://cdn.iptv.com:8080/live/demo/demo/888.ts'),
+            group: 'Cine'
+          }
+        ];
+
+        const jsonStr = PlaylistGenerator.generateManifestJson(testItems, { name: 'Mi TV Manifest' });
+        const parsed = JSON.parse(jsonStr);
+
+        const item1Direct = parsed.items[0].streamUrl === 'http://cdn.iptv.com:8080/movie/demo/demo/777.mp4';
+        const item2Direct = parsed.items[1].streamUrl === 'http://cdn.iptv.com:8080/live/demo/demo/888.ts';
+        const zeroProxy = !jsonStr.includes('/api/proxy');
+
+        log('4. PlaylistGenerator.generateManifestJson() entrega JSON manifest directo al proveedor',
+          item1Direct && item2Direct && zeroProxy,
+          `Item 1 streamUrl: ${parsed.items[0].streamUrl}\nItem 2 streamUrl: ${parsed.items[1].streamUrl}`);
+      } catch (e) {
+        log('4. generateManifestJson()', false, e.message);
+      }
+
+      // 5. Verificación de la regla arquitectónica: Lelouch entrega texto, TV solicita stream
+      try {
+        // En una entrega de 100 canales, la respuesta de Vercel pesa unos pocos KBs, NO un stream continuo
+        const dummyChannels = Array.from({ length: 100 }, (_, i) => ({
+          name: `Canal ${i + 1}`,
+          streamUrl: `http://provider.tv:8080/live/user/pass/${1000 + i}.ts`,
+          group: 'General'
+        }));
+
+        const m3uText = PlaylistGenerator.generateM3U(dummyChannels);
+        const byteSize = new Blob([m3uText]).size;
+        const isLightweight = byteSize < 100000; // < 100 KB para 100 canales
+
+        log('5. La respuesta de Vercel es texto ultra-ligero (< 100 KB) sin flujo continuo de vídeo', isLightweight,
+          `Tamaño para 100 canales: ${(byteSize / 1024).toFixed(2)} KB (Vercel responde en < 200ms y cierra conexión)`);
+      } catch (e) {
+        log('5. Tamaño de playlist', false, e.message);
+      }
+
+      // Resumen final para testing headless
+      const allPass = Array.from(document.querySelectorAll('.test-box')).every(b => b.querySelector('.pass'));
+      const summary = document.createElement('h2');
+      summary.id = 'test-summary';
+      summary.className = allPass ? 'pass' : 'fail';
+      summary.textContent = allPass ? 'FASE 21: 100% PASS' : 'FASE 21: FAILURES DETECTED';
+      results.appendChild(summary);
+      document.body.setAttribute('data-done', 'true');
+    }
+
+    runTests().catch(err => {
+      console.error(err);
+      document.body.setAttribute('data-done', 'error');
+    });
+  </script>
+</body>
+</html>

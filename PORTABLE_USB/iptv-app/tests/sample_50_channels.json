@@ -1,0 +1,302 @@
+﻿[
+    {
+        "id":  "1621103",
+        "name":  "ES| BETIS FHD",
+        "category":  "SPAIN DEPORTES",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/1621103.m3u8"
+    },
+    {
+        "id":  "1621086",
+        "name":  "ES| DAZN 01",
+        "category":  "SPAIN DEPORTES",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/1621086.m3u8"
+    },
+    {
+        "id":  "1621114",
+        "name":  "ES| DAZN 02",
+        "category":  "SPAIN DEPORTES",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/1621114.m3u8"
+    },
+    {
+        "id":  "1621102",
+        "name":  "ES| DAZN 03",
+        "category":  "SPAIN DEPORTES",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/1621102.m3u8"
+    },
+    {
+        "id":  "1621112",
+        "name":  "ES| DAZN 04",
+        "category":  "SPAIN DEPORTES",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/1621112.m3u8"
+    },
+    {
+        "id":  "1621109",
+        "name":  "ES| DAZN 05",
+        "category":  "SPAIN DEPORTES",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/1621109.m3u8"
+    },
+    {
+        "id":  "1621093",
+        "name":  "ES| DAZN 06",
+        "category":  "SPAIN DEPORTES",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/1621093.m3u8"
+    },
+    {
+        "id":  "1486379",
+        "name":  "ES | LA 1 UHD",
+        "category":  "SPAIN LOCALES",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/1486379.m3u8"
+    },
+    {
+        "id":  "1486380",
+        "name":  "ES | REAL MADRID TV",
+        "category":  "SPAIN LOCALES",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/1486380.m3u8"
+    },
+    {
+        "id":  "781176",
+        "name":  "ES | DAZN LaLigaⓧ FHD",
+        "category":  "SPAIN LOCALES",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/781176.m3u8"
+    },
+    {
+        "id":  "780983",
+        "name":  "ES |  La 2 FHD",
+        "category":  "SPAIN LOCALES",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/780983.m3u8"
+    },
+    {
+        "id":  "781194",
+        "name":  "ES | 13 TV HD",
+        "category":  "SPAIN LOCALES",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/781194.m3u8"
+    },
+    {
+        "id":  "781033",
+        "name":  "ES |  TELECINCO 2 FHD",
+        "category":  "SPAIN LOCALES",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/781033.m3u8"
+    },
+    {
+        "id":  "780992",
+        "name":  "ES | M. Estrenos 2 UHD",
+        "category":  "SPAIN LOCALES",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/780992.m3u8"
+    },
+    {
+        "id":  "1621173",
+        "name":  "ES| 40 Y 20 FHD",
+        "category":  "SPAIN CINEMA",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/1621173.m3u8"
+    },
+    {
+        "id":  "1621172",
+        "name":  "ES| BUEN VIAJE FHD",
+        "category":  "SPAIN CINEMA",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/1621172.m3u8"
+    },
+    {
+        "id":  "1621171",
+        "name":  "ES| BUEN VIAJE HD",
+        "category":  "SPAIN CINEMA",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/1621171.m3u8"
+    },
+    {
+        "id":  "1621170",
+        "name":  "ES| BUEN VIAJE SD",
+        "category":  "SPAIN CINEMA",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/1621170.m3u8"
+    },
+    {
+        "id":  "1621169",
+        "name":  "ES| EL CONFEDENCIAL TV FHD",
+        "category":  "SPAIN CINEMA",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/1621169.m3u8"
+    },
+    {
+        "id":  "1621168",
+        "name":  "ES| ENFAMILIA FHD",
+        "category":  "SPAIN CINEMA",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/1621168.m3u8"
+    },
+    {
+        "id":  "1621167",
+        "name":  "ES| ENFAMILIA HD",
+        "category":  "SPAIN CINEMA",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/1621167.m3u8"
+    },
+    {
+        "id":  "1486377",
+        "name":  "MX | CANAL CATORCE",
+        "category":  "MEXICO",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/1486377.m3u8"
+    },
+    {
+        "id":  "778646",
+        "name":  "MX | A+",
+        "category":  "MEXICO",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/778646.m3u8"
+    },
+    {
+        "id":  "830305",
+        "name":  "MX | TELEVISA MONTERREY HD",
+        "category":  "MEXICO",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/830305.m3u8"
+    },
+    {
+        "id":  "803159",
+        "name":  "MX | TELENOVELAS",
+        "category":  "MEXICO",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/803159.m3u8"
+    },
+    {
+        "id":  "791367",
+        "name":  "MX | MULTIMEDIOS PLUS",
+        "category":  "MEXICO",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/791367.m3u8"
+    },
+    {
+        "id":  "773331",
+        "name":  "MX | NATGEO WILD",
+        "category":  "MEXICO",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/773331.m3u8"
+    },
+    {
+        "id":  "828758",
+        "name":  "MX | TELEMAX",
+        "category":  "MEXICO",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/828758.m3u8"
+    },
+    {
+        "id":  "786253",
+        "name":  "US NEWS | CBSN Boston",
+        "category":  "USA NEWS",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/786253.m3u8"
+    },
+    {
+        "id":  "786272",
+        "name":  "US NEWS | CNN",
+        "category":  "USA NEWS",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/786272.m3u8"
+    },
+    {
+        "id":  "786245",
+        "name":  "US NEWS | Black News Channel",
+        "category":  "USA NEWS",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/786245.m3u8"
+    },
+    {
+        "id":  "786229",
+        "name":  "US NEWS | GA | Atlanta | Atlanta News First",
+        "category":  "USA NEWS",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/786229.m3u8"
+    },
+    {
+        "id":  "786289",
+        "name":  "USA: MSNBC",
+        "category":  "USA NEWS",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/786289.m3u8"
+    },
+    {
+        "id":  "786267",
+        "name":  "US NEWS | CNBC UHD",
+        "category":  "USA NEWS",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/786267.m3u8"
+    },
+    {
+        "id":  "786246",
+        "name":  "US NEWS | Bloomberg (SHD)",
+        "category":  "USA NEWS",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/786246.m3u8"
+    },
+    {
+        "id":  "1621506",
+        "name":  "ES| BABY TV HD",
+        "category":  "SPAIN KIDS",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/1621506.m3u8"
+    },
+    {
+        "id":  "1621505",
+        "name":  "ES| BABY TV SD",
+        "category":  "SPAIN KIDS",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/1621505.m3u8"
+    },
+    {
+        "id":  "1621504",
+        "name":  "ES| BOING FHD",
+        "category":  "SPAIN KIDS",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/1621504.m3u8"
+    },
+    {
+        "id":  "1621503",
+        "name":  "ES| BOING HD",
+        "category":  "SPAIN KIDS",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/1621503.m3u8"
+    },
+    {
+        "id":  "1621502",
+        "name":  "ES| BOING SD",
+        "category":  "SPAIN KIDS",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/1621502.m3u8"
+    },
+    {
+        "id":  "1621501",
+        "name":  "ES| DISNEY CHANNEL FHD",
+        "category":  "SPAIN KIDS",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/1621501.m3u8"
+    },
+    {
+        "id":  "1621500",
+        "name":  "ES| DISNEY CHANNEL HD",
+        "category":  "SPAIN KIDS",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/1621500.m3u8"
+    },
+    {
+        "id":  "1621486",
+        "name":  "ES| ARAGON TV FHD",
+        "category":  "SPAIN DOCUMENTALES",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/1621486.m3u8"
+    },
+    {
+        "id":  "1621485",
+        "name":  "ES| ARAGON TV HD",
+        "category":  "SPAIN DOCUMENTALES",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/1621485.m3u8"
+    },
+    {
+        "id":  "1621484",
+        "name":  "ES| ARAGON TV SD",
+        "category":  "SPAIN DOCUMENTALES",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/1621484.m3u8"
+    },
+    {
+        "id":  "1621483",
+        "name":  "ES| BLAZE FHD",
+        "category":  "SPAIN DOCUMENTALES",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/1621483.m3u8"
+    },
+    {
+        "id":  "1621482",
+        "name":  "ES| BLAZE HD",
+        "category":  "SPAIN DOCUMENTALES",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/1621482.m3u8"
+    },
+    {
+        "id":  "1621481",
+        "name":  "ES| CANAL COCINA 4K",
+        "category":  "SPAIN DOCUMENTALES",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/1621481.m3u8"
+    },
+    {
+        "id":  "1621480",
+        "name":  "ES| CANAL COCINA FHD",
+        "category":  "SPAIN DOCUMENTALES",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/1621480.m3u8"
+    },
+    {
+        "id":  "1978218",
+        "name":  "AR | LN +",
+        "category":  "ARGENTINA",
+        "streamUrl":  "http://liontv.es:80/live/Hermanos503/BysckXDynC/1978218.m3u8"
+    }
+]

@@ -1,0 +1,13 @@
+#EXTM3U name="UTF-8 Multilingual & Special Chars Test"
+#EXTINF:-1 tvg-id="cctv1.cn" tvg-name="中央电视台-综合" tvg-logo="https://fictitious-cdn.test/logos/cctv1.png" group-title="中国频道 (Chinese)", 🇨🇳 CCTV-1 综合频道 HD (中文)
+http://fictitious-iptv.test:8080/live/fake_user/fake_pass/3001.m3u8?lang=zh_CN&codec=h264&token=eyJhbGciOiJIUzI1NiJ9==
+#EXTINF:-1 tvg-id="cctv6.cn" tvg-name="电影频道" tvg-logo="https://fictitious-cdn.test/logos/cctv6.png" group-title="中国频道 (Chinese)", 🎬 电影频道 CCTV-6 旗舰高清
+http://fictitious-iptv.test:8080/live/fake_user/fake_pass/3002.m3u8?auth_token=ZGF0YV9leGFtcGxl==&source=shanghai&quality=1080p
+#EXTINF:-1 tvg-id="esp.cine.accion" tvg-name="Acción & Emoción HD" tvg-logo="https://fictitious-cdn.test/logos/accion.png" group-title="Películas | Español", 🍿 Películas de Acción: "El Gran Escape" & 'La Venganza' (Edición 2026)
+http://fictitious-iptv.test:8080/live/fake_user/fake_pass/4001.m3u8?region=es&subtitles=español&audio=ac3&bitrate=8000
+#EXTINF:-1 tvg-id="esp.noticias.vivo" tvg-name="¡Noticias en Vivo! España" tvg-logo="https://fictitious-cdn.test/logos/news.png" group-title="Noticias & Actualidad", 🔴 ¡ÚLTIMA HORA! ¿Qué ocurrió en España? — Señal 24h
+http://fictitious-iptv.test:8080/live/fake_user/fake_pass/4002.m3u8?type=live&priority=high&session=demo_sess_123=
+#EXTINF:-1 tvg-id="esp.deportes.futbol" tvg-name="Fútbol & Pasión VIP" tvg-logo="https://fictitious-cdn.test/logos/laliga.png" group-title="⚽ Deportes en Vivo", 🏆 Fútbol Total: Niño Maravilla 'El Clásico' 2026 ⚡
+http://fictitious-iptv.test:8080/live/fake_user/fake_pass/4003.m3u8?league=la_liga&match=real_barca&token_val=ABC==DEF&p1=1&p2=2
+#EXTINF:-1 tvg-id="quote.test.nested" tvg-name="Canal \"Super\" 'Cine'" tvg-logo="https://fictitious-cdn.test/logos/quote.png" group-title="Cine \"Especial\"", Canal "Doble Comilla" y 'Comilla Simple'
+http://fictitious-iptv.test:8080/live/fake_user/fake_pass/4004.m3u8?query="test"&quote='single'&and=1&equal=2==

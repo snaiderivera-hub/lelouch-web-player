@@ -1,0 +1,7 @@
+#EXTM3U
+#EXTINF:7200 tvg-id="movie.inception.2010" tvg-name="Inception (2010)" tvg-logo="https://fictitious-cdn.test/posters/inception.jpg" group-title="Películas | Ciencia Ficción", Origen (Inception) (2010)
+http://fictitious-iptv.test:8080/movie/fake_user/fake_pass/1101.mp4
+#EXTINF:6480 tvg-id="movie.gladiator.2000" tvg-name="Gladiator (2000)" tvg-logo="https://fictitious-cdn.test/posters/gladiator.jpg" group-title="Películas | Acción", Gladiator (El Gladiador) (2000)
+http://fictitious-iptv.test:8080/movie/fake_user/fake_pass/1102.mkv
+#EXTINF:5400 tvg-id="movie.coco.2017" tvg-name="Coco (2017)" tvg-logo="https://fictitious-cdn.test/posters/coco.jpg" group-title="Películas | Animación", Coco (2017) Español Latino
+http://fictitious-iptv.test:8080/movie/fake_user/fake_pass/1103.mp4

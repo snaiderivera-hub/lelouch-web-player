@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Lelouch - Verificación FASE 7: Canales Directos y Catálogo Coexistentes</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0b0f19;
+      color: #f1f5f9;
+      padding: 30px;
+      line-height: 1.5;
+    }
+    h1 { color: #38bdf8; font-size: 24px; margin-bottom: 4px; }
+    h2 { color: #94a3b8; font-size: 15px; font-weight: normal; margin-top: 0; margin-bottom: 24px; }
+    .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .badge-pass { background: #065f46; color: #34d399; }
+    .badge-fail { background: #881337; color: #fb7185; }
+    .card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    th, td {
+      text-align: left;
+      padding: 10px 14px;
+      border-bottom: 1px solid #334155;
+      font-size: 14px;
+    }
+    th {
+      background: #0f172a;
+      color: #94a3b8;
+    }
+    pre {
+      background: #0f172a;
+      padding: 14px;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-family: Consolas, monospace;
+      font-size: 13px;
+      color: #7dd3fc;
+      border: 1px solid #334155;
+    }
+  </style>
+</head>
+<body>
+  <h1>FASE 7 — Canales Directos y Catálogo en PlaylistItems</h1>
+  <h2>item_type: 'catalog' | 'direct' y preservación de la función existente "Añadir Canal o Enlace Directo"</h2>
+
+  <div class="card">
+    <h3>Verificaciones de FASE 7</h3>
+    <table id="results-table">
+      <thead>
+        <tr>
+          <th>Tipo de Item</th>
+          <th>Criterio Evaluado</th>
+          <th>Estructura Generada</th>
+          <th>Estado</th>
+        </tr>
+      </thead>
+      <tbody id="results-body">
+        <tr><td colspan="4">Ejecutando verificaciones...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>M3U Generado Combinado (Catálogo + Enlace Directo)</h3>
+    <pre id="output-m3u">Cargando...</pre>
+  </div>
+
+  <script type="module">
+    import { PlaylistNormalizer } from '../src/services/playlist/PlaylistNormalizer.js';
+    import { PlaylistGenerator } from '../src/services/playlist/PlaylistGenerator.js';
+
+    // 1. Simular acción existente de la UI: "Añadir Canal o Enlace Directo a Mi Lista"
+    const directChannelInput = {
+      name: "NASA TV HD",
+      category: "Ciencia y Espacio",
+      url: "https://ntv1.akamaized.net/hls/live/2014075/NASA-NTV1-HLS/master.m3u8",
+      logo: "https://images.nasa.gov/logo.png"
+    };
+    const directItem = PlaylistNormalizer.fromDirectInput(directChannelInput, 0);
+
+    // 2. Simular canal agregado desde el Catálogo Xtream
+    const catalogStreamInput = {
+      id: "99120",
+      stream_id: 99120,
+      name: "HBO Max Este",
+      categoryName: "Cine Premium",
+      streamUrl: "http://liontv.es:8080/live/user/pass/99120.m3u8",
+      stream_icon: "http://liontv.es/logos/hbo.png"
+    };
+    const catalogItem = PlaylistNormalizer.fromXtream(catalogStreamInput, 'live', 'source-uuid-777', 1);
+
+    // 3. Simular mapeo a filas de base de datos para Supabase (syncPlaylistItems)
+    const items = [directItem, catalogItem];
+    const rows = items.map((item, index) => {
+      const isDirect = item.itemType === 'direct' || (!item.sourceId && !item.providerId && !item.catalogItemId);
+      const isFromCatalog = !isDirect;
+      return {
+        playlist_id: 'pl-uuid-001',
+        item_type: isFromCatalog ? 'catalog' : 'direct',
+        source_id: isFromCatalog ? (item.sourceId || null) : null,
+        catalog_item_id: isFromCatalog ? String(item.providerId || item.catalogItemId) : null,
+        media_type: item.mediaType || 'live',
+        custom_name: isFromCatalog ? item.name : null,
+        custom_group: isFromCatalog ? item.group : null,
+        custom_logo: isFromCatalog ? item.logo : null,
+        direct_name: isDirect ? (item.directName || item.name) : null,
+        direct_url: isDirect ? (item.directUrl || item.streamUrl) : null,
+        direct_group: isDirect ? (item.directGroup || item.group) : null,
+        direct_logo: isDirect ? (item.directLogo || item.logo) : null,
+        position: index,
+        enabled: item.isEnabled !== false
+      };
+    });
+
+    const directRow = rows[0];
+    const catalogRow = rows[1];
+
+    // 4. Generar M3U round-trip
+    const combinedM3u = PlaylistGenerator.generateM3U([directItem, catalogItem], {
+      playlistName: "Mi Lista LELOUCH Mixta"
+    });
+    document.getElementById('output-m3u').textContent = combinedM3u;
+
+    const tests = [
+      {
+        type: "DIRECT ITEM",
+        criterion: "Normalización desde formulario manual",
+        structure: `itemType: '${directItem.itemType}' | directName: '${directItem.directName}' | directGroup: '${directItem.directGroup}'`,
+        passed: directItem.itemType === 'direct' && directItem.directName === 'NASA TV HD' && directItem.directGroup === 'Ciencia y Espacio' && directItem.directUrl === directChannelInput.url
+      },
+      {
+        type: "DIRECT ITEM",
+        criterion: "Fila Supabase playlist_items (item_type = 'direct')",
+        structure: `item_type: '${directRow.item_type}' | direct_url: '${directRow.direct_url}' | catalog_item_id: ${directRow.catalog_item_id}`,
+        passed: directRow.item_type === 'direct' && directRow.direct_url === directChannelInput.url && directRow.catalog_item_id === null && directRow.source_id === null
+      },
+      {
+        type: "CATALOG ITEM",
+        criterion: "Normalización desde Catálogo Xtream",
+        structure: `itemType: '${catalogItem.itemType}' | providerId: '${catalogItem.providerId}' | sourceId: '${catalogItem.sourceId}'`,
+        passed: catalogItem.itemType === 'catalog' && catalogItem.providerId === '99120' && catalogItem.sourceId === 'source-uuid-777'
+      },
+      {
+        type: "CATALOG ITEM",
+        criterion: "Fila Supabase playlist_items (item_type = 'catalog')",
+        structure: `item_type: '${catalogRow.item_type}' | catalog_item_id: '${catalogRow.catalog_item_id}' | direct_url: ${catalogRow.direct_url}`,
+        passed: catalogRow.item_type === 'catalog' && catalogRow.catalog_item_id === '99120' && catalogRow.source_id === 'source-uuid-777' && catalogRow.direct_url === null
+      },
+      {
+        type: "MIXED GENERATION",
+        criterion: "Exportación M3U unificada",
+        structure: "Ambos canales presentes en el texto M3U con sus títulos y URLs intactos",
+        passed: combinedM3u.includes('NASA TV HD') && combinedM3u.includes(directChannelInput.url) && combinedM3u.includes('HBO Max Este') && combinedM3u.includes('99120.m3u8')
+      }
+    ];
+
+    const tbody = document.getElementById('results-body');
+    tbody.innerHTML = '';
+    let allPassed = true;
+
+    tests.forEach(t => {
+      if (!t.passed) allPassed = false;
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><strong>${t.type}</strong></td>
+        <td>${t.criterion}</td>
+        <td><code>${t.structure}</code></td>
+        <td><span class="badge ${t.passed ? 'badge-pass' : 'badge-fail'}">${t.passed ? 'PASS' : 'FAIL'}</span></td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    window.__PHASE7_PASSED__ = allPassed;
+  </script>
+</body>
+</html>

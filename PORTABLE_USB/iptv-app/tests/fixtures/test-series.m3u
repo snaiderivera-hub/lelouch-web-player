@@ -1,0 +1,7 @@
+#EXTM3U
+#EXTINF:2820 tvg-id="series.bb.s01e01" tvg-name="Breaking Bad S01 E01" tvg-logo="https://fictitious-cdn.test/series/bb.jpg" group-title="Series | Drama", Breaking Bad - S01E01 - Pilot
+http://fictitious-iptv.test:8080/series/fake_user/fake_pass/2201.mkv
+#EXTINF:2880 tvg-id="series.bb.s01e02" tvg-name="Breaking Bad S01 E02" tvg-logo="https://fictitious-cdn.test/series/bb.jpg" group-title="Series | Drama", Breaking Bad - S01E02 - Cat's in the Bag...
+http://fictitious-iptv.test:8080/series/fake_user/fake_pass/2202.mkv
+#EXTINF:1320 tvg-id="series.friends.s01e01" tvg-name="Friends S01 E01" tvg-logo="https://fictitious-cdn.test/series/friends.jpg" group-title="Series | Comedia", Friends - S01E01 - The One Where Monica Gets a Roommate
+http://fictitious-iptv.test:8080/series/fake_user/fake_pass/3301.mp4

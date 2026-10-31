@@ -1,0 +1,11 @@
+#EXTM3U
+#EXTINF:-1 tvg-id="espn.es" tvg-name="ESPN Deportes HD" group-title="Deportes", ESPN Deportes HD (Servidor Alfa)
+http://server-alpha.fictitious-iptv.test:8080/live/user1/pass1/100.m3u8
+#EXTINF:-1 tvg-id="espn.es" tvg-name="ESPN Deportes HD" group-title="Deportes", ESPN Deportes HD (Servidor Beta)
+http://server-beta.fictitious-iptv.test:8080/live/user2/pass2/200.m3u8
+#EXTINF:-1 tvg-id="espn.es" tvg-name="ESPN Deportes HD" group-title="Deportes", ESPN Deportes HD (Duplicado Exacto Servidor Alfa)
+http://server-alpha.fictitious-iptv.test:8080/live/user1/pass1/100.m3u8
+#EXTINF:-1 tvg-id="espn.es" tvg-name="ESPN Deportes HD" group-title="Deportes", ESPN Deportes HD (Duplicado Normalizado con Slash)
+http://server-alpha.fictitious-iptv.test:8080/live/user1/pass1/100.m3u8/
+#EXTINF:-1 tvg-id="fox.sports" tvg-name="Fox Sports 1" group-title="Deportes", Fox Sports 1 Único
+http://server-alpha.fictitious-iptv.test:8080/live/user1/pass1/300.m3u8

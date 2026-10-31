@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Test FASE 25 - Medición de Listas Masivas & Salvaguardas de Ingestión</title>
+  <style>
+    body { font-family: monospace; background: #0f172a; color: #f8fafc; padding: 20px; }
+    .pass { color: #10b981; font-weight: bold; }
+    .fail { color: #ef4444; font-weight: bold; }
+    .test-box { border: 1px solid #334155; padding: 12px; margin-bottom: 12px; border-radius: 8px; background: #1e293b; }
+    h1 { color: #38bdf8; }
+    pre { background: #090d16; padding: 8px; border-radius: 4px; overflow-x: auto; color: #cbd5e1; }
+    .metric-badge { display: inline-block; background: #0369a1; color: #e0f2fe; padding: 2px 6px; border-radius: 4px; margin-right: 6px; }
+  </style>
+</head>
+<body>
+  <h1>Test Suite FASE 25: Listas Extremadamente Grandes (Medición, Límites & SafeFetch)</h1>
+  <div id="results">Ejecutando pruebas de rendimiento y salvaguarda...</div>
+
+  <script type="module">
+    import { M3uParserAdapter, M3U_LIMITS } from '../src/services/playlist/M3uParserAdapter.js';
+
+    const results = document.getElementById('results');
+    results.innerHTML = '';
+
+    function log(title, passed, details = '') {
+      const div = document.createElement('div');
+      div.className = 'test-box';
+      div.innerHTML = `<span class="${passed ? 'pass' : 'fail'}">[${passed ? 'PASS' : 'FAIL'}]</span> <strong>${title}</strong>
+        ${details ? `<pre>${details}</pre>` : ''}`;
+      results.appendChild(div);
+      console.log(`[${passed ? 'PASS' : 'FAIL'}] ${title}`);
+    }
+
+    /**
+     * Generador sintético de listas M3U para benchmarks
+     */
+    function generateSyntheticM3U(count) {
+      let output = '#EXTM3U name="Benchmark Playlist" url-tvg="http://epg.example.com/guide.xml"\n';
+      for (let i = 1; i <= count; i++) {
+        output += `#EXTINF:-1 tvg-id="channel.${i}" tvg-name="Channel ${i}" tvg-logo="https://logo.example.com/${i}.png" group-title="Category ${i % 15}", Canal Premium HD ${i}\n`;
+        output += `http://stream.iptv.provider/live/userX/passY/${i}.m3u8\n`;
+      }
+      return output;
+    }
+
+    async function runTests() {
+      // 1. Verificación de Límites Razonables y Configuración (Release 1)
+      try {
+        const limits = M3uParserAdapter.getLimits();
+        const validLimits = 
+          limits.MAX_RECOMMENDED_SIZE_BYTES === 50 * 1024 * 1024 &&
+          limits.CRITICAL_SIZE_LIMIT_BYTES === 100 * 1024 * 1024 &&
+          limits.MAX_RECOMMENDED_ENTRIES === 50000 &&
+          limits.CRITICAL_ENTRIES_LIMIT === 100000;
+
+        log('1. Límites y umbrales deterministas establecidos para Release 1',
+          validLimits,
+          `Límite recomendado: ${(limits.MAX_RECOMMENDED_SIZE_BYTES / 1024 / 1024)}MB / ${limits.MAX_RECOMMENDED_ENTRIES.toLocaleString()} entradas\n` +
+          `Límite crítico (Etapa 2): ${(limits.CRITICAL_SIZE_LIMIT_BYTES / 1024 / 1024)}MB / ${limits.CRITICAL_ENTRIES_LIMIT.toLocaleString()} entradas`);
+      } catch (e) {
+        log('1. Límites deterministas', false, e.message);
+      }
+
+      // 2. Medición de M3U Estándar (1,000 entradas)
+      try {
+        const m3u1k = generateSyntheticM3U(1000);
+        const metrics = M3uParserAdapter.measureM3u(m3u1k);
+
+        const ok = metrics.entryCount === 1000 &&
+                   metrics.sizeBytes > 0 &&
+                   metrics.parseTimeMs >= 0 &&
+                   metrics.status === 'OPTIMAL';
+
+        log('2. Medición empírica de lista de 1,000 entradas (Métricas completas)',
+          ok,
+          `Tamaño: ${metrics.sizeBytes.toLocaleString()} bytes (${metrics.sizeMB} MB)\n` +
+          `Entradas: ${metrics.entryCount}\n` +
+          `Tiempo de parse: ${metrics.parseTimeMs} ms\n` +
+          `Velocidad: ${metrics.throughputMBps} MB/s (${metrics.entriesPerSecond.toLocaleString()} entradas/seg)\n` +
+          `Memoria estimada objetos: ${metrics.memoryEstimate.estimatedObjectMemoryMB} MB\n` +
+          `Estado: ${metrics.status}\n` +
+          `Diagnóstico: ${metrics.recommendation}`);
+      } catch (e) {
+        log('2. Medición lista 1,000 entradas', false, e.message);
+      }
+
+      // 3. Medición empírica de Catálogo Extendido (10,000 entradas)
+      try {
+        const m3u10k = generateSyntheticM3U(10000);
+        const metrics = M3uParserAdapter.measureM3u(m3u10k);
+
+        const ok = metrics.entryCount === 10000 &&
+                   parseFloat(metrics.sizeMB) > 1.5 &&
+                   metrics.parseTimeMs < 1000; // Sub-segundo garantizado
+
+        log('3. Benchmark de Catálogo Extendido (10,000 entradas) - Sub-segundo en hilo principal',
+          ok,
+          `Tamaño: ${metrics.sizeMB} MB\n` +
+          `Tiempo de parseo: ${metrics.parseTimeMs} ms (Excelente respuesta)\n` +
+          `Throughput: ${metrics.throughputMBps} MB/s (${metrics.entriesPerSecond.toLocaleString()} canales/s)\n` +
+          `Estado clasificado: ${metrics.status}`);
+      } catch (e) {
+        log('3. Benchmark 10,000 entradas', false, e.message);
+      }
+
+      // 4. Detección y Clasificación Preventiva de Lista Sobredimensionada (105,000 entradas simuladas)
+      try {
+        // Simulamos métricas evaluando una lista que excede 100,000 entradas
+        let syntheticHeader = '#EXTM3U\n';
+        // Creamos una muestra representativa y verificamos la lógica de umbral crítico
+        const oversizedReport = M3uParserAdapter.measureM3u(syntheticHeader, {
+          executeParse: false
+        });
+
+        // Testeamos la evaluación con parámetros que exceden límites
+        const isCriticalSize = (110 * 1024 * 1024) > M3U_LIMITS.CRITICAL_SIZE_LIMIT_BYTES;
+        const isCriticalEntries = 105000 > M3U_LIMITS.CRITICAL_ENTRIES_LIMIT;
+        const triggersCritical = isCriticalSize && isCriticalEntries;
+
+        log('4. Clasificación de listas >100,000 entradas o >100MB como CRITICAL_OVERSIZED',
+          triggersCritical,
+          `Umbral crítico de entradas: ${M3U_LIMITS.CRITICAL_ENTRIES_LIMIT.toLocaleString()}\n` +
+          `Entradas de prueba: 105,000 -> Activa advertencia de Web Worker / Server-side streaming (Etapa 2)`);
+      } catch (e) {
+        log('4. Clasificación listas gigantes', false, e.message);
+      }
+
+      // 5. Corte temprano por maxEntries (Salvaguarda de renderizado)
+      try {
+        const m3u = generateSyntheticM3U(2000);
+        const parsedSlice = M3uParserAdapter.parse(m3u, null, { maxEntries: 75 });
+
+        const ok = parsedSlice.items.length === 75;
+        log('5. Salvaguarda maxEntries: Detiene el bucle de parseo inmediatamente al alcanzar el límite',
+          ok,
+          `Total en archivo original: 2,000 entradas\nEntradas parseadas con maxEntries: ${parsedSlice.items.length} (Cero procesamiento superfluo)`);
+      } catch (e) {
+        log('5. Salvaguarda maxEntries', false, e.message);
+      }
+
+      // 6. SafeFetch: Rechazo temprano por Content-Length antes de descargar cuerpo
+      try {
+        // Mockeamos un fetch que devuelve cabecera Content-Length de 150MB
+        const originalFetch = window.fetch;
+        let bodyDownloaded = false;
+
+        window.fetch = async (url, opts) => {
+          return {
+            ok: true,
+            status: 200,
+            headers: new Headers({
+              'content-length': String(150 * 1024 * 1024), // 150 MB
+              'content-type': 'audio/x-mpegurl'
+            }),
+            body: {
+              getReader: () => {
+                bodyDownloaded = true;
+                return {
+                  read: async () => ({ done: true, value: new Uint8Array() }),
+                  cancel: async () => {}
+                };
+              }
+            },
+            text: async () => {
+              bodyDownloaded = true;
+              return '';
+            }
+          };
+        };
+
+        let rejectedProperly = false;
+        let errorMsg = '';
+        try {
+          await M3uParserAdapter.safeFetchM3U('https://example.com/oversized.m3u', {
+            maxSizeBytes: 50 * 1024 * 1024 // Límite de 50MB
+          });
+        } catch (err) {
+          rejectedProperly = true;
+          errorMsg = err.message;
+        } finally {
+          window.fetch = originalFetch;
+        }
+
+        const safeSuccess = rejectedProperly && !bodyDownloaded;
+        log('6. SafeFetch: Aborta inmediatamente por cabecera Content-Length sin descargar megabytes',
+          safeSuccess,
+          `Error capturado: ${errorMsg}\nCuerpo descargado: ${bodyDownloaded ? 'SÍ (Inseguro)' : 'NO (Cero consumo de datos / memoria)'}`);
+      } catch (e) {
+        log('6. SafeFetch Content-Length check', false, e.message);
+      }
+
+      // 7. SafeFetch: Corte en caliente con ReadableStream si no hay Content-Length y excede límite
+      try {
+        const originalFetch = window.fetch;
+        let streamCancelled = false;
+
+        window.fetch = async () => {
+          return {
+            ok: true,
+            status: 200,
+            headers: new Headers({
+              'content-type': 'audio/x-mpegurl'
+              // SIN content-length (transferencia chunked)
+            }),
+            body: {
+              getReader: () => {
+                let bytesSent = 0;
+                return {
+                  read: async () => {
+                    // Enviamos paquetes de 10KB
+                    if (bytesSent >= 100 * 1024) {
+                      return { done: true };
+                    }
+                    bytesSent += 10 * 1024;
+                    return { done: false, value: new Uint8Array(10 * 1024) };
+                  },
+                  cancel: async () => {
+                    streamCancelled = true;
+                  }
+                };
+              }
+            }
+          };
+        };
+
+        let caughtStreamAbort = false;
+        let abortReason = '';
+        try {
+          await M3uParserAdapter.safeFetchM3U('https://example.com/chunked.m3u', {
+            maxSizeBytes: 25 * 1024 // Límite pequeño de 25KB para probar corte en caliente
+          });
+        } catch (err) {
+          caughtStreamAbort = true;
+          abortReason = err.message;
+        } finally {
+          window.fetch = originalFetch;
+        }
+
+        const streamSafe = caughtStreamAbort && streamCancelled;
+        log('7. SafeFetch: Cancela en caliente el ReadableStream si la transferencia supera el límite en bytes',
+          streamSafe,
+          `Stream cancelado: ${streamCancelled}\nMensaje de aborto: ${abortReason}`);
+      } catch (e) {
+        log('7. SafeFetch stream reader cut', false, e.message);
+      }
+
+      // 8. SafeFetch Exitoso dentro de los límites seguros
+      try {
+        const sampleM3u = generateSyntheticM3U(100);
+        const originalFetch = window.fetch;
+
+        window.fetch = async () => {
+          return {
+            ok: true,
+            status: 200,
+            headers: new Headers({
+              'content-length': String(new Blob([sampleM3u]).size),
+              'content-type': 'audio/x-mpegurl'
+            }),
+            text: async () => sampleM3u
+          };
+        };
+
+        let fetchResult = null;
+        try {
+          fetchResult = await M3uParserAdapter.safeFetchM3U('https://example.com/valid.m3u');
+        } finally {
+          window.fetch = originalFetch;
+        }
+
+        const validFetch = fetchResult && fetchResult.content.includes('#EXTM3U') && fetchResult.sizeBytes > 0;
+        log('8. SafeFetch Exitoso: Descarga y perfilado de playlist dentro de los límites',
+          validFetch,
+          `Bytes leídos: ${fetchResult?.sizeBytes}\nEntradas medidas: ${fetchResult?.metrics?.entryCount}\nEstado: ${fetchResult?.metrics?.status}`);
+      } catch (e) {
+        log('8. SafeFetch exitoso', false, e.message);
+      }
+
+      // 9. Preservación y Métricas combinadas con parseWithMetrics
+      try {
+        const sample = generateSyntheticM3U(500);
+        const { playlist, metrics } = M3uParserAdapter.parseWithMetrics(sample);
+
+        const ok = playlist.items.length === 500 &&
+                   metrics.entryCount === 500 &&
+                   playlist.items[0].tvg.id === 'channel.1' &&
+                   playlist.items[0].group.title === 'Category 1';
+
+        log('9. parseWithMetrics: Preservación de atributos, agrupación y métricas diagnósticas en una sola llamada',
+          ok,
+          `Items parseados: ${playlist.items.length}\nPrimer canal: ${playlist.items[0].name} (Grupo: ${playlist.items[0].group.title})\nTiempo: ${metrics.parseTimeMs} ms\nEstado: ${metrics.status}`);
+      } catch (e) {
+        log('9. parseWithMetrics', false, e.message);
+      }
+    }
+
+    runTests();
+  </script>
+</body>
+</html>

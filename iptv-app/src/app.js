@@ -340,16 +340,17 @@ async function initApp() {
     updateAllViews(partialState);
   });
 
-  // Limpiar cualquier rastro retirado de lista personalizada en localStorage
+  // Limpiar permanentemente la lista personalizada y sus categorías retiradas
   try {
     localStorage.removeItem('lelouch_custom_m3u_list');
+    localStorage.removeItem('lelouch_user_created_categories');
+    localStorage.removeItem('custom_m3u_version_v1');
+    cacheService.delete('lelouch_custom_m3u_list').catch(() => {});
     if (localStorage.getItem('iptv_active_playlist_id') === 'custom_lelouch_playlist') {
       localStorage.removeItem('iptv_active_playlist_id');
     }
-    if (uiState.onlyMyCategories) {
-      uiState.onlyMyCategories = false;
-      localStorage.setItem('iptv_only_my_cats', 'false');
-    }
+    uiState.onlyMyCategories = false;
+    localStorage.setItem('iptv_only_my_cats', 'false');
   } catch {}
 
   // Comprobar playlist activa guardada (sincronizando desde Supabase public.playlists)
