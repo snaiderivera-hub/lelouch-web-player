@@ -9,7 +9,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
@@ -29,7 +31,7 @@ import com.lelouch.core.model.Category
 enum class MobileCategoryScope(val title: String, val shortTitle: String, val iconText: String, val color: Color) {
     LIVE("TV en Vivo", "En Vivo", "📺", Color(0xFF00E5FF)),
     MOVIES("Películas", "Películas", "🎬", Color(0xFF38BDF8)),
-    SERIES("Series", "Series", "🎭", Color(0xFF818CF8))
+    SERIES("Series", "Series", "🎞️", Color(0xFF818CF8))
 }
 
 @Composable
@@ -61,124 +63,91 @@ fun MobileCategoryVisibilitySection(
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Selecciona qué categorías deseas que aparezcan y cuáles ocultar.",
+                text = "Selecciona qué categorías deseas que aparezcan y cuáles ocultar en tus listas.",
                 color = LelouchTextSecondary,
                 fontSize = 13.sp
             )
         }
 
-        Row(
+        Column(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            MobileCategorySummaryCard(
+            MobileCategorySummaryRow(
                 scope = MobileCategoryScope.LIVE,
                 total = liveTotal,
                 hiddenCount = liveHiddenCount,
-                buttonLabel = "Editar",
-                onClick = { onOpenManager(MobileCategoryScope.LIVE) },
-                modifier = Modifier.weight(1f)
+                onClick = { onOpenManager(MobileCategoryScope.LIVE) }
             )
 
-            MobileCategorySummaryCard(
+            MobileCategorySummaryRow(
                 scope = MobileCategoryScope.MOVIES,
                 total = moviesTotal,
                 hiddenCount = moviesHiddenCount,
-                buttonLabel = "Editar",
-                onClick = { onOpenManager(MobileCategoryScope.MOVIES) },
-                modifier = Modifier.weight(1f)
+                onClick = { onOpenManager(MobileCategoryScope.MOVIES) }
             )
 
-            MobileCategorySummaryCard(
+            MobileCategorySummaryRow(
                 scope = MobileCategoryScope.SERIES,
                 total = seriesTotal,
                 hiddenCount = seriesHiddenCount,
-                buttonLabel = "Editar",
-                onClick = { onOpenManager(MobileCategoryScope.SERIES) },
-                modifier = Modifier.weight(1f)
+                onClick = { onOpenManager(MobileCategoryScope.SERIES) }
             )
         }
     }
 }
 
 @Composable
-private fun MobileCategorySummaryCard(
+private fun MobileCategorySummaryRow(
     scope: MobileCategoryScope,
     total: Int,
     hiddenCount: Int,
-    buttonLabel: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val visibleCount = (total - hiddenCount).coerceAtLeast(0)
 
-    Box(
+    Row(
         modifier = modifier
+            .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
             .background(LelouchSurfaceVariant)
             .border(1.dp, LelouchBorder, RoundedCornerShape(10.dp))
             .clickable(onClick = onClick)
-            .padding(10.dp)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "${scope.iconText} ${scope.shortTitle}",
-                    color = scope.color,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1
-                )
-            }
-            
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(Color.Black.copy(alpha = 0.45f))
-                    .border(1.dp, LelouchBorder, RoundedCornerShape(4.dp))
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
-            ) {
-                Text(
-                    text = "$visibleCount/$total",
-                    color = LelouchTextPrimary,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
+        Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = if (hiddenCount > 0) "🚫 $hiddenCount ocultas" else "✓ Todas visibles",
-                color = if (hiddenCount > 0) Color(0xFFFF5252) else Color(0xFF34D399),
-                fontSize = 11.sp,
+                text = "${scope.iconText} ${scope.title}",
+                color = scope.color,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = if (hiddenCount > 0) "🚫 $hiddenCount ocultas • $visibleCount visibles" else "✅ Todas visibles ($total)",
+                color = if (hiddenCount > 0) Color(0xFFFF6E6E) else Color(0xFF34D399),
+                fontSize = 12.sp,
                 fontWeight = FontWeight.Medium
             )
+        }
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(Color.White.copy(alpha = 0.08f))
-                    .border(1.dp, LelouchBorder, RoundedCornerShape(6.dp))
-                    .padding(vertical = 6.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = buttonLabel,
-                    color = LelouchTextPrimary,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .background(scope.color.copy(alpha = 0.15f))
+                .border(1.dp, scope.color.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                .padding(horizontal = 14.dp, vertical = 7.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "Gestionar",
+                color = scope.color,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
         }
     }
 }
@@ -195,9 +164,12 @@ fun MobileCategoryManagerModal(
     onToggleLiveCategory: (Category) -> Unit,
     onToggleMovieCategory: (Category) -> Unit,
     onToggleSeriesCategory: (Category) -> Unit,
+    onShowAll: ((MobileCategoryScope) -> Unit)? = null,
+    onHideAll: ((MobileCategoryScope) -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     var selectedScope by remember { mutableStateOf(initialScope) }
+    var searchQuery by remember { mutableStateOf("") }
 
     val currentCategories = when (selectedScope) {
         MobileCategoryScope.LIVE -> liveCategories
@@ -217,6 +189,11 @@ fun MobileCategoryManagerModal(
         MobileCategoryScope.SERIES -> onToggleSeriesCategory
     }
 
+    val displayedCategories = remember(currentCategories, searchQuery) {
+        if (searchQuery.isBlank()) currentCategories
+        else currentCategories.filter { it.categoryName.contains(searchQuery, ignoreCase = true) }
+    }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
@@ -233,8 +210,8 @@ fun MobileCategoryManagerModal(
         ) {
             Column(
                 modifier = Modifier
-                    .fillMaxWidth(0.9f)
-                    .fillMaxHeight(0.9f)
+                    .fillMaxWidth(0.94f)
+                    .fillMaxHeight(0.92f)
                     .clip(RoundedCornerShape(16.dp))
                     .background(LelouchSurface)
                     .border(1.dp, LelouchBorder, RoundedCornerShape(16.dp))
@@ -244,21 +221,21 @@ fun MobileCategoryManagerModal(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(LelouchBackground)
-                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Gestor de Categorías Visibles",
+                            text = "Gestor de Categorías",
                             color = LelouchTextPrimary,
-                            fontSize = 20.sp,
+                            fontSize = 18.sp,
                             fontWeight = FontWeight.Black
                         )
                         Text(
                             text = "Las categorías ocultas no aparecerán en el catálogo principal.",
                             color = LelouchTextSecondary,
-                            fontSize = 13.sp
+                            fontSize = 11.sp
                         )
                     }
                     IconButton(
@@ -270,15 +247,15 @@ fun MobileCategoryManagerModal(
                         Icon(Icons.Default.Close, "Cerrar", tint = Color.White)
                     }
                 }
-                
-                Divider(color = LelouchBorder)
 
-                // TABS SUPERIORES HORIZONTALES (Adaptado a móviles verticales)
+                HorizontalDivider(color = LelouchBorder)
+
+                // TABS SUPERIORES HORIZONTALES
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(LelouchSurfaceVariant)
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     MobileCategoryScope.values().forEach { scope ->
@@ -299,7 +276,7 @@ fun MobileCategoryManagerModal(
                                     RoundedCornerShape(8.dp)
                                 )
                                 .clickable { selectedScope = scope }
-                                .padding(vertical = 10.dp, horizontal = 4.dp),
+                                .padding(vertical = 8.dp, horizontal = 4.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -321,10 +298,76 @@ fun MobileCategoryManagerModal(
                     }
                 }
 
-                Divider(color = LelouchBorder)
+                HorizontalDivider(color = LelouchBorder)
 
-                // LISTA DE CATEGORÍAS (100% ANCHO CON ESTADO VACÍO)
-                if (currentCategories.isEmpty()) {
+                // BARRA DE ACCIONES RAPIDAS + BUSQUEDA
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(LelouchSurface)
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Campo de búsqueda de categoría
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = { Text("Buscar categoría...", color = LelouchTextMuted, fontSize = 12.sp) },
+                        leadingIcon = { Icon(Icons.Default.Search, null, tint = LelouchTextSecondary, modifier = Modifier.size(18.dp)) },
+                        trailingIcon = {
+                            if (searchQuery.isNotBlank()) {
+                                IconButton(onClick = { searchQuery = "" }, modifier = Modifier.size(24.dp)) {
+                                    Icon(Icons.Default.Close, null, tint = LelouchTextSecondary, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = selectedScope.color,
+                            unfocusedBorderColor = LelouchBorder,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                    )
+
+                    // Botones rápidos: Mostrar Todas / Ocultar Todas
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { onShowAll?.invoke(selectedScope) },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier.weight(1f).height(36.dp)
+                        ) {
+                            Icon(Icons.Default.Check, null, tint = Color.Black, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Mostrar Todas", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        Button(
+                            onClick = { onHideAll?.invoke(selectedScope) },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier.weight(1f).height(36.dp)
+                        ) {
+                            Icon(Icons.Default.Close, null, tint = Color.White, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Ocultar Todas", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = LelouchBorder)
+
+                // LISTA DE CATEGORÍAS
+                if (displayedCategories.isEmpty()) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -333,46 +376,39 @@ fun MobileCategoryManagerModal(
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
-                                text = "📭",
+                                text = "📂",
                                 fontSize = 36.sp
                             )
                             Spacer(Modifier.height(8.dp))
                             Text(
-                                text = "Sin categorías en ${selectedScope.shortTitle}",
+                                text = if (searchQuery.isNotBlank()) "No hay categorías con '$searchQuery'" else "Sin categorías en ${selectedScope.shortTitle}",
                                 color = LelouchTextPrimary,
-                                fontSize = 15.sp,
+                                fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold
-                            )
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                text = "Asegúrate de que la cuenta esté activa y sincronizada en Ajustes > Sync.",
-                                color = LelouchTextSecondary,
-                                fontSize = 12.sp,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
                             )
                         }
                     }
                 } else {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        contentPadding = PaddingValues(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        items(currentCategories, key = { it.categoryId }) { cat ->
+                        items(displayedCategories, key = { it.categoryId }) { cat ->
                             val isHidden = currentHiddenNames.contains(cat.categoryName) || currentHiddenNames.contains(cat.categoryId)
-                            
+
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isHidden) Color.Black.copy(alpha = 0.3f) else LelouchSurfaceVariant)
+                                    .background(if (isHidden) Color.Black.copy(alpha = 0.35f) else LelouchSurfaceVariant)
                                     .border(
                                         1.dp,
-                                        if (isHidden) LelouchBorder else selectedScope.color.copy(alpha = 0.5f),
+                                        if (isHidden) LelouchBorder else selectedScope.color.copy(alpha = 0.45f),
                                         RoundedCornerShape(8.dp)
                                     )
                                     .clickable { onToggleCurrent(cat) }
-                                    .padding(horizontal = 14.dp, vertical = 10.dp)
+                                    .padding(horizontal = 12.dp, vertical = 8.dp)
                             ) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -383,17 +419,19 @@ fun MobileCategoryManagerModal(
                                         Text(
                                             text = cat.categoryName,
                                             color = if (isHidden) LelouchTextMuted else LelouchTextPrimary,
-                                            fontSize = 14.sp,
+                                            fontSize = 13.sp,
                                             fontWeight = if (isHidden) FontWeight.Normal else FontWeight.Bold
                                         )
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(
-                                            text = "${cat.itemCount} items",
-                                            color = LelouchTextSecondary,
-                                            fontSize = 11.sp
-                                        )
+                                        if (cat.itemCount > 0) {
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = "${cat.itemCount} items",
+                                                color = LelouchTextSecondary,
+                                                fontSize = 11.sp
+                                            )
+                                        }
                                     }
-                                    
+
                                     Box(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(6.dp))
@@ -405,7 +443,7 @@ fun MobileCategoryManagerModal(
                                                 imageVector = if (isHidden) Icons.Default.VisibilityOff else Icons.Default.Visibility,
                                                 contentDescription = null,
                                                 tint = if (isHidden) LelouchTextSecondary else Color.Black,
-                                                modifier = Modifier.size(15.dp)
+                                                modifier = Modifier.size(14.dp)
                                             )
                                             Spacer(modifier = Modifier.width(4.dp))
                                             Text(

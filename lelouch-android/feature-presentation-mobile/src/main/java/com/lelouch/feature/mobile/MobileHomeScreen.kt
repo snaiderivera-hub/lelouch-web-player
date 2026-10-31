@@ -388,7 +388,7 @@ fun MobileHomeScreen(
         val result = mutableListOf<MobileCategoryItem>()
         result.add(MobileCategoryItem(id = "all", name = "Todos"))
         if (hasEvents) {
-            result.add(MobileCategoryItem(id = "events", name = "?? Eventos del D�a"))
+            result.add(MobileCategoryItem(id = "events", name = "?? Eventos del D�a"))
         }
         result.addAll(combined)
         result
@@ -525,25 +525,9 @@ fun MobileHomeScreen(
         )
     }
 
-    selectedSeries?.let { series ->
-        MobileSeriesDetailDialog(
-            series = series,
-            activeSource = activeSource,
-            onFetchSeriesDetails = onFetchSeriesDetails,
-            onPlayEpisode = { url, title, episode ->
-                activeChannelName = title
-                activeContentMeta = ActiveContentMeta(
-                    title = title,
-                    posterUrl = episode.cover ?: series.cover,
-                    type = ContentType.SERIES,
-                    seasonNumber = episode.seasonNumber,
-                    episodeNumber = episode.episodeNumber
-                )
-                startPlayback(url, false)
-                // Conservar la serie en memoria para que al salir del episodio no se pierda la lista de capitulos
-            },
-            onDismiss = { selectedSeries = null }
-        )
+    // BackHandler para serie seleccionada en vista completa
+    BackHandler(enabled = selectedSeries != null && !isPlayerFullscreen) {
+        selectedSeries = null
     }
 
     BackHandler(enabled = selectedTab != 0 && !isPlayerFullscreen) {
@@ -746,6 +730,27 @@ fun MobileHomeScreen(
                 onDismiss = { isHistoryVisible = false }
             )
             return@Box
+        }
+
+                // VISTA COMPLETA DE DETALLE DE SERIE Y EPISODIOS (SIN DIALOGOS FLOTANTES)
+        if (selectedSeries != null && !isPlayerFullscreen) {
+            MobileSeriesDetailView(
+                series = selectedSeries!!,
+                activeSource = activeSource,
+                onFetchSeriesDetails = onFetchSeriesDetails,
+                onPlayEpisode = { url, title, episode ->
+                    activeChannelName = title
+                    activeContentMeta = ActiveContentMeta(
+                        title = title,
+                        posterUrl = episode.cover ?: selectedSeries?.cover,
+                        type = ContentType.SERIES,
+                        seasonNumber = episode.seasonNumber,
+                        episodeNumber = episode.episodeNumber
+                    )
+                    startPlayback(url, false)
+                },
+                onBack = { selectedSeries = null }
+            )
         }
 
         // REPRODUCTOR HORIZONTAL A PANTALLA COMPLETA
@@ -1206,6 +1211,20 @@ fun MobileHomeScreen(
                     saveHiddenSeries(hiddenSeriesCategories + cat.categoryName + cat.categoryId)
                 }
             },
+            onShowAll = { scope ->
+                when (scope) {
+                    MobileCategoryScope.LIVE -> saveHiddenLive(emptySet())
+                    MobileCategoryScope.MOVIES -> saveHiddenMovies(emptySet())
+                    MobileCategoryScope.SERIES -> saveHiddenSeries(emptySet())
+                }
+            },
+            onHideAll = { scope ->
+                when (scope) {
+                    MobileCategoryScope.LIVE -> saveHiddenLive(liveCategories.flatMap { listOf(it.categoryName, it.categoryId) }.toSet())
+                    MobileCategoryScope.MOVIES -> saveHiddenMovies(vodCategories.flatMap { listOf(it.categoryName, it.categoryId) }.toSet())
+                    MobileCategoryScope.SERIES -> saveHiddenSeries(seriesCategories.flatMap { listOf(it.categoryName, it.categoryId) }.toSet())
+                }
+            },
             onDismiss = { isCategoryManagerModalOpen = false }
         )
     }
@@ -1471,7 +1490,7 @@ private fun MobileLiveTab(
         EmptyState("No hay canales disponibles", "Sincroniza tu lista desde la pestaña Listas")
         return
     }
-    var selectedCategoryId by remember { mutableStateOf("all") }
+    var selectedCategoryId by remember(categories) { mutableStateOf("all") }
     val favIds = remember(favoriteChannels) { favoriteChannels.map { it.streamId }.toSet() }
     val selectedCat = categories.find { it.id == selectedCategoryId }
     val filtered = when (selectedCategoryId) {
@@ -1514,6 +1533,25 @@ private fun MobileLiveTab(
                             color = if (isSel) Color.Black else LelouchTextSecondary,
                             fontSize = 12.sp,
                             fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
+                        )
+                    }
+                }
+            }
+            if (selectedCategoryId != "all") {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Color(0xFFEF4444).copy(alpha = 0.2f))
+                            .border(1.dp, Color(0xFFEF4444), RoundedCornerShape(20.dp))
+                            .clickable { selectedCategoryId = "all" }
+                            .padding(horizontal = 14.dp, vertical = 7.dp)
+                    ) {
+                        Text(
+                            "✕ Quitar Filtro",
+                            color = Color(0xFFEF4444),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
                         )
                     }
                 }
@@ -1569,7 +1607,7 @@ private fun MobileMoviesTab(
         EmptyState("No hay películas", "Sincroniza tu lista desde la pestaña Listas")
         return
     }
-    var selectedCategoryId by remember { mutableStateOf("all") }
+    var selectedCategoryId by remember(categories) { mutableStateOf("all") }
     val filtered = if (selectedCategoryId == "all") movies
                    else movies.filter { it.categoryId == selectedCategoryId }
 
@@ -1623,7 +1661,7 @@ private fun MobileSeriesTab(
         EmptyState("No hay series", "Sincroniza tu lista desde la pestaña Listas")
         return
     }
-    var selectedCategoryId by remember { mutableStateOf("all") }
+    var selectedCategoryId by remember(categories) { mutableStateOf("all") }
     val filtered = if (selectedCategoryId == "all") seriesList
                    else seriesList.filter { it.categoryId == selectedCategoryId }
 
@@ -3140,12 +3178,12 @@ private fun MobileMovieDetailDialog(
 }
 
 @Composable
-private fun MobileSeriesDetailDialog(
+private fun MobileSeriesDetailView(
     series: Series,
     activeSource: SourceConfig?,
     onFetchSeriesDetails: (suspend (seriesId: Int) -> Pair<List<Int>, List<Episode>>)? = null,
     onPlayEpisode: (String, String, Episode) -> Unit,
-    onDismiss: () -> Unit
+    onBack: () -> Unit
 ) {
     var episodes by remember { mutableStateOf<List<Episode>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
@@ -3191,10 +3229,54 @@ private fun MobileSeriesDetailDialog(
         if (filtered.isEmpty() && episodes.isNotEmpty()) episodes else filtered
     }
 
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Box(modifier = Modifier.fillMaxWidth(0.95f).clip(RoundedCornerShape(16.dp)).background(LelouchBackground)) {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Box(modifier = Modifier.fillMaxWidth().height(160.dp).background(LelouchSurfaceVariant)) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(BixDarkBackground)
+    ) {
+        // TOP BAR CON BOTON VOLVER Y TITULO
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(LelouchSurface)
+                .statusBarsPadding()
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(
+                    Icons.Default.ArrowBack,
+                    contentDescription = "Volver",
+                    tint = Color.White
+                )
+            }
+            Spacer(Modifier.width(4.dp))
+            Text(
+                text = series.name,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = 17.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        HorizontalDivider(color = LelouchBorder)
+
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+        ) {
+            // HERO BANNER
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp)
+                        .background(LelouchSurfaceVariant)
+                ) {
                     if (!series.cover.isNullOrBlank()) {
                         AsyncImage(
                             model = series.cover,
@@ -3203,193 +3285,249 @@ private fun MobileSeriesDetailDialog(
                             contentScale = ContentScale.Crop
                         )
                         Box(
-                            modifier = Modifier.fillMaxSize().background(
-                                Brush.verticalGradient(listOf(Color.Transparent, LelouchBackground))
-                            )
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(Color.Transparent, BixDarkBackground.copy(alpha = 0.8f), BixDarkBackground)
+                                    )
+                                )
                         )
                     }
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)
-                            .background(Color.Black.copy(0.5f), CircleShape)
-                    ) {
-                        Icon(Icons.Default.Close, null, tint = Color.White)
-                    }
                 }
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(series.name, color = LelouchTextPrimary, fontWeight = FontWeight.Black, fontSize = 20.sp)
-                    Spacer(Modifier.height(6.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            }
+
+            item {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Text(
+                        text = series.name,
+                        color = LelouchTextPrimary,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 22.sp
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         val r = series.rating5based ?: 0.0
                         if (r > 0) {
                             Box(
-                                modifier = Modifier.clip(RoundedCornerShape(4.dp))
-                                    .background(Color(0xFFE5A00D)).padding(horizontal = 6.dp, vertical = 2.dp)
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0xFFE5A00D))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
-                                Text("%.1f".format(r), color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    "★ %.1f".format(r),
+                                    color = Color.Black,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                         }
-                        if (!series.genre.isNullOrBlank()) Text(series.genre!!, color = LelouchCyanAccent, fontSize = 12.sp)
-                        if (series.seasonsCount > 0) Text("${series.seasonsCount} Temporadas", color = LelouchTextSecondary, fontSize = 12.sp)
+                        if (!series.genre.isNullOrBlank()) {
+                            Text(series.genre!!, color = LelouchCyanAccent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        if (series.seasonsCount > 0) {
+                            Text("${series.seasonsCount} Temporadas", color = LelouchTextSecondary, fontSize = 12.sp)
+                        }
                     }
+
                     if (!series.plot.isNullOrBlank()) {
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(10.dp))
                         Text(
-                            series.plot!!,
+                            text = series.plot!!,
                             color = LelouchTextSecondary,
-                            fontSize = 12.sp,
-                            maxLines = 3,
-                            overflow = TextOverflow.Ellipsis
+                            fontSize = 13.sp,
+                            lineHeight = 18.sp
                         )
                     }
 
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(16.dp))
+                }
+            }
 
-                    if (isLoading) {
-                        Box(
-                            modifier = Modifier.fillMaxWidth().height(120.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(color = LelouchCyanAccent, modifier = Modifier.size(32.dp))
-                        }
-                    } else if (episodes.isEmpty()) {
-                        Box(
-                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                                .background(LelouchSurface).border(1.dp, LelouchBorder, RoundedCornerShape(10.dp))
-                                .padding(16.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("No se encontraron episodios disponibles", color = LelouchTextSecondary, fontSize = 13.sp)
-                        }
-                    } else {
-                        // Selector de Temporadas
-                        if (seasons.size > 1) {
-                            LazyRow(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)
+            // SELECTOR DE TEMPORADAS
+            if (seasons.size > 1) {
+                item {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 12.dp)
+                    ) {
+                        items(seasons) { sNum ->
+                            val isSelected = sNum == selectedSeason
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(if (isSelected) LelouchCyanAccent else LelouchSurface)
+                                    .border(1.dp, if (isSelected) LelouchCyanAccent else LelouchBorder, RoundedCornerShape(16.dp))
+                                    .clickable { selectedSeason = sNum }
+                                    .padding(horizontal = 14.dp, vertical = 8.dp)
                             ) {
-                                items(seasons) { sNum ->
-                                    val isSelected = sNum == selectedSeason
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(14.dp))
-                                            .background(if (isSelected) LelouchCyanAccent else LelouchSurface)
-                                            .border(1.dp, if (isSelected) LelouchCyanAccent else LelouchBorder, RoundedCornerShape(14.dp))
-                                            .clickable { selectedSeason = sNum }
-                                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                                    ) {
-                                        Text(
-                                            text = "Temporada $sNum",
-                                            color = if (isSelected) Color.Black else LelouchTextPrimary,
-                                            fontSize = 11.sp,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                        )
-                                    }
-                                }
+                                Text(
+                                    text = "Temporada $sNum",
+                                    color = if (isSelected) Color.Black else LelouchTextPrimary,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // TITULO EPISODIOS
+            item {
+                Text(
+                    text = "Episodios (${currentEpisodes.size})",
+                    color = LelouchTextPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                )
+            }
+
+            if (isLoading) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(140.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(color = LelouchCyanAccent, modifier = Modifier.size(32.dp))
+                    }
+                }
+            } else if (episodes.isEmpty()) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(LelouchSurface)
+                            .border(1.dp, LelouchBorder, RoundedCornerShape(10.dp))
+                            .padding(20.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "No se encontraron episodios disponibles",
+                            color = LelouchTextSecondary,
+                            fontSize = 13.sp
+                        )
+                    }
+                }
+            } else {
+                items(
+                    currentEpisodes,
+                    key = { "${it.seasonNumber}_${it.episodeNumber}_${it.episodeId}_${it.id}" }
+                ) { ep ->
+                    val streamUrl = StreamUrlResolver.resolve(
+                        directUrl = ep.streamUrl,
+                        source = activeSource,
+                        streamId = ep.episodeId,
+                        kind = StreamUrlResolver.Kind.SERIES,
+                        extension = ep.containerExtension.ifBlank { "mp4" }
+                    )
+                    val epTitle = "T${ep.seasonNumber}E${ep.episodeNumber}: ${ep.title.ifBlank { "Episodio ${ep.episodeNumber}" }}"
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(LelouchSurface)
+                            .border(1.dp, LelouchBorder, RoundedCornerShape(10.dp))
+                            .clickable { onPlayEpisode(streamUrl, "${series.name} - $epTitle", ep) }
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = epTitle,
+                                color = LelouchTextPrimary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (ep.durationFormatted.isNotBlank()) {
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    text = ep.durationFormatted,
+                                    color = LelouchTextSecondary,
+                                    fontSize = 11.sp
+                                )
                             }
                         }
 
-                        // Lista de Episodios
-                        LazyColumn(
-                            modifier = Modifier.fillMaxWidth().heightIn(max = 280.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            items(currentEpisodes, key = { "${it.seasonNumber}_${it.episodeNumber}_${it.episodeId}_${it.id}" }) { ep ->
-                                val streamUrl = StreamUrlResolver.resolve(
-                                    directUrl = ep.streamUrl,
-                                    source = activeSource,
-                                    streamId = ep.episodeId,
-                                    kind = StreamUrlResolver.Kind.SERIES,
-                                    extension = ep.containerExtension.ifBlank { "mp4" }
+                            IconButton(
+                                onClick = {
+                                    try {
+                                        val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as? android.app.DownloadManager
+                                        if (dm != null && streamUrl.isNotBlank()) {
+                                            val cleanName = "${series.name}_${epTitle}".replace(Regex("[^a-zA-Z0-9.-]"), "_")
+                                            val ext = if (ep.containerExtension.isNotBlank()) ep.containerExtension else "mp4"
+                                            val fileName = "LelouchPlus_${cleanName}.${ext}"
+                                            val request = android.app.DownloadManager.Request(android.net.Uri.parse(streamUrl))
+                                                .addRequestHeader("User-Agent", "IPTVSmartersPlayer")
+                                                .addRequestHeader("Accept", "*/*")
+                                                .setTitle("Lelouch Plus: ${series.name} - $epTitle")
+                                                .setDescription("Guardando en /Download/$fileName")
+                                                .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                                .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, fileName)
+                                                .setAllowedOverMetered(true)
+                                                .setAllowedOverRoaming(true)
+                                            dm.enqueue(request)
+                                            android.widget.Toast.makeText(
+                                                context,
+                                                "📥 Descargando en /Download/$fileName",
+                                                android.widget.Toast.LENGTH_LONG
+                                            ).show()
+                                        }
+                                    } catch (e: Exception) {
+                                        android.widget.Toast.makeText(context, "Error al descargar: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Icon(Icons.Default.Download, contentDescription = "Descargar Episodio", tint = LelouchCyanAccent, modifier = Modifier.size(18.dp))
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    if (streamUrl.isNotBlank()) {
+                                        clipboard.setText(androidx.compose.ui.text.AnnotatedString(streamUrl))
+                                        android.widget.Toast.makeText(context, "🔗 Enlace copiado: $epTitle", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Icon(Icons.Default.Share, contentDescription = "Copiar Enlace", tint = LelouchTextSecondary, modifier = Modifier.size(18.dp))
+                            }
+
+                            IconButton(
+                                onClick = { onPlayEpisode(streamUrl, "${series.name} - $epTitle", ep) },
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(LelouchCyanAccent)
+                            ) {
+                                Icon(
+                                    Icons.Default.PlayArrow,
+                                    contentDescription = "Reproducir",
+                                    tint = Color.Black,
+                                    modifier = Modifier.size(20.dp)
                                 )
-                                val epTitle = "T${ep.seasonNumber}E${ep.episodeNumber}: ${ep.title.ifBlank { "Episodio ${ep.episodeNumber}" }}"
-
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(LelouchSurface)
-                                        .border(1.dp, LelouchBorder, RoundedCornerShape(10.dp))
-                                        .clickable { onPlayEpisode(streamUrl, "${series.name} - $epTitle", ep) }
-                                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = epTitle,
-                                            color = LelouchTextPrimary,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 13.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        if (ep.durationFormatted.isNotBlank()) {
-                                            Text(
-                                                text = ep.durationFormatted,
-                                                color = LelouchTextSecondary,
-                                                fontSize = 11.sp
-                                            )
-                                        }
-                                    }
-
-                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        IconButton(
-                                            onClick = {
-                                                try {
-                                                    val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as? android.app.DownloadManager
-                                                    if (dm != null && streamUrl.isNotBlank()) {
-                                                        val cleanName = "${series.name}_${epTitle}".replace(Regex("[^a-zA-Z0-9.-]"), "_")
-                                                        val ext = if (ep.containerExtension.isNotBlank()) ep.containerExtension else "mp4"
-                                                        val fileName = "LelouchPlus_${cleanName}.${ext}"
-                                                        val request = android.app.DownloadManager.Request(android.net.Uri.parse(streamUrl))
-                                                            .addRequestHeader("User-Agent", "IPTVSmartersPlayer")
-                                                            .addRequestHeader("Accept", "*/*")
-                                                            .setTitle("Lelouch Plus: ${series.name} - $epTitle")
-                                                            .setDescription("Guardando en /Download/$fileName")
-                                                            .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                                                            .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, fileName)
-                                                            .setAllowedOverMetered(true)
-                                                            .setAllowedOverRoaming(true)
-                                                        dm.enqueue(request)
-                                                        android.widget.Toast.makeText(
-                                                            context,
-                                                            "📥 Descargando en /Download/$fileName (Ver en Opciones -> Descargas)",
-                                                            android.widget.Toast.LENGTH_LONG
-                                                        ).show()
-                                                    }
-                                                } catch (e: Exception) {
-                                                    android.widget.Toast.makeText(context, "Error al descargar: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
-                                                }
-                                            },
-                                            modifier = Modifier.size(34.dp)
-                                        ) {
-                                            Icon(Icons.Default.Download, contentDescription = "Descargar Episodio", tint = LelouchCyanAccent, modifier = Modifier.size(18.dp))
-                                        }
-
-                                        IconButton(
-                                            onClick = {
-                                                if (streamUrl.isNotBlank()) {
-                                                    clipboard.setText(androidx.compose.ui.text.AnnotatedString(streamUrl))
-                                                    android.widget.Toast.makeText(context, "📋 Enlace copiado: $epTitle", android.widget.Toast.LENGTH_SHORT).show()
-                                                }
-                                            },
-                                            modifier = Modifier.size(34.dp)
-                                        ) {
-                                            Icon(Icons.Default.Share, contentDescription = "Copiar Enlace", tint = LelouchTextSecondary, modifier = Modifier.size(18.dp))
-                                        }
-
-                                        IconButton(
-                                            onClick = { onPlayEpisode(streamUrl, "${series.name} - $epTitle", ep) },
-                                            modifier = Modifier
-                                                .size(34.dp)
-                                                .clip(CircleShape)
-                                                .background(LelouchCyanAccent)
-                                        ) {
-                                            Icon(Icons.Default.PlayArrow, contentDescription = "Reproducir", tint = Color.Black, modifier = Modifier.size(20.dp))
-                                        }
-                                    }
-                                }
                             }
                         }
                     }
