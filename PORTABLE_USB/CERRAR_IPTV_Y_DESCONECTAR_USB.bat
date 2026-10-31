@@ -16,3 +16,4 @@ echo ✓ Ya puedes retirar tu memoria USB de forma segura.
 echo.
 timeout /t 3 > nul
 exit
+

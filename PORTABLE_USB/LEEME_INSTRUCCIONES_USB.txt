@@ -43,3 +43,4 @@ sin necesidad de instalar programas adicionales.
 3. Al terminar de ver TV, haz doble clic en "CERRAR_IPTV_Y_DESCONECTAR_USB.bat"
    para expulsar la memoria USB de forma limpia y segura.
 ================================================================================
+

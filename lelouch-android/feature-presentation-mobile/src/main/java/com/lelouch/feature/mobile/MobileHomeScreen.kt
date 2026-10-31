@@ -148,7 +148,10 @@ fun MobileHomeScreen(
      */
     val startPlayback: (url: String, live: Boolean) -> Unit = { url, live ->
         isLivePlayback = live
-        isPlayerFullscreen = true
+        // Si no habia reproductor activo (o venimos de VOD/Series), abrir fullscreen; si ya estabamos navegando en mini-player, mantener mini sin rotar la pantalla
+        if (activeStreamUrl == null || !live) {
+            isPlayerFullscreen = true
+        }
         playbackRequest++
         activeStreamUrl = url
     }
@@ -366,12 +369,29 @@ fun MobileHomeScreen(
                 MobileCategoryItem(id = ch.categoryId, name = ch.categoryName)
             } else null
         }
+        val isEventCat = { name: String ->
+            name.contains("EVENTO", ignoreCase = true) ||
+            name.contains("PPV", ignoreCase = true) ||
+            name.contains("PRIME", ignoreCase = true) ||
+            name.contains("LALIGA", ignoreCase = true) ||
+            name.contains("CHAMPIONS", ignoreCase = true) ||
+            name.contains("DISNEY+", ignoreCase = true) ||
+            name.contains("VIX", ignoreCase = true)
+        }
         val combined = (fromDb + fromChannels)
-            .filter { it.id != "all" && !it.name.equals("todos", ignoreCase = true) }
+            .filter { it.id != "all" && it.id != "events" && !it.name.equals("todos", ignoreCase = true) }
             .filter { it.id !in hiddenLiveCategories && it.name !in hiddenLiveCategories }
             .distinctBy { it.name.trim().lowercase() }
-            .sortedBy { it.name }
-        listOf(MobileCategoryItem(id = "all", name = "Todos")) + combined
+            .sortedWith(compareByDescending<MobileCategoryItem> { isEventCat(it.name) }.thenBy { it.name })
+
+        val hasEvents = cleanLiveChannels.any { isEventCat(it.categoryName) || isEventCat(it.name) }
+        val result = mutableListOf<MobileCategoryItem>()
+        result.add(MobileCategoryItem(id = "all", name = "Todos"))
+        if (hasEvents) {
+            result.add(MobileCategoryItem(id = "events", name = "?? Eventos del Día"))
+        }
+        result.addAll(combined)
+        result
     }
 
     val filteredMovies = remember(movies, hiddenMovieCategories, isAdultModeEnabled) {
@@ -520,7 +540,7 @@ fun MobileHomeScreen(
                     episodeNumber = episode.episodeNumber
                 )
                 startPlayback(url, false)
-                selectedSeries = null
+                // Conservar la serie en memoria para que al salir del episodio no se pierda la lista de capitulos
             },
             onDismiss = { selectedSeries = null }
         )
@@ -1457,6 +1477,15 @@ private fun MobileLiveTab(
     val filtered = when (selectedCategoryId) {
         "all" -> channels
         "favs" -> channels.filter { it.streamId in favIds }
+        "events" -> channels.filter { ch ->
+            val cat = ch.categoryName
+            val nm = ch.name
+            cat.contains("EVENTO", ignoreCase = true) || cat.contains("PPV", ignoreCase = true) ||
+            cat.contains("PRIME", ignoreCase = true) || cat.contains("LALIGA", ignoreCase = true) ||
+            cat.contains("CHAMPIONS", ignoreCase = true) || cat.contains("DISNEY+", ignoreCase = true) ||
+            cat.contains("VIX", ignoreCase = true) || nm.contains("PPV", ignoreCase = true) ||
+            nm.contains("EVENTO", ignoreCase = true)
+        }
         else -> channels.filter {
             it.categoryId == selectedCategoryId ||
             (selectedCat != null && it.categoryName.equals(selectedCat.name, ignoreCase = true))
