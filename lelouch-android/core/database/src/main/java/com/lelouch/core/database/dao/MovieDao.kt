@@ -20,13 +20,13 @@ interface MovieDao {
     @Query("SELECT * FROM movies WHERE categoryId = :categoryId ORDER BY rating DESC, added DESC")
     fun getMoviesByCategoryPaging(categoryId: String): PagingSource<Int, MovieEntity>
 
-    @Query("SELECT * FROM movies WHERE sourceId = :sourceId ORDER BY name ASC, id ASC")
+    @Query("SELECT * FROM movies WHERE sourceId = :sourceId GROUP BY name ORDER BY name ASC, id ASC")
     fun getPagingMoviesBySource(sourceId: String): PagingSource<Int, MovieEntity>
 
-    @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND categoryId = :categoryId ORDER BY name ASC, id ASC")
+    @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND categoryId = :categoryId GROUP BY name ORDER BY name ASC, id ASC")
     fun getPagingMoviesBySourceAndCategory(sourceId: String, categoryId: String): PagingSource<Int, MovieEntity>
 
-    @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND categoryId NOT IN (:hiddenCategoryIds) ORDER BY name ASC, id ASC")
+    @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND categoryId NOT IN (:hiddenCategoryIds) GROUP BY name ORDER BY name ASC, id ASC")
     fun getPagingMoviesExcludingCategories(sourceId: String, hiddenCategoryIds: List<String>): PagingSource<Int, MovieEntity>
 
     @Query("SELECT * FROM movies ORDER BY added DESC LIMIT :limit")

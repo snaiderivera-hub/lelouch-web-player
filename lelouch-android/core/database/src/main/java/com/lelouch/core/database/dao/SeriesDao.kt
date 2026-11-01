@@ -20,13 +20,13 @@ interface SeriesDao {
     @Query("SELECT * FROM series WHERE categoryId = :categoryId ORDER BY rating DESC")
     fun getSeriesByCategoryPaging(categoryId: String): PagingSource<Int, SeriesEntity>
 
-    @Query("SELECT * FROM series WHERE sourceId = :sourceId ORDER BY name ASC, id ASC")
+    @Query("SELECT * FROM series WHERE sourceId = :sourceId GROUP BY name ORDER BY name ASC, id ASC")
     fun getPagingSeriesBySource(sourceId: String): PagingSource<Int, SeriesEntity>
 
-    @Query("SELECT * FROM series WHERE sourceId = :sourceId AND categoryId = :categoryId ORDER BY name ASC, id ASC")
+    @Query("SELECT * FROM series WHERE sourceId = :sourceId AND categoryId = :categoryId GROUP BY name ORDER BY name ASC, id ASC")
     fun getPagingSeriesBySourceAndCategory(sourceId: String, categoryId: String): PagingSource<Int, SeriesEntity>
 
-    @Query("SELECT * FROM series WHERE sourceId = :sourceId AND categoryId NOT IN (:hiddenCategoryIds) ORDER BY name ASC, id ASC")
+    @Query("SELECT * FROM series WHERE sourceId = :sourceId AND categoryId NOT IN (:hiddenCategoryIds) GROUP BY name ORDER BY name ASC, id ASC")
     fun getPagingSeriesExcludingCategories(sourceId: String, hiddenCategoryIds: List<String>): PagingSource<Int, SeriesEntity>
 
     @Query("SELECT * FROM series WHERE isFavorite = 1 ORDER BY name ASC")

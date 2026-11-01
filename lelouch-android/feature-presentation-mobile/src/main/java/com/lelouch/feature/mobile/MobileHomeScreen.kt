@@ -211,21 +211,32 @@ fun MobileHomeScreen(
     }
     val hiddenPrefs = remember { context.getSharedPreferences("iptv_hidden_categories", android.content.Context.MODE_PRIVATE) }
     
-    var hiddenLiveCategories by remember { mutableStateOf(hiddenPrefs.getStringSet("live", emptySet())?.toSet() ?: emptySet()) }
-    var hiddenMovieCategories by remember { mutableStateOf(hiddenPrefs.getStringSet("movies", emptySet())?.toSet() ?: emptySet()) }
-    var hiddenSeriesCategories by remember { mutableStateOf(hiddenPrefs.getStringSet("series", emptySet())?.toSet() ?: emptySet()) }
+    val currentSourceKey = activeSource?.id.orEmpty().ifBlank { "default" }
+    var hiddenLiveCategories by remember { mutableStateOf(hiddenPrefs.getStringSet("${currentSourceKey}_live", emptySet())?.toSet() ?: emptySet()) }
+    var hiddenMovieCategories by remember { mutableStateOf(hiddenPrefs.getStringSet("${currentSourceKey}_movies", emptySet())?.toSet() ?: emptySet()) }
+    var hiddenSeriesCategories by remember { mutableStateOf(hiddenPrefs.getStringSet("${currentSourceKey}_series", emptySet())?.toSet() ?: emptySet()) }
+
+    LaunchedEffect(activeSource?.id) {
+        val src = activeSource?.id.orEmpty().ifBlank { "default" }
+        hiddenLiveCategories = hiddenPrefs.getStringSet("${src}_live", emptySet())?.toSet() ?: emptySet()
+        hiddenMovieCategories = hiddenPrefs.getStringSet("${src}_movies", emptySet())?.toSet() ?: emptySet()
+        hiddenSeriesCategories = hiddenPrefs.getStringSet("${src}_series", emptySet())?.toSet() ?: emptySet()
+    }
 
     fun saveHiddenLive(newSet: Set<String>) {
         hiddenLiveCategories = newSet
-        hiddenPrefs.edit().putStringSet("live", newSet).apply()
+        val src = activeSource?.id.orEmpty().ifBlank { "default" }
+        hiddenPrefs.edit().putStringSet("${src}_live", newSet).apply()
     }
     fun saveHiddenMovies(newSet: Set<String>) {
         hiddenMovieCategories = newSet
-        hiddenPrefs.edit().putStringSet("movies", newSet).apply()
+        val src = activeSource?.id.orEmpty().ifBlank { "default" }
+        hiddenPrefs.edit().putStringSet("${src}_movies", newSet).apply()
     }
     fun saveHiddenSeries(newSet: Set<String>) {
         hiddenSeriesCategories = newSet
-        hiddenPrefs.edit().putStringSet("series", newSet).apply()
+        val src = activeSource?.id.orEmpty().ifBlank { "default" }
+        hiddenPrefs.edit().putStringSet("${src}_series", newSet).apply()
     }
 
     var isAdultModeEnabled by remember { mutableStateOf(hiddenPrefs.getBoolean("adult_mode_enabled", false)) }
@@ -398,7 +409,7 @@ fun MobileHomeScreen(
         movies.filter {
             it.categoryId !in hiddenMovieCategories && it.categoryName !in hiddenMovieCategories &&
             (isAdultModeEnabled || (!adultContentRegex.containsMatchIn(it.name) && !adultContentRegex.containsMatchIn(it.categoryName)))
-        }
+        }.distinctBy { it.name.trim().lowercase() }
     }
 
     val movieCategoryList = remember(vodCategories, filteredMovies, hiddenMovieCategories, isAdultModeEnabled) {
@@ -419,7 +430,7 @@ fun MobileHomeScreen(
         seriesList.filter {
             it.categoryId !in hiddenSeriesCategories && it.categoryName !in hiddenSeriesCategories &&
             (isAdultModeEnabled || (!adultContentRegex.containsMatchIn(it.name) && !adultContentRegex.containsMatchIn(it.categoryName)))
-        }
+        }.distinctBy { it.name.trim().lowercase() }
     }
 
     val seriesCategoryList = remember(seriesCategories, filteredSeriesList, hiddenSeriesCategories, isAdultModeEnabled) {
@@ -739,6 +750,8 @@ fun MobileHomeScreen(
                 activeSource = activeSource,
                 onFetchSeriesDetails = onFetchSeriesDetails,
                 onPlayEpisode = { url, title, episode ->
+                    // Detener de forma limpia cualquier reproduccion previa antes de iniciar episodio
+                    playerEngine.stop()
                     activeChannelName = title
                     activeContentMeta = ActiveContentMeta(
                         title = title,

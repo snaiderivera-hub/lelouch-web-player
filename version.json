@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.101",
-  "versionCode": 1000101,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.101/LELOUCH-PLUS-v1.0.101.apk",
-  "changelog": "- Selector de DNS Inteligente (Cloudflare 1.1.1.1, Google 8.8.8.8, Control D y AdGuard) con medicion de latencia UDP en ms, insignia MEJOR y cache RAM de IPs (0 ms en zapping) tanto en Telefono como en TV Box.\n- Selector de Aceleracion por Hardware (HW+ DirectSurface, HW Estandar, SW CPU) y Motor de Audio de Baja Latencia (OpenSL ES PCM 16-bit vs AudioTrack).\n- Semaforo en vivo de ocupacion de listas (LIBRE vs LISTA OCUPADA X/X conexiones) y fechas de vencimiento visibles en Telefono y TV Box + Test de Lista y Red completo en movil.\n- Visor de Mis Descargas en movil (/Download/LelouchPlus_...) con cabecera IPTVSmartersPlayer y reproduccion integrada.\n- Zona Blindada (FASE 34) intacta."
+  "versionName": "1.0.102",
+  "versionCode": 1000102,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.102/LELOUCH-PLUS-v1.0.102.apk",
+  "changelog": "- Deduplicación inteligente de Películas y Series en el catálogo (cada título se muestra una sola vez sin importar cuántas categorías use el proveedor).\n- Gestor de Categorías aislado por lista/cuenta activa para no arrastrar filtros de categorías entre diferentes listas.\n- Botón prominente de 'Quitar Filtros y Mostrar Todo' para restablecer categorías en un solo toque.\n- Timeout de lectura adaptado a 15s para reproducción fluida de episodios pesados de Series y Películas (MKV/MP4 progresivo).\n- Detención limpia de reproducción previa al abrir episodios en teléfono móvil para evitar reproductor de fondo.\n- Optimización de desplazamiento D-pad y rendimiento en TV Box.\n- Zona Blindada (FASE 34) de Canales en Vivo 100% preservada."
 }

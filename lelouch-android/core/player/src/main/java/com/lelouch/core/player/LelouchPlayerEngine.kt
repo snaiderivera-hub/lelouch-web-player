@@ -158,6 +158,23 @@ class LelouchPlayerEngine(
             .setUserAgent(config.userAgent)
     }
 
+    // FASE 34 & 35: Cliente HTTP para VOD y Series con timeout de 15s para descargas progresivas pesadas (MKV/MP4)
+    private val vodHttpClient: OkHttpClient by lazy {
+        streamingOkHttpClient.newBuilder()
+            .readTimeout(15, TimeUnit.SECONDS)
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .build()
+    }
+
+    private val vodHttpDataSourceFactory: androidx.media3.datasource.DataSource.Factory by lazy {
+        OkHttpDataSource.Factory(vodHttpClient)
+            .setUserAgent(config.userAgent)
+    }
+
+    private val vodMediaSourceFactory by lazy {
+        androidx.media3.exoplayer.source.DefaultMediaSourceFactory(vodHttpDataSourceFactory, extractorsFactory)
+    }
+
     private val loadControl by lazy {
         DefaultLoadControl.Builder()
             .setBufferDurationsMs(
@@ -743,7 +760,7 @@ class LelouchPlayerEngine(
                 .setLoadErrorHandlingPolicy(retryPolicy)
                 .createMediaSource(mediaItem)
         } else {
-            defaultMediaSourceFactory
+            vodMediaSourceFactory
                 .setLoadErrorHandlingPolicy(retryPolicy)
                 .createMediaSource(mediaItem)
         }

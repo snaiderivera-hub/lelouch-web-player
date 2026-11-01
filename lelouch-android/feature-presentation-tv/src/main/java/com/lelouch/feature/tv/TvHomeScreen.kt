@@ -60,6 +60,7 @@ import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.text.BasicTextField
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.lelouch.core.designsystem.*
 import com.lelouch.core.model.Category
 import com.lelouch.core.model.ContentType
@@ -231,27 +232,38 @@ fun TvHomeScreen(
 
     val context = androidx.compose.ui.platform.LocalContext.current
     val hiddenPrefs = remember { context.getSharedPreferences("iptv_hidden_categories", android.content.Context.MODE_PRIVATE) }
+    val currentSourceKey = activeSource?.id.orEmpty().ifBlank { "default" }
     var hiddenLiveCategories by remember {
-        mutableStateOf(hiddenPrefs.getStringSet("live", emptySet())?.toSet() ?: emptySet())
+        mutableStateOf(hiddenPrefs.getStringSet("${currentSourceKey}_live", emptySet())?.toSet() ?: emptySet())
     }
     var hiddenMovieCategories by remember {
-        mutableStateOf(hiddenPrefs.getStringSet("movies", emptySet())?.toSet() ?: emptySet())
+        mutableStateOf(hiddenPrefs.getStringSet("${currentSourceKey}_movies", emptySet())?.toSet() ?: emptySet())
     }
     var hiddenSeriesCategories by remember {
-        mutableStateOf(hiddenPrefs.getStringSet("series", emptySet())?.toSet() ?: emptySet())
+        mutableStateOf(hiddenPrefs.getStringSet("${currentSourceKey}_series", emptySet())?.toSet() ?: emptySet())
+    }
+
+    LaunchedEffect(activeSource?.id) {
+        val src = activeSource?.id.orEmpty().ifBlank { "default" }
+        hiddenLiveCategories = hiddenPrefs.getStringSet("${src}_live", emptySet())?.toSet() ?: emptySet()
+        hiddenMovieCategories = hiddenPrefs.getStringSet("${src}_movies", emptySet())?.toSet() ?: emptySet()
+        hiddenSeriesCategories = hiddenPrefs.getStringSet("${src}_series", emptySet())?.toSet() ?: emptySet()
     }
 
     fun saveHiddenLive(newSet: Set<String>) {
         hiddenLiveCategories = newSet
-        hiddenPrefs.edit().putStringSet("live", newSet).apply()
+        val src = activeSource?.id.orEmpty().ifBlank { "default" }
+        hiddenPrefs.edit().putStringSet("${src}_live", newSet).apply()
     }
     fun saveHiddenMovies(newSet: Set<String>) {
         hiddenMovieCategories = newSet
-        hiddenPrefs.edit().putStringSet("movies", newSet).apply()
+        val src = activeSource?.id.orEmpty().ifBlank { "default" }
+        hiddenPrefs.edit().putStringSet("${src}_movies", newSet).apply()
     }
     fun saveHiddenSeries(newSet: Set<String>) {
         hiddenSeriesCategories = newSet
-        hiddenPrefs.edit().putStringSet("series", newSet).apply()
+        val src = activeSource?.id.orEmpty().ifBlank { "default" }
+        hiddenPrefs.edit().putStringSet("${src}_series", newSet).apply()
     }
     var isAdultModeEnabled by remember {
         mutableStateOf(hiddenPrefs.getBoolean("adult_mode_enabled", false))
@@ -727,12 +739,12 @@ fun TvHomeScreen(
     val visibleMovies = remember(pagedMovies.itemSnapshotList, hiddenMovieCategories) {
         pagedMovies.itemSnapshotList.items.filterNotNull().filter { mov ->
             mov.categoryId !in hiddenMovieCategories && mov.categoryName !in hiddenMovieCategories
-        }
+        }.distinctBy { it.name.trim().lowercase() }
     }
     val visibleSeriesList = remember(pagedSeries.itemSnapshotList, hiddenSeriesCategories) {
         pagedSeries.itemSnapshotList.items.filterNotNull().filter { ser ->
             ser.categoryId !in hiddenSeriesCategories && ser.categoryName !in hiddenSeriesCategories
-        }
+        }.distinctBy { it.name.trim().lowercase() }
     }
 
     val topRatedMovies = remember(visibleMovies) {
@@ -3356,8 +3368,15 @@ fun TvChannelCard(
                     contentAlignment = Alignment.Center
                 ) {
                     if (!channel.streamIcon.isNullOrBlank()) {
+                        val ctx = androidx.compose.ui.platform.LocalContext.current
                         AsyncImage(
-                            model = channel.streamIcon,
+                            model = remember(channel.streamIcon) {
+                                ImageRequest.Builder(ctx)
+                                    .data(channel.streamIcon)
+                                    .crossfade(false)
+                                    .size(124, 76)
+                                    .build()
+                            },
                             contentDescription = channel.name,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Fit

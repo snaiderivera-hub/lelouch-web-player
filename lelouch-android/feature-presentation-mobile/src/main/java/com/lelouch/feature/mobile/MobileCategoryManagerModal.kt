@@ -333,7 +333,31 @@ fun MobileCategoryManagerModal(
                             .height(48.dp)
                     )
 
-                    // Botones rápidos: Mostrar Todas / Ocultar Todas
+                    // Botón para quitar filtros y mostrar todas las categorías
+                    val totalHiddenAcrossAll = hiddenLiveCategoryNames.size + hiddenMovieCategoryNames.size + hiddenSeriesCategoryNames.size
+                    if (totalHiddenAcrossAll > 0) {
+                        Surface(
+                            onClick = {
+                                onShowAll?.invoke(MobileCategoryScope.LIVE)
+                                onShowAll?.invoke(MobileCategoryScope.MOVIES)
+                                onShowAll?.invoke(MobileCategoryScope.SERIES)
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFF00E5FF).copy(alpha = 0.15f),
+                            border = BorderStroke(1.dp, Color(0xFF00E5FF)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("🔄 Quitar Filtros y Mostrar Todo ($totalHiddenAcrossAll ocultas)", color = Color(0xFF00E5FF), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    // Botones rápidos: Mostrar Todas / Ocultar Todas de la pestaña actual
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -342,24 +366,24 @@ fun MobileCategoryManagerModal(
                             onClick = { onShowAll?.invoke(selectedScope) },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
                             shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                            modifier = Modifier.weight(1f).height(36.dp)
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                            modifier = Modifier.weight(1f).defaultMinSize(minHeight = 42.dp)
                         ) {
-                            Icon(Icons.Default.Check, null, tint = Color.Black, modifier = Modifier.size(14.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Mostrar Todas", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Icon(Icons.Default.Check, null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Mostrar pestaña", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                         }
 
                         Button(
                             onClick = { onHideAll?.invoke(selectedScope) },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
                             shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                            modifier = Modifier.weight(1f).height(36.dp)
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                            modifier = Modifier.weight(1f).defaultMinSize(minHeight = 42.dp)
                         ) {
-                            Icon(Icons.Default.Close, null, tint = Color.White, modifier = Modifier.size(14.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Ocultar Todas", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Icon(Icons.Default.Close, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Ocultar pestaña", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                         }
                     }
                 }

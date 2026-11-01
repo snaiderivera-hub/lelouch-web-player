@@ -37,6 +37,8 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Surface
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import androidx.compose.ui.platform.LocalContext
 import com.lelouch.core.designsystem.*
 import com.lelouch.core.model.SourceConfig
 import com.lelouch.feature.tv.ChannelUiModel
@@ -80,6 +82,10 @@ fun TvPortalDashboard(
     onMovieClick: ((MovieUiModel) -> Unit)? = null,
     onSeriesClick: ((SeriesUiModel) -> Unit)? = null
 ) {
+    val homeChannels = remember(visibleChannels) { visibleChannels.take(15) }
+    val homeMovies = remember(visibleMovies) { visibleMovies.take(15) }
+    val homeSeries = remember(visibleSeriesList) { visibleSeriesList.take(15) }
+
     val heroBtnRequester = remember { firstItemRequester ?: FocusRequester() }
     val heroInfoRequester = remember { FocusRequester() }
 
@@ -393,7 +399,7 @@ fun TvPortalDashboard(
                 contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                items(visibleChannels.take(12)) { channel ->
+                items(homeChannels, key = { "tv_dash_ch_" + it.id + "_" + it.streamId }) { channel ->
                     TvStreamCard(
                         channel = channel,
                         onClick = { onChannelClick?.invoke(channel) ?: onNavigateToLive() }
@@ -419,7 +425,7 @@ fun TvPortalDashboard(
                 contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                items(visibleMovies.take(12)) { movie ->
+                items(homeMovies, key = { "tv_dash_mov_" + it.id + "_" + it.streamId }) { movie ->
                     TvPosterMovieCard(
                         movie = movie,
                         onClick = { onMovieClick?.invoke(movie) ?: onNavigateToMovies() }
@@ -445,7 +451,7 @@ fun TvPortalDashboard(
                 contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                items(visibleSeriesList.take(12)) { series ->
+                items(homeSeries, key = { "tv_dash_ser_" + it.id + "_" + it.seriesId }) { series ->
                     TvPosterSeriesCard(
                         series = series,
                         onClick = { onSeriesClick?.invoke(series) ?: onNavigateToSeries() }
@@ -487,8 +493,15 @@ private fun TvHeroBanner(
             .background(LelouchSurfaceVariant)
     ) {
         if (!imageUrl.isNullOrBlank()) {
+            val context = LocalContext.current
             AsyncImage(
-                model = imageUrl,
+                model = remember(imageUrl) {
+                    ImageRequest.Builder(context)
+                        .data(imageUrl)
+                        .crossfade(false)
+                        .size(1280, 720)
+                        .build()
+                },
                 contentDescription = title,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
@@ -805,8 +818,15 @@ private fun TvStreamCard(
                     contentAlignment = Alignment.Center
                 ) {
                     if (!channel.streamIcon.isNullOrBlank()) {
+                        val context = LocalContext.current
                         AsyncImage(
-                            model = channel.streamIcon,
+                            model = remember(channel.streamIcon) {
+                                ImageRequest.Builder(context)
+                                    .data(channel.streamIcon)
+                                    .crossfade(false)
+                                    .size(120, 80)
+                                    .build()
+                            },
                             contentDescription = null,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Fit
@@ -881,8 +901,15 @@ private fun TvPosterMovieCard(
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             if (!movie.streamIcon.isNullOrBlank()) {
+                val context = LocalContext.current
                 AsyncImage(
-                    model = movie.streamIcon,
+                    model = remember(movie.streamIcon) {
+                        ImageRequest.Builder(context)
+                            .data(movie.streamIcon)
+                            .crossfade(false)
+                            .size(240, 360)
+                            .build()
+                    },
                     contentDescription = movie.name,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
@@ -979,8 +1006,15 @@ private fun TvPosterSeriesCard(
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             if (!series.cover.isNullOrBlank()) {
+                val context = LocalContext.current
                 AsyncImage(
-                    model = series.cover,
+                    model = remember(series.cover) {
+                        ImageRequest.Builder(context)
+                            .data(series.cover)
+                            .crossfade(false)
+                            .size(240, 360)
+                            .build()
+                    },
                     contentDescription = series.name,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()

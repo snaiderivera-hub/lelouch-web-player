@@ -1,13 +1,7 @@
 package com.lelouch.feature.tv.components
 
-import android.view.KeyEvent
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -18,25 +12,26 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.*
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.lelouch.core.designsystem.*
 
 private val PosterBottomScrim = Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.9f)))
 
 /**
- * Xbox/Leanback style TV card with 2:3 poster ratio, Coil image loading,
- * 1.08x D-Pad focus zoom, and Cyan Lelouch border glow.
+ * Tarjeta de Póster nativa optimizada para Android TV (D-Pad).
+ * Elimina animaciones de software redundantes y delega 100% el escalado y bordes
+ * a Surface (hardware Skia/OpenGL) con downsampling en Coil para 60 FPS estables.
  */
 @Composable
 fun TvPosterCard(
@@ -51,13 +46,7 @@ fun TvPosterCard(
     onClick: () -> Unit = {}
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.08f else 1.0f,
-        animationSpec = tween(durationMillis = 120, easing = FastOutSlowInEasing),
-        label = "posterScale"
-    )
-
-    val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val context = LocalContext.current
 
     val sizeModifier = if (width != androidx.compose.ui.unit.Dp.Unspecified && height != androidx.compose.ui.unit.Dp.Unspecified) {
         Modifier.width(width).height(height)
@@ -92,10 +81,16 @@ fun TvPosterCard(
             focusedBorder = Border(androidx.compose.foundation.BorderStroke(2.5.dp, LelouchCyanAccent))
         )
     ) {
-        // Poster Image
+        // Poster Image con downsampling para no saturar memoria GPU de la TV Box
         if (!posterUrl.isNullOrBlank()) {
             AsyncImage(
-                model = posterUrl,
+                model = remember(posterUrl) {
+                    ImageRequest.Builder(context)
+                        .data(posterUrl)
+                        .crossfade(false)
+                        .size(300, 450)
+                        .build()
+                },
                 contentDescription = title,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
@@ -137,7 +132,7 @@ fun TvPosterCard(
                     .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
                 Text(
-                    text = "★ ${String.format("%.1f", rating)}",
+                    text = "★ %.1f".format(rating),
                     color = Color(0xFFFFD700),
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold
