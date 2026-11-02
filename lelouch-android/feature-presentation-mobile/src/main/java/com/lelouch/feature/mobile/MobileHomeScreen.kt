@@ -399,7 +399,7 @@ fun MobileHomeScreen(
         val result = mutableListOf<MobileCategoryItem>()
         result.add(MobileCategoryItem(id = "all", name = "Todos"))
         if (hasEvents) {
-            result.add(MobileCategoryItem(id = "events", name = "⚽ Eventos del Día"))
+            result.add(MobileCategoryItem(id = "events", name = "\u26BD Eventos del D\u00EDa"))
         }
         result.addAll(combined)
         result
@@ -2849,6 +2849,11 @@ private fun MobileSettingsTab(
                 }
             }
         }
+
+        // ATRIBUCIÓN OFICIAL TMDB
+        item {
+            TmdbAttributionCard(modifier = Modifier.padding(top = 8.dp, bottom = 24.dp))
+        }
     }
 }
 
@@ -3039,6 +3044,56 @@ private fun MiniPlayerOverlay(
                     fontWeight = FontWeight.Bold
                 )
             }
+        }
+    }
+}
+
+// ATRIBUCIÓN OFICIAL TMDB (TERMS OF USE & BRANDING)
+@Composable
+fun TmdbAttributionCard(modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color(0xFF0D253F).copy(alpha = 0.85f))
+            .border(0.8.dp, Color(0xFF01B4E4).copy(alpha = 0.45f), RoundedCornerShape(10.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .background(
+                    Brush.horizontalGradient(
+                        listOf(Color(0xFF90CEA1), Color(0xFF01B4E4))
+                    )
+                )
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "TMDB",
+                color = Color(0xFF0D253F),
+                fontWeight = FontWeight.Black,
+                fontSize = 11.sp,
+                letterSpacing = 1.sp
+            )
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "Metadatos y carteles cortesía de The Movie Database (TMDB)",
+                color = Color.White.copy(alpha = 0.95f),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = "Este producto utiliza la API de TMDB pero no está avalado ni certificado por TMDB.",
+                color = Color.White.copy(alpha = 0.70f),
+                fontSize = 10.sp,
+                lineHeight = 13.sp
+            )
         }
     }
 }
@@ -3253,6 +3308,14 @@ private fun MobileMovieDetailView(
                                         fontSize = 13.sp,
                                         lineHeight = 19.sp
                                     )
+                                } else {
+                                    Spacer(Modifier.height(14.dp))
+                                    Text(
+                                        text = "Sinopsis en proceso de sincronización con TMDB / Catálogo.",
+                                        color = LelouchTextMuted,
+                                        fontSize = 12.sp,
+                                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                                    )
                                 }
 
                                 if (!movieState.director.isNullOrBlank() || !movieState.cast.isNullOrBlank()) {
@@ -3265,6 +3328,9 @@ private fun MobileMovieDetailView(
                                         Text("Reparto: ${movieState.cast}", color = LelouchTextMuted, fontSize = 12.sp)
                                     }
                                 }
+
+                                Spacer(Modifier.height(18.dp))
+                                TmdbAttributionCard()
                             }
                         }
                     }
@@ -3310,6 +3376,11 @@ private fun MobileMovieDetailView(
                                 Text(label, color = LelouchTextSecondary, fontSize = 13.sp)
                                 Text(value, color = LelouchTextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                             }
+                        }
+
+                        item {
+                            Spacer(Modifier.height(8.dp))
+                            TmdbAttributionCard()
                         }
                     }
                 }
@@ -3651,10 +3722,10 @@ private fun MobileSeriesDetailView(
                                     }
                                 }
 
-                                if (!series.plot.isNullOrBlank()) {
+                                if (!seriesState.plot.isNullOrBlank()) {
                                     Spacer(Modifier.height(14.dp))
                                     Text(
-                                        text = "Sinopsis",
+                                        text = "Sinopsis Oficial",
                                         color = LelouchTextPrimary,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 15.sp
@@ -3666,18 +3737,29 @@ private fun MobileSeriesDetailView(
                                         fontSize = 13.sp,
                                         lineHeight = 19.sp
                                     )
+                                } else {
+                                    Spacer(Modifier.height(14.dp))
+                                    Text(
+                                        text = "Sinopsis en proceso de sincronización con TMDB / Catálogo.",
+                                        color = LelouchTextMuted,
+                                        fontSize = 12.sp,
+                                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                                    )
                                 }
 
-                                if (!series.director.isNullOrBlank() || !series.cast.isNullOrBlank()) {
+                                if (!seriesState.director.isNullOrBlank() || !seriesState.cast.isNullOrBlank()) {
                                     Spacer(Modifier.height(16.dp))
-                                    if (!series.director.isNullOrBlank()) {
-                                        Text("Director: ${series.director}", color = LelouchTextMuted, fontSize = 12.sp)
+                                    if (!seriesState.director.isNullOrBlank()) {
+                                        Text("Director: ${seriesState.director}", color = LelouchTextMuted, fontSize = 12.sp)
                                         Spacer(Modifier.height(4.dp))
                                     }
-                                    if (!series.cast.isNullOrBlank()) {
-                                        Text("Reparto: ${series.cast}", color = LelouchTextMuted, fontSize = 12.sp)
+                                    if (!seriesState.cast.isNullOrBlank()) {
+                                        Text("Reparto: ${seriesState.cast}", color = LelouchTextMuted, fontSize = 12.sp)
                                     }
                                 }
+
+                                Spacer(Modifier.height(18.dp))
+                                TmdbAttributionCard()
                             }
                         }
                     }
@@ -3723,6 +3805,11 @@ private fun MobileSeriesDetailView(
                                 Text(label, color = LelouchTextSecondary, fontSize = 13.sp)
                                 Text(value, color = LelouchTextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                             }
+                        }
+
+                        item {
+                            Spacer(Modifier.height(8.dp))
+                            TmdbAttributionCard()
                         }
                     }
                 }

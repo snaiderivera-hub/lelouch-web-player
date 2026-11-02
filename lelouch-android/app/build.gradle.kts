@@ -13,8 +13,8 @@ android {
         applicationId = "com.lelouch.player"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1000105
-        versionName = "1.0.105"
+        versionCode = 1000106
+        versionName = "1.0.106"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
