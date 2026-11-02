@@ -12,6 +12,7 @@ import com.lelouch.core.model.Series
 import com.lelouch.core.network.NetworkClient
 import com.lelouch.core.network.StreamUrlResolver
 import com.lelouch.core.network.XtreamUrlBuilder
+import com.lelouch.core.network.tmdb.TmdbEnricher
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import org.json.JSONArray
@@ -249,7 +250,18 @@ class SeriesRepositoryImpl(
             }
         }
 
-        return Pair(seasonsList, episodesList)
+        val seriesName = seriesDao.getSeriesById(seriesId)?.name.orEmpty()
+        val finalEpisodes = if (seriesName.isNotBlank() && episodesList.isNotEmpty()) {
+            try {
+                TmdbEnricher.enrichEpisodes(seriesName, episodesList)
+            } catch (_: Exception) {
+                episodesList
+            }
+        } else {
+            episodesList
+        }
+
+        return Pair(seasonsList, finalEpisodes)
     }
 
     override suspend fun toggleFavorite(seriesId: Int, isFavorite: Boolean) {

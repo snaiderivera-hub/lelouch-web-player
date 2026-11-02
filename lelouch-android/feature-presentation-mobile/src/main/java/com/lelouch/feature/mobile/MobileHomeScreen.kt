@@ -522,21 +522,10 @@ fun MobileHomeScreen(
         )
     }
 
-    selectedMovie?.let { movie ->
-        MobileMovieDetailDialog(
-            movie = movie,
-            activeSource = activeSource,
-            onPlay = { url ->
-                activeChannelName = movie.name
-                activeContentMeta = ActiveContentMeta(movie.name, movie.streamIcon, ContentType.VOD)
-                startPlayback(url, false)
-                selectedMovie = null
-            },
-            onDismiss = { selectedMovie = null }
-        )
+    // BackHandler para película y serie seleccionadas en vista completa
+    BackHandler(enabled = selectedMovie != null && !isPlayerFullscreen) {
+        selectedMovie = null
     }
-
-    // BackHandler para serie seleccionada en vista completa
     BackHandler(enabled = selectedSeries != null && !isPlayerFullscreen) {
         selectedSeries = null
     }
@@ -743,7 +732,26 @@ fun MobileHomeScreen(
             return@Box
         }
 
-                // VISTA COMPLETA DE DETALLE DE SERIE Y EPISODIOS (SIN DIALOGOS FLOTANTES)
+                // VISTA COMPLETA DE DETALLE DE PELICULA (PANTALLA COMPLETA, SIN DIALOGOS FLOTANTES)
+        if (selectedMovie != null && !isPlayerFullscreen) {
+            MobileMovieDetailView(
+                movie = selectedMovie!!,
+                activeSource = activeSource,
+                onPlay = { url ->
+                    playerEngine.stop()
+                    activeChannelName = selectedMovie!!.name
+                    activeContentMeta = ActiveContentMeta(
+                        title = selectedMovie!!.name,
+                        posterUrl = selectedMovie!!.streamIcon,
+                        type = ContentType.VOD
+                    )
+                    startPlayback(url, false)
+                },
+                onBack = { selectedMovie = null }
+            )
+        }
+
+        // VISTA COMPLETA DE DETALLE DE SERIE Y EPISODIOS (SIN DIALOGOS FLOTANTES)
         if (selectedSeries != null && !isPlayerFullscreen) {
             MobileSeriesDetailView(
                 series = selectedSeries!!,
@@ -3037,114 +3045,374 @@ private fun MiniPlayerOverlay(
 
 // DIALOGOS DE DETALLE
 @Composable
-private fun MobileMovieDetailDialog(
-    movie: VodMovie, activeSource: SourceConfig?,
-    onPlay: (String) -> Unit, onDismiss: () -> Unit
+private fun MobileMovieDetailView(
+    movie: VodMovie,
+    activeSource: SourceConfig?,
+    onPlay: (String) -> Unit,
+    onBack: () -> Unit
 ) {
-    val streamUrl = StreamUrlResolver.resolve(
-        directUrl = movie.streamUrl,
-        source = activeSource,
-        streamId = movie.streamId,
-        kind = StreamUrlResolver.Kind.VOD,
-        extension = movie.containerExtension
-    )
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Box(modifier = Modifier.fillMaxWidth(0.95f).clip(RoundedCornerShape(16.dp)).background(LelouchBackground)) {
-            Column {
-                Box(modifier = Modifier.fillMaxWidth().height(200.dp).background(LelouchSurfaceVariant)) {
-                    if (!movie.streamIcon.isNullOrBlank()) {
-                        AsyncImage(model = movie.streamIcon, contentDescription = null,
-                            modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                        Box(modifier = Modifier.fillMaxSize().background(
-                            Brush.verticalGradient(listOf(Color.Transparent, LelouchBackground))))
-                    }
-                    IconButton(onClick = onDismiss,
-                        modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)
-                            .background(Color.Black.copy(0.5f), CircleShape)) {
-                        Icon(Icons.Default.Close, null, tint = Color.White)
-                    }
-                }
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(movie.name, color = LelouchTextPrimary, fontWeight = FontWeight.Black, fontSize = 20.sp)
+    BackHandler(onBack = onBack)
+
+    var movieState by remember(movie.streamId) { mutableStateOf(movie) }
+    var selectedTab by remember { mutableStateOf("resumen") } // "resumen", "detalles"
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    val context = LocalContext.current
+
+    val streamUrl = remember(movieState, activeSource) {
+        StreamUrlResolver.resolve(
+            directUrl = movieState.streamUrl,
+            source = activeSource,
+            streamId = movieState.streamId,
+            kind = StreamUrlResolver.Kind.VOD,
+            extension = movieState.containerExtension.ifBlank { "mp4" }
+        )
+    }
+
+    // Enriquecimiento automático con TMDB si falta sinopsis o backdrop
+    LaunchedEffect(movie.streamId) {
+        try {
+            val enriched = com.lelouch.core.network.tmdb.TmdbEnricher.enrichMovie(movie)
+            movieState = enriched
+        } catch (_: Exception) {}
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(BixDarkBackground)
+    ) {
+        // TOP APP BAR
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(LelouchSurface)
+                .statusBarsPadding()
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(
+                    Icons.Default.ArrowBack,
+                    contentDescription = "Volver",
+                    tint = Color.White
+                )
+            }
+            Spacer(Modifier.width(4.dp))
+            Text(
+                text = movieState.name,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = 17.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        HorizontalDivider(color = LelouchBorder, thickness = 1.dp)
+
+        // PESTAÑAS: RESUMEN | FICHA TECNICA
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(BixSurfaceCard)
+                .padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            val tabs = listOf(
+                "resumen" to "Resumen",
+                "detalles" to "Ficha Técnica"
+            )
+
+            tabs.forEach { (tabId, tabTitle) ->
+                val isSelected = selectedTab == tabId
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .clickable { selectedTab = tabId }
+                        .padding(top = 12.dp, bottom = 8.dp)
+                ) {
+                    Text(
+                        text = tabTitle,
+                        color = if (isSelected) LelouchLiveRed else LelouchTextSecondary,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        fontSize = 14.sp
+                    )
                     Spacer(Modifier.height(6.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        val rating = movie.rating ?: 0.0
-                        if (rating > 0) {
-                            Box(modifier = Modifier.clip(RoundedCornerShape(4.dp))
-                                .background(Color(0xFFE5A00D)).padding(horizontal = 6.dp, vertical = 2.dp)) {
-                                Text("%.1f".format(rating), color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Box(
+                        modifier = Modifier
+                            .height(2.5.dp)
+                            .width(if (isSelected) 40.dp else 0.dp)
+                            .background(if (isSelected) LelouchLiveRed else Color.Transparent, RoundedCornerShape(2.dp))
+                    )
+                }
+            }
+        }
+
+        HorizontalDivider(color = Color(0xFF1E2229), thickness = 0.8.dp)
+
+        // CONTENEDOR PRINCIPAL
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+        ) {
+            when (selectedTab) {
+                "resumen" -> {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = 90.dp)
+                    ) {
+                        // Hero Backdrop 16:9
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(210.dp)
+                                    .background(LelouchSurfaceVariant)
+                            ) {
+                                val heroImg = movieState.backdropPath ?: movieState.streamIcon
+                                if (!heroImg.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = heroImg,
+                                        contentDescription = null,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(
+                                                Brush.verticalGradient(
+                                                    listOf(
+                                                        Color.Transparent,
+                                                        BixDarkBackground.copy(alpha = 0.85f),
+                                                        BixDarkBackground
+                                                    )
+                                                )
+                                            )
+                                    )
+                                }
                             }
                         }
-                        if (!movie.year.isNullOrBlank()) Text(movie.year!!, color = LelouchTextSecondary, fontSize = 12.sp)
-                        if (!movie.genre.isNullOrBlank()) Text(movie.genre!!, color = LelouchCyanAccent, fontSize = 12.sp)
-                    }
-                    if (!movie.plot.isNullOrBlank()) {
-                        Spacer(Modifier.height(10.dp))
-                        Text(movie.plot!!, color = LelouchTextSecondary, fontSize = 13.sp,
-                            maxLines = 4, overflow = TextOverflow.Ellipsis)
-                    }
-                    Spacer(Modifier.height(16.dp))
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
-                        val context = LocalContext.current
-                        Button(
-                            onClick = { onPlay(streamUrl) },
-                            colors = ButtonDefaults.buttonColors(containerColor = LelouchCyanAccent),
-                            modifier = Modifier.weight(1f).height(44.dp), shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Icon(Icons.Default.PlayArrow, null, tint = Color.Black, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("REPRODUCIR", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        }
-                        Button(
-                            onClick = {
-                                try {
-                                    val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as? android.app.DownloadManager
-                                    if (dm != null && streamUrl.isNotBlank()) {
-                                        val cleanName = movie.name.replace(Regex("[^a-zA-Z0-9.-]"), "_")
-                                        val ext = if (movie.containerExtension.isNotBlank()) movie.containerExtension else "mp4"
-                                        val fileName = "LelouchPlus_${cleanName}.${ext}"
-                                        val request = android.app.DownloadManager.Request(android.net.Uri.parse(streamUrl))
-                                            .addRequestHeader("User-Agent", "IPTVSmartersPlayer")
-                                            .addRequestHeader("Accept", "*/*")
-                                            .setTitle("Lelouch Plus: ${movie.name}")
-                                            .setDescription("Guardando en /Download/$fileName")
-                                            .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                                            .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, fileName)
-                                            .setAllowedOverMetered(true)
-                                            .setAllowedOverRoaming(true)
-                                        dm.enqueue(request)
-                                        android.widget.Toast.makeText(
-                                            context,
-                                            "📥 Descargando en /Download/$fileName (Ver en Opciones -> Descargas)",
-                                            android.widget.Toast.LENGTH_LONG
-                                        ).show()
+
+                        // Info y metadatos
+                        item {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text(
+                                    text = movieState.name,
+                                    color = LelouchTextPrimary,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 22.sp
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    val r = movieState.rating ?: 0.0
+                                    if (r > 0) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(Color(0xFFE5A00D))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                "★ %.1f".format(r),
+                                                color = Color.Black,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
                                     }
-                                } catch (e: Exception) {
-                                    android.widget.Toast.makeText(context, "Error al descargar: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                                    if (!movieState.year.isNullOrBlank()) {
+                                        Text(movieState.year!!, color = LelouchTextSecondary, fontSize = 12.sp)
+                                    }
+                                    if (!movieState.genre.isNullOrBlank()) {
+                                        Text(movieState.genre!!, color = LelouchCyanAccent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                    }
+                                    if (movieState.durationFormatted.isNotBlank()) {
+                                        Text(movieState.durationFormatted, color = LelouchTextSecondary, fontSize = 12.sp)
+                                    }
                                 }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = LelouchSurfaceVariant),
-                            border = BorderStroke(1.dp, LelouchCyanAccent.copy(alpha = 0.5f)),
-                            modifier = Modifier.height(44.dp),
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Icon(Icons.Default.Download, contentDescription = "Descargar", tint = LelouchCyanAccent, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("DESCARGAR", color = LelouchCyanAccent, fontWeight = FontWeight.Bold, fontSize = 11.sp)
-                        }
-                        IconButton(
-                            onClick = {
-                                if (streamUrl.isNotBlank()) {
-                                    clipboard.setText(androidx.compose.ui.text.AnnotatedString(streamUrl))
-                                    android.widget.Toast.makeText(context, "📋 Enlace copiado: ${movie.name}", android.widget.Toast.LENGTH_SHORT).show()
+
+                                if (!movieState.plot.isNullOrBlank()) {
+                                    Spacer(Modifier.height(14.dp))
+                                    Text(
+                                        text = "Sinopsis Oficial",
+                                        color = LelouchTextPrimary,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp
+                                    )
+                                    Spacer(Modifier.height(6.dp))
+                                    Text(
+                                        text = movieState.plot!!,
+                                        color = LelouchTextSecondary,
+                                        fontSize = 13.sp,
+                                        lineHeight = 19.sp
+                                    )
                                 }
-                            },
-                            modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(LelouchSurfaceVariant).size(44.dp)
-                        ) {
-                            Icon(Icons.Default.Share, contentDescription = "Copiar Enlace", tint = LelouchCyanAccent)
+
+                                if (!movieState.director.isNullOrBlank() || !movieState.cast.isNullOrBlank()) {
+                                    Spacer(Modifier.height(16.dp))
+                                    if (!movieState.director.isNullOrBlank()) {
+                                        Text("Director: ${movieState.director}", color = LelouchTextMuted, fontSize = 12.sp)
+                                        Spacer(Modifier.height(4.dp))
+                                    }
+                                    if (!movieState.cast.isNullOrBlank()) {
+                                        Text("Reparto: ${movieState.cast}", color = LelouchTextMuted, fontSize = 12.sp)
+                                    }
+                                }
+                            }
                         }
                     }
+                }
+
+                "detalles" -> {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(16.dp),
+                        contentPadding = PaddingValues(bottom = 90.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        item {
+                            Text(
+                                text = "Ficha Técnica y Transmisión",
+                                color = LelouchTextPrimary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                modifier = Modifier.padding(bottom = 6.dp)
+                            )
+                        }
+
+                        val specs = listOf(
+                            "Título Original / Búsqueda" to com.lelouch.core.network.tmdb.TmdbEnricher.cleanTitle(movieState.name),
+                            "Calidad de Video" to "Full HD 1080p / 4K Ultra HD",
+                            "Formato / Contenedor" to movieState.containerExtension.ifBlank { "MP4" }.uppercase(),
+                            "Duración" to if (movieState.durationFormatted.isNotBlank()) movieState.durationFormatted else "Estándar VOD",
+                            "Buffer VOD" to "Motor Lelouch 15s calibrado",
+                            "Servidor IPTV" to (activeSource?.name ?: "IPTV Provider")
+                        )
+
+                        items(specs) { (label, value) ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(BixSurfaceCard)
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(label, color = LelouchTextSecondary, fontSize = 13.sp)
+                                Text(value, color = LelouchTextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // BARRA FLOTANTE FIJA INFERIOR: REPRODUCIR | DESCARGAR | COMPARTIR
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.Transparent, LelouchSurface.copy(alpha = 0.95f), LelouchSurface)
+                        )
+                    )
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .navigationBarsPadding(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Button(
+                    onClick = { onPlay(streamUrl) },
+                    colors = ButtonDefaults.buttonColors(containerColor = LelouchLiveRed),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.weight(1f).height(46.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    Icon(
+                        Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = "REPRODUCIR PELÍCULA",
+                        color = Color.White,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 13.sp
+                    )
+                }
+
+                // Botón Descargar
+                IconButton(
+                    onClick = {
+                        try {
+                            val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as? android.app.DownloadManager
+                            if (dm != null && streamUrl.isNotBlank()) {
+                                val cleanName = movieState.name.replace(Regex("[^a-zA-Z0-9.-]"), "_")
+                                val ext = if (movieState.containerExtension.isNotBlank()) movieState.containerExtension else "mp4"
+                                val fileName = "LelouchPlus_${cleanName}.${ext}"
+                                val request = android.app.DownloadManager.Request(android.net.Uri.parse(streamUrl))
+                                    .addRequestHeader("User-Agent", "IPTVSmartersPlayer")
+                                    .addRequestHeader("Accept", "*/*")
+                                    .setTitle("Lelouch Plus: ${movieState.name}")
+                                    .setDescription("Guardando en /Download/$fileName")
+                                    .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                    .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, fileName)
+                                    .setAllowedOverMetered(true)
+                                    .setAllowedOverRoaming(true)
+                                dm.enqueue(request)
+                                android.widget.Toast.makeText(
+                                    context,
+                                    "📥 Descargando en /Download/$fileName",
+                                    android.widget.Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        } catch (e: Exception) {
+                            android.widget.Toast.makeText(context, "Error al descargar: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(BixSurfaceCard)
+                ) {
+                    Icon(
+                        Icons.Default.Download,
+                        contentDescription = "Descargar Película",
+                        tint = Color(0xFF4CAF50),
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+
+                // Botón Compartir / Copiar enlace
+                IconButton(
+                    onClick = {
+                        if (streamUrl.isNotBlank()) {
+                            clipboard.setText(androidx.compose.ui.text.AnnotatedString(streamUrl))
+                            android.widget.Toast.makeText(context, "📋 Enlace copiado: ${movieState.name}", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(BixSurfaceCard)
+                ) {
+                    Icon(
+                        Icons.Default.Share,
+                        contentDescription = "Copiar Enlace",
+                        tint = LelouchTextSecondary,
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
             }
         }
@@ -3160,6 +3428,15 @@ private fun MobileSeriesDetailView(
     onBack: () -> Unit
 ) {
     BackHandler(onBack = onBack)
+
+    var seriesState by remember(series.seriesId) { mutableStateOf(series) }
+
+    LaunchedEffect(series.seriesId) {
+        try {
+            val enriched = com.lelouch.core.network.tmdb.TmdbEnricher.enrichSeries(series)
+            seriesState = enriched
+        } catch (_: Exception) {}
+    }
 
     var episodes by remember { mutableStateOf<List<Episode>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
@@ -3308,7 +3585,7 @@ private fun MobileSeriesDetailView(
                                     .height(200.dp)
                                     .background(LelouchSurfaceVariant)
                             ) {
-                                val heroImg = series.backdropPath ?: series.cover
+                                val heroImg = seriesState.backdropPath ?: seriesState.cover
                                 if (!heroImg.isNullOrBlank()) {
                                     AsyncImage(
                                         model = heroImg,
@@ -3347,7 +3624,7 @@ private fun MobileSeriesDetailView(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    val r = series.rating5based ?: series.rating ?: 0.0
+                                    val r = seriesState.rating5based ?: seriesState.rating ?: 0.0
                                     if (r > 0) {
                                         Box(
                                             modifier = Modifier
@@ -3384,7 +3661,7 @@ private fun MobileSeriesDetailView(
                                     )
                                     Spacer(Modifier.height(6.dp))
                                     Text(
-                                        text = series.plot!!,
+                                        text = seriesState.plot!!,
                                         color = LelouchTextSecondary,
                                         fontSize = 13.sp,
                                         lineHeight = 19.sp
