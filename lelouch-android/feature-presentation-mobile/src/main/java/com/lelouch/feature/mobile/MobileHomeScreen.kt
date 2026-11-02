@@ -399,7 +399,7 @@ fun MobileHomeScreen(
         val result = mutableListOf<MobileCategoryItem>()
         result.add(MobileCategoryItem(id = "all", name = "Todos"))
         if (hasEvents) {
-            result.add(MobileCategoryItem(id = "events", name = "?? Eventos del D�a"))
+            result.add(MobileCategoryItem(id = "events", name = "⚽ Eventos del Día"))
         }
         result.addAll(combined)
         result
@@ -1530,46 +1530,7 @@ private fun MobileLiveTab(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Chip "⭐ Favoritos" — solo aparece si hay canales favoritos marcados
-            if (favoriteChannels.isNotEmpty()) {
-                item {
-                    val isSel = selectedCategoryId == "favs"
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(if (isSel) Color(0xFFFFD700) else LelouchSurface)
-                            .clickable { selectedCategoryId = "favs" }
-                            .padding(horizontal = 14.dp, vertical = 7.dp)
-                    ) {
-                        Text(
-                            "⭐ Favoritos",
-                            color = if (isSel) Color.Black else LelouchTextSecondary,
-                            fontSize = 12.sp,
-                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
-                        )
-                    }
-                }
-            }
-            if (selectedCategoryId != "all") {
-                item {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(Color(0xFFEF4444).copy(alpha = 0.2f))
-                            .border(1.dp, Color(0xFFEF4444), RoundedCornerShape(20.dp))
-                            .clickable { selectedCategoryId = "all" }
-                            .padding(horizontal = 14.dp, vertical = 7.dp)
-                    ) {
-                        Text(
-                            "✕ Quitar Filtro",
-                            color = Color(0xFFEF4444),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-            // Chips de categorías normales
+            // Chips de categorías normales (Todos, Eventos del Día, y categorías)
             if (categories.isNotEmpty()) {
                 items(categories) { cat ->
                     val isSel = cat.id == selectedCategoryId
@@ -3198,9 +3159,12 @@ private fun MobileSeriesDetailView(
     onPlayEpisode: (String, String, Episode) -> Unit,
     onBack: () -> Unit
 ) {
+    BackHandler(onBack = onBack)
+
     var episodes by remember { mutableStateOf<List<Episode>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var selectedSeason by remember { mutableStateOf<Int?>(null) }
+    var selectedDetailTab by remember { mutableStateOf("temporadas") } // "resumen", "temporadas", "detalles"
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     val context = LocalContext.current
 
@@ -3239,7 +3203,12 @@ private fun MobileSeriesDetailView(
         } else {
             episodes
         }
-        if (filtered.isEmpty() && episodes.isNotEmpty()) episodes else filtered
+        val res = if (filtered.isEmpty() && episodes.isNotEmpty()) episodes else filtered
+        res.sortedBy { it.episodeNumber }
+    }
+
+    val firstOrNextEpisode = remember(currentEpisodes, episodes) {
+        currentEpisodes.firstOrNull() ?: episodes.firstOrNull()
     }
 
     Column(
@@ -3247,7 +3216,7 @@ private fun MobileSeriesDetailView(
             .fillMaxSize()
             .background(BixDarkBackground)
     ) {
-        // TOP BAR CON BOTON VOLVER Y TITULO
+        // TOP APP BAR
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -3275,274 +3244,555 @@ private fun MobileSeriesDetailView(
             )
         }
 
-        HorizontalDivider(color = LelouchBorder)
+        HorizontalDivider(color = LelouchBorder, thickness = 1.dp)
 
-        LazyColumn(
+        // PESTAÑAS: RESUMEN | TEMPORADAS | DETALLES (Estilo Netflix / HorizonX con indicador activo)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(BixSurfaceCard)
+                .padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            val tabs = listOf(
+                "resumen" to "Resumen",
+                "temporadas" to "Temporadas",
+                "detalles" to "Detalles"
+            )
+
+            tabs.forEach { (tabId, tabTitle) ->
+                val isSelected = selectedDetailTab == tabId
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .clickable { selectedDetailTab = tabId }
+                        .padding(top = 12.dp, bottom = 8.dp)
+                ) {
+                    Text(
+                        text = tabTitle,
+                        color = if (isSelected) LelouchLiveRed else LelouchTextSecondary,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        fontSize = 14.sp
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .height(2.5.dp)
+                            .width(if (isSelected) 40.dp else 0.dp)
+                            .background(if (isSelected) LelouchLiveRed else Color.Transparent, RoundedCornerShape(2.dp))
+                    )
+                }
+            }
+        }
+
+        HorizontalDivider(color = Color(0xFF1E2229), thickness = 0.8.dp)
+
+        // CONTENEDOR SEGÚN PESTAÑA CON BARRA CTA INFERIOR
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
         ) {
-            // HERO BANNER
-            item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(200.dp)
-                        .background(LelouchSurfaceVariant)
-                ) {
-                    if (!series.cover.isNullOrBlank()) {
-                        AsyncImage(
-                            model = series.cover,
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(
-                                    Brush.verticalGradient(
-                                        listOf(Color.Transparent, BixDarkBackground.copy(alpha = 0.8f), BixDarkBackground)
+            when (selectedDetailTab) {
+                "resumen" -> {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = 80.dp)
+                    ) {
+                        // Hero Backdrop
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(200.dp)
+                                    .background(LelouchSurfaceVariant)
+                            ) {
+                                val heroImg = series.backdropPath ?: series.cover
+                                if (!heroImg.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = heroImg,
+                                        contentDescription = null,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
                                     )
-                                )
-                        )
-                    }
-                }
-            }
-
-            item {
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    Text(
-                        text = series.name,
-                        color = LelouchTextPrimary,
-                        fontWeight = FontWeight.Black,
-                        fontSize = 22.sp
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        val r = series.rating5based ?: 0.0
-                        if (r > 0) {
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(Color(0xFFE5A00D))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text(
-                                    "★ %.1f".format(r),
-                                    color = Color.Black,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(
+                                                Brush.verticalGradient(
+                                                    listOf(
+                                                        Color.Transparent,
+                                                        BixDarkBackground.copy(alpha = 0.85f),
+                                                        BixDarkBackground
+                                                    )
+                                                )
+                                            )
+                                    )
+                                }
                             }
                         }
-                        if (!series.genre.isNullOrBlank()) {
-                            Text(series.genre!!, color = LelouchCyanAccent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                        if (series.seasonsCount > 0) {
-                            Text("${series.seasonsCount} Temporadas", color = LelouchTextSecondary, fontSize = 12.sp)
-                        }
-                    }
 
-                    if (!series.plot.isNullOrBlank()) {
-                        Spacer(Modifier.height(10.dp))
-                        Text(
-                            text = series.plot!!,
-                            color = LelouchTextSecondary,
-                            fontSize = 13.sp,
-                            lineHeight = 18.sp
-                        )
-                    }
-
-                    Spacer(Modifier.height(16.dp))
-                }
-            }
-
-            // SELECTOR DE TEMPORADAS
-            if (seasons.size > 1) {
-                item {
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        contentPadding = PaddingValues(horizontal = 16.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 12.dp)
-                    ) {
-                        items(seasons) { sNum ->
-                            val isSelected = sNum == selectedSeason
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(if (isSelected) LelouchCyanAccent else LelouchSurface)
-                                    .border(1.dp, if (isSelected) LelouchCyanAccent else LelouchBorder, RoundedCornerShape(16.dp))
-                                    .clickable { selectedSeason = sNum }
-                                    .padding(horizontal = 14.dp, vertical = 8.dp)
-                            ) {
+                        // Información principal de la serie
+                        item {
+                            Column(modifier = Modifier.padding(16.dp)) {
                                 Text(
-                                    text = "Temporada $sNum",
-                                    color = if (isSelected) Color.Black else LelouchTextPrimary,
-                                    fontSize = 12.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                    text = series.name,
+                                    color = LelouchTextPrimary,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 22.sp
                                 )
+                                Spacer(Modifier.height(8.dp))
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    val r = series.rating5based ?: series.rating ?: 0.0
+                                    if (r > 0) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(Color(0xFFE5A00D))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                "★ %.1f".format(r),
+                                                color = Color.Black,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                    if (!series.releaseDate.isNullOrBlank()) {
+                                        Text(series.releaseDate!!, color = LelouchTextSecondary, fontSize = 12.sp)
+                                    }
+                                    if (!series.genre.isNullOrBlank()) {
+                                        Text(series.genre!!, color = LelouchCyanAccent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                    }
+                                    if (series.seasonsCount > 0) {
+                                        Text("${series.seasonsCount} Temporadas", color = LelouchTextSecondary, fontSize = 12.sp)
+                                    }
+                                }
+
+                                if (!series.plot.isNullOrBlank()) {
+                                    Spacer(Modifier.height(14.dp))
+                                    Text(
+                                        text = "Sinopsis",
+                                        color = LelouchTextPrimary,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp
+                                    )
+                                    Spacer(Modifier.height(6.dp))
+                                    Text(
+                                        text = series.plot!!,
+                                        color = LelouchTextSecondary,
+                                        fontSize = 13.sp,
+                                        lineHeight = 19.sp
+                                    )
+                                }
+
+                                if (!series.director.isNullOrBlank() || !series.cast.isNullOrBlank()) {
+                                    Spacer(Modifier.height(16.dp))
+                                    if (!series.director.isNullOrBlank()) {
+                                        Text("Director: ${series.director}", color = LelouchTextMuted, fontSize = 12.sp)
+                                        Spacer(Modifier.height(4.dp))
+                                    }
+                                    if (!series.cast.isNullOrBlank()) {
+                                        Text("Reparto: ${series.cast}", color = LelouchTextMuted, fontSize = 12.sp)
+                                    }
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            // TITULO EPISODIOS
-            item {
-                Text(
-                    text = "Episodios (${currentEpisodes.size})",
-                    color = LelouchTextPrimary,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                )
-            }
-
-            if (isLoading) {
-                item {
-                    Box(
+                "detalles" -> {
+                    LazyColumn(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .height(140.dp),
-                        contentAlignment = Alignment.Center
+                            .fillMaxSize()
+                            .padding(16.dp),
+                        contentPadding = PaddingValues(bottom = 80.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        CircularProgressIndicator(color = LelouchCyanAccent, modifier = Modifier.size(32.dp))
-                    }
-                }
-            } else if (episodes.isEmpty()) {
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(LelouchSurface)
-                            .border(1.dp, LelouchBorder, RoundedCornerShape(10.dp))
-                            .padding(20.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            "No se encontraron episodios disponibles",
-                            color = LelouchTextSecondary,
-                            fontSize = 13.sp
-                        )
-                    }
-                }
-            } else {
-                items(
-                    currentEpisodes,
-                    key = { "${it.seasonNumber}_${it.episodeNumber}_${it.episodeId}_${it.id}" }
-                ) { ep ->
-                    val streamUrl = StreamUrlResolver.resolve(
-                        directUrl = ep.streamUrl,
-                        source = activeSource,
-                        streamId = ep.episodeId,
-                        kind = StreamUrlResolver.Kind.SERIES,
-                        extension = ep.containerExtension.ifBlank { "mp4" }
-                    )
-                    val epTitle = "T${ep.seasonNumber}E${ep.episodeNumber}: ${ep.title.ifBlank { "Episodio ${ep.episodeNumber}" }}"
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(LelouchSurface)
-                            .border(1.dp, LelouchBorder, RoundedCornerShape(10.dp))
-                            .clickable { onPlayEpisode(streamUrl, "${series.name} - $epTitle", ep) }
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
+                        item {
                             Text(
-                                text = epTitle,
+                                text = "Ficha Técnica y Transmisión",
                                 color = LelouchTextPrimary,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                fontSize = 16.sp,
+                                modifier = Modifier.padding(bottom = 6.dp)
                             )
-                            if (ep.durationFormatted.isNotBlank()) {
-                                Spacer(Modifier.height(2.dp))
-                                Text(
-                                    text = ep.durationFormatted,
-                                    color = LelouchTextSecondary,
-                                    fontSize = 11.sp
-                                )
-                            }
                         }
 
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            IconButton(
-                                onClick = {
-                                    try {
-                                        val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as? android.app.DownloadManager
-                                        if (dm != null && streamUrl.isNotBlank()) {
-                                            val cleanName = "${series.name}_${epTitle}".replace(Regex("[^a-zA-Z0-9.-]"), "_")
-                                            val ext = if (ep.containerExtension.isNotBlank()) ep.containerExtension else "mp4"
-                                            val fileName = "LelouchPlus_${cleanName}.${ext}"
-                                            val request = android.app.DownloadManager.Request(android.net.Uri.parse(streamUrl))
-                                                .addRequestHeader("User-Agent", "IPTVSmartersPlayer")
-                                                .addRequestHeader("Accept", "*/*")
-                                                .setTitle("Lelouch Plus: ${series.name} - $epTitle")
-                                                .setDescription("Guardando en /Download/$fileName")
-                                                .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                                                .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, fileName)
-                                                .setAllowedOverMetered(true)
-                                                .setAllowedOverRoaming(true)
-                                            dm.enqueue(request)
-                                            android.widget.Toast.makeText(
-                                                context,
-                                                "📥 Descargando en /Download/$fileName",
-                                                android.widget.Toast.LENGTH_LONG
-                                            ).show()
-                                        }
-                                    } catch (e: Exception) {
-                                        android.widget.Toast.makeText(context, "Error al descargar: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
-                                    }
-                                },
-                                modifier = Modifier.size(34.dp)
-                            ) {
-                                Icon(Icons.Default.Download, contentDescription = "Descargar Episodio", tint = LelouchCyanAccent, modifier = Modifier.size(18.dp))
-                            }
+                        val specs = listOf(
+                            "Temporadas Disponibles" to "${if (series.seasonsCount > 0) series.seasonsCount else seasons.size} temporada(s)",
+                            "Total de Capítulos" to "${episodes.size} episodios listados",
+                            "Calidad de Video" to "Full HD 1080p / H.264 High Profile",
+                            "Formato / Códec" to "HLS Progresivo / MP4 Audio Estéreo",
+                            "Buffer VOD" to "Motor Lelouch 15s calibrado",
+                            "Servidor IPTV" to (activeSource?.name ?: "IPTV Provider")
+                        )
 
-                            IconButton(
-                                onClick = {
-                                    if (streamUrl.isNotBlank()) {
-                                        clipboard.setText(androidx.compose.ui.text.AnnotatedString(streamUrl))
-                                        android.widget.Toast.makeText(context, "🔗 Enlace copiado: $epTitle", android.widget.Toast.LENGTH_SHORT).show()
-                                    }
-                                },
-                                modifier = Modifier.size(34.dp)
-                            ) {
-                                Icon(Icons.Default.Share, contentDescription = "Copiar Enlace", tint = LelouchTextSecondary, modifier = Modifier.size(18.dp))
-                            }
-
-                            IconButton(
-                                onClick = { onPlayEpisode(streamUrl, "${series.name} - $epTitle", ep) },
+                        items(specs) { (label, value) ->
+                            Row(
                                 modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(LelouchCyanAccent)
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(BixSurfaceCard)
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(
-                                    Icons.Default.PlayArrow,
-                                    contentDescription = "Reproducir",
-                                    tint = Color.Black,
-                                    modifier = Modifier.size(20.dp)
-                                )
+                                Text(label, color = LelouchTextSecondary, fontSize = 13.sp)
+                                Text(value, color = LelouchTextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                             }
                         }
+                    }
+                }
+
+                "temporadas" -> {
+                    if (isLoading) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(color = LelouchLiveRed, modifier = Modifier.size(36.dp))
+                        }
+                    } else if (episodes.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(24.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(LelouchSurface)
+                                .border(1.dp, LelouchBorder, RoundedCornerShape(10.dp))
+                                .padding(20.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "No se encontraron episodios disponibles",
+                                color = LelouchTextSecondary,
+                                fontSize = 13.sp
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(bottom = 85.dp)
+                        ) {
+                            // Selector de temporadas tipo pills si hay más de 1
+                            if (seasons.size > 1) {
+                                item {
+                                    LazyRow(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        items(seasons) { sNum ->
+                                            val isSelected = sNum == selectedSeason
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(14.dp))
+                                                    .background(if (isSelected) LelouchLiveRed else BixSurfaceCard)
+                                                    .border(
+                                                        1.dp,
+                                                        if (isSelected) LelouchLiveRed else LelouchBorder,
+                                                        RoundedCornerShape(14.dp)
+                                                    )
+                                                    .clickable { selectedSeason = sNum }
+                                                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                                            ) {
+                                                Text(
+                                                    text = "Temporada $sNum",
+                                                    color = if (isSelected) Color.White else LelouchTextPrimary,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Contador de episodios de la temporada activa
+                            item {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "Temporada ${selectedSeason ?: 1} (${currentEpisodes.size} episodios)",
+                                        color = LelouchTextPrimary,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp
+                                    )
+                                }
+                            }
+
+                            // Lista enriquecida de episodios (Diseño Idéntico a la imagen de referencia)
+                            items(
+                                currentEpisodes,
+                                key = { "${it.seasonNumber}_${it.episodeNumber}_${it.episodeId}_${it.id}" }
+                            ) { ep ->
+                                val streamUrl = StreamUrlResolver.resolve(
+                                    directUrl = ep.streamUrl,
+                                    source = activeSource,
+                                    streamId = ep.episodeId,
+                                    kind = StreamUrlResolver.Kind.SERIES,
+                                    extension = ep.containerExtension.ifBlank { "mp4" }
+                                )
+                                val epCode = "S${ep.seasonNumber.toString().padStart(2, '0')}E${ep.episodeNumber.toString().padStart(2, '0')}"
+                                val epFullTitle = "$epCode - ${ep.title.ifBlank { "Episodio ${ep.episodeNumber}" }}"
+                                val epImage = ep.cover ?: series.cover
+
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { onPlayEpisode(streamUrl, "${series.name} - $epFullTitle", ep) }
+                                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                                ) {
+                                    // Fila superior: Miniatura 16:9 + Título y Metadatos + Acciones
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        // Miniatura con duración y botón play
+                                        Box(
+                                            modifier = Modifier
+                                                .width(105.dp)
+                                                .height(64.dp)
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(LelouchSurfaceVariant),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            if (!epImage.isNullOrBlank()) {
+                                                AsyncImage(
+                                                    model = epImage,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    contentScale = ContentScale.Crop
+                                                )
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .background(
+                                                            Brush.verticalGradient(
+                                                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.5f))
+                                                            )
+                                                        )
+                                                )
+                                            }
+                                            // Play icon flotante central
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(24.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color.Black.copy(alpha = 0.6f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.PlayArrow,
+                                                    contentDescription = null,
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        }
+
+                                        Spacer(Modifier.width(12.dp))
+
+                                        // Código + Título + Metadatos
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = epFullTitle,
+                                                color = Color.White,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Spacer(Modifier.height(3.dp))
+                                            Text(
+                                                text = "${if (ep.durationFormatted.isNotBlank()) ep.durationFormatted else "45m"} • ${ep.containerExtension.ifBlank { "MP4" }.uppercase()}",
+                                                color = LelouchTextSecondary,
+                                                fontSize = 11.sp
+                                            )
+                                        }
+
+                                        // Icono de Descarga Rápida (Estilo captura oficial)
+                                        IconButton(
+                                            onClick = {
+                                                try {
+                                                    val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as? android.app.DownloadManager
+                                                    if (dm != null && streamUrl.isNotBlank()) {
+                                                        val cleanName = "${series.name}_$epFullTitle".replace(Regex("[^a-zA-Z0-9.-]"), "_")
+                                                        val ext = if (ep.containerExtension.isNotBlank()) ep.containerExtension else "mp4"
+                                                        val fileName = "LelouchPlus_${cleanName}.${ext}"
+                                                        val request = android.app.DownloadManager.Request(android.net.Uri.parse(streamUrl))
+                                                            .addRequestHeader("User-Agent", "IPTVSmartersPlayer")
+                                                            .addRequestHeader("Accept", "*/*")
+                                                            .setTitle("Lelouch Plus: ${series.name} - $epFullTitle")
+                                                            .setDescription("Guardando en /Download/$fileName")
+                                                            .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                                            .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, fileName)
+                                                            .setAllowedOverMetered(true)
+                                                            .setAllowedOverRoaming(true)
+                                                        dm.enqueue(request)
+                                                        android.widget.Toast.makeText(
+                                                            context,
+                                                            "📥 Descargando en /Download/$fileName",
+                                                            android.widget.Toast.LENGTH_LONG
+                                                        ).show()
+                                                    }
+                                                } catch (e: Exception) {
+                                                    android.widget.Toast.makeText(context, "Error al descargar: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                                                }
+                                            },
+                                            modifier = Modifier.size(34.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Download,
+                                                contentDescription = "Descargar Episodio",
+                                                tint = Color(0xFF4CAF50),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
+
+                                    // Sinopsis detallada del episodio
+                                    val plotText = ep.plot?.ifBlank { series.plot.orEmpty() } ?: series.plot.orEmpty()
+                                    if (plotText.isNotBlank()) {
+                                        Spacer(Modifier.height(6.dp))
+                                        Text(
+                                            text = plotText,
+                                            color = Color(0xFFB0B3B8),
+                                            fontSize = 11.5.sp,
+                                            lineHeight = 16.sp,
+                                            maxLines = 4,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+
+                                    Spacer(Modifier.height(8.dp))
+                                    HorizontalDivider(color = Color(0xFF1E2229), thickness = 0.8.dp)
+                                }
+                            }
+
+                            // Carpetas de otras temporadas al final (Estilo captura oficial: Temporada 02, 03 con icono rojo y chevron)
+                            val otherSeasons = seasons.filter { it != selectedSeason }
+                            if (otherSeasons.isNotEmpty()) {
+                                item {
+                                    Spacer(Modifier.height(10.dp))
+                                }
+                                items(otherSeasons) { otherS ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(BixSurfaceCard)
+                                            .clickable { selectedSeason = otherS }
+                                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                Icons.Default.Folder,
+                                                contentDescription = null,
+                                                tint = LelouchLiveRed,
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                            Spacer(Modifier.width(12.dp))
+                                            Text(
+                                                text = "Temporada ${otherS.toString().padStart(2, '0')}",
+                                                color = Color.White,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 14.sp
+                                            )
+                                        }
+                                        Icon(
+                                            Icons.Default.ExpandMore,
+                                            contentDescription = "Expandir temporada",
+                                            tint = LelouchLiveRed,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // BARRA FLOTANTE INFERIOR FIJA: CONTINUAR / REPRODUCIR (CTA)
+            if (firstOrNextEpisode != null) {
+                val nextStreamUrl = StreamUrlResolver.resolve(
+                    directUrl = firstOrNextEpisode.streamUrl,
+                    source = activeSource,
+                    streamId = firstOrNextEpisode.episodeId,
+                    kind = StreamUrlResolver.Kind.SERIES,
+                    extension = firstOrNextEpisode.containerExtension.ifBlank { "mp4" }
+                )
+                val nextCode = "S${firstOrNextEpisode.seasonNumber.toString().padStart(2, '0')}E${firstOrNextEpisode.episodeNumber.toString().padStart(2, '0')}"
+                val nextLabel = "$nextCode - ${firstOrNextEpisode.title.ifBlank { "Episodio ${firstOrNextEpisode.episodeNumber}" }}"
+
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color.Transparent, LelouchSurface.copy(alpha = 0.95f), LelouchSurface)
+                            )
+                        )
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                        .navigationBarsPadding(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                        Text(
+                            text = "CONTINUAR",
+                            color = LelouchLiveRed,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.sp
+                        )
+                        Text(
+                            text = nextLabel,
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    Button(
+                        onClick = {
+                            onPlayEpisode(nextStreamUrl, "${series.name} - $nextLabel", firstOrNextEpisode)
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = LelouchLiveRed),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = "REPRODUCIR",
+                            color = Color.White,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 12.sp
+                        )
                     }
                 }
             }

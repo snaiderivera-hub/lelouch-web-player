@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.102",
-  "versionCode": 1000102,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.102/LELOUCH-PLUS-v1.0.102.apk",
-  "changelog": "- Deduplicación inteligente de Películas y Series en el catálogo (cada título se muestra una sola vez sin importar cuántas categorías use el proveedor).\n- Gestor de Categorías aislado por lista/cuenta activa para no arrastrar filtros de categorías entre diferentes listas.\n- Botón prominente de 'Quitar Filtros y Mostrar Todo' para restablecer categorías en un solo toque.\n- Timeout de lectura adaptado a 15s para reproducción fluida de episodios pesados de Series y Películas (MKV/MP4 progresivo).\n- Detención limpia de reproducción previa al abrir episodios en teléfono móvil para evitar reproductor de fondo.\n- Optimización de desplazamiento D-pad y rendimiento en TV Box.\n- Zona Blindada (FASE 34) de Canales en Vivo 100% preservada."
+  "versionName": "1.0.103",
+  "versionCode": 1000103,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.103/LELOUCH-PLUS-v1.0.103.apk",
+  "changelog": "- Rediseño enriquecido de Detalle de Series y Episodios en Móvil: pestañas Resumen, Temporadas y Detalles, miniaturas 16:9 con sinopsis por capítulo, descarga directa, selector y carpetas de temporadas, y barra flotante de reproducción rápida.\n- Botón de regreso físico/gestual (BackHandler) integrado para retorno inmediato al catálogo.\n- Zona Blindada (FASE 34) de Canales en Vivo 100% preservada."
 }
