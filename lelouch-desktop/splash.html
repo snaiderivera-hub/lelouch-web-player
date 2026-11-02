@@ -2,148 +2,190 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Lelouch IPTV Splash</title>
+    <title>Lelouch TV - Inicializando</title>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;800;900&display=swap" rel="stylesheet">
     <style>
-        body, html {
+        * {
             margin: 0;
             padding: 0;
+            box-sizing: border-box;
+        }
+
+        body, html {
             width: 100%;
             height: 100%;
-            background-color: #03040b;
-            background-image: url('../iptv-app/splash_bg.jpg');
-            background-size: cover;
-            background-position: center;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #000000;
+            font-family: 'Montserrat', 'Segoe UI', sans-serif;
             overflow: hidden;
             display: flex;
             flex-direction: column;
             align-items: center;
-            color: white;
+            justify-content: center;
+            color: #ffffff;
             user-select: none;
         }
 
         .border {
             position: absolute;
             top: 0; left: 0; right: 0; bottom: 0;
-            border: 1px solid #00d9ff;
+            border: 1px solid rgba(255, 0, 51, 0.35);
             pointer-events: none;
         }
 
         .iptv-tag {
             position: absolute;
-            top: 15px;
-            right: 20px;
-            color: #9696b4;
+            top: 14px;
+            right: 18px;
+            color: #ff3355;
             font-size: 11px;
-            font-weight: bold;
-            letter-spacing: 1px;
-        }
-
-        .crown {
-            margin-top: 50px;
-            width: 80px;
-            height: auto;
-        }
-
-        .title {
-            font-size: 48px;
             font-weight: 800;
-            margin: 0;
-            margin-top: -10px;
             letter-spacing: 2px;
-            color: #f8faff;
+        }
+
+        .content-box {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            z-index: 2;
+        }
+
+        /* Contenedor del Logo con Halo Rojizo Trasero */
+        .logo-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 12px;
+        }
+
+        .logo-aura {
+            position: absolute;
+            width: 260px;
+            height: 260px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(255, 0, 51, 0.65) 0%, rgba(255, 0, 51, 0.25) 48%, transparent 70%);
+            filter: blur(24px);
+            z-index: 1;
+            pointer-events: none;
+            animation: auraPulse 2.4s ease-in-out infinite alternate;
+        }
+
+        @keyframes auraPulse {
+            0% { transform: scale(0.92); opacity: 0.8; }
+            100% { transform: scale(1.08); opacity: 1; }
+        }
+
+        /* Logotipo Oficial Nítido sin filtros deformantes */
+        .logo {
+            position: relative;
+            z-index: 2;
+            width: 320px;
+            max-width: 80%;
+            height: auto;
+            object-fit: contain;
+        }
+
+        /* Spinner Circular 1:1 con Zona-Pirata (Rojo Neón) */
+        .spinner-container {
+            width: 54px;
+            height: 54px;
+            margin-bottom: 14px;
+        }
+
+        .spinner-ring {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            border: 5px solid #1a1a1a;
+            border-top: 5px solid #ff0000;
+            border-right: 5px solid #ff2255;
+            box-shadow: 0 0 14px rgba(255, 0, 0, 0.75);
+            animation: spin 0.85s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Título CARGANDO */
+        .title {
+            font-size: 24px;
+            font-weight: 900;
+            letter-spacing: 6px;
+            color: #ffffff;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+            text-shadow: 
+                0 0 4px #ffffff,
+                0 0 12px #ff0000,
+                0 0 25px rgba(255, 0, 0, 0.9);
         }
 
         .subtitle {
             font-size: 11px;
-            font-weight: bold;
-            letter-spacing: 5px;
-            color: #bd65ff;
-            margin-top: -5px;
+            font-weight: 700;
+            letter-spacing: 3px;
+            color: #888888;
+            text-transform: uppercase;
+            margin-bottom: 16px;
+            min-height: 16px;
         }
 
+        /* Barra de Progreso Neón Rojo */
         .progress-container {
-            position: absolute;
-            bottom: 120px;
-            width: 480px;
-            height: 4px;
-            border: 1px solid rgba(0, 217, 255, 0.3);
-            background: rgba(40, 40, 60, 0.5);
-            border-radius: 2px;
-            overflow: visible;
+            width: 380px;
+            height: 5px;
+            background: #151515;
+            border: 1px solid rgba(255, 0, 51, 0.3);
+            border-radius: 6px;
+            overflow: hidden;
+            position: relative;
+            box-shadow: 0 0 10px rgba(255, 0, 51, 0.2);
         }
 
         .progress-bar {
             height: 100%;
             width: 0%;
-            background: linear-gradient(90deg, #0064ff, #00d9ff);
-            border-radius: 2px;
-            position: relative;
-            transition: width 0.1s linear;
-        }
-
-        .progress-glow {
-            position: absolute;
-            right: -20px;
-            top: -18px;
-            width: 40px;
-            height: 40px;
-            background: radial-gradient(circle, rgba(0,217,255,0.8) 0%, rgba(0,217,255,0) 70%);
-            border-radius: 50%;
-        }
-
-        .status-text {
-            position: absolute;
-            bottom: 90px;
-            font-size: 12px;
-            color: #c8c8dc;
+            background: linear-gradient(90deg, #8b0000, #ff0000, #ff4d6d);
+            border-radius: 6px;
+            box-shadow: 0 0 12px #ff0000;
+            transition: width 0.15s ease-out;
         }
 
         .percentage {
-            position: absolute;
-            bottom: 65px;
-            font-size: 12px;
-            font-weight: bold;
-            color: #00d9ff;
-        }
-
-        .icons {
-            position: absolute;
-            bottom: 30px;
-            display: flex;
-            gap: 60px;
+            margin-top: 8px;
             font-size: 11px;
-            color: #646482;
+            font-weight: 800;
+            color: #ff3355;
             letter-spacing: 1px;
         }
     </style>
 </head>
 <body>
     <div class="border"></div>
-    <div class="iptv-tag">▷ IPTV</div>
+    <div class="iptv-tag">LELOUCH TV</div>
 
-    <!-- Símbolo de Corona en SVG -->
-    <svg class="crown" viewBox="0 0 100 50" fill="none" stroke="#bd65ff" stroke-width="2" stroke-linejoin="round">
-        <path d="M20,40 L10,10 L35,30 L50,5 L65,30 L90,10 L80,40 Z" />
-    </svg>
-
-    <h1 class="title">LELOUCH</h1>
-    <div class="subtitle">REPRODUCTOR IPTV</div>
-
-    <div class="progress-container">
-        <div class="progress-bar" id="bar">
-            <div class="progress-glow"></div>
+    <div class="content-box">
+        <div class="logo-wrapper">
+            <div class="logo-aura"></div>
+            <img src="logo_lelouch_tv.png" alt="Lelouch TV" class="logo">
         </div>
-    </div>
 
-    <div class="status-text" id="status">Inicializando núcleo...</div>
-    <div class="percentage" id="pct">0%</div>
+        <div class="spinner-container">
+            <div class="spinner-ring"></div>
+        </div>
 
-    <div class="icons">
-        <span>📺 TV</span>
-        <span>🎬 PELÍCULAS</span>
-        <span>🎞️ SERIES</span>
-        <span>⭐ FAVORITOS</span>
+        <h1 class="title">CARGANDO</h1>
+        <div class="subtitle" id="status">PREPARANDO EL CONTENIDO...</div>
+
+        <div class="progress-container">
+            <div class="progress-bar" id="bar"></div>
+        </div>
+
+        <div class="percentage" id="pct">0%</div>
     </div>
 
     <script>
@@ -152,12 +194,11 @@
         const pct = document.getElementById('pct');
 
         const stages = [
-            { p: 15, msg: "Inicializando núcleo..." },
-            { p: 40, msg: "Preparando servicios multimedia..." },
-            { p: 70, msg: "Estableciendo túneles de red..." },
-            { p: 90, msg: "Desplegando interfaz..." },
-            { p: 99, msg: "Finalizando inicialización..." },
-            { p: 100, msg: "Sistema preparado" }
+            { p: 20, msg: "INICIALIZANDO NÚCLEO..." },
+            { p: 45, msg: "CONECTANDO A SERVICIOS IPTV..." },
+            { p: 75, msg: "SINCRONIZANDO CANALES Y VOD..." },
+            { p: 92, msg: "PREPARANDO INTERFAZ..." },
+            { p: 100, msg: "SISTEMA PREPARADO" }
         ];
 
         let currentStage = 0;
@@ -170,7 +211,7 @@
             const msg = stages[currentStage].msg;
             
             if (progress < target) {
-                progress += (target - progress) * 0.05 + 0.1;
+                progress += (target - progress) * 0.06 + 0.15;
                 if (progress > target) progress = target;
                 
                 bar.style.width = progress + '%';

@@ -1,6 +1,6 @@
-{
-  "versionName": "1.0.107",
-  "versionCode": 1000107,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.107/LELOUCH-PLUS-v1.0.107.apk",
-  "changelog": "- Corrección definitiva del cierre involuntario en la pestaña de Favoritos y funcionamiento fluido desde Ajustes.\n- Botón de añadir/quitar de favoritos directo en el detalle de películas.\n- Aviso automático de nueva versión al iniciar la aplicación.\n- Retiro del botón de Historial no utilizado en Ajustes.\n- Retiro de carteles de TMDB en Ajustes y TV, manteniéndolo exclusivamente en Películas y Series."
+﻿{
+  "versionName": "1.0.109",
+  "versionCode": 1000109,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.109/LELOUCH-PLUS-v1.0.109.apk",
+  "changelog": "- Nuevo Icono Oficial de la APK (Banner Android TV 320x180, Adaptive Icon 432x432 y Mipmaps).\n- Pantalla de Carga Oficial con Logo Transparente y Halo Neón Rojizo Trasero (Estilo Zona-Pirata)."
 }

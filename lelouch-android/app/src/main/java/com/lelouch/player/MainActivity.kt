@@ -23,6 +23,7 @@ import com.lelouch.core.designsystem.LelouchBackground
 import com.lelouch.core.designsystem.LelouchCyanAccent
 import com.lelouch.core.designsystem.LelouchTheme
 import com.lelouch.core.designsystem.LelouchTvTheme
+import com.lelouch.core.designsystem.components.LelouchRedLoadingScreen
 import com.lelouch.core.model.SourceType
 import com.lelouch.core.network.diagnostics.IptvDiagnostics
 import com.lelouch.core.network.dns.LelouchDnsManager
@@ -357,28 +358,10 @@ class MainActivity : ComponentActivity() {
                         } else {
                             when (val bs = bootstrapState) {
                                 is SourceBootstrapState.Loading -> {
-                                    androidx.compose.foundation.layout.Box(
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentAlignment = androidx.compose.ui.Alignment.Center
-                                    ) {
-                                        androidx.compose.foundation.layout.Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
-                                            androidx.compose.material3.Text(
-                                                text = "REPRODUCTOR LELOUCH",
-                                                color = androidx.compose.ui.graphics.Color.White,
-                                                fontSize = 28.sp,
-                                                fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
-                                                letterSpacing = 2.sp
-                                            )
-                                            androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(10.dp))
-                                            androidx.compose.material3.Text(
-                                                text = "Sincronizando listas desde Supabase Cloud...",
-                                                color = LelouchCyanAccent,
-                                                fontSize = 13.sp
-                                            )
-                                            androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(24.dp))
-                                            androidx.compose.material3.CircularProgressIndicator(color = LelouchCyanAccent)
-                                        }
-                                    }
+                                    LelouchRedLoadingScreen(
+                                        statusText = if (syncStatusText.isNotBlank()) syncStatusText else "Preparando el contenido...",
+                                        isTv = true
+                                    )
                                 }
                                 is SourceBootstrapState.Empty -> {
                                     TvBootstrapRecoveryScreen(
@@ -508,28 +491,10 @@ class MainActivity : ComponentActivity() {
                         } else {
                             when (val bs = bootstrapState) {
                                 is SourceBootstrapState.Loading -> {
-                                    androidx.compose.foundation.layout.Box(
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentAlignment = androidx.compose.ui.Alignment.Center
-                                    ) {
-                                        androidx.compose.foundation.layout.Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
-                                            androidx.compose.material3.Text(
-                                                text = "REPRODUCTOR LELOUCH",
-                                                color = androidx.compose.ui.graphics.Color.White,
-                                                fontSize = 22.sp,
-                                                fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
-                                                letterSpacing = 1.5.sp
-                                            )
-                                            androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(10.dp))
-                                            androidx.compose.material3.Text(
-                                                text = "Sincronizando listas desde Supabase Cloud...",
-                                                color = LelouchCyanAccent,
-                                                fontSize = 12.sp
-                                            )
-                                            androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(20.dp))
-                                            androidx.compose.material3.CircularProgressIndicator(color = LelouchCyanAccent)
-                                        }
-                                    }
+                                    LelouchRedLoadingScreen(
+                                        statusText = if (syncStatusText.isNotBlank()) syncStatusText else "Preparando el contenido...",
+                                        isTv = false
+                                    )
                                 }
                                 else -> {
                                     val title = if (bs is SourceBootstrapState.Empty) "No hay listas configuradas" else "No fue posible cargar tus listas"
