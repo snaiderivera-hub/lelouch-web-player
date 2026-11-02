@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.106",
-  "versionCode": 1000106,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.106/LELOUCH-PLUS-v1.0.106.apk",
-  "changelog": "- Incorporación obligatoria de atribución legal y de metadatos de The Movie Database (TMDB) según sus términos de servicio.\n- Corrección de visualización de sinopsis oficial de series sincronizadas con TMDB.\n- Corrección de encoding en etiquetas de eventos en vivo.\n- Zona Blindada (FASE 34) de Canales en Vivo 100% preservada."
+  "versionName": "1.0.107",
+  "versionCode": 1000107,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.107/LELOUCH-PLUS-v1.0.107.apk",
+  "changelog": "- Corrección definitiva del cierre involuntario en la pestaña de Favoritos y funcionamiento fluido desde Ajustes.\n- Botón de añadir/quitar de favoritos directo en el detalle de películas.\n- Aviso automático de nueva versión al iniciar la aplicación.\n- Retiro del botón de Historial no utilizado en Ajustes.\n- Retiro de carteles de TMDB en Ajustes y TV, manteniéndolo exclusivamente en Películas y Series."
 }

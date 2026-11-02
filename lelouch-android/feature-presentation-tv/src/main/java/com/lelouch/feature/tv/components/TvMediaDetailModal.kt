@@ -296,45 +296,7 @@ fun TvMediaDetailModal(
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        // Atribución Oficial TMDB (Legal & Metadata notice)
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(Color(0xFF0D253F).copy(alpha = 0.6f))
-                                .border(0.5.dp, Color(0xFF01B4E4).copy(alpha = 0.35f), RoundedCornerShape(6.dp))
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(3.dp))
-                                    .background(
-                                        Brush.horizontalGradient(
-                                            listOf(Color(0xFF90CEA1), Color(0xFF01B4E4))
-                                        )
-                                    )
-                                    .padding(horizontal = 5.dp, vertical = 2.dp)
-                            ) {
-                                Text(
-                                    text = "TMDB",
-                                    color = Color(0xFF0D253F),
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Black
-                                )
-                            }
-                            Text(
-                                text = "Metadatos cortesía de TMDB. Este producto usa la API de TMDB pero no está avalado ni certificado por TMDB.",
-                                color = LelouchTextMuted,
-                                fontSize = 10.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(14.dp))
+                        Spacer(modifier = Modifier.height(18.dp))
 
                         // Botones de Acción nativos TV Surface para mando Xiaomi / Android TV
                         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {

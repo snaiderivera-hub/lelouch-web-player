@@ -460,6 +460,18 @@ fun MobileHomeScreen(
     var isDownloadsDialogOpen by remember { mutableStateOf(false) }
     var diagnosticsTargetSource by remember { mutableStateOf<SourceConfig?>(null) }
 
+    // Comprobación automática silenciosa de nueva versión al iniciar la app
+    val updateContext = LocalContext.current
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(2500L)
+        try {
+            val result = com.lelouch.core.network.update.AppUpdateManager.checkForUpdates(updateContext)
+            if (result.isSuccess && result.getOrNull() != null) {
+                isUpdateModalOpen = true
+            }
+        } catch (_: Exception) {}
+    }
+
     // FASE 39: arranque de reproducción.
     // - Directo: `playStream` se ejecuta sin ninguna suspensión previa (nada que esperar).
     // - VOD: el stream arranca ya en 0 y la reanudación se aplica cuando llega. Si la consulta
@@ -734,9 +746,12 @@ fun MobileHomeScreen(
 
                 // VISTA COMPLETA DE DETALLE DE PELICULA (PANTALLA COMPLETA, SIN DIALOGOS FLOTANTES)
         if (selectedMovie != null && !isPlayerFullscreen) {
+            val isMovieFav = favoriteMovies.any { it.streamId == selectedMovie!!.streamId }
             MobileMovieDetailView(
                 movie = selectedMovie!!,
                 activeSource = activeSource,
+                isFavorite = isMovieFav,
+                onToggleFavorite = { onToggleFavoriteMovie(selectedMovie!!.streamId, !isMovieFav) },
                 onPlay = { url ->
                     playerEngine.stop()
                     activeChannelName = selectedMovie!!.name
@@ -1772,10 +1787,18 @@ private fun MobileFavoritesTab(
     onToggleFavoriteChannel: (Int, Boolean) -> Unit,
     onToggleFavoriteMovie: (Int, Boolean) -> Unit
 ) {
-    var favSubTab by remember { mutableIntStateOf(0) } // 0: Canales, 1: Películas
+    val safeChannels = remember(favoriteChannels) {
+        favoriteChannels.distinctBy { "${it.id}_${it.streamId}_${it.name}" }
+    }
+    val safeMovies = remember(favoriteMovies) {
+        favoriteMovies.distinctBy { "${it.id}_${it.streamId}_${it.name}" }
+    }
 
-    if (favoriteChannels.isEmpty() && favoriteMovies.isEmpty()) {
-        // EMPTY STATE EXACTO CAPTURA 8 BIX PLUS
+    var favSubTab by remember(safeChannels.isEmpty(), safeMovies.isEmpty()) {
+        mutableIntStateOf(if (safeChannels.isEmpty() && safeMovies.isNotEmpty()) 1 else 0)
+    }
+
+    if (safeChannels.isEmpty() && safeMovies.isEmpty()) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -1787,7 +1810,6 @@ private fun MobileFavoritesTab(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Círculo Naranja con Play
                 Box(
                     modifier = Modifier
                         .size(86.dp)
@@ -1819,91 +1841,90 @@ private fun MobileFavoritesTab(
                 )
             }
         }
-        return
-    }
-
-    Column(modifier = Modifier.fillMaxSize().background(BixDarkBackground)) {
-        // Selector tipo cápsula para cambiar entre Canales y Películas Favoritas
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            val isCh = favSubTab == 0
-            Box(
+    } else {
+        Column(modifier = Modifier.fillMaxSize().background(BixDarkBackground)) {
+            // Selector tipo cápsula para cambiar entre Canales y Películas Favoritas
+            Row(
                 modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(if (isCh) BixOrangeAccent else BixSurfaceCard)
-                    .clickable { favSubTab = 0 }
-                    .padding(vertical = 10.dp),
-                contentAlignment = Alignment.Center
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text(
-                    "Canales (${favoriteChannels.size})",
-                    color = Color.White,
-                    fontWeight = if (isCh) FontWeight.Bold else FontWeight.Medium,
-                    fontSize = 13.sp
-                )
-            }
-
-            val isMov = favSubTab == 1
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(if (isMov) BixOrangeAccent else BixSurfaceCard)
-                    .clickable { favSubTab = 1 }
-                    .padding(vertical = 10.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    "Películas (${favoriteMovies.size})",
-                    color = Color.White,
-                    fontWeight = if (isMov) FontWeight.Bold else FontWeight.Medium,
-                    fontSize = 13.sp
-                )
-            }
-        }
-
-        if (favSubTab == 0) {
-            if (favoriteChannels.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("No tienes canales favoritos guardados.", color = BixTextMuted, fontSize = 14.sp)
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                val isCh = favSubTab == 0
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (isCh) BixOrangeAccent else BixSurfaceCard)
+                        .clickable { favSubTab = 0 }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    items(favoriteChannels, key = { "fav_ch_${it.streamId}" }) { ch ->
-                        val url = StreamUrlResolver.resolveLive(ch.streamUrl, activeSource, ch.streamId)
-                        ChannelListItem(
-                            channel = ch,
-                            isFavorite = true,
-                            onToggleFavorite = { onToggleFavoriteChannel(ch.streamId, false) },
-                            onClick = { onChannelClick(ch.name, url) }
-                        )
+                    Text(
+                        "Canales (${safeChannels.size})",
+                        color = Color.White,
+                        fontWeight = if (isCh) FontWeight.Bold else FontWeight.Medium,
+                        fontSize = 13.sp
+                    )
+                }
+
+                val isMov = favSubTab == 1
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (isMov) BixOrangeAccent else BixSurfaceCard)
+                        .clickable { favSubTab = 1 }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "Películas (${safeMovies.size})",
+                        color = Color.White,
+                        fontWeight = if (isMov) FontWeight.Bold else FontWeight.Medium,
+                        fontSize = 13.sp
+                    )
+                }
+            }
+
+            if (favSubTab == 0) {
+                if (safeChannels.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("No tienes canales favoritos guardados.", color = BixTextMuted, fontSize = 14.sp)
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        itemsIndexed(safeChannels, key = { idx, ch -> "fav_ch_${ch.streamId}_${ch.id}_$idx" }) { _, ch ->
+                            val url = StreamUrlResolver.resolveLive(ch.streamUrl, activeSource, ch.streamId)
+                            ChannelListItem(
+                                channel = ch,
+                                isFavorite = true,
+                                onToggleFavorite = { onToggleFavoriteChannel(ch.streamId, false) },
+                                onClick = { onChannelClick(ch.name, url) }
+                            )
+                        }
                     }
                 }
-            }
-        } else {
-            if (favoriteMovies.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("No tienes películas favoritas guardadas.", color = BixTextMuted, fontSize = 14.sp)
-                }
             } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(85.dp),
-                    contentPadding = PaddingValues(12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(favoriteMovies, key = { "fav_mov_${it.streamId}" }) { mov ->
-                        MovieGridCard(movie = mov, onClick = { onMovieClick(mov) })
+                if (safeMovies.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("No tienes películas favoritas guardadas.", color = BixTextMuted, fontSize = 14.sp)
+                    }
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(85.dp),
+                        contentPadding = PaddingValues(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        itemsIndexed(safeMovies, key = { idx, mov -> "fav_mov_${mov.streamId}_${mov.id}_$idx" }) { _, mov ->
+                            MovieGridCard(movie = mov, onClick = { onMovieClick(mov) })
+                        }
                     }
                 }
             }
@@ -2011,13 +2032,6 @@ private fun MobileSettingsTab(
                     label = "Favoritos",
                     bgColor = BixCirclePink,
                     onClick = onNavigateToFavorites
-                )
-                // 🔵 Historial
-                CircleActionItem(
-                    icon = Icons.Default.History,
-                    label = "Historial",
-                    bgColor = BixCircleBlue,
-                    onClick = onOpenHistory
                 )
             }
         }
@@ -2849,11 +2863,6 @@ private fun MobileSettingsTab(
                 }
             }
         }
-
-        // ATRIBUCIÓN OFICIAL TMDB
-        item {
-            TmdbAttributionCard(modifier = Modifier.padding(top = 8.dp, bottom = 24.dp))
-        }
     }
 }
 
@@ -3103,6 +3112,8 @@ fun TmdbAttributionCard(modifier: Modifier = Modifier) {
 private fun MobileMovieDetailView(
     movie: VodMovie,
     activeSource: SourceConfig?,
+    isFavorite: Boolean = false,
+    onToggleFavorite: () -> Unit = {},
     onPlay: (String) -> Unit,
     onBack: () -> Unit
 ) {
@@ -3162,6 +3173,13 @@ private fun MobileMovieDetailView(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
+            IconButton(onClick = onToggleFavorite) {
+                Icon(
+                    imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                    contentDescription = if (isFavorite) "Quitar de favoritos" else "Añadir a favoritos",
+                    tint = if (isFavorite) Color(0xFFFF4081) else Color.White
+                )
+            }
         }
 
         HorizontalDivider(color = LelouchBorder, thickness = 1.dp)

@@ -231,6 +231,17 @@ fun TvHomeScreen(
     var tvAudioEngineMode by remember { mutableStateOf(LelouchDnsManager.getAudioEngineMode()) }
 
     val context = androidx.compose.ui.platform.LocalContext.current
+
+    // Comprobación automática silenciosa de nueva versión al iniciar en TV Box
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(2500L)
+        try {
+            val result = com.lelouch.core.network.update.AppUpdateManager.checkForUpdates(context)
+            if (result.isSuccess && result.getOrNull() != null) {
+                isUpdateModalVisible = true
+            }
+        } catch (_: Exception) {}
+    }
     val hiddenPrefs = remember { context.getSharedPreferences("iptv_hidden_categories", android.content.Context.MODE_PRIVATE) }
     val currentSourceKey = activeSource?.id.orEmpty().ifBlank { "default" }
     var hiddenLiveCategories by remember {
