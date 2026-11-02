@@ -1,6 +1,6 @@
 {
-  "versionName": "1.0.104",
-  "versionCode": 1000104,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.104/LELOUCH-PLUS-v1.0.104.apk",
-  "changelog": "- Integración de API oficial de TMDB (The Movie Database): sinopsis oficiales en español, imágenes de fondo HD y miniaturas reales por capítulo para Series y Películas.\n- Rediseño a Pantalla Completa del Detalle de Películas (MobileMovieDetailView): eliminado el diálogo flotante, navegación fluida con pestañas Resumen y Ficha Técnica, botones de descarga directa y barra CTA inferior fija.\n- Zona Blindada (FASE 34) de Canales en Vivo 100% preservada."
+  "versionName": "1.0.105",
+  "versionCode": 1000105,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.105/LELOUCH-PLUS-v1.0.105.apk",
+  "changelog": "- Integración de clave oficial de TMDB y optimización de búsqueda multi-idioma (es-ES / es-MX): sinopsis completas para títulos con comillas y etiquetas como (CAST).\n- Vista de Películas a pantalla completa con sinopsis extendida.\n- Zona Blindada (FASE 34) de Canales en Vivo 100% preservada."
 }

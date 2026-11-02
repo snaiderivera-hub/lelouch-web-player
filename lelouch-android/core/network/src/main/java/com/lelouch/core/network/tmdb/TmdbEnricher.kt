@@ -14,7 +14,8 @@ import java.util.concurrent.TimeUnit
 
 object TmdbEnricher {
 
-    private const val TMDB_API_KEY = "15d2ea6d0dc1d476efbca3eba2b9bbfb"
+    private const val TMDB_API_KEY = "d10dcabb94ff39a850b212ec0bcb845d"
+    private const val TMDB_BEARER_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJkMTBkY2FiYjk0ZmYzOWE4NTBiMjEyZWMwYmNiODQ1ZCIsIm5iZiI6MTc5MzU5MjMwMy4xMzkwMDAyLCJzdWIiOiI2YWU4MGJlZjEwZDhiNDViMGZmMWM2OWQiLCJzY29wZXMiOlsiYXBpX3JlYWQiXSwidmVyc2lvbiI6MX0.cc0EDwLmlZmu4KGiig39H6AiqlVgjzfKOsDybFtJtE8"
     private const val BASE_URL = "https://api.themoviedb.org/3"
     private const val IMAGE_BASE_W500 = "https://image.tmdb.org/t/p/w500"
     private const val IMAGE_BASE_W780 = "https://image.tmdb.org/t/p/w780"
@@ -63,14 +64,26 @@ object TmdbEnricher {
 
     fun cleanTitle(rawName: String): String {
         var title = rawName
+        // Eliminar corchetes como [1080p], [4K], etc.
         title = title.replace(Regex("""\[[^\]]*\]"""), " ")
+        // Eliminar año como (2021)
         title = title.replace(Regex("""\(\s*\d{4}\s*\)"""), " ")
-        title = title.replace(Regex("""\((LATINO|CASTELLANO|SUBTITULADO|SUB|DUAL|4K|UHD|FHD|1080P|720P|HD|HEVC|H264|H265)[^)]*\)""", RegexOption.IGNORE_CASE), " ")
-        title = title.replace(Regex("""\b(LATINO|CASTELLANO|SUBTITULADO|SUB|DUAL|4K|UHD|FHD|1080P|720P|HD|HEVC|H264|H265)\b""", RegexOption.IGNORE_CASE), " ")
+        // Eliminar paréntesis con etiquetas de idioma/calidad (ej: (CAST), (LATINO), etc.)
+        title = title.replace(Regex("""\((LATINO|CASTELLANO|SUBTITULADO|SUB|DUAL|4K|UHD|FHD|1080P|720P|HD|HEVC|H264|H265|CAST)[^)]*\)""", RegexOption.IGNORE_CASE), " ")
+        title = title.replace(Regex("""\b(LATINO|CASTELLANO|SUBTITULADO|SUB|DUAL|4K|UHD|FHD|1080P|720P|HD|HEVC|H264|H265|CAST)\b""", RegexOption.IGNORE_CASE), " ")
         title = title.replace(Regex("""\b(S\d+|T\d+|TEMP\s*\d+|TEMPORADA\s*\d+)\b""", RegexOption.IGNORE_CASE), " ")
-        title = title.replace(Regex("""[|•\-_/\\:]+"""), " ")
+        // Eliminar comillas y caracteres especiales que arruinan la búsqueda en TMDB
+        title = title.replace(Regex("""["'“”«»|•\-_/\\:]+"""), " ")
         title = title.trim().replace(Regex("""\s+"""), " ")
         return title.ifBlank { rawName.trim() }
+    }
+
+    private fun buildRequest(url: String): Request {
+        return Request.Builder()
+            .url(url)
+            .header("Authorization", "Bearer $TMDB_BEARER_TOKEN")
+            .header("Accept", "application/json")
+            .build()
     }
 
     suspend fun searchTvShow(name: String): TmdbShowData? = withContext(Dispatchers.IO) {
@@ -79,83 +92,104 @@ object TmdbEnricher {
 
         tvShowCache[query]?.let { return@withContext it }
 
-        try {
-            val encodedQuery = URLEncoder.encode(query, "UTF-8")
-            val url = "$BASE_URL/search/tv?api_key=$TMDB_API_KEY&query=$encodedQuery&language=es-MX"
-            val request = Request.Builder().url(url).build()
+        val languages = listOf("es-ES", "es-MX")
+        var bestMatch: TmdbShowData? = null
 
-            httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext null
-                val bodyStr = response.body?.string() ?: return@withContext null
-                val root = JSONObject(bodyStr)
-                val results = root.optJSONArray("results") ?: return@withContext null
-                if (results.length() == 0) return@withContext null
+        for (lang in languages) {
+            try {
+                val encodedQuery = URLEncoder.encode(query, "UTF-8")
+                val url = "$BASE_URL/search/tv?api_key=$TMDB_API_KEY&query=$encodedQuery&language=$lang"
+                val request = buildRequest(url)
 
-                val first = results.getJSONObject(0)
-                val id = first.optInt("id")
-                val showName = first.optString("name", query)
-                val overview = first.optString("overview", "")
-                val posterPath = first.optString("poster_path").takeIf { it.isNotBlank() }
-                val backdropPath = first.optString("backdrop_path").takeIf { it.isNotBlank() }
-                val voteAverage = first.optDouble("vote_average", 0.0).takeIf { it > 0 }
-                val firstAirDate = first.optString("first_air_date").takeIf { it.isNotBlank() }
+                httpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@use
+                    val bodyStr = response.body?.string() ?: return@use
+                    val root = JSONObject(bodyStr)
+                    val results = root.optJSONArray("results") ?: return@use
+                    if (results.length() == 0) return@use
 
-                val data = TmdbShowData(
-                    id = id,
-                    name = showName,
-                    overview = overview,
-                    posterUrl = posterPath?.let { "$IMAGE_BASE_W500$it" },
-                    backdropUrl = backdropPath?.let { "$IMAGE_BASE_W780$it" },
-                    rating = voteAverage,
-                    firstAirDate = firstAirDate
-                )
-                tvShowCache[query] = data
-                data
-            }
-        } catch (_: Exception) {
-            null
+                    val first = results.getJSONObject(0)
+                    val id = first.optInt("id")
+                    val showName = first.optString("name", query)
+                    val overview = first.optString("overview", "")
+                    val posterPath = first.optString("poster_path").takeIf { it.isNotBlank() }
+                    val backdropPath = first.optString("backdrop_path").takeIf { it.isNotBlank() }
+                    val voteAverage = first.optDouble("vote_average", 0.0).takeIf { it > 0 }
+                    val firstAirDate = first.optString("first_air_date").takeIf { it.isNotBlank() }
+
+                    val data = TmdbShowData(
+                        id = id,
+                        name = showName,
+                        overview = overview,
+                        posterUrl = posterPath?.let { "$IMAGE_BASE_W500$it" },
+                        backdropUrl = backdropPath?.let { "$IMAGE_BASE_W780$it" },
+                        rating = voteAverage,
+                        firstAirDate = firstAirDate
+                    )
+
+                    if (bestMatch == null || (bestMatch?.overview.isNullOrBlank() && overview.isNotBlank())) {
+                        bestMatch = data
+                    }
+
+                    if (overview.isNotBlank()) {
+                        return@withContext data.also { tvShowCache[query] = it }
+                    }
+                }
+            } catch (_: Exception) {}
         }
+
+        bestMatch?.also { tvShowCache[query] = it }
     }
 
     suspend fun getSeasonEpisodes(tvId: Int, seasonNumber: Int): Map<Int, TmdbEpisodeData> = withContext(Dispatchers.IO) {
         val cacheKey = "$tvId-$seasonNumber"
         seasonEpisodesCache[cacheKey]?.let { return@withContext it }
 
-        try {
-            val url = "$BASE_URL/tv/$tvId/season/$seasonNumber?api_key=$TMDB_API_KEY&language=es-MX"
-            val request = Request.Builder().url(url).build()
+        val languages = listOf("es-ES", "es-MX")
+        var bestMap = mapOf<Int, TmdbEpisodeData>()
 
-            httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext emptyMap()
-                val bodyStr = response.body?.string() ?: return@withContext emptyMap()
-                val root = JSONObject(bodyStr)
-                val episodesArr = root.optJSONArray("episodes") ?: return@withContext emptyMap()
+        for (lang in languages) {
+            try {
+                val url = "$BASE_URL/tv/$tvId/season/$seasonNumber?api_key=$TMDB_API_KEY&language=$lang"
+                val request = buildRequest(url)
 
-                val map = mutableMapOf<Int, TmdbEpisodeData>()
-                for (i in 0 until episodesArr.length()) {
-                    val epObj = episodesArr.optJSONObject(i) ?: continue
-                    val epNum = epObj.optInt("episode_number", i + 1)
-                    val epName = epObj.optString("name", "")
-                    val epOverview = epObj.optString("overview", "")
-                    val stillPath = epObj.optString("still_path").takeIf { it.isNotBlank() }
-                    val voteAverage = epObj.optDouble("vote_average", 0.0).takeIf { it > 0 }
-                    val airDate = epObj.optString("air_date").takeIf { it.isNotBlank() }
+                httpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@use
+                    val bodyStr = response.body?.string() ?: return@use
+                    val root = JSONObject(bodyStr)
+                    val episodesArr = root.optJSONArray("episodes") ?: return@use
 
-                    map[epNum] = TmdbEpisodeData(
-                        episodeNumber = epNum,
-                        name = epName,
-                        overview = epOverview,
-                        stillUrl = stillPath?.let { "$IMAGE_BASE_W500$it" },
-                        rating = voteAverage,
-                        airDate = airDate
-                    )
+                    val map = mutableMapOf<Int, TmdbEpisodeData>()
+                    for (i in 0 until episodesArr.length()) {
+                        val epObj = episodesArr.optJSONObject(i) ?: continue
+                        val epNum = epObj.optInt("episode_number", i + 1)
+                        val epName = epObj.optString("name", "")
+                        val epOverview = epObj.optString("overview", "")
+                        val stillPath = epObj.optString("still_path").takeIf { it.isNotBlank() }
+                        val voteAverage = epObj.optDouble("vote_average", 0.0).takeIf { it > 0 }
+                        val airDate = epObj.optString("air_date").takeIf { it.isNotBlank() }
+
+                        map[epNum] = TmdbEpisodeData(
+                            episodeNumber = epNum,
+                            name = epName,
+                            overview = epOverview,
+                            stillUrl = stillPath?.let { "$IMAGE_BASE_W500$it" },
+                            rating = voteAverage,
+                            airDate = airDate
+                        )
+                    }
+
+                    if (map.values.any { it.overview.isNotBlank() }) {
+                        bestMap = map
+                        return@withContext map.also { seasonEpisodesCache[cacheKey] = it }
+                    } else if (bestMap.isEmpty()) {
+                        bestMap = map
+                    }
                 }
-                seasonEpisodesCache[cacheKey] = map
-                map
-            }
-        } catch (_: Exception) {
-            emptyMap()
+            } catch (_: Exception) {}
         }
+
+        bestMap.also { if (it.isNotEmpty()) seasonEpisodesCache[cacheKey] = it }
     }
 
     suspend fun searchMovie(name: String): TmdbMovieData? = withContext(Dispatchers.IO) {
@@ -164,53 +198,60 @@ object TmdbEnricher {
 
         movieCache[query]?.let { return@withContext it }
 
-        try {
-            val encodedQuery = URLEncoder.encode(query, "UTF-8")
-            val url = "$BASE_URL/search/movie?api_key=$TMDB_API_KEY&query=$encodedQuery&language=es-MX"
-            val request = Request.Builder().url(url).build()
+        val languages = listOf("es-ES", "es-MX")
+        var bestMatch: TmdbMovieData? = null
 
-            httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext null
-                val bodyStr = response.body?.string() ?: return@withContext null
-                val root = JSONObject(bodyStr)
-                val results = root.optJSONArray("results") ?: return@withContext null
-                if (results.length() == 0) return@withContext null
+        for (lang in languages) {
+            try {
+                val encodedQuery = URLEncoder.encode(query, "UTF-8")
+                val url = "$BASE_URL/search/movie?api_key=$TMDB_API_KEY&query=$encodedQuery&language=$lang"
+                val request = buildRequest(url)
 
-                val first = results.getJSONObject(0)
-                val id = first.optInt("id")
-                val movieTitle = first.optString("title", query)
-                val overview = first.optString("overview", "")
-                val posterPath = first.optString("poster_path").takeIf { it.isNotBlank() }
-                val backdropPath = first.optString("backdrop_path").takeIf { it.isNotBlank() }
-                val voteAverage = first.optDouble("vote_average", 0.0).takeIf { it > 0 }
-                val releaseDate = first.optString("release_date").takeIf { it.isNotBlank() }
+                httpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@use
+                    val bodyStr = response.body?.string() ?: return@use
+                    val root = JSONObject(bodyStr)
+                    val results = root.optJSONArray("results") ?: return@use
+                    if (results.length() == 0) return@use
 
-                val data = TmdbMovieData(
-                    id = id,
-                    title = movieTitle,
-                    overview = overview,
-                    posterUrl = posterPath?.let { "$IMAGE_BASE_W500$it" },
-                    backdropUrl = backdropPath?.let { "$IMAGE_BASE_W780$it" },
-                    rating = voteAverage,
-                    releaseDate = releaseDate
-                )
-                movieCache[query] = data
-                data
-            }
-        } catch (_: Exception) {
-            null
+                    val first = results.getJSONObject(0)
+                    val id = first.optInt("id")
+                    val movieTitle = first.optString("title", query)
+                    val overview = first.optString("overview", "")
+                    val posterPath = first.optString("poster_path").takeIf { it.isNotBlank() }
+                    val backdropPath = first.optString("backdrop_path").takeIf { it.isNotBlank() }
+                    val voteAverage = first.optDouble("vote_average", 0.0).takeIf { it > 0 }
+                    val releaseDate = first.optString("release_date").takeIf { it.isNotBlank() }
+
+                    val data = TmdbMovieData(
+                        id = id,
+                        title = movieTitle,
+                        overview = overview,
+                        posterUrl = posterPath?.let { "$IMAGE_BASE_W500$it" },
+                        backdropUrl = backdropPath?.let { "$IMAGE_BASE_W780$it" },
+                        rating = voteAverage,
+                        releaseDate = releaseDate
+                    )
+
+                    if (bestMatch == null || (bestMatch?.overview.isNullOrBlank() && overview.isNotBlank())) {
+                        bestMatch = data
+                    }
+
+                    if (overview.isNotBlank()) {
+                        return@withContext data.also { movieCache[query] = it }
+                    }
+                }
+            } catch (_: Exception) {}
         }
+
+        bestMatch?.also { movieCache[query] = it }
     }
 
-    /**
-     * Enriquece la lista de episodios con sinopsis real, nombres y miniaturas 16:9 oficiales de TMDB
-     */
     suspend fun enrichEpisodes(seriesName: String, episodes: List<Episode>): List<Episode> = withContext(Dispatchers.IO) {
         if (episodes.isEmpty()) return@withContext episodes
 
         val show = searchTvShow(seriesName) ?: return@withContext episodes
 
-        // Temporadas presentes en los episodios
         val seasonsPresent = episodes.map { it.seasonNumber }.distinct()
         val seasonMap = mutableMapOf<Int, Map<Int, TmdbEpisodeData>>()
 
@@ -251,9 +292,6 @@ object TmdbEnricher {
         }
     }
 
-    /**
-     * Enriquece una película con sinopsis oficial, fondo HD, calificación y poster de TMDB si faltan
-     */
     suspend fun enrichMovie(movie: VodMovie): VodMovie = withContext(Dispatchers.IO) {
         val tmdb = searchMovie(movie.name) ?: return@withContext movie
 
@@ -276,9 +314,6 @@ object TmdbEnricher {
         )
     }
 
-    /**
-     * Enriquece una serie con sinopsis de TMDB, fondo HD y calificación
-     */
     suspend fun enrichSeries(series: Series): Series = withContext(Dispatchers.IO) {
         val tmdb = searchTvShow(series.name) ?: return@withContext series
 
