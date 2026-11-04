@@ -1,4 +1,4 @@
-package com.lelouch.feature.mobile
+﻿package com.lelouch.feature.mobile
 
 import android.app.Activity
 import android.content.pm.ActivityInfo
@@ -82,7 +82,7 @@ data class MobileCategoryItem(
     val name: String
 )
 
-/** FASE 37: metadatos del contenido que se está reproduciendo, para el historial. */
+/** FASE 37: metadatos del contenido que se estÃ¡ reproduciendo, para el historial. */
 data class ActiveContentMeta(
     val title: String,
     val posterUrl: String? = null,
@@ -120,8 +120,8 @@ fun MobileHomeScreen(
     onLogout: () -> Unit = {},
     onFetchSeriesDetails: (suspend (seriesId: Int) -> Pair<List<Int>, List<Episode>>)? = null,
     playbackHistory: PlaybackHistoryRepository? = null,
-    // FASE 40: ventana flotante (Picture-in-Picture). La Activity es la dueña del modo; la
-    // pantalla solo avisa de que hay reproducción activa y dibuja el vídeo sin el resto de la UI.
+    // FASE 40: ventana flotante (Picture-in-Picture). La Activity es la dueÃ±a del modo; la
+    // pantalla solo avisa de que hay reproducciÃ³n activa y dibuja el vÃ­deo sin el resto de la UI.
     isInPictureInPicture: Boolean = false,
     onPlaybackActiveChanged: (Boolean) -> Unit = {},
     onEnterPictureInPicture: () -> Unit = {}
@@ -134,16 +134,16 @@ fun MobileHomeScreen(
     var searchQuery by remember { mutableStateOf("") }
     var isPlayerFullscreen by remember { mutableStateOf(false) }
 
-    // FASE 39: identificador de la petición de reproducción en curso. Es la clave del efecto
-    // de arranque, así que volver a tocar el mismo contenido lo reinicia y cualquier respuesta
-    // tardía de una petición anterior (p. ej. la consulta de reanudación) se descarta.
+    // FASE 39: identificador de la peticiÃ³n de reproducciÃ³n en curso. Es la clave del efecto
+    // de arranque, asÃ­ que volver a tocar el mismo contenido lo reinicia y cualquier respuesta
+    // tardÃ­a de una peticiÃ³n anterior (p. ej. la consulta de reanudaciÃ³n) se descarta.
     var playbackRequest by remember { mutableIntStateOf(0) }
 
     /**
-     * FASE 39 · Único punto de entrada para arrancar reproducción en móvil.
+     * FASE 39 Â· Ãšnico punto de entrada para arrancar reproducciÃ³n en mÃ³vil.
      *
-     * Fija primero el modo (directo/VOD) y después publica la URL, de modo que el efecto de
-     * arranque siempre lea el `isLivePlayback` definitivo. No reproduce aquí: el efecto lo hace
+     * Fija primero el modo (directo/VOD) y despuÃ©s publica la URL, de modo que el efecto de
+     * arranque siempre lea el `isLivePlayback` definitivo. No reproduce aquÃ­: el efecto lo hace
      * de forma inmediata para no duplicar llamadas al motor.
      */
     val startPlayback: (url: String, live: Boolean) -> Unit = { url, live ->
@@ -190,7 +190,7 @@ fun MobileHomeScreen(
     var castStatus by remember { mutableStateOf<String?>(null) }
     var castJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
-    /** FASE 38: cerrar el selector cancela cualquier envío/confirmación en curso. */
+    /** FASE 38: cerrar el selector cancela cualquier envÃ­o/confirmaciÃ³n en curso. */
     val dismissCastSheet: () -> Unit = {
         castJob?.cancel()
         castJob = null
@@ -206,7 +206,7 @@ fun MobileHomeScreen(
         castDevices = castManager.discover()
         isCastSearching = false
         if (castDevices.isEmpty()) {
-            castMessage = "No se encontraron dispositivos DLNA. Comprueba que estén encendidos y en la misma red Wi-Fi."
+            castMessage = "No se encontraron dispositivos DLNA. Comprueba que estÃ©n encendidos y en la misma red Wi-Fi."
         }
     }
     val hiddenPrefs = remember { context.getSharedPreferences("iptv_hidden_categories", android.content.Context.MODE_PRIVATE) }
@@ -250,7 +250,7 @@ fun MobileHomeScreen(
         Regex("(?i)\\b(xxx|adult|adultos|\\+18|erotic|forbiden|playboy|venus|penthouse|brazzers|redlight|hustler|babes|porn)\\b")
     }
 
-    // FASE 32: Permitir rotación automática controlada
+    // FASE 32: Permitir rotaciÃ³n automÃ¡tica controlada
     DisposableEffect(Unit) {
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         onDispose {
@@ -291,7 +291,7 @@ fun MobileHomeScreen(
         }
     }
 
-    // FASE 33: Anticaídas de señal y Omisión Automática de canales caídos o vacíos
+    // FASE 33: AnticaÃ­das de seÃ±al y OmisiÃ³n AutomÃ¡tica de canales caÃ­dos o vacÃ­os
     DisposableEffect(playerEngine, cleanLiveChannels, activeStreamUrl, isLivePlayback, activeSource) {
         playerEngine.onChannelUnavailable = {
             if (isLivePlayback && cleanLiveChannels.isNotEmpty()) {
@@ -302,7 +302,7 @@ fun MobileHomeScreen(
                     val nextChannel = cleanLiveChannels[nextIndex]
                     android.widget.Toast.makeText(
                         context,
-                        "⚠️ Señal caída. Saltando a: ${nextChannel.name}",
+                        "âš ï¸ SeÃ±al caÃ­da. Saltando a: ${nextChannel.name}",
                         android.widget.Toast.LENGTH_SHORT
                     ).show()
                     activeChannelName = nextChannel.name
@@ -316,7 +316,7 @@ fun MobileHomeScreen(
                 } else {
                     android.widget.Toast.makeText(
                         context,
-                        "Demasiados canales caídos. Deteniendo salto automático.",
+                        "Demasiados canales caÃ­dos. Deteniendo salto automÃ¡tico.",
                         android.widget.Toast.LENGTH_LONG
                     ).show()
                     consecutiveAutoSkips = 0
@@ -329,7 +329,7 @@ fun MobileHomeScreen(
     }
 
 
-    // FASE 34: Gestos táctiles de cambio de canal y OSD flotante
+    // FASE 34: Gestos tÃ¡ctiles de cambio de canal y OSD flotante
     var channelOsdText by remember { mutableStateOf<String?>(null) }
     var channelOsdSubtext by remember { mutableStateOf<String?>(null) }
     var channelOsdDirection by remember { mutableStateOf<String?>(null) }
@@ -367,7 +367,7 @@ fun MobileHomeScreen(
                 }
                 channelOsdText = targetChannel.name
                 channelOsdSubtext = "Canal ${newIndex + 1} de ${cleanLiveChannels.size}"
-                channelOsdDirection = if (delta > 0) "▲ Siguiente Canal" else "▼ Canal Anterior"
+                channelOsdDirection = if (delta > 0) "â–² Siguiente Canal" else "â–¼ Canal Anterior"
                 channelOsdVersion++
             }
         }
@@ -460,7 +460,7 @@ fun MobileHomeScreen(
     var isDownloadsDialogOpen by remember { mutableStateOf(false) }
     var diagnosticsTargetSource by remember { mutableStateOf<SourceConfig?>(null) }
 
-    // Comprobación automática silenciosa de nueva versión al iniciar la app
+    // ComprobaciÃ³n automÃ¡tica silenciosa de nueva versiÃ³n al iniciar la app
     val updateContext = LocalContext.current
     LaunchedEffect(Unit) {
         kotlinx.coroutines.delay(2500L)
@@ -472,10 +472,10 @@ fun MobileHomeScreen(
         } catch (_: Exception) {}
     }
 
-    // FASE 39: arranque de reproducción.
-    // - Directo: `playStream` se ejecuta sin ninguna suspensión previa (nada que esperar).
-    // - VOD: el stream arranca ya en 0 y la reanudación se aplica cuando llega. Si la consulta
-    //   falla, tarda o se cancela, la reproducción continúa desde el principio.
+    // FASE 39: arranque de reproducciÃ³n.
+    // - Directo: `playStream` se ejecuta sin ninguna suspensiÃ³n previa (nada que esperar).
+    // - VOD: el stream arranca ya en 0 y la reanudaciÃ³n se aplica cuando llega. Si la consulta
+    //   falla, tarda o se cancela, la reproducciÃ³n continÃºa desde el principio.
     LaunchedEffect(activeStreamUrl, playbackRequest) {
         val url = activeStreamUrl ?: return@LaunchedEffect
         val request = playbackRequest
@@ -500,8 +500,8 @@ fun MobileHomeScreen(
         }
     }
 
-    // FASE 37: persistir el avance mientras se reproduce un VOD (también en el mini
-    // reproductor). En directo no se guarda: no existe una posición reanudable.
+    // FASE 37: persistir el avance mientras se reproduce un VOD (tambiÃ©n en el mini
+    // reproductor). En directo no se guarda: no existe una posiciÃ³n reanudable.
     LaunchedEffect(activeStreamUrl, isLivePlayback, activeSource?.id, playbackHistory) {
         val repo = playbackHistory ?: return@LaunchedEffect
         if (isLivePlayback) return@LaunchedEffect
@@ -534,7 +534,7 @@ fun MobileHomeScreen(
         )
     }
 
-    // BackHandler para película y serie seleccionadas en vista completa
+    // BackHandler para pelÃ­cula y serie seleccionadas en vista completa
     BackHandler(enabled = selectedMovie != null && !isPlayerFullscreen) {
         selectedMovie = null
     }
@@ -546,7 +546,7 @@ fun MobileHomeScreen(
         selectedTab = 0
     }
 
-    // FASE 37/38: capas que deben consumir BACK antes de que actúe la navegación por pestañas.
+    // FASE 37/38: capas que deben consumir BACK antes de que actÃºe la navegaciÃ³n por pestaÃ±as.
     BackHandler(enabled = isHistoryVisible) {
         isHistoryVisible = false
     }
@@ -557,8 +557,8 @@ fun MobileHomeScreen(
     var isCategoryManagerModalOpen by remember { mutableStateOf(false) }
     var categoryManagerInitialScope by remember { mutableStateOf(MobileCategoryScope.LIVE) }
 
-    // FASE 40: en ventana flotante solo se dibuja el vídeo. La reproducción y sus efectos ya
-    // viven arriba, así que este recorte no reinicia nada: solo evita que la interfaz completa
+    // FASE 40: en ventana flotante solo se dibuja el vÃ­deo. La reproducciÃ³n y sus efectos ya
+    // viven arriba, asÃ­ que este recorte no reinicia nada: solo evita que la interfaz completa
     // se encoja dentro del recuadro.
     if (isInPictureInPicture && activeStreamUrl != null) {
         Box(
@@ -612,7 +612,7 @@ fun MobileHomeScreen(
                         onCopyUrl = {
                             activeStreamUrl?.let { url ->
                                 clipboard.setText(androidx.compose.ui.text.AnnotatedString(url))
-                                android.widget.Toast.makeText(context, "📋 Enlace copiado: $activeChannelName", android.widget.Toast.LENGTH_SHORT).show()
+                                android.widget.Toast.makeText(context, "ðŸ“‹ Enlace copiado: $activeChannelName", android.widget.Toast.LENGTH_SHORT).show()
                             }
                         },
                         onClose = { playerEngine.stop(); activeStreamUrl = null },
@@ -803,7 +803,7 @@ fun MobileHomeScreen(
             }
 
             // FASE 39: en directo el toque lo atiende este Box; en VOD lo atiende
-            // PlayerGestureLayer (que además distingue toque simple y doble toque). Con ambos
+            // PlayerGestureLayer (que ademÃ¡s distingue toque simple y doble toque). Con ambos
             // activos a la vez el toque se procesaba dos veces y el overlay quedaba igual.
             val toggleOverlayOnTap = Modifier.clickable(
                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
@@ -830,8 +830,8 @@ fun MobileHomeScreen(
                 )
 
                 // FASE 37: gestos de brillo/volumen/seek/doble toque. Solo en VOD: en directo
-                // el arrastre vertical ya está reservado al cambio de canal. Esta capa queda por
-                // debajo de los controles (se componen después), así que nunca los tapa.
+                // el arrastre vertical ya estÃ¡ reservado al cambio de canal. Esta capa queda por
+                // debajo de los controles (se componen despuÃ©s), asÃ­ que nunca los tapa.
                 PlayerGestureLayer(
                     engine = playerEngine,
                     enabled = !isLivePlayback,
@@ -839,7 +839,7 @@ fun MobileHomeScreen(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // FASE 36: hoja de pistas (calidad / audio / subtítulos)
+                // FASE 36: hoja de pistas (calidad / audio / subtÃ­tulos)
                 if (isTracksSheetVisible) {
                     MobileTracksSheet(
                         engine = playerEngine,
@@ -847,7 +847,7 @@ fun MobileHomeScreen(
                     )
                 }
 
-                // OSD Flotante Neón en pantalla completa
+                // OSD Flotante NeÃ³n en pantalla completa
                 AnimatedVisibility(
                     visible = channelOsdText != null,
                     enter = fadeIn() + slideInVertically { it / 2 },
@@ -916,7 +916,7 @@ fun MobileHomeScreen(
                             onClick = {
                                 activeStreamUrl?.let { url ->
                                     clipboard.setText(androidx.compose.ui.text.AnnotatedString(url))
-                                    android.widget.Toast.makeText(context, "📋 Enlace copiado: $activeChannelName", android.widget.Toast.LENGTH_SHORT).show()
+                                    android.widget.Toast.makeText(context, "ðŸ“‹ Enlace copiado: $activeChannelName", android.widget.Toast.LENGTH_SHORT).show()
                                 }
                             },
                             modifier = Modifier.background(Color.Black.copy(0.6f), CircleShape)
@@ -927,7 +927,7 @@ fun MobileHomeScreen(
                             onClick = { isTracksSheetVisible = true },
                             modifier = Modifier.background(Color.Black.copy(0.6f), CircleShape)
                         ) {
-                            Icon(Icons.Default.Tune, contentDescription = "Pistas y subtítulos", tint = Color.White)
+                            Icon(Icons.Default.Tune, contentDescription = "Pistas y subtÃ­tulos", tint = Color.White)
                         }
                         IconButton(
                             onClick = {
@@ -965,7 +965,7 @@ fun MobileHomeScreen(
                     }
                 }
 
-                // Barra Inferior para VOD / Películas / Series (Timeline, Adelantar, Velocidad)
+                // Barra Inferior para VOD / PelÃ­culas / Series (Timeline, Adelantar, Velocidad)
                 if (!isLivePlayback) {
                     val playbackState by playerEngine.playbackState.collectAsState()
                     val (currentPos, totalDur) = when (val ps = playbackState) {
@@ -1127,7 +1127,7 @@ fun MobileHomeScreen(
                     castJob = uiScope.launch {
                         isCastSearching = true
                         castMessage = null
-                        castStatus = "Enviando a ${device.name}… Confirma en el televisor si aparece un aviso."
+                        castStatus = "Enviando a ${device.name}â€¦ Confirma en el televisor si aparece un aviso."
                         try {
                             castManager.cast(
                                 device = device,
@@ -1136,12 +1136,12 @@ fun MobileHomeScreen(
                                 isLive = isLivePlayback
                             ).onSuccess {
                                 castingDevice = device
-                                // Solo se pausa el móvil cuando el televisor confirma PLAYING.
+                                // Solo se pausa el mÃ³vil cuando el televisor confirma PLAYING.
                                 playerEngine.pause()
                                 isCastSheetVisible = false
                                 android.widget.Toast.makeText(
                                     context,
-                                    "📺 Reproduciendo en ${device.name}",
+                                    "ðŸ“º Reproduciendo en ${device.name}",
                                     android.widget.Toast.LENGTH_SHORT
                                 ).show()
                             }.onFailure { error ->
@@ -1162,7 +1162,7 @@ fun MobileHomeScreen(
                 if (device != null) {
                     uiScope.launch { castManager.stop(device) }
                 }
-                // El móvil retoma el contenido que se había pausado al enviarlo.
+                // El mÃ³vil retoma el contenido que se habÃ­a pausado al enviarlo.
                 playerEngine.resume()
             },
             onDismiss = dismissCastSheet
@@ -1175,7 +1175,7 @@ fun MobileHomeScreen(
             title = { Text("Acceso a Ajustes", color = Color.White, fontWeight = FontWeight.Bold) },
             text = {
                 Column {
-                    Text("Ingresa el PIN para gestionar listas y visibilidad de categorías:", color = Color.White.copy(0.7f))
+                    Text("Ingresa el PIN para gestionar listas y visibilidad de categorÃ­as:", color = Color.White.copy(0.7f))
                     Spacer(modifier = Modifier.height(16.dp))
                     androidx.compose.material3.OutlinedTextField(
                         value = pinInput,
@@ -1277,7 +1277,7 @@ fun MobileHomeScreen(
                     val count = onExtractContent?.invoke(targetSource.id, selectedCatNames, contentType) ?: 0
                     android.widget.Toast.makeText(
                         context,
-                        "🎉 ¡Se extrajeron y añadieron $count elementos a Tu Lista LELOUCH!",
+                        "ðŸŽ‰ Â¡Se extrajeron y aÃ±adieron $count elementos a Tu Lista LELOUCH!",
                         android.widget.Toast.LENGTH_LONG
                     ).show()
                     extractTargetSource = null
@@ -1390,7 +1390,7 @@ private fun MobileTopBar(
     }
 }
 
-// BOTTOM NAV (ESTILO BIX PLUS - 5 PESTAÑAS)
+// BOTTOM NAV (ESTILO BIX PLUS - 5 PESTAÃ‘AS)
 @Composable
 private fun MobileBottomNavBar(selectedTab: Int, onTabChange: (Int) -> Unit) {
     NavigationBar(
@@ -1399,10 +1399,10 @@ private fun MobileBottomNavBar(selectedTab: Int, onTabChange: (Int) -> Unit) {
     ) {
         val navItems = listOf(
             Triple(Icons.Default.Home, "Inicio", 0),
-            Triple(Icons.Default.Movie, "Películas", 1),
+            Triple(Icons.Default.Movie, "PelÃ­culas", 1),
             Triple(Icons.Default.LiveTv, "En Vivo", 2),
             Triple(Icons.Default.Favorite, "Favoritos", 3),
-            Triple(Icons.Default.Menu, "Más", 4)
+            Triple(Icons.Default.Menu, "MÃ¡s", 4)
         )
         navItems.forEach { (icon, label, index) ->
             val isSelected = selectedTab == index
@@ -1494,8 +1494,8 @@ private fun MobileHomeTab(
                             modifier = Modifier.size(32.dp),
                             strokeWidth = 3.dp
                         )
-                        Text("Sincronizando catálogo...", color = LelouchTextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                        Text("Obteniendo canales, películas y series de esta cuenta.", color = LelouchTextSecondary, fontSize = 12.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        Text("Sincronizando catÃ¡logo...", color = LelouchTextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        Text("Obteniendo canales, pelÃ­culas y series de esta cuenta.", color = LelouchTextSecondary, fontSize = 12.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                         Spacer(Modifier.height(4.dp))
                         Button(
                             onClick = onReloadCatalog,
@@ -1503,7 +1503,7 @@ private fun MobileHomeTab(
                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                             shape = RoundedCornerShape(8.dp)
                         ) {
-                            Text("🔄 Sincronizar Ahora", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text("ðŸ”„ Sincronizar Ahora", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         }
                     }
                 }
@@ -1523,7 +1523,7 @@ private fun MobileLiveTab(
     onChannelClick: (String, String) -> Unit
 ) {
     if (channels.isEmpty() && favoriteChannels.isEmpty()) {
-        EmptyState("No hay canales disponibles", "Sincroniza tu lista desde la pestaña Listas")
+        EmptyState("No hay canales disponibles", "Sincroniza tu lista desde la pestaÃ±a Listas")
         return
     }
     var selectedCategoryId by remember(categories) { mutableStateOf("all") }
@@ -1548,12 +1548,12 @@ private fun MobileLiveTab(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        // Barra de categorías
+        // Barra de categorÃ­as
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Chips de categorías normales (Todos, Eventos del Día, y categorías)
+            // Chips de categorÃ­as normales (Todos, Eventos del DÃ­a, y categorÃ­as)
             if (categories.isNotEmpty()) {
                 items(categories) { cat ->
                     val isSel = cat.id == selectedCategoryId
@@ -1601,7 +1601,7 @@ private fun MobileMoviesTab(
     onMovieClick: (VodMovie) -> Unit
 ) {
     if (movies.isEmpty()) {
-        EmptyState("No hay películas", "Sincroniza tu lista desde la pestaña Listas")
+        EmptyState("No hay pelÃ­culas", "Sincroniza tu lista desde la pestaÃ±a Listas")
         return
     }
     var selectedCategoryId by remember(categories) { mutableStateOf("all") }
@@ -1655,7 +1655,7 @@ private fun MobileSeriesTab(
     onSeriesClick: (Series) -> Unit
 ) {
     if (seriesList.isEmpty()) {
-        EmptyState("No hay series", "Sincroniza tu lista desde la pestaña Listas")
+        EmptyState("No hay series", "Sincroniza tu lista desde la pestaÃ±a Listas")
         return
     }
     var selectedCategoryId by remember(categories) { mutableStateOf("all") }
@@ -1701,7 +1701,7 @@ private fun MobileSeriesTab(
     }
 }
 
-// TAB 1: PELÍCULAS Y SERIES COMBINADO CON SUB-TABS ESTILO BIX PLUS
+// TAB 1: PELÃCULAS Y SERIES COMBINADO CON SUB-TABS ESTILO BIX PLUS
 @Composable
 private fun MobileVodTab(
     movies: List<VodMovie>,
@@ -1711,10 +1711,10 @@ private fun MobileVodTab(
     seriesCategories: List<MobileCategoryItem>,
     onSeriesClick: (Series) -> Unit
 ) {
-    var subTab by remember { mutableIntStateOf(0) } // 0: Películas, 1: Series
+    var subTab by remember { mutableIntStateOf(0) } // 0: PelÃ­culas, 1: Series
 
     Column(modifier = Modifier.fillMaxSize().background(BixDarkBackground)) {
-        // Selector tipo cápsula Bix Plus
+        // Selector tipo cÃ¡psula Bix Plus
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1736,7 +1736,7 @@ private fun MobileVodTab(
                     Icon(Icons.Default.Movie, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        "Películas (${movies.size})",
+                        "PelÃ­culas (${movies.size})",
                         color = Color.White,
                         fontWeight = if (isMovies) FontWeight.Bold else FontWeight.Medium,
                         fontSize = 13.sp
@@ -1776,7 +1776,7 @@ private fun MobileVodTab(
     }
 }
 
-// TAB 3: FAVORITOS (DISEÑO BIX PLUS CON EMPTY STATE EXACTO CAPTURA 8)
+// TAB 3: FAVORITOS (DISEÃ‘O BIX PLUS CON EMPTY STATE EXACTO CAPTURA 8)
 @Composable
 private fun MobileFavoritesTab(
     favoriteChannels: List<LiveStream>,
@@ -1826,14 +1826,14 @@ private fun MobileFavoritesTab(
                 }
 
                 Text(
-                    text = "No se encontró",
+                    text = "No se encontrÃ³",
                     color = Color.White,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold
                 )
 
                 Text(
-                    text = "Cuando guardes títulos como favoritos aparecerán aquí.",
+                    text = "Cuando guardes tÃ­tulos como favoritos aparecerÃ¡n aquÃ­.",
                     color = BixTextMuted,
                     fontSize = 13.sp,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -1843,7 +1843,7 @@ private fun MobileFavoritesTab(
         }
     } else {
         Column(modifier = Modifier.fillMaxSize().background(BixDarkBackground)) {
-            // Selector tipo cápsula para cambiar entre Canales y Películas Favoritas
+            // Selector tipo cÃ¡psula para cambiar entre Canales y PelÃ­culas Favoritas
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1879,7 +1879,7 @@ private fun MobileFavoritesTab(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        "Películas (${safeMovies.size})",
+                        "PelÃ­culas (${safeMovies.size})",
                         color = Color.White,
                         fontWeight = if (isMov) FontWeight.Bold else FontWeight.Medium,
                         fontSize = 13.sp
@@ -1912,7 +1912,7 @@ private fun MobileFavoritesTab(
             } else {
                 if (safeMovies.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("No tienes películas favoritas guardadas.", color = BixTextMuted, fontSize = 14.sp)
+                        Text("No tienes pelÃ­culas favoritas guardadas.", color = BixTextMuted, fontSize = 14.sp)
                     }
                 } else {
                     LazyVerticalGrid(
@@ -1969,7 +1969,7 @@ private fun MobileSettingsTab(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // 1. CABECERA: TÍTULO "Opciones"
+        // 1. CABECERA: TÃTULO "Opciones"
         item {
             Row(
                 modifier = Modifier
@@ -2005,28 +2005,28 @@ private fun MobileSettingsTab(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // 🌐 DNS Selector
+                // ðŸŒ DNS Selector
                 CircleActionItem(
                     icon = Icons.Default.Dns,
                     label = if (dnsEnabled) "DNS Activo" else "DNS",
                     bgColor = Color(0xFF00D2B8),
                     onClick = onOpenDnsSelector
                 )
-                // 📥 Mis Descargas
+                // ðŸ“¥ Mis Descargas
                 CircleActionItem(
                     icon = Icons.Default.Download,
                     label = "Descargas",
                     bgColor = Color(0xFF6366F1),
                     onClick = onOpenDownloads
                 )
-                // 🟢 Actualizaciones
+                // ðŸŸ¢ Actualizaciones
                 CircleActionItem(
                     icon = Icons.Default.Refresh,
                     label = "Actualizar",
                     bgColor = BixCircleGreen,
                     onClick = onOpenUpdate
                 )
-                // 💖 Favoritos
+                // ðŸ’– Favoritos
                 CircleActionItem(
                     icon = Icons.Default.Favorite,
                     label = "Favoritos",
@@ -2036,10 +2036,10 @@ private fun MobileSettingsTab(
             }
         }
 
-        // 2.5 SECCIÓN MOTOR DE TRANSMISIÓN, DNS, ACELERACIÓN HW+ Y OPENSL ES (ESTILO XUPER)
+        // 2.5 SECCIÃ“N MOTOR DE TRANSMISIÃ“N, DNS, ACELERACIÃ“N HW+ Y OPENSL ES (ESTILO XUPER)
         item {
             Text(
-                text = "MOTOR DE TRANSMISIÓN Y RED (ESTILO XUPER)",
+                text = "MOTOR DE TRANSMISIÃ“N Y RED (ESTILO XUPER)",
                 color = Color(0xFF2DD4BF),
                 fontWeight = FontWeight.Bold,
                 fontSize = 12.sp,
@@ -2102,7 +2102,7 @@ private fun MobileSettingsTab(
                                 }
                             }
                             Text(
-                                text = if (dnsEnabled) "${dnsProvider.title} (${dnsProvider.primaryIp}) • Caché RAM: ${LelouchDnsManager.cachedIpCount()} IPs"
+                                text = if (dnsEnabled) "${dnsProvider.title} (${dnsProvider.primaryIp}) â€¢ CachÃ© RAM: ${LelouchDnsManager.cachedIpCount()} IPs"
                                 else "Toca para elegir Cloudflare (1.1.1.1), Google, Control D o AdGuard",
                                 color = if (dnsEnabled) Color(0xFF2DD4BF) else BixTextMuted,
                                 fontSize = 11.sp
@@ -2118,7 +2118,7 @@ private fun MobileSettingsTab(
 
                     HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
 
-                    // 2. Aceleración por Hardware (HW+ / HW / SW)
+                    // 2. AceleraciÃ³n por Hardware (HW+ / HW / SW)
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
@@ -2138,7 +2138,7 @@ private fun MobileSettingsTab(
                             Spacer(Modifier.width(14.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "Decodificador de Video (Aceleración HW)",
+                                    text = "Decodificador de Video (AceleraciÃ³n HW)",
                                     color = Color.White,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 14.sp
@@ -2175,9 +2175,9 @@ private fun MobileSettingsTab(
                                 ) {
                                     Text(
                                         text = when (mode) {
-                                            LelouchDnsManager.VideoDecoderMode.HW_PLUS -> "⚡ HW+ (GPU)"
-                                            LelouchDnsManager.VideoDecoderMode.HW_ONLY -> "🔧 HW"
-                                            LelouchDnsManager.VideoDecoderMode.SW_ONLY -> "💻 SW (CPU)"
+                                            LelouchDnsManager.VideoDecoderMode.HW_PLUS -> "âš¡ HW+ (GPU)"
+                                            LelouchDnsManager.VideoDecoderMode.HW_ONLY -> "ðŸ”§ HW"
+                                            LelouchDnsManager.VideoDecoderMode.SW_ONLY -> "ðŸ’» SW (CPU)"
                                         },
                                         color = if (selected) Color(0xFF2DD4BF) else Color.White,
                                         fontSize = 11.sp,
@@ -2247,8 +2247,8 @@ private fun MobileSettingsTab(
                                 ) {
                                     Text(
                                         text = when (mode) {
-                                            LelouchDnsManager.AudioEngineMode.OPENSL_ES -> "🔊 OpenSL ES (Baja Latencia)"
-                                            LelouchDnsManager.AudioEngineMode.AUDIOTRACK -> "🔈 AudioTrack Estándar"
+                                            LelouchDnsManager.AudioEngineMode.OPENSL_ES -> "ðŸ”Š OpenSL ES (Baja Latencia)"
+                                            LelouchDnsManager.AudioEngineMode.AUDIOTRACK -> "ðŸ”ˆ AudioTrack EstÃ¡ndar"
                                         },
                                         color = if (selected) Color(0xFF38BDF8) else Color.White,
                                         fontSize = 11.sp,
@@ -2273,7 +2273,7 @@ private fun MobileSettingsTab(
                             border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.5f)),
                             shape = RoundedCornerShape(10.dp)
                         ) {
-                            Text("🩺 Test de Lista / Red", color = Color(0xFF38BDF8), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text("ðŸ©º Test de Lista / Red", color = Color(0xFF38BDF8), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                         Button(
                             onClick = onOpenDownloads,
@@ -2282,14 +2282,14 @@ private fun MobileSettingsTab(
                             border = BorderStroke(1.dp, Color(0xFF818CF8).copy(alpha = 0.5f)),
                             shape = RoundedCornerShape(10.dp)
                         ) {
-                            Text("📥 Mis Descargas", color = Color(0xFFA5B4FC), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text("ðŸ“¥ Mis Descargas", color = Color(0xFFA5B4FC), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
             }
         }
 
-        // 3. SECCIÓN PREFERENCIAS (ESTILO BIX PLUS)
+        // 3. SECCIÃ“N PREFERENCIAS (ESTILO BIX PLUS)
         item {
             Text(
                 text = "PREFERENCIAS",
@@ -2339,7 +2339,7 @@ private fun MobileSettingsTab(
                                 fontSize = 14.sp
                             )
                             Text(
-                                text = if (isAdultModeEnabled) "Canales y películas +18 visibles" else "Contenido adulto oculto",
+                                text = if (isAdultModeEnabled) "Canales y pelÃ­culas +18 visibles" else "Contenido adulto oculto",
                                 color = if (isAdultModeEnabled) Color(0xFFEF4444) else BixTextMuted,
                                 fontSize = 11.sp,
                                 fontWeight = if (isAdultModeEnabled) FontWeight.Bold else FontWeight.Normal
@@ -2389,7 +2389,7 @@ private fun MobileSettingsTab(
                                 fontSize = 14.sp
                             )
                             Text(
-                                text = "Agrupa episodios en temporadas para navegar más rápido.",
+                                text = "Agrupa episodios en temporadas para navegar mÃ¡s rÃ¡pido.",
                                 color = BixTextMuted,
                                 fontSize = 11.sp
                             )
@@ -2408,7 +2408,7 @@ private fun MobileSettingsTab(
 
                     HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
 
-                    // Botones rápidos Cloud Sync
+                    // Botones rÃ¡pidos Cloud Sync
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -2419,7 +2419,7 @@ private fun MobileSettingsTab(
                             colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.08f)),
                             shape = RoundedCornerShape(10.dp)
                         ) {
-                            Text("☁️ Nube", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("â˜ï¸ Nube", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                         Button(
                             onClick = onForceSync,
@@ -2427,13 +2427,13 @@ private fun MobileSettingsTab(
                             colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.08f)),
                             shape = RoundedCornerShape(10.dp)
                         ) {
-                            Text("🔄 Recargar", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("ðŸ”„ Recargar", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                     }
 
                     HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
 
-                    // Botón para administrar categorías ocultas
+                    // BotÃ³n para administrar categorÃ­as ocultas
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2459,13 +2459,13 @@ private fun MobileSettingsTab(
                             Spacer(Modifier.width(12.dp))
                             Column {
                                 Text(
-                                    "Categorías Ocultas",
+                                    "CategorÃ­as Ocultas",
                                     color = Color.White,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp
                                 )
                                 Text(
-                                    "Ocultos: $liveHiddenCount TV • $moviesHiddenCount Pelis • $seriesHiddenCount Series",
+                                    "Ocultos: $liveHiddenCount TV â€¢ $moviesHiddenCount Pelis â€¢ $seriesHiddenCount Series",
                                     color = BixTextMuted,
                                     fontSize = 11.sp
                                 )
@@ -2482,8 +2482,8 @@ private fun MobileSettingsTab(
             }
         }
 
-        // Estado de sincronización visible en móvil (antes solo se mostraba en TV, así que un
-        // cambio de lista fallido dejaba la pantalla vacía sin explicación).
+        // Estado de sincronizaciÃ³n visible en mÃ³vil (antes solo se mostraba en TV, asÃ­ que un
+        // cambio de lista fallido dejaba la pantalla vacÃ­a sin explicaciÃ³n).
         if (syncStatusText.isNotBlank()) {
             item {
                 val accent = if (syncIsError) LelouchLiveRed else Color(0xFF38BDF8)
@@ -2523,7 +2523,7 @@ private fun MobileSettingsTab(
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
                 ) {
                     Text(
-                        "🔄 Verificar Fechas y Ocupación",
+                        "ðŸ”„ Verificar Fechas y OcupaciÃ³n",
                         color = Color(0xFF2DD4BF),
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold
@@ -2575,7 +2575,7 @@ private fun MobileSettingsTab(
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
                                 Text(
-                                    "✓ EN USO",
+                                    "âœ“ EN USO",
                                     color = Color.White,
                                     fontSize = 9.sp,
                                     fontWeight = FontWeight.Black
@@ -2591,7 +2591,7 @@ private fun MobileSettingsTab(
                                 .padding(horizontal = 5.dp, vertical = 2.dp)
                         ) {
                             Text(
-                                "☁️ Nube",
+                                "â˜ï¸ Nube",
                                 color = Color(0xFF38BDF8),
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold
@@ -2599,7 +2599,7 @@ private fun MobileSettingsTab(
                         }
                     }
 
-                    // FILA 2: Badges de Expiración y Semáforo de Ocupación en Vivo
+                    // FILA 2: Badges de ExpiraciÃ³n y SemÃ¡foro de OcupaciÃ³n en Vivo
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -2614,7 +2614,7 @@ private fun MobileSettingsTab(
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
                                 Text(
-                                    if (isM3u) "♾️ M3U" else "♾️ Sin fecha / Ilimitado",
+                                    if (isM3u) "â™¾ï¸ M3U" else "â™¾ï¸ Sin fecha / Ilimitado",
                                     color = Color(0xFF10B981),
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold
@@ -2627,9 +2627,9 @@ private fun MobileSettingsTab(
                                 else -> Color(0xFF10B981)
                             }
                             val badgeText = when {
-                                daysRem <= 0 -> "🔴 Venció: ${source.formattedExpireDate}"
-                                daysRem <= 15 -> "⚠️ Vence: ${source.formattedExpireDate} (${daysRem}d)"
-                                else -> "📅 Vence: ${source.formattedExpireDate} (${daysRem} días)"
+                                daysRem <= 0 -> "ðŸ”´ VenciÃ³: ${source.formattedExpireDate}"
+                                daysRem <= 15 -> "âš ï¸ Vence: ${source.formattedExpireDate} (${daysRem}d)"
+                                else -> "ðŸ“… Vence: ${source.formattedExpireDate} (${daysRem} dÃ­as)"
                             }
                             Box(
                                 modifier = Modifier
@@ -2654,7 +2654,7 @@ private fun MobileSettingsTab(
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
                                 Text(
-                                    "📅 Vence: ${source.formattedExpireDate}",
+                                    "ðŸ“… Vence: ${source.formattedExpireDate}",
                                     color = Color(0xFF10B981),
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold
@@ -2667,7 +2667,7 @@ private fun MobileSettingsTab(
                             val actC = source.activeConnections.coerceAtLeast(0)
                             val isBusy = actC >= maxC
                             val connColor = if (isBusy) Color(0xFFEF4444) else Color(0xFF10B981)
-                            val connLabel = if (isBusy) "🔴 OCUPADA ($actC/$maxC)" else "🟢 LIBRE ($actC/$maxC)"
+                            val connLabel = if (isBusy) "ðŸ”´ OCUPADA ($actC/$maxC)" else "ðŸŸ¢ LIBRE ($actC/$maxC)"
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(4.dp))
@@ -2687,14 +2687,14 @@ private fun MobileSettingsTab(
 
                     // FILA 3: Servidor y Usuario
                     Text(
-                        text = "🌐 ${source.serverUrl}  •  👤 ${source.username.ifBlank { "—" }}",
+                        text = "ðŸŒ ${source.serverUrl}  â€¢  ðŸ‘¤ ${source.username.ifBlank { "â€”" }}",
                         color = LelouchTextSecondary,
                         fontSize = 11.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
 
-                    // FILA 4: Botones de Acción
+                    // FILA 4: Botones de AcciÃ³n
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -2710,7 +2710,7 @@ private fun MobileSettingsTab(
                                         .padding(horizontal = 10.dp, vertical = 6.dp)
                                 ) {
                                     Text(
-                                        "✓ En uso",
+                                        "âœ“ En uso",
                                         color = Color(0xFF10B981),
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold
@@ -2724,7 +2724,7 @@ private fun MobileSettingsTab(
                                     shape = RoundedCornerShape(6.dp)
                                 ) {
                                     Text(
-                                        "⚡ Activar",
+                                        "âš¡ Activar",
                                         color = Color.Black,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold
@@ -2738,7 +2738,7 @@ private fun MobileSettingsTab(
                                 shape = RoundedCornerShape(6.dp),
                                 border = androidx.compose.foundation.BorderStroke(1.dp, LelouchBorder)
                             ) {
-                                Text("🔄 Recargar", color = LelouchTextPrimary, fontSize = 11.sp)
+                                Text("ðŸ”„ Recargar", color = LelouchTextPrimary, fontSize = 11.sp)
                             }
 
                             OutlinedButton(
@@ -2747,7 +2747,7 @@ private fun MobileSettingsTab(
                                 shape = RoundedCornerShape(6.dp),
                                 border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.5f))
                             ) {
-                                Text("🩺 Test", color = Color(0xFF38BDF8), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text("ðŸ©º Test", color = Color(0xFF38BDF8), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
                         }
 
@@ -2769,7 +2769,7 @@ private fun MobileSettingsTab(
             }
         }
 
-        // SECCIÓN AÑADIR NUEVA LISTA (ENLACE INTELIGENTE SMART URL)
+        // SECCIÃ“N AÃ‘ADIR NUEVA LISTA (ENLACE INTELIGENTE SMART URL)
         item {
             var smartUrl by remember { mutableStateOf("") }
             var smartName by remember { mutableStateOf("") }
@@ -2788,13 +2788,13 @@ private fun MobileSettingsTab(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        "➕ Añadir Nueva Lista (Enlace Inteligente)",
+                        "âž• AÃ±adir Nueva Lista (Enlace Inteligente)",
                         color = LelouchTextPrimary,
                         fontWeight = FontWeight.Black,
                         fontSize = 15.sp
                     )
                     Text(
-                        "Pega tu enlace M3U o Xtream Codes completo (como en Web Player). Detecta servidor, usuario y contraseña automáticamente.",
+                        "Pega tu enlace M3U o Xtream Codes completo (como en Web Player). Detecta servidor, usuario y contraseÃ±a automÃ¡ticamente.",
                         color = LelouchTextSecondary,
                         fontSize = 12.sp
                     )
@@ -2854,7 +2854,7 @@ private fun MobileSettingsTab(
                         shape = RoundedCornerShape(8.dp)
                     ) {
                         Text(
-                            "⚡ Conectar y Guardar Lista",
+                            "âš¡ Conectar y Guardar Lista",
                             color = if (smartUrl.isNotBlank()) Color.Black else LelouchTextSecondary,
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp
@@ -2879,7 +2879,7 @@ private fun formatDuration(ms: Long): String {
     }
 }
 
-// GESTO SWIPE TÁCTIL PARA CAMBIO DE CANAL
+// GESTO SWIPE TÃCTIL PARA CAMBIO DE CANAL
 fun Modifier.swipeToChangeChannel(
     enabled: Boolean,
     onNext: () -> Unit,
@@ -2939,7 +2939,7 @@ private fun ChannelChangeOsd(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    text = "📺",
+                    text = "ðŸ“º",
                     fontSize = 18.sp
                 )
                 Text(
@@ -3057,7 +3057,7 @@ private fun MiniPlayerOverlay(
     }
 }
 
-// ATRIBUCIÓN OFICIAL TMDB (TERMS OF USE & BRANDING)
+// ATRIBUCIÃ“N OFICIAL TMDB (TERMS OF USE & BRANDING)
 @Composable
 fun TmdbAttributionCard(modifier: Modifier = Modifier) {
     Row(
@@ -3091,14 +3091,14 @@ fun TmdbAttributionCard(modifier: Modifier = Modifier) {
         }
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "Metadatos y carteles cortesía de The Movie Database (TMDB)",
+                text = "Metadatos y carteles cortesÃ­a de The Movie Database (TMDB)",
                 color = Color.White.copy(alpha = 0.95f),
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold
             )
             Spacer(Modifier.height(2.dp))
             Text(
-                text = "Este producto utiliza la API de TMDB pero no está avalado ni certificado por TMDB.",
+                text = "Este producto utiliza la API de TMDB pero no estÃ¡ avalado ni certificado por TMDB.",
                 color = Color.White.copy(alpha = 0.70f),
                 fontSize = 10.sp,
                 lineHeight = 13.sp
@@ -3134,7 +3134,7 @@ private fun MobileMovieDetailView(
         )
     }
 
-    // Enriquecimiento automático con TMDB si falta sinopsis o backdrop
+    // Enriquecimiento automÃ¡tico con TMDB si falta sinopsis o backdrop
     LaunchedEffect(movie.streamId) {
         try {
             val enriched = com.lelouch.core.network.tmdb.TmdbEnricher.enrichMovie(movie)
@@ -3176,7 +3176,7 @@ private fun MobileMovieDetailView(
             IconButton(onClick = onToggleFavorite) {
                 Icon(
                     imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                    contentDescription = if (isFavorite) "Quitar de favoritos" else "Añadir a favoritos",
+                    contentDescription = if (isFavorite) "Quitar de favoritos" else "AÃ±adir a favoritos",
                     tint = if (isFavorite) Color(0xFFFF4081) else Color.White
                 )
             }
@@ -3184,7 +3184,7 @@ private fun MobileMovieDetailView(
 
         HorizontalDivider(color = LelouchBorder, thickness = 1.dp)
 
-        // PESTAÑAS: RESUMEN | FICHA TECNICA
+        // PESTAÃ‘AS: RESUMEN | FICHA TECNICA
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -3195,7 +3195,7 @@ private fun MobileMovieDetailView(
         ) {
             val tabs = listOf(
                 "resumen" to "Resumen",
-                "detalles" to "Ficha Técnica"
+                "detalles" to "Ficha TÃ©cnica"
             )
 
             tabs.forEach { (tabId, tabTitle) ->
@@ -3293,7 +3293,7 @@ private fun MobileMovieDetailView(
                                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                                         ) {
                                             Text(
-                                                "★ %.1f".format(r),
+                                                "â˜… %.1f".format(r),
                                                 color = Color.Black,
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.Bold
@@ -3329,7 +3329,7 @@ private fun MobileMovieDetailView(
                                 } else {
                                     Spacer(Modifier.height(14.dp))
                                     Text(
-                                        text = "Sinopsis en proceso de sincronización con TMDB / Catálogo.",
+                                        text = "Sinopsis en proceso de sincronizaciÃ³n con TMDB / CatÃ¡logo.",
                                         color = LelouchTextMuted,
                                         fontSize = 12.sp,
                                         fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
@@ -3364,7 +3364,7 @@ private fun MobileMovieDetailView(
                     ) {
                         item {
                             Text(
-                                text = "Ficha Técnica y Transmisión",
+                                text = "Ficha TÃ©cnica y TransmisiÃ³n",
                                 color = LelouchTextPrimary,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 16.sp,
@@ -3373,10 +3373,10 @@ private fun MobileMovieDetailView(
                         }
 
                         val specs = listOf(
-                            "Título Original / Búsqueda" to com.lelouch.core.network.tmdb.TmdbEnricher.cleanTitle(movieState.name),
+                            "TÃ­tulo Original / BÃºsqueda" to com.lelouch.core.network.tmdb.TmdbEnricher.cleanTitle(movieState.name),
                             "Calidad de Video" to "Full HD 1080p / 4K Ultra HD",
                             "Formato / Contenedor" to movieState.containerExtension.ifBlank { "MP4" }.uppercase(),
-                            "Duración" to if (movieState.durationFormatted.isNotBlank()) movieState.durationFormatted else "Estándar VOD",
+                            "DuraciÃ³n" to if (movieState.durationFormatted.isNotBlank()) movieState.durationFormatted else "EstÃ¡ndar VOD",
                             "Buffer VOD" to "Motor Lelouch 15s calibrado",
                             "Servidor IPTV" to (activeSource?.name ?: "IPTV Provider")
                         )
@@ -3434,14 +3434,30 @@ private fun MobileMovieDetailView(
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        text = "REPRODUCIR PELÍCULA",
+                        text = "REPRODUCIR PELÃCULA",
                         color = Color.White,
                         fontWeight = FontWeight.Black,
                         fontSize = 13.sp
                     )
                 }
 
-                // Botón Descargar
+
+                // Botón Favorito (Corazón)
+                IconButton(
+                    onClick = onToggleFavorite,
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (isFavorite) Color(0xFFFF4081).copy(alpha = 0.25f) else BixSurfaceCard)
+                ) {
+                    Icon(
+                        imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                        contentDescription = if (isFavorite) "Quitar de favoritos" else "Añadir a favoritos",
+                        tint = if (isFavorite) Color(0xFFFF4081) else Color.White,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                // BotÃ³n Descargar
                 IconButton(
                     onClick = {
                         try {
@@ -3462,7 +3478,7 @@ private fun MobileMovieDetailView(
                                 dm.enqueue(request)
                                 android.widget.Toast.makeText(
                                     context,
-                                    "📥 Descargando en /Download/$fileName",
+                                    "ðŸ“¥ Descargando en /Download/$fileName",
                                     android.widget.Toast.LENGTH_LONG
                                 ).show()
                             }
@@ -3477,18 +3493,18 @@ private fun MobileMovieDetailView(
                 ) {
                     Icon(
                         Icons.Default.Download,
-                        contentDescription = "Descargar Película",
+                        contentDescription = "Descargar PelÃ­cula",
                         tint = Color(0xFF4CAF50),
                         modifier = Modifier.size(22.dp)
                     )
                 }
 
-                // Botón Compartir / Copiar enlace
+                // BotÃ³n Compartir / Copiar enlace
                 IconButton(
                     onClick = {
                         if (streamUrl.isNotBlank()) {
                             clipboard.setText(androidx.compose.ui.text.AnnotatedString(streamUrl))
-                            android.widget.Toast.makeText(context, "📋 Enlace copiado: ${movieState.name}", android.widget.Toast.LENGTH_SHORT).show()
+                            android.widget.Toast.makeText(context, "ðŸ“‹ Enlace copiado: ${movieState.name}", android.widget.Toast.LENGTH_SHORT).show()
                         }
                     },
                     modifier = Modifier
@@ -3612,7 +3628,7 @@ private fun MobileSeriesDetailView(
 
         HorizontalDivider(color = LelouchBorder, thickness = 1.dp)
 
-        // PESTAÑAS: RESUMEN | TEMPORADAS | DETALLES (Estilo Netflix / HorizonX con indicador activo)
+        // PESTAÃ‘AS: RESUMEN | TEMPORADAS | DETALLES (Estilo Netflix / HorizonX con indicador activo)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -3654,7 +3670,7 @@ private fun MobileSeriesDetailView(
 
         HorizontalDivider(color = Color(0xFF1E2229), thickness = 0.8.dp)
 
-        // CONTENEDOR SEGÚN PESTAÑA CON BARRA CTA INFERIOR
+        // CONTENEDOR SEGÃšN PESTAÃ‘A CON BARRA CTA INFERIOR
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -3699,7 +3715,7 @@ private fun MobileSeriesDetailView(
                             }
                         }
 
-                        // Información principal de la serie
+                        // InformaciÃ³n principal de la serie
                         item {
                             Column(modifier = Modifier.padding(16.dp)) {
                                 Text(
@@ -3722,7 +3738,7 @@ private fun MobileSeriesDetailView(
                                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                                         ) {
                                             Text(
-                                                "★ %.1f".format(r),
+                                                "â˜… %.1f".format(r),
                                                 color = Color.Black,
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.Bold
@@ -3758,7 +3774,7 @@ private fun MobileSeriesDetailView(
                                 } else {
                                     Spacer(Modifier.height(14.dp))
                                     Text(
-                                        text = "Sinopsis en proceso de sincronización con TMDB / Catálogo.",
+                                        text = "Sinopsis en proceso de sincronizaciÃ³n con TMDB / CatÃ¡logo.",
                                         color = LelouchTextMuted,
                                         fontSize = 12.sp,
                                         fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
@@ -3793,7 +3809,7 @@ private fun MobileSeriesDetailView(
                     ) {
                         item {
                             Text(
-                                text = "Ficha Técnica y Transmisión",
+                                text = "Ficha TÃ©cnica y TransmisiÃ³n",
                                 color = LelouchTextPrimary,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 16.sp,
@@ -3803,9 +3819,9 @@ private fun MobileSeriesDetailView(
 
                         val specs = listOf(
                             "Temporadas Disponibles" to "${if (series.seasonsCount > 0) series.seasonsCount else seasons.size} temporada(s)",
-                            "Total de Capítulos" to "${episodes.size} episodios listados",
+                            "Total de CapÃ­tulos" to "${episodes.size} episodios listados",
                             "Calidad de Video" to "Full HD 1080p / H.264 High Profile",
-                            "Formato / Códec" to "HLS Progresivo / MP4 Audio Estéreo",
+                            "Formato / CÃ³dec" to "HLS Progresivo / MP4 Audio EstÃ©reo",
                             "Buffer VOD" to "Motor Lelouch 15s calibrado",
                             "Servidor IPTV" to (activeSource?.name ?: "IPTV Provider")
                         )
@@ -3862,7 +3878,7 @@ private fun MobileSeriesDetailView(
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(bottom = 85.dp)
                         ) {
-                            // Selector de temporadas tipo pills si hay más de 1
+                            // Selector de temporadas tipo pills si hay mÃ¡s de 1
                             if (seasons.size > 1) {
                                 item {
                                     LazyRow(
@@ -3914,7 +3930,7 @@ private fun MobileSeriesDetailView(
                                 }
                             }
 
-                            // Lista enriquecida de episodios (Diseño Idéntico a la imagen de referencia)
+                            // Lista enriquecida de episodios (DiseÃ±o IdÃ©ntico a la imagen de referencia)
                             items(
                                 currentEpisodes,
                                 key = { "${it.seasonNumber}_${it.episodeNumber}_${it.episodeId}_${it.id}" }
@@ -3936,12 +3952,12 @@ private fun MobileSeriesDetailView(
                                         .clickable { onPlayEpisode(streamUrl, "${series.name} - $epFullTitle", ep) }
                                         .padding(horizontal = 16.dp, vertical = 8.dp)
                                 ) {
-                                    // Fila superior: Miniatura 16:9 + Título y Metadatos + Acciones
+                                    // Fila superior: Miniatura 16:9 + TÃ­tulo y Metadatos + Acciones
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        // Miniatura con duración y botón play
+                                        // Miniatura con duraciÃ³n y botÃ³n play
                                         Box(
                                             modifier = Modifier
                                                 .width(105.dp)
@@ -3986,7 +4002,7 @@ private fun MobileSeriesDetailView(
 
                                         Spacer(Modifier.width(12.dp))
 
-                                        // Código + Título + Metadatos
+                                        // CÃ³digo + TÃ­tulo + Metadatos
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text(
                                                 text = epFullTitle,
@@ -3998,13 +4014,13 @@ private fun MobileSeriesDetailView(
                                             )
                                             Spacer(Modifier.height(3.dp))
                                             Text(
-                                                text = "${if (ep.durationFormatted.isNotBlank()) ep.durationFormatted else "45m"} • ${ep.containerExtension.ifBlank { "MP4" }.uppercase()}",
+                                                text = "${if (ep.durationFormatted.isNotBlank()) ep.durationFormatted else "45m"} â€¢ ${ep.containerExtension.ifBlank { "MP4" }.uppercase()}",
                                                 color = LelouchTextSecondary,
                                                 fontSize = 11.sp
                                             )
                                         }
 
-                                        // Icono de Descarga Rápida (Estilo captura oficial)
+                                        // Icono de Descarga RÃ¡pida (Estilo captura oficial)
                                         IconButton(
                                             onClick = {
                                                 try {
@@ -4025,7 +4041,7 @@ private fun MobileSeriesDetailView(
                                                         dm.enqueue(request)
                                                         android.widget.Toast.makeText(
                                                             context,
-                                                            "📥 Descargando en /Download/$fileName",
+                                                            "ðŸ“¥ Descargando en /Download/$fileName",
                                                             android.widget.Toast.LENGTH_LONG
                                                         ).show()
                                                     }
@@ -4374,7 +4390,7 @@ private fun ChannelListItem(
             }
         }
         Spacer(Modifier.width(8.dp))
-        // Botón favorito: toca la estrella para agregar/quitar de favoritos
+        // BotÃ³n favorito: toca la estrella para agregar/quitar de favoritos
         if (onToggleFavorite != null) {
             Box(
                 modifier = Modifier
@@ -4385,7 +4401,7 @@ private fun ChannelListItem(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = if (isFavorite) "⭐" else "☆",
+                    text = if (isFavorite) "â­" else "â˜†",
                     fontSize = 16.sp
                 )
             }
@@ -4490,12 +4506,12 @@ private fun CircleActionItem(
 }
 
 /**
- * FASE 39 · Lectura del punto de reanudación que nunca bloquea el arranque.
+ * FASE 39 Â· Lectura del punto de reanudaciÃ³n que nunca bloquea el arranque.
  *
  * - `null` (sin historial) devuelve 0 sin tocar disco.
  * - Se ejecuta en IO para no ocupar el hilo principal.
  * - Se corta a los 3 s: si la base tarda, el contenido se reproduce desde el principio.
- * - Cualquier fallo se traduce en «empezar de cero»; la cancelación se propaga siempre.
+ * - Cualquier fallo se traduce en Â«empezar de ceroÂ»; la cancelaciÃ³n se propaga siempre.
  */
 private suspend fun PlaybackHistoryRepository?.safeResumePositionMs(
     contentId: String,
@@ -4518,24 +4534,24 @@ private suspend fun PlaybackHistoryRepository?.safeResumePositionMs(
 private const val RESUME_LOOKUP_TIMEOUT_MS = 3_000L
 
 /**
- * FASE 35 (1.0.97): etiqueta compacta con el estado real de la conexión de la fuente activa.
- * Xtream expone conexiones simultáneas; M3U no tiene panel de conexiones por protocolo.
+ * FASE 35 (1.0.97): etiqueta compacta con el estado real de la conexiÃ³n de la fuente activa.
+ * Xtream expone conexiones simultÃ¡neas; M3U no tiene panel de conexiones por protocolo.
  */
 internal fun sourceConnectionLabel(source: SourceConfig?): String? {
     val current = source ?: return null
     return when {
-        current.type == SourceType.M3U -> "♾️ M3U"
+        current.type == SourceType.M3U -> "â™¾ï¸ M3U"
         current.maxConnections > 0 -> {
             val isBusy = current.activeConnections >= current.maxConnections
-            if (isBusy) "🔴 ${current.activeConnections}/${current.maxConnections}"
-            else "🟢 ${current.activeConnections}/${current.maxConnections}"
+            if (isBusy) "ðŸ”´ ${current.activeConnections}/${current.maxConnections}"
+            else "ðŸŸ¢ ${current.activeConnections}/${current.maxConnections}"
         }
-        else -> "👥 —"
+        else -> "ðŸ‘¥ â€”"
     }
 }
 
 /**
- * Selector de DNS del dispositivo (réplica exacta de diseño cian/esmeralda + medición UDP en tiempo real).
+ * Selector de DNS del dispositivo (rÃ©plica exacta de diseÃ±o cian/esmeralda + mediciÃ³n UDP en tiempo real).
  */
 @Composable
 private fun MobileDnsSelectorDialog(
@@ -4668,7 +4684,7 @@ private fun MobileDnsSelectorDialog(
                                     if (isBest) {
                                         Spacer(Modifier.width(8.dp))
                                         Text(
-                                            text = "★ MEJOR",
+                                            text = "â˜… MEJOR",
                                             color = Color(0xFFFBBF24),
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Black
@@ -4689,7 +4705,7 @@ private fun MobileDnsSelectorDialog(
                             text = when {
                                 isTesting && probe == null -> "..."
                                 probe?.latencyMs != null -> "${probe.latencyMs} ms"
-                                else -> "— ms"
+                                else -> "â€” ms"
                             },
                             color = cyanAccent,
                             fontWeight = FontWeight.ExtraBold,
@@ -4753,7 +4769,7 @@ private fun MobileDnsSelectorDialog(
                     }
                 }
 
-                // Botón Cerrar alineado a la derecha
+                // BotÃ³n Cerrar alineado a la derecha
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
@@ -4784,7 +4800,7 @@ private data class DownloadedMediaEntry(
 )
 
 /**
- * Visor de Descargas de Películas y Series en móvil (muestra carpeta exacta, progreso % y botón Reproducir).
+ * Visor de Descargas de PelÃ­culas y Series en mÃ³vil (muestra carpeta exacta, progreso % y botÃ³n Reproducir).
  */
 @Composable
 private fun MobileDownloadsDialog(
@@ -4822,17 +4838,17 @@ private fun MobileDownloadsDialog(
                         else if (status == android.app.DownloadManager.STATUS_SUCCESSFUL) 100 else 0
 
                         val statusText = when (status) {
-                            android.app.DownloadManager.STATUS_SUCCESSFUL -> "✅ Completada"
-                            android.app.DownloadManager.STATUS_RUNNING -> "⬇️ Descargando ($progress%)"
-                            android.app.DownloadManager.STATUS_PENDING -> "⏳ En cola..."
-                            android.app.DownloadManager.STATUS_PAUSED -> "⏸️ Pausada ($progress%)"
-                            android.app.DownloadManager.STATUS_FAILED -> "❌ Falló (Servidor rechazó conexión)"
+                            android.app.DownloadManager.STATUS_SUCCESSFUL -> "âœ… Completada"
+                            android.app.DownloadManager.STATUS_RUNNING -> "â¬‡ï¸ Descargando ($progress%)"
+                            android.app.DownloadManager.STATUS_PENDING -> "â³ En cola..."
+                            android.app.DownloadManager.STATUS_PAUSED -> "â¸ï¸ Pausada ($progress%)"
+                            android.app.DownloadManager.STATUS_FAILED -> "âŒ FallÃ³ (Servidor rechazÃ³ conexiÃ³n)"
                             else -> "En proceso"
                         }
 
                         val mb = if (totalBytes > 0) "%.1f MB".format(totalBytes / (1024.0 * 1024.0))
                         else if (downBytes > 0) "%.1f MB".format(downBytes / (1024.0 * 1024.0))
-                        else "—"
+                        else "â€”"
 
                         val decodedPath = localUri?.removePrefix("file://")?.let { android.net.Uri.decode(it) }
                             ?: "/storage/emulated/0/Download/$title"
@@ -4858,7 +4874,7 @@ private fun MobileDownloadsDialog(
                 }
             }
 
-            // También escanear archivos físicos en /storage/emulated/0/Download por si el historial de DownloadManager se limpió
+            // TambiÃ©n escanear archivos fÃ­sicos en /storage/emulated/0/Download por si el historial de DownloadManager se limpiÃ³
             val publicDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
             publicDir?.listFiles()?.filter { f ->
                 f.isFile && (f.name.startsWith("LelouchPlus_", ignoreCase = true) ||
@@ -4869,7 +4885,7 @@ private fun MobileDownloadsDialog(
                         DownloadedMediaEntry(
                             id = file.NameHash(),
                             title = file.name.removePrefix("LelouchPlus_"),
-                            statusLabel = "✅ En memoria interna",
+                            statusLabel = "âœ… En memoria interna",
                             progressPercent = 100,
                             sizeMb = "%.1f MB".format(file.length() / (1024.0 * 1024.0)),
                             filePath = file.absolutePath,
@@ -4908,7 +4924,7 @@ private fun MobileDownloadsDialog(
                 ) {
                     Column {
                         Text(
-                            "📥 Mis Descargas (Películas y Series)",
+                            "ðŸ“¥ Mis Descargas (PelÃ­culas y Series)",
                             color = Color.White,
                             fontWeight = FontWeight.Black,
                             fontSize = 18.sp
@@ -4934,10 +4950,10 @@ private fun MobileDownloadsDialog(
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(16.dp)) {
-                            Text("No hay descargas registradas todavía", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("No hay descargas registradas todavÃ­a", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             Spacer(Modifier.height(6.dp))
                             Text(
-                                "Al tocar DESCARGAR en una Película o Serie, se guarda en la carpeta /Download de tu teléfono con cabecera IPTVSmartersPlayer.",
+                                "Al tocar DESCARGAR en una PelÃ­cula o Serie, se guarda en la carpeta /Download de tu telÃ©fono con cabecera IPTVSmartersPlayer.",
                                 color = LelouchTextSecondary,
                                 fontSize = 11.sp
                             )
@@ -4989,7 +5005,7 @@ private fun MobileDownloadsDialog(
                                     )
 
                                     Text(
-                                        text = "📁 ${item.filePath}",
+                                        text = "ðŸ“ ${item.filePath}",
                                         color = LelouchTextSecondary,
                                         fontSize = 10.sp,
                                         maxLines = 1,
@@ -5011,7 +5027,7 @@ private fun MobileDownloadsDialog(
                                                     } catch (_: Exception) {}
                                                 }
                                             ) {
-                                                Text("🗑️ Quitar", color = LelouchLiveRed, fontSize = 11.sp)
+                                                Text("ðŸ—‘ï¸ Quitar", color = LelouchLiveRed, fontSize = 11.sp)
                                             }
                                         }
                                         if (item.isCompleted && !item.playUri.isNullOrBlank()) {
@@ -5022,7 +5038,7 @@ private fun MobileDownloadsDialog(
                                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                                                 shape = RoundedCornerShape(8.dp)
                                             ) {
-                                                Text("▶ Reproducir", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                                Text("â–¶ Reproducir", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 11.sp)
                                             }
                                         }
                                     }
@@ -5039,7 +5055,7 @@ private fun MobileDownloadsDialog(
 private fun java.io.File.NameHash(): Long = -kotlin.math.abs(this.absolutePath.hashCode().toLong())
 
 /**
- * Modal de Diagnóstico de Cuenta, Ocupación en Vivo y Red para Teléfono Móvil.
+ * Modal de DiagnÃ³stico de Cuenta, OcupaciÃ³n en Vivo y Red para TelÃ©fono MÃ³vil.
  */
 @Composable
 private fun MobileDiagnosticsDialog(
@@ -5096,13 +5112,13 @@ private fun MobileDiagnosticsDialog(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            "🩺 Test de Lista, Ocupación y Red",
+                            "ðŸ©º Test de Lista, OcupaciÃ³n y Red",
                             color = Color.White,
                             fontWeight = FontWeight.Black,
                             fontSize = 17.sp
                         )
                         Text(
-                            "Verifica si la cuenta está ocupada, fecha de vencimiento y velocidad",
+                            "Verifica si la cuenta estÃ¡ ocupada, fecha de vencimiento y velocidad",
                             color = Color(0xFF94A3B8),
                             fontSize = 11.sp
                         )
@@ -5112,7 +5128,7 @@ private fun MobileDiagnosticsDialog(
                     }
                 }
 
-                // Selector rápido de cuenta a probar
+                // Selector rÃ¡pido de cuenta a probar
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(allSources) { src ->
                         val isSel = src.id == selectedSource.id
@@ -5154,7 +5170,7 @@ private fun MobileDiagnosticsDialog(
                     val maxC = acc?.maxConnections ?: selectedSource.maxConnections.coerceAtLeast(1)
                     val isBusy = maxC > 0 && activeC >= maxC
 
-                    // Tarjeta Semáforo Principal de Ocupación y Vencimiento
+                    // Tarjeta SemÃ¡foro Principal de OcupaciÃ³n y Vencimiento
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -5169,27 +5185,27 @@ private fun MobileDiagnosticsDialog(
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(
-                                text = if (isBusy) "🔴 LISTA OCUPADA ($activeC / $maxC conexiones en uso)"
-                                else "🟢 LISTA LIBRE Y DISPONIBLE ($activeC / $maxC conexiones en uso)",
+                                text = if (isBusy) "ðŸ”´ LISTA OCUPADA ($activeC / $maxC conexiones en uso)"
+                                else "ðŸŸ¢ LISTA LIBRE Y DISPONIBLE ($activeC / $maxC conexiones en uso)",
                                 color = if (isBusy) Color(0xFFEF4444) else Color(0xFF10B981),
                                 fontWeight = FontWeight.Black,
                                 fontSize = 13.sp
                             )
                             Text(
-                                text = "📅 Vencimiento: ${acc?.expiry ?: selectedSource.formattedExpireDate} • Estado: ${acc?.status ?: "Active"}",
+                                text = "ðŸ“… Vencimiento: ${acc?.expiry ?: selectedSource.formattedExpireDate} â€¢ Estado: ${acc?.status ?: "Active"}",
                                 color = Color.White,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Veredicto: ${r.verdict} — ${r.verdictDetail}",
+                                text = "Veredicto: ${r.verdict} â€” ${r.verdictDetail}",
                                 color = Color(0xFF2DD4BF),
                                 fontSize = 11.sp
                             )
                         }
                     }
 
-                    // Tarjetas detalladas del test (DNS, Panel TCP, Catálogo y Muestra de Canales)
+                    // Tarjetas detalladas del test (DNS, Panel TCP, CatÃ¡logo y Muestra de Canales)
                     LazyColumn(
                         modifier = Modifier.weight(1f, fill = false).heightIn(max = 310.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -5206,10 +5222,10 @@ private fun MobileDiagnosticsDialog(
                                 ) {
                                     Column {
                                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                            Text("🌐 Resolución DNS (${dns.host})", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                            Text("ðŸŒ ResoluciÃ³n DNS (${dns.host})", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                             Text("${dns.publicMs ?: dns.routerMs ?: 0} ms", color = Color(0xFF2DD4BF), fontWeight = FontWeight.ExtraBold, fontSize = 11.sp)
                                         }
-                                        Text("DNS Router: ${dns.routerMs ?: "—"} ms • DNS Público: ${dns.publicMs ?: "—"} ms", color = LelouchTextSecondary, fontSize = 11.sp)
+                                        Text("DNS Router: ${dns.routerMs ?: "â€”"} ms â€¢ DNS PÃºblico: ${dns.publicMs ?: "â€”"} ms", color = LelouchTextSecondary, fontSize = 11.sp)
                                     }
                                 }
                             }
@@ -5227,10 +5243,10 @@ private fun MobileDiagnosticsDialog(
                                 ) {
                                     Column {
                                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                            Text("🖧 Servidor IPTV (${panel.host}:${panel.port})", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                            Text("ðŸ–§ Servidor IPTV (${panel.host}:${panel.port})", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                             Text("${panel.tcpAvgMs ?: 0} ms", color = Color(0xFF10B981), fontWeight = FontWeight.ExtraBold, fontSize = 11.sp)
                                         }
-                                        Text("IP: ${panel.address ?: "—"} • TCP OK: ${panel.tcpOk}/${panel.tcpAttempts} ${panel.location?.let { "• $it" } ?: ""}", color = LelouchTextSecondary, fontSize = 11.sp)
+                                        Text("IP: ${panel.address ?: "â€”"} â€¢ TCP OK: ${panel.tcpOk}/${panel.tcpAttempts} ${panel.location?.let { "â€¢ $it" } ?: ""}", color = LelouchTextSecondary, fontSize = 11.sp)
                                     }
                                 }
                             }
@@ -5248,10 +5264,10 @@ private fun MobileDiagnosticsDialog(
                                 ) {
                                     Column {
                                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                            Text("📋 Catálogo Descargado", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                            Text("ðŸ“‹ CatÃ¡logo Descargado", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                             Text("%.1f Mbps".format(pl.downloadMbps), color = Color(0xFF38BDF8), fontWeight = FontWeight.ExtraBold, fontSize = 11.sp)
                                         }
-                                        Text("📺 ${pl.live} TV • 🎬 ${pl.movies} Pelis • 🎞️ ${pl.series} Series (%.1f MB en %.1f s)".format(pl.sizeMb, pl.downloadSeconds), color = LelouchTextSecondary, fontSize = 11.sp)
+                                        Text("ðŸ“º ${pl.live} TV â€¢ ðŸŽ¬ ${pl.movies} Pelis â€¢ ðŸŽžï¸ ${pl.series} Series (%.1f MB en %.1f s)".format(pl.sizeMb, pl.downloadSeconds), color = LelouchTextSecondary, fontSize = 11.sp)
                                     }
                                 }
                             }
@@ -5272,9 +5288,9 @@ private fun MobileDiagnosticsDialog(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        Text("📺 Prueba de Canal #${ch.number} (${ch.host})", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Text("ðŸ“º Prueba de Canal #${ch.number} (${ch.host})", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                         Text(
-                                            if (ch.ok) "TTFB: ${ch.ttfbMs} ms" else "FALLÓ",
+                                            if (ch.ok) "TTFB: ${ch.ttfbMs} ms" else "FALLÃ“",
                                             color = chColor,
                                             fontWeight = FontWeight.ExtraBold,
                                             fontSize = 11.sp
@@ -5282,8 +5298,8 @@ private fun MobileDiagnosticsDialog(
                                     }
                                     Spacer(Modifier.height(2.dp))
                                     Text(
-                                        if (ch.ok) "Bitrate real: %.2f Mbps • Primer byte en ${ch.ttfbMs} ms".format(ch.bitrateMbps)
-                                        else "Error: ${ch.error ?: "Sin señal"}",
+                                        if (ch.ok) "Bitrate real: %.2f Mbps â€¢ Primer byte en ${ch.ttfbMs} ms".format(ch.bitrateMbps)
+                                        else "Error: ${ch.error ?: "Sin seÃ±al"}",
                                         color = LelouchTextSecondary,
                                         fontSize = 11.sp
                                     )
@@ -5303,7 +5319,7 @@ private fun MobileDiagnosticsDialog(
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2DD4BF))
                     ) {
-                        Text("🔄 Volver a Probar", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Text("ðŸ”„ Volver a Probar", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
                     OutlinedButton(
                         onClick = onDismiss,

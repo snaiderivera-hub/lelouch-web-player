@@ -12,6 +12,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.Icon
@@ -358,9 +360,9 @@ fun TvMediaDetailModal(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Icon(
-                                        imageVector = if (media.isFavorite) Icons.Default.Star else Icons.Default.StarBorder,
+                                        imageVector = if (media.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                                         contentDescription = null,
-                                        tint = if (media.isFavorite) Color(0xFFFFD700) else LelouchTextSecondary,
+                                        tint = if (media.isFavorite) Color(0xFFFF4081) else LelouchTextSecondary,
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))

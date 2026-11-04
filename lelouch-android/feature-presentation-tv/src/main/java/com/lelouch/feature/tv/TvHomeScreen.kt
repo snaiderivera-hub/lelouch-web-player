@@ -1,4 +1,4 @@
-package com.lelouch.feature.tv
+﻿package com.lelouch.feature.tv
 
 import android.view.KeyEvent
 import androidx.activity.compose.BackHandler
@@ -110,8 +110,8 @@ data class ChannelUiModel(
     val categoryName: String,
     val categoryId: String = "",
     val streamIcon: String? = null,
-    val currentProgram: String = "Transmisión en Directo",
-    val nextProgram: String = "Continuación de Programación",
+    val currentProgram: String = "TransmisiÃ³n en Directo",
+    val nextProgram: String = "ContinuaciÃ³n de ProgramaciÃ³n",
     val streamUrl: String = "",
     val isFavorite: Boolean = false,
     val sourceId: String = ""
@@ -152,7 +152,7 @@ data class SeriesUiModel(
 )
 
 /**
- * FASE 37 · Metadatos del contenido en reproducción, necesarios para guardar el avance.
+ * FASE 37 Â· Metadatos del contenido en reproducciÃ³n, necesarios para guardar el avance.
  * La clave estable del historial es la URL resuelta del stream, no este objeto.
  */
 data class TvActiveContentMeta(
@@ -191,12 +191,12 @@ fun TvHomeScreen(
     onRefreshAccountsStatus: () -> Unit = {},
     onLogout: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
-    // FASE 33: último estado de la sincronización, para el panel de diagnóstico.
+    // FASE 33: Ãºltimo estado de la sincronizaciÃ³n, para el panel de diagnÃ³stico.
     syncStateText: String = "",
-    // Test medido de cuenta/lista/red. Si es null la sección de test no se muestra.
+    // Test medido de cuenta/lista/red. Si es null la secciÃ³n de test no se muestra.
     onRunDiagnostics: (suspend (SourceConfig, suspend (String) -> Unit) -> IptvDiagnostics.Report)? = null,
     onFetchSeriesDetails: (suspend (seriesId: Int) -> Pair<List<Int>, List<Episode>>)? = null,
-    // FASE 37: historial y «continuar viendo». Si es null, la función queda desactivada.
+    // FASE 37: historial y Â«continuar viendoÂ». Si es null, la funciÃ³n queda desactivada.
     playbackHistory: com.lelouch.core.domain.repository.PlaybackHistoryRepository? = null
 ) {
     val playerEngine = rememberLelouchPlayer()
@@ -204,7 +204,7 @@ fun TvHomeScreen(
     val videoInfo by playerEngine.videoTrackInfo.collectAsStateWithLifecycle()
     val diagnosticInfo by playerEngine.diagnosticInfo.collectAsStateWithLifecycle()
 
-    // Mapas de categorías para resolver nombres de categorías faltantes en Xtream Codes
+    // Mapas de categorÃ­as para resolver nombres de categorÃ­as faltantes en Xtream Codes
     val liveCatMap = remember(liveCategories) {
         liveCategories.associate { it.categoryId to it.categoryName }
     }
@@ -218,7 +218,7 @@ fun TvHomeScreen(
     // FASE 33: Regex defensivo para evitar que episodios de series se cuelen en TV en Vivo
     val seriesLeakRegex = remember { Regex("(?i)\\b(s\\d{1,2}|t\\d{1,2}|cap\\.?\\s*\\d+|ep\\.?\\s*\\d+)\\b") }
 
-    // (Eliminados los canales y películas hardcoded de demostración para usar exclusivamente Paging3)
+    // (Eliminados los canales y pelÃ­culas hardcoded de demostraciÃ³n para usar exclusivamente Paging3)
 
     var isSearchModalVisible by remember { mutableStateOf(false) }
     var isEpgModalVisible by remember { mutableStateOf(false) }
@@ -232,7 +232,7 @@ fun TvHomeScreen(
 
     val context = androidx.compose.ui.platform.LocalContext.current
 
-    // Comprobación automática silenciosa de nueva versión al iniciar en TV Box
+    // ComprobaciÃ³n automÃ¡tica silenciosa de nueva versiÃ³n al iniciar en TV Box
     LaunchedEffect(Unit) {
         kotlinx.coroutines.delay(2500L)
         try {
@@ -284,7 +284,7 @@ fun TvHomeScreen(
         hiddenPrefs.edit().putBoolean("adult_mode_enabled", enabled).apply()
     }
 
-    // (Eliminados los canales y películas hardcoded de demostración para usar exclusivamente Paging3)
+    // (Eliminados los canales y pelÃ­culas hardcoded de demostraciÃ³n para usar exclusivamente Paging3)
 
     var focusedChannelIndex by remember { mutableIntStateOf(0) }
     var focusedChannelId by remember { mutableStateOf<String?>(null) }
@@ -311,7 +311,7 @@ fun TvHomeScreen(
     var isChannelSearching by remember { mutableStateOf(false) }
     val focusTracker = remember { FocusTracker() }
     var focusedTopTab by remember { mutableIntStateOf(1) }
-    // 0:Buscar, 1:Inicio, 2:En Vivo, 3:Películas, 4:Series, 5:Favoritos, 6:Historial, 7:Ajustes
+    // 0:Buscar, 1:Inicio, 2:En Vivo, 3:PelÃ­culas, 4:Series, 5:Favoritos, 6:Historial, 7:Ajustes
     var selectedTopTab by remember { mutableIntStateOf(1) }
     val sidebarRequesters = remember { List(8) { FocusRequester() } }
     val contentFocusRequester = remember { FocusRequester() }
@@ -322,7 +322,7 @@ fun TvHomeScreen(
     val seriesGridState = rememberLazyGridState()
     val coroutineScope = rememberCoroutineScope()
 
-    // Test de cuenta/lista/red. El reporte se conserva al cambiar de pestaña para poder
+    // Test de cuenta/lista/red. El reporte se conserva al cambiar de pestaÃ±a para poder
     // comparar sin repetir la descarga de la lista.
     var diagnosticsReport by remember { mutableStateOf<IptvDiagnostics.Report?>(null) }
     var diagnosticsRunning by remember { mutableStateOf(false) }
@@ -335,7 +335,7 @@ fun TvHomeScreen(
         if (diagnosticsRunning) return
         diagnosticsRunning = true
         diagnosticsError = null
-        diagnosticsProgress = "Preparando…"
+        diagnosticsProgress = "Preparandoâ€¦"
         coroutineScope.launch {
             try {
                 diagnosticsReport = runner(source) { message ->
@@ -351,7 +351,7 @@ fun TvHomeScreen(
         }
     }
 
-    // FASE 37: historial/«continuar viendo» de la lista activa.
+    // FASE 37: historial/Â«continuar viendoÂ» de la lista activa.
     var activeContentMeta by remember { mutableStateOf<TvActiveContentMeta?>(null) }
     var playbackRequestId by remember { mutableLongStateOf(0L) }
     val historyItems by remember(playbackHistory, activeSource?.id) {
@@ -376,7 +376,7 @@ fun TvHomeScreen(
             6 -> "HISTORY"
             else -> "ADMIN"
         }
-        // Sin sidebar: entregar el foco al contenido de la pestaña recién mostrada.
+        // Sin sidebar: entregar el foco al contenido de la pestaÃ±a reciÃ©n mostrada.
         delay(150)
         try { contentFocusRequester.requestFocus() } catch (_: Exception) {}
     }
@@ -452,7 +452,7 @@ fun TvHomeScreen(
 
     var lastFullscreenEntryTime by remember { mutableLongStateOf(0L) }
 
-    // Modelos para el gestor de visibilidad con conteo exacto de elementos (Paso 9: Sin iterar catálogo Live)
+    // Modelos para el gestor de visibilidad con conteo exacto de elementos (Paso 9: Sin iterar catÃ¡logo Live)
     val liveCategoryItemModels = remember(liveCategories) {
         if (liveCategories.isNotEmpty()) {
             liveCategories.map { cat ->
@@ -511,7 +511,7 @@ fun TvHomeScreen(
         }
     }
 
-    // Categorías y filtrado por categoría para Canales, Películas y Series (respetando categorías ocultas y Modo Adulto)
+    // CategorÃ­as y filtrado por categorÃ­a para Canales, PelÃ­culas y Series (respetando categorÃ­as ocultas y Modo Adulto)
     val channelCategoryList = remember(liveCategoryItemModels, hiddenLiveCategories, isAdultModeEnabled) {
         val visibleCats = liveCategoryItemModels
             .filter { it.id !in hiddenLiveCategories && it.name !in hiddenLiveCategories }
@@ -784,9 +784,9 @@ fun TvHomeScreen(
         }
     }
 
-    // Lista de canales activa para la reproducción: cuando el usuario entra a ver canales
-    // de una categoría específica (ej. Guatemala), el zapping y el D-Pad quedan aislados
-    // exclusivamente a esa categoría. Se actualiza al hacer click en un canal de la cuadrícula.
+    // Lista de canales activa para la reproducciÃ³n: cuando el usuario entra a ver canales
+    // de una categorÃ­a especÃ­fica (ej. Guatemala), el zapping y el D-Pad quedan aislados
+    // exclusivamente a esa categorÃ­a. Se actualiza al hacer click en un canal de la cuadrÃ­cula.
     var activePlaybackChannels by remember { mutableStateOf<List<ChannelUiModel>>(emptyList()) }
     var activePlaybackChannelIndex by remember { mutableIntStateOf(0) }
     // Inicializar con visibleChannels por defecto
@@ -818,11 +818,11 @@ fun TvHomeScreen(
             val userT0 = android.os.SystemClock.elapsedRealtime()
             playerEngine.playStream(ch.streamUrl, isLive = true, userT0 = userT0)
             isHudVisible = true
-            seekFeedbackText = "📺 Sintonizado: ${ch.num} - ${ch.name}"
+            seekFeedbackText = "ðŸ“º Sintonizado: ${ch.num} - ${ch.name}"
         } else {
-            // Si el canal no está cargado aún en memoria RAM por la paginación de Paging3 (ej: Canal 1300
-            // en la categoría "Todos"), consultamos directamente a la base de datos Room por número,
-            // streamId o posición ordinal en el catálogo completo sin necesidad de hacer scroll manual.
+            // Si el canal no estÃ¡ cargado aÃºn en memoria RAM por la paginaciÃ³n de Paging3 (ej: Canal 1300
+            // en la categorÃ­a "Todos"), consultamos directamente a la base de datos Room por nÃºmero,
+            // streamId o posiciÃ³n ordinal en el catÃ¡logo completo sin necesidad de hacer scroll manual.
             val srcId = activeSource?.id.orEmpty()
             if (channelRepository != null && srcId.isNotBlank()) {
                 coroutineScope.launch {
@@ -858,21 +858,21 @@ fun TvHomeScreen(
                         val userT0 = android.os.SystemClock.elapsedRealtime()
                         playerEngine.playStream(ch.streamUrl, isLive = true, userT0 = userT0)
                         isHudVisible = true
-                        seekFeedbackText = "📺 Sintonizado: ${ch.num} - ${ch.name}"
+                        seekFeedbackText = "ðŸ“º Sintonizado: ${ch.num} - ${ch.name}"
                     } else {
-                        seekFeedbackText = "✖ Canal $targetNum no encontrado"
+                        seekFeedbackText = "âœ– Canal $targetNum no encontrado"
                     }
                 }
             } else {
-                seekFeedbackText = "✖ Canal $targetNum no encontrado"
+                seekFeedbackText = "âœ– Canal $targetNum no encontrado"
             }
         }
     }
 
-    // FASE 33: Resiliencia de señal en TV Box (sin saltos involuntarios de canal)
+    // FASE 33: Resiliencia de seÃ±al en TV Box (sin saltos involuntarios de canal)
     DisposableEffect(playerEngine) {
         playerEngine.onChannelUnavailable = {
-            // El usuario pidió no saltar de canal automáticamente: se preserva la sintonía en el canal actual.
+            // El usuario pidiÃ³ no saltar de canal automÃ¡ticamente: se preserva la sintonÃ­a en el canal actual.
         }
         onDispose {
             playerEngine.onChannelUnavailable = null
@@ -889,9 +889,9 @@ fun TvHomeScreen(
     }
 
     /**
-     * FASE 37 · Inicia un VOD reanudando desde el avance guardado.
+     * FASE 37 Â· Inicia un VOD reanudando desde el avance guardado.
      *
-     * La consulta es local (Room), así que se resuelve antes de preparar ExoPlayer: de ese
+     * La consulta es local (Room), asÃ­ que se resuelve antes de preparar ExoPlayer: de ese
      * modo el primer frame ya aparece en el punto correcto en vez de saltar desde el inicio.
      */
     fun playVod(url: String, meta: TvActiveContentMeta) {
@@ -912,7 +912,7 @@ fun TvHomeScreen(
                         .getOrDefault(0L)
                 }
             } else 0L
-            // Si mientras se consultaba el historial se abrió otro contenido o se salió
+            // Si mientras se consultaba el historial se abriÃ³ otro contenido o se saliÃ³
             // del reproductor, no lo pisamos.
             if (requestId != playbackRequestId || !isFullscreen) return@launch
             playerEngine.playStream(url, isLive = false, startPositionMs = resumeAt)
@@ -942,6 +942,42 @@ fun TvHomeScreen(
         }
     }
 
+    fun openMovieDetails(movie: MovieUiModel) {
+        val isFav = favoriteMovies.any { it.streamId == movie.streamId }
+        activeDetailMedia = MediaDetailUiModel(
+            id = movie.streamId,
+            title = movie.name,
+            posterUrl = movie.streamIcon,
+            backdropUrl = movie.backdropPath,
+            rating = movie.rating ?: 0.0,
+            year = movie.year,
+            synopsis = movie.plot ?: "Película disponible en catálogo de streaming.",
+            genre = movie.categoryName,
+            containerExtension = movie.containerExtension.ifEmpty { "mp4" },
+            streamUrl = movie.streamUrl,
+            isSeries = false,
+            isFavorite = isFav
+        )
+    }
+
+    fun openMovieDetails(movie: VodMovie) {
+        val isFav = favoriteMovies.any { it.streamId == movie.streamId }
+        activeDetailMedia = MediaDetailUiModel(
+            id = movie.streamId,
+            title = movie.name,
+            posterUrl = movie.streamIcon,
+            backdropUrl = movie.backdropPath,
+            rating = movie.rating ?: 0.0,
+            year = movie.year,
+            synopsis = movie.plot ?: "Película disponible en catálogo de streaming.",
+            genre = movie.categoryName,
+            containerExtension = movie.containerExtension.ifEmpty { "mp4" },
+            streamUrl = movie.streamUrl,
+            isSeries = false,
+            isFavorite = isFav
+        )
+    }
+
     fun playMovie(movie: MovieUiModel) {
         isPlayingLive = false
         currentPlayingTitle = movie.name
@@ -965,6 +1001,7 @@ fun TvHomeScreen(
         }
     }
 
+    
     LaunchedEffect(seekFeedbackText) {
         if (seekFeedbackText != null) {
             delay(1500)
@@ -980,7 +1017,7 @@ fun TvHomeScreen(
             backdropUrl = series.backdropPath,
             rating = series.rating ?: 0.0,
             year = series.releaseDate?.take(4),
-            synopsis = series.plot ?: "Serie completa en catálogo de streaming.",
+            synopsis = series.plot ?: "Serie completa en catÃ¡logo de streaming.",
             genre = series.genre,
             isSeries = true,
             isFavorite = series.isFavorite,
@@ -1015,7 +1052,7 @@ fun TvHomeScreen(
             backdropUrl = series.backdropPath,
             rating = series.rating,
             year = series.releaseDate?.take(4),
-            synopsis = series.plot ?: "Serie completa en catálogo de streaming.",
+            synopsis = series.plot ?: "Serie completa en catÃ¡logo de streaming.",
             genre = series.genre,
             isSeries = true,
             isFavorite = series.isFavorite,
@@ -1040,7 +1077,7 @@ fun TvHomeScreen(
         }
     }
 
-    // Backdrop cinemático dinámico para la portada (EveryCine Style)
+    // Backdrop cinemÃ¡tico dinÃ¡mico para la portada (EveryCine Style)
     val currentBackdropUrl = remember(selectedTopTab, focusedHeroMovie, focusedHeroSeriesModel, focusedChannel) {
         when (selectedTopTab) {
             3 -> focusedHeroMovie?.backdropPath ?: focusedHeroMovie?.streamIcon
@@ -1057,7 +1094,7 @@ fun TvHomeScreen(
         }
     }
 
-    // Sin reproducción de fondo: el reproductor solo vive en pantalla completa.
+    // Sin reproducciÃ³n de fondo: el reproductor solo vive en pantalla completa.
     // Al salir de pantalla completa se detiene por completo (libera red y decodificador).
     LaunchedEffect(isFullscreen) {
         if (!isFullscreen) {
@@ -1069,7 +1106,7 @@ fun TvHomeScreen(
     }
 
     // FASE 37: persistir el avance mientras se reproduce un VOD a pantalla completa.
-    // En directo no se guarda: no existe una posición reanudable.
+    // En directo no se guarda: no existe una posiciÃ³n reanudable.
     LaunchedEffect(isFullscreen, isPlayingLive, activeSource?.id, playbackHistory) {
         val repo = playbackHistory ?: return@LaunchedEffect
         if (!isFullscreen || isPlayingLive) return@LaunchedEffect
@@ -1129,7 +1166,7 @@ fun TvHomeScreen(
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        Color(0xFF2E0C06), // Ámbar/rojizo oscuro superior Bix Plus
+                        Color(0xFF2E0C06), // Ãmbar/rojizo oscuro superior Bix Plus
                         Color(0xFF180703),
                         Color(0xFF090A0E),
                         Color(0xFF090A0E)
@@ -1178,7 +1215,7 @@ fun TvHomeScreen(
                         if (keyEvent.type != KeyEventType.KeyDown) return@onKeyEvent false
                         // FASE 36: con el panel de pistas abierto, el D-pad y las teclas del mando
                         // pertenecen al panel (navegar pistas, AZUL/BACK para cerrar). Si no se libera
-                        // aquí, ARRIBA/ABAJO zappearía canales mientras se elige una pista.
+                        // aquÃ­, ARRIBA/ABAJO zappearÃ­a canales mientras se elige una pista.
                         if (isTracksPanelVisible) return@onKeyEvent false
                         val isLiveStream = isPlayingLive
                         when (keyEvent.nativeKeyEvent.keyCode) {
@@ -1188,7 +1225,7 @@ fun TvHomeScreen(
 
                                 if (isLiveStream && activePlaybackChannels.isNotEmpty()) {
                                     val userT0 = android.os.SystemClock.elapsedRealtime()
-                                    // D-Pad UP va hacia "arriba" en la lista visual (índice anterior)
+                                    // D-Pad UP va hacia "arriba" en la lista visual (Ã­ndice anterior)
                                     val prevIndex = if (activePlaybackChannelIndex > 0) activePlaybackChannelIndex - 1 else activePlaybackChannels.lastIndex
                                     activePlaybackChannelIndex = prevIndex
                                     val ch = activePlaybackChannels[prevIndex]
@@ -1209,7 +1246,7 @@ fun TvHomeScreen(
 
                                 if (isLiveStream && activePlaybackChannels.isNotEmpty()) {
                                     val userT0 = android.os.SystemClock.elapsedRealtime()
-                                    // D-Pad DOWN va hacia "abajo" en la lista visual (siguiente índice)
+                                    // D-Pad DOWN va hacia "abajo" en la lista visual (siguiente Ã­ndice)
                                     val nextIndex = if (activePlaybackChannelIndex < activePlaybackChannels.lastIndex) activePlaybackChannelIndex + 1 else 0
                                     activePlaybackChannelIndex = nextIndex
                                     val ch = activePlaybackChannels[nextIndex]
@@ -1231,7 +1268,7 @@ fun TvHomeScreen(
                                     val isRewindKey = keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_MEDIA_REWIND
                                     val offsetMs = if (isRewindKey) -30_000L else -10_000L
                                     playerEngine.seekBy(offsetMs)
-                                    seekFeedbackText = if (isRewindKey) "⏪ -30s" else "⏪ -10s"
+                                    seekFeedbackText = if (isRewindKey) "âª -30s" else "âª -10s"
                                     isHudVisible = true
                                 }
                                 true
@@ -1244,7 +1281,7 @@ fun TvHomeScreen(
                                     val isFfKey = keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD
                                     val offsetMs = if (isFfKey) 30_000L else 10_000L
                                     playerEngine.seekBy(offsetMs)
-                                    seekFeedbackText = if (isFfKey) "⏩ +30s" else "⏩ +10s"
+                                    seekFeedbackText = if (isFfKey) "â© +30s" else "â© +10s"
                                     isHudVisible = true
                                 }
                                 true
@@ -1286,7 +1323,7 @@ fun TvHomeScreen(
                             }
                             KeyEvent.KEYCODE_PROG_BLUE,
                             KeyEvent.KEYCODE_BUTTON_X -> {
-                                // FASE 36: abre/cierra el panel de pistas (calidad / audio / subtítulos)
+                                // FASE 36: abre/cierra el panel de pistas (calidad / audio / subtÃ­tulos)
                                 isTracksPanelVisible = !isTracksPanelVisible
                                 true
                             }
@@ -1295,11 +1332,11 @@ fun TvHomeScreen(
                             KeyEvent.KEYCODE_INFO,
                             KeyEvent.KEYCODE_BUTTON_Y,
                             KeyEvent.KEYCODE_STAR -> {
-                                // Tecla Amarilla / Menú / Info / Y / *: toggle Favorito del canal en reproducción actual
+                                // Tecla Amarilla / MenÃº / Info / Y / *: toggle Favorito del canal en reproducciÃ³n actual
                                 if (isLiveStream && focusedChannel != null) {
                                     val isFav = focusedChannel?.isFavorite == true
                                     onToggleFavoriteChannel(focusedChannel!!.streamId, !isFav)
-                                    seekFeedbackText = if (!isFav) "⭐ Agregado a Favoritos" else "✖ Quitado de Favoritos"
+                                    seekFeedbackText = if (!isFav) "â­ Agregado a Favoritos" else "âœ– Quitado de Favoritos"
                                 }
                                 true
                             }
@@ -1400,7 +1437,7 @@ fun TvHomeScreen(
                 ) {
                     when (selectedTopTab) {
                         0 -> {
-                            // 🔍 BUSCADOR NATIVO FLUIDO (Sin teclado virtual bloqueante, compatible con voz y control remoto)
+                            // ðŸ” BUSCADOR NATIVO FLUIDO (Sin teclado virtual bloqueante, compatible con voz y control remoto)
                             TvSearchContent(
                                 activeSourceId = activeSource?.id,
                                 channelRepository = channelRepository,
@@ -1424,7 +1461,7 @@ fun TvHomeScreen(
                                         backdropUrl = mov.backdropPath,
                                         rating = mov.rating ?: 0.0,
                                         year = mov.year,
-                                        synopsis = mov.plot ?: "Película en catálogo.",
+                                        synopsis = mov.plot ?: "PelÃ­cula en catÃ¡logo.",
                                         genre = mov.categoryName,
                                         containerExtension = mov.containerExtension.ifEmpty { "mp4" },
                                         streamUrl = mov.streamUrl,
@@ -1441,7 +1478,7 @@ fun TvHomeScreen(
                         }
 
                         1 -> {
-                            // 🏠 INICIO (EveryCine Style: Hero Spotlight + Canales + Películas + Series)
+                            // ðŸ  INICIO (EveryCine Style: Hero Spotlight + Canales + PelÃ­culas + Series)
                             TvLazyColumn(
                                 modifier = Modifier.fillMaxSize(),
                                 contentPadding = PaddingValues(top = 16.dp, bottom = 48.dp)
@@ -1507,7 +1544,7 @@ fun TvHomeScreen(
                                             isFullscreen = true
                                         },
                                         onMovieClick = { movie ->
-                                            playMovie(movie)
+                                            openMovieDetails(movie)
                                         },
                                         onSeriesClick = { series ->
                                             openSeriesDetails(series)
@@ -1521,7 +1558,7 @@ fun TvHomeScreen(
                         }
 
                         2 -> {
-                            // 🔴 EN VIVO (GRID VERTICAL continuo sin carruseles molestos, bajando como Películas)
+                            // ðŸ”´ EN VIVO (GRID VERTICAL continuo sin carruseles molestos, bajando como PelÃ­culas)
                             Column(
                                 modifier = Modifier
                                     .fillMaxSize()
@@ -1534,7 +1571,7 @@ fun TvHomeScreen(
                                 ) {
                                     Column {
                                         Text(
-                                            text = "🔴 CANALES EN VIVO",
+                                            text = "ðŸ”´ CANALES EN VIVO",
                                             color = LelouchCyanAccent,
                                             fontSize = 22.sp,
                                             fontWeight = FontWeight.Black,
@@ -1549,7 +1586,7 @@ fun TvHomeScreen(
                                             }
                                         }
                                         Text(
-                                            text = if (displayCount > 0) "$displayCount señales en directo • Categoría: $activeChannelCatName" else "${pagedChannels.itemCount} señales cargadas • Categoría: $activeChannelCatName",
+                                            text = if (displayCount > 0) "$displayCount seÃ±ales en directo â€¢ CategorÃ­a: $activeChannelCatName" else "${pagedChannels.itemCount} seÃ±ales cargadas â€¢ CategorÃ­a: $activeChannelCatName",
                                             color = LelouchTextSecondary,
                                             fontSize = 13.sp
                                         )
@@ -1605,7 +1642,7 @@ fun TvHomeScreen(
                                             decorationBox = { innerTextField ->
                                                 if (channelSearchQuery.isEmpty()) {
                                                     Text(
-                                                        text = "🔍 Buscar canales por nombre o número...",
+                                                        text = "ðŸ” Buscar canales por nombre o nÃºmero...",
                                                         color = LelouchTextMuted,
                                                         fontSize = 14.sp
                                                     )
@@ -1650,7 +1687,7 @@ fun TvHomeScreen(
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
                                         Text(
-                                            text = if (isChannelSearching) "Buscando '$channelSearchQuery'..." else "Resultados de búsqueda: ${channelSearchResults.size} canales encontrados",
+                                            text = if (isChannelSearching) "Buscando '$channelSearchQuery'..." else "Resultados de bÃºsqueda: ${channelSearchResults.size} canales encontrados",
                                             color = LelouchCyanAccent,
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 14.sp
@@ -1664,7 +1701,7 @@ fun TvHomeScreen(
                                             )
                                         ) {
                                             Text(
-                                                text = "✕ Limpiar filtro",
+                                                text = "âœ• Limpiar filtro",
                                                 color = Color.White,
                                                 fontSize = 12.sp,
                                                 fontWeight = FontWeight.Bold,
@@ -1683,7 +1720,7 @@ fun TvHomeScreen(
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                Text(text = "📺", fontSize = 36.sp)
+                                                Text(text = "ðŸ“º", fontSize = 36.sp)
                                                 Spacer(modifier = Modifier.height(8.dp))
                                                 Text(
                                                     text = "No se encontraron canales para '$channelSearchQuery'",
@@ -1693,7 +1730,7 @@ fun TvHomeScreen(
                                                 )
                                                 Spacer(modifier = Modifier.height(6.dp))
                                                 Text(
-                                                    text = "Prueba con otra palabra o número de canal",
+                                                    text = "Prueba con otra palabra o nÃºmero de canal",
                                                     color = LelouchTextSecondary,
                                                     fontSize = 14.sp
                                                 )
@@ -1776,7 +1813,7 @@ fun TvHomeScreen(
                                                 horizontalAlignment = Alignment.CenterHorizontally
                                             ) {
                                                 Text(
-                                                    text = "📺",
+                                                    text = "ðŸ“º",
                                                     fontSize = 36.sp
                                                 )
                                                 Spacer(modifier = Modifier.height(8.dp))
@@ -1788,7 +1825,7 @@ fun TvHomeScreen(
                                                 )
                                                 Spacer(modifier = Modifier.height(6.dp))
                                                 Text(
-                                                    text = "Presiona OK para gestionar y activar categorías visibles",
+                                                    text = "Presiona OK para gestionar y activar categorÃ­as visibles",
                                                     color = LelouchTextSecondary,
                                                     fontSize = 14.sp
                                                 )
@@ -1853,7 +1890,7 @@ fun TvHomeScreen(
                         }
 
                         3 -> {
-                            // 🎬 PELÍCULAS EN GRID VERTICAL CON SELECTOR DE CATEGORÍAS
+                            // ðŸŽ¬ PELÃCULAS EN GRID VERTICAL CON SELECTOR DE CATEGORÃAS
                             Column(
                                 modifier = Modifier
                                     .fillMaxSize()
@@ -1866,7 +1903,7 @@ fun TvHomeScreen(
                                 ) {
                                     Column {
                                         Text(
-                                            text = "🎬 CATÁLOGO DE PELÍCULAS",
+                                            text = "ðŸŽ¬ CATÃLOGO DE PELÃCULAS",
                                             color = LelouchCyanAccent,
                                             fontSize = 22.sp,
                                             fontWeight = FontWeight.Black,
@@ -1880,7 +1917,7 @@ fun TvHomeScreen(
                                             }
                                         }
                                         Text(
-                                            text = "$activeMovieCatCount películas disponibles • Categoría: $activeMovieCatName",
+                                            text = "$activeMovieCatCount pelÃ­culas disponibles â€¢ CategorÃ­a: $activeMovieCatName",
                                             color = LelouchTextSecondary,
                                             fontSize = 13.sp
                                         )
@@ -1894,7 +1931,7 @@ fun TvHomeScreen(
                                     )
                                 }
 
-                                // Barra de Búsqueda de Películas
+                                // Barra de BÃºsqueda de PelÃ­culas
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -1937,7 +1974,7 @@ fun TvHomeScreen(
                                             decorationBox = { innerTextField ->
                                                 if (movieSearchQuery.isEmpty()) {
                                                     Text(
-                                                        text = "🔍 Buscar películas en catálogo por título o género...",
+                                                        text = "ðŸ” Buscar pelÃ­culas en catÃ¡logo por tÃ­tulo o gÃ©nero...",
                                                         color = LelouchTextMuted,
                                                         fontSize = 14.sp
                                                     )
@@ -1982,7 +2019,7 @@ fun TvHomeScreen(
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
                                         Text(
-                                            text = if (isMovieSearching) "Buscando '$movieSearchQuery'..." else "Resultados de búsqueda: ${movieSearchResults.size} películas encontradas",
+                                            text = if (isMovieSearching) "Buscando '$movieSearchQuery'..." else "Resultados de bÃºsqueda: ${movieSearchResults.size} pelÃ­culas encontradas",
                                             color = LelouchCyanAccent,
                                             fontSize = 14.sp,
                                             fontWeight = FontWeight.Bold
@@ -1997,7 +2034,7 @@ fun TvHomeScreen(
                                             )
                                         ) {
                                             Text(
-                                                text = "Ver Todas las Categorías",
+                                                text = "Ver Todas las CategorÃ­as",
                                                 color = Color.White,
                                                 fontSize = 12.sp,
                                                 fontWeight = FontWeight.Bold,
@@ -2016,10 +2053,10 @@ fun TvHomeScreen(
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                Text(text = "🎬", fontSize = 36.sp)
+                                                Text(text = "ðŸŽ¬", fontSize = 36.sp)
                                                 Spacer(modifier = Modifier.height(8.dp))
                                                 Text(
-                                                    text = "No se encontraron películas para '$movieSearchQuery'",
+                                                    text = "No se encontraron pelÃ­culas para '$movieSearchQuery'",
                                                     color = Color.White,
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 18.sp
@@ -2058,7 +2095,7 @@ fun TvHomeScreen(
                                                     rating = movie.rating ?: 0.0,
                                                     year = movie.year,
                                                     onClick = {
-                                                        playMovie(movie)
+                                                        openMovieDetails(movie)
                                                     },
                                                     modifier = cardModifier
                                                 )
@@ -2091,17 +2128,17 @@ fun TvHomeScreen(
                                                 modifier = Modifier.padding(horizontal = 32.dp, vertical = 24.dp),
                                                 horizontalAlignment = Alignment.CenterHorizontally
                                             ) {
-                                                Text(text = "🎬", fontSize = 36.sp)
+                                                Text(text = "ðŸŽ¬", fontSize = 36.sp)
                                                 Spacer(modifier = Modifier.height(8.dp))
                                                 Text(
-                                                    text = "No hay películas en '$activeMovieCatName'",
+                                                    text = "No hay pelÃ­culas en '$activeMovieCatName'",
                                                     color = Color.White,
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 18.sp
                                                 )
                                                 Spacer(modifier = Modifier.height(6.dp))
                                                 Text(
-                                                    text = "Presiona OK para gestionar categorías de películas",
+                                                    text = "Presiona OK para gestionar categorÃ­as de pelÃ­culas",
                                                     color = LelouchTextSecondary,
                                                     fontSize = 14.sp
                                                 )
@@ -2140,7 +2177,7 @@ fun TvHomeScreen(
                                                     focusedMovieId = movie.id
                                                 },
                                                 onClick = {
-                                                    playMovie(movie)
+                                                    openMovieDetails(movie)
                                                 },
                                                 modifier = cardModifier
                                             )
@@ -2151,7 +2188,7 @@ fun TvHomeScreen(
                         }
 
                         4 -> {
-                            // 📺 SERIES EN GRID VERTICAL CON SELECTOR DE CATEGORÍAS
+                            // ðŸ“º SERIES EN GRID VERTICAL CON SELECTOR DE CATEGORÃAS
                             Column(
                                 modifier = Modifier
                                     .fillMaxSize()
@@ -2171,14 +2208,14 @@ fun TvHomeScreen(
                                 ) {
                                     Column {
                                         Text(
-                                            text = "📺 SERIES & TEMPORADAS",
+                                            text = "ðŸ“º SERIES & TEMPORADAS",
                                             color = LelouchCyanAccent,
                                             fontSize = 22.sp,
                                             fontWeight = FontWeight.Black,
                                             letterSpacing = 1.sp
                                         )
                                         Text(
-                                            text = "$activeSeriesCatCount series completas • Categoría: $activeSeriesCatName",
+                                            text = "$activeSeriesCatCount series completas â€¢ CategorÃ­a: $activeSeriesCatName",
                                             color = LelouchTextSecondary,
                                             fontSize = 13.sp
                                         )
@@ -2225,7 +2262,7 @@ fun TvHomeScreen(
                                                 modifier = Modifier.padding(horizontal = 32.dp, vertical = 24.dp),
                                                 horizontalAlignment = Alignment.CenterHorizontally
                                             ) {
-                                                Text(text = "📺", fontSize = 36.sp)
+                                                Text(text = "ðŸ“º", fontSize = 36.sp)
                                                 Spacer(modifier = Modifier.height(8.dp))
                                                 Text(
                                                     text = if (seriesCategoryList.size <= 1) "No hay series visibles activadas" else "No hay series en '$activeSeriesCatName'",
@@ -2235,7 +2272,7 @@ fun TvHomeScreen(
                                                 )
                                                 Spacer(modifier = Modifier.height(6.dp))
                                                 Text(
-                                                    text = "Presiona OK para gestionar categorías de series",
+                                                    text = "Presiona OK para gestionar categorÃ­as de series",
                                                     color = LelouchTextSecondary,
                                                     fontSize = 14.sp
                                                 )
@@ -2283,14 +2320,14 @@ fun TvHomeScreen(
                         }
 
                         5 -> {
-                            // ⭐ FAVORITOS
+                            // â­ FAVORITOS
                             TvLazyColumn(
                                 modifier = Modifier.fillMaxSize(),
                                 contentPadding = PaddingValues(start = 32.dp, end = 32.dp, top = 16.dp, bottom = 48.dp)
                             ) {
                                 item {
                                     Text(
-                                        text = "⭐ TUS FAVORITOS",
+                                        text = "â­ TUS FAVORITOS",
                                         color = LelouchCyanAccent,
                                         fontSize = 22.sp,
                                         fontWeight = FontWeight.Black,
@@ -2301,7 +2338,7 @@ fun TvHomeScreen(
 
                                 if (favoriteChannels.isNotEmpty()) {
                                     item {
-                                        ContentSectionTitle("⭐ Canales Favoritos")
+                                        ContentSectionTitle("â­ Canales Favoritos")
                                         TvLazyRow(
                                             contentPadding = PaddingValues(horizontal = 0.dp),
                                             horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -2342,7 +2379,7 @@ fun TvHomeScreen(
 
                                 if (favoriteMovies.isNotEmpty()) {
                                     item {
-                                        ContentSectionTitle("🎬 Películas Favoritas")
+                                        ContentSectionTitle("ðŸŽ¬ PelÃ­culas Favoritas")
                                         TvLazyRow(
                                             contentPadding = PaddingValues(horizontal = 0.dp),
                                             horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -2390,14 +2427,14 @@ fun TvHomeScreen(
                                             )
                                             Spacer(modifier = Modifier.height(14.dp))
                                             Text(
-                                                text = "Aún no tienes elementos en Favoritos",
+                                                text = "AÃºn no tienes elementos en Favoritos",
                                                 color = LelouchTextPrimary,
                                                 fontSize = 18.sp,
                                                 fontWeight = FontWeight.Bold
                                             )
                                             Spacer(modifier = Modifier.height(6.dp))
                                             Text(
-                                                text = "Marca canales o películas como favoritos para tenerlos siempre a mano.",
+                                                text = "Marca canales o pelÃ­culas como favoritos para tenerlos siempre a mano.",
                                                 color = LelouchTextSecondary,
                                                 fontSize = 13.sp
                                             )
@@ -2408,7 +2445,7 @@ fun TvHomeScreen(
                         }
 
                         6 -> {
-                            // 🕘 CONTINUAR VIENDO / HISTORIAL
+                            // ðŸ•˜ CONTINUAR VIENDO / HISTORIAL
                             TvHistoryContent(
                                 items = historyItems,
                                 onResume = { item ->
@@ -2438,7 +2475,7 @@ fun TvHomeScreen(
                         }
 
                         7 -> {
-                            // ⚙️ PANEL ADMINISTRADOR & AJUSTES (ESTILO BIX PLUS / PORTAL DASHBOARD)
+                            // âš™ï¸ PANEL ADMINISTRADOR & AJUSTES (ESTILO BIX PLUS / PORTAL DASHBOARD)
                             TvLazyColumn(
                                 modifier = Modifier.fillMaxSize(),
                                 contentPadding = PaddingValues(start = 32.dp, end = 48.dp, top = 20.dp, bottom = 48.dp)
@@ -2493,7 +2530,7 @@ fun TvHomeScreen(
                                                     }
                                                     Spacer(modifier = Modifier.height(2.dp))
                                                     Text(
-                                                        text = "Gestiona tus listas IPTV, modo adultos, sincronización y diagnóstico de red.",
+                                                        text = "Gestiona tus listas IPTV, modo adultos, sincronizaciÃ³n y diagnÃ³stico de red.",
                                                         color = Color.White.copy(alpha = 0.65f),
                                                         fontSize = 13.sp
                                                     )
@@ -2503,12 +2540,12 @@ fun TvHomeScreen(
 
                                         Spacer(modifier = Modifier.height(20.dp))
 
-                                        // 1. BARRA DE ACCIONES RÁPIDAS (ORGANIZADA EN 2 FILAS LIMPIAS PARA EVITAR DESBORDES)
+                                        // 1. BARRA DE ACCIONES RÃPIDAS (ORGANIZADA EN 2 FILAS LIMPIAS PARA EVITAR DESBORDES)
                                         Column(
                                             modifier = Modifier.fillMaxWidth(),
                                             verticalArrangement = Arrangement.spacedBy(10.dp)
                                         ) {
-                                            // Fila 1: Navegación y Preferencias
+                                            // Fila 1: NavegaciÃ³n y Preferencias
                                             Row(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -2533,7 +2570,7 @@ fun TvHomeScreen(
                                                 )
                                                 ActionButton(
                                                     icon = Icons.Default.FilterList,
-                                                    label = "Filtrar Categorías",
+                                                    label = "Filtrar CategorÃ­as",
                                                     onClick = { isCategoryManagerVisible = true }
                                                 )
                                             }
@@ -2555,18 +2592,18 @@ fun TvHomeScreen(
                                                 )
                                                 ActionButton(
                                                     icon = Icons.Default.Refresh,
-                                                    label = "Recargar Catálogo",
+                                                    label = "Recargar CatÃ¡logo",
                                                     onClick = onForceSync
                                                 )
                                                 ActionButton(
                                                     icon = Icons.Default.Logout,
-                                                    label = "Cerrar Sesión",
+                                                    label = "Cerrar SesiÃ³n",
                                                     isDanger = true,
                                                     onClick = onLogout
                                                 )
                                             }
 
-                                            // Fila 3: Motor Xuper (DNS, Aceleración HW+, OpenSL ES y Verificación de Ocupación)
+                                            // Fila 3: Motor Xuper (DNS, AceleraciÃ³n HW+, OpenSL ES y VerificaciÃ³n de OcupaciÃ³n)
                                             Row(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -2585,7 +2622,7 @@ fun TvHomeScreen(
                                                     icon = Icons.Default.Memory,
                                                     label = "Video: ${when (tvVideoDecoderMode) {
                                                         LelouchDnsManager.VideoDecoderMode.HW_PLUS -> "HW+ (DirectSurface)"
-                                                        LelouchDnsManager.VideoDecoderMode.HW_ONLY -> "HW (Estándar)"
+                                                        LelouchDnsManager.VideoDecoderMode.HW_ONLY -> "HW (EstÃ¡ndar)"
                                                         LelouchDnsManager.VideoDecoderMode.SW_ONLY -> "SW (Software CPU)"
                                                     }}",
                                                     onClick = {
@@ -2610,7 +2647,7 @@ fun TvHomeScreen(
                                                 )
                                                 ActionButton(
                                                     icon = Icons.Default.VerifiedUser,
-                                                    label = "Verificar Fechas y Ocupación",
+                                                    label = "Verificar Fechas y OcupaciÃ³n",
                                                     onClick = onRefreshAccountsStatus
                                                 )
                                             }
@@ -2618,7 +2655,7 @@ fun TvHomeScreen(
 
                                         Spacer(modifier = Modifier.height(24.dp))
 
-                                        // 🩺 DIAGNÓSTICO DE REPRODUCCIÓN (Mantenido intacto)
+                                        // ðŸ©º DIAGNÃ“STICO DE REPRODUCCIÃ“N (Mantenido intacto)
                                         TvDiagnosticsSection(
                                             activeSource = activeSource,
                                             liveCount = liveChannels.size,
@@ -2639,7 +2676,7 @@ fun TvHomeScreen(
                                             onRunDiagnostics = if (onRunDiagnostics != null) ::runDiagnosticsNow else null
                                         )
 
-                                        // 🎯 GESTIÓN DE CATEGORÍAS VISIBLES (Mantenido intacto)
+                                        // ðŸŽ¯ GESTIÃ“N DE CATEGORÃAS VISIBLES (Mantenido intacto)
                                         TvCategoryVisibilitySection(
                                             liveTotal = liveCategoryItemModels.size,
                                             liveHiddenCount = liveCategoryItemModels.count { hiddenLiveCategories.contains(it.name) || hiddenLiveCategories.contains(it.id) },
@@ -2655,7 +2692,7 @@ fun TvHomeScreen(
 
                                         Spacer(modifier = Modifier.height(28.dp))
                                         Text(
-                                            text = "📋 LISTAS IPTV DISPONIBLES (${allSources.size}):",
+                                            text = "ðŸ“‹ LISTAS IPTV DISPONIBLES (${allSources.size}):",
                                             color = Color.White,
                                             fontSize = 16.sp,
                                             fontWeight = FontWeight.Bold
@@ -2709,7 +2746,7 @@ fun TvHomeScreen(
                                                         Spacer(modifier = Modifier.width(10.dp))
                                                         if (isActive) {
                                                             Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Color(0xFF10B981)).padding(horizontal = 8.dp, vertical = 3.dp)) {
-                                                                Text("🟢 ACTIVA", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                                                                Text("ðŸŸ¢ ACTIVA", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black)
                                                             }
                                                         }
                                                         if (isCardFocused) {
@@ -2731,10 +2768,10 @@ fun TvHomeScreen(
                                                             else -> Color(0xFF10B981)
                                                         }
                                                         val expLabel = when {
-                                                            source.expireDate.isNullOrBlank() -> "♾️ Sin fecha / Ilimitado"
-                                                            daysRem != null && daysRem <= 0 -> "🔴 Venció: ${source.formattedExpireDate}"
-                                                            daysRem != null -> "📅 Vence: ${source.formattedExpireDate} (${daysRem} días)"
-                                                            else -> "📅 Vence: ${source.formattedExpireDate}"
+                                                            source.expireDate.isNullOrBlank() -> "â™¾ï¸ Sin fecha / Ilimitado"
+                                                            daysRem != null && daysRem <= 0 -> "ðŸ”´ VenciÃ³: ${source.formattedExpireDate}"
+                                                            daysRem != null -> "ðŸ“… Vence: ${source.formattedExpireDate} (${daysRem} dÃ­as)"
+                                                            else -> "ðŸ“… Vence: ${source.formattedExpireDate}"
                                                         }
                                                         Box(
                                                             modifier = Modifier
@@ -2755,7 +2792,7 @@ fun TvHomeScreen(
                                                         val actC = source.activeConnections.coerceAtLeast(0)
                                                         val isBusy = actC >= maxC
                                                         val connColor = if (isBusy) Color(0xFFEF4444) else Color(0xFF10B981)
-                                                        val connText = if (isBusy) "🔴 LISTA OCUPADA ($actC/$maxC Conex.)" else "🟢 LIBRE ($actC/$maxC Conex.)"
+                                                        val connText = if (isBusy) "ðŸ”´ LISTA OCUPADA ($actC/$maxC Conex.)" else "ðŸŸ¢ LIBRE ($actC/$maxC Conex.)"
                                                         Box(
                                                             modifier = Modifier
                                                                 .clip(RoundedCornerShape(5.dp))
@@ -2773,7 +2810,7 @@ fun TvHomeScreen(
                                                     }
                                                     Spacer(modifier = Modifier.height(5.dp))
                                                     Text(
-                                                        text = "Servidor: ${source.serverUrl}  •  Usuario: ${source.username}",
+                                                        text = "Servidor: ${source.serverUrl}  â€¢  Usuario: ${source.username}",
                                                         color = if (isCardFocused) Color(0xFFE2E8F0) else Color.White.copy(alpha = 0.55f),
                                                         fontSize = 13.sp
                                                     )
@@ -2786,7 +2823,7 @@ fun TvHomeScreen(
                                                             .background(if (isCardFocused) Color.White else Color(0xFFFF6B00))
                                                             .padding(horizontal = 14.dp, vertical = 8.dp)
                                                     ) {
-                                                        Text("⚡ ACTIVAR", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                                                        Text("âš¡ ACTIVAR", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Black)
                                                     }
                                                 } else {
                                                     Box(
@@ -2795,7 +2832,7 @@ fun TvHomeScreen(
                                                             .background(Color(0xFF10B981))
                                                             .padding(horizontal = 14.dp, vertical = 8.dp)
                                                     ) {
-                                                        Text("✓ EN USO", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                                                        Text("âœ“ EN USO", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black)
                                                     }
                                                 }
                                             }
@@ -2809,7 +2846,7 @@ fun TvHomeScreen(
             }
 
 
-        // CAPA 5: Mini-Guía Carrusel HUD en Pantalla Completa (con iconos de canales)
+        // CAPA 5: Mini-GuÃ­a Carrusel HUD en Pantalla Completa (con iconos de canales)
         AnimatedVisibility(
             visible = isFullscreen && isHudVisible,
             enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(200)) + fadeIn(),
@@ -2850,7 +2887,7 @@ fun TvHomeScreen(
                                     }
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = "CH ${currentHudCh.num}  •  ${currentHudCh.categoryName}",
+                                        text = "CH ${currentHudCh.num}  â€¢  ${currentHudCh.categoryName}",
                                         color = LelouchCyanAccent,
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.Bold
@@ -2931,7 +2968,7 @@ fun TvHomeScreen(
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = currentPlayingTitle ?: "Reproducción VOD",
+                                    text = currentPlayingTitle ?: "ReproducciÃ³n VOD",
                                     color = LelouchTextPrimary,
                                     fontSize = 22.sp,
                                     fontWeight = FontWeight.Black,
@@ -2992,7 +3029,7 @@ fun TvHomeScreen(
                         Spacer(modifier = Modifier.height(10.dp))
 
                         Text(
-                            text = "D-Pad ◄ / ► : -10s / +10s  •  OK : Pausa / Reanudar  •  AZUL : Pistas  •  BACK : Salir al menú",
+                            text = "D-Pad â—„ / â–º : -10s / +10s  â€¢  OK : Pausa / Reanudar  â€¢  AZUL : Pistas  â€¢  BACK : Salir al menÃº",
                             color = LelouchTextMuted,
                             fontSize = 11.sp,
                             modifier = Modifier.align(Alignment.CenterHorizontally)
@@ -3002,7 +3039,7 @@ fun TvHomeScreen(
             }
         }
 
-        // CAPA 5.5: Panel de pistas (calidad / audio / subtítulos) — FASE 36
+        // CAPA 5.5: Panel de pistas (calidad / audio / subtÃ­tulos) â€” FASE 36
         if (isFullscreen && isTracksPanelVisible) {
             TvTracksPanel(
                 engine = playerEngine,
@@ -3010,7 +3047,7 @@ fun TvHomeScreen(
             )
         }
 
-        // CAPA 6: Modal de Búsqueda FTS5 Instantánea
+        // CAPA 6: Modal de BÃºsqueda FTS5 InstantÃ¡nea
         if (isSearchModalVisible) {
             TvSearchModal(
                 channels = liveChannels,
@@ -3047,7 +3084,7 @@ fun TvHomeScreen(
             )
         }
 
-        // CAPA 7: Modal de Guía Electrónica (EPG) Timeline
+        // CAPA 7: Modal de GuÃ­a ElectrÃ³nica (EPG) Timeline
         if (isEpgModalVisible) {
             EpgTimelineModal(
                 channels = liveChannels,
@@ -3087,7 +3124,7 @@ fun TvHomeScreen(
             )
         }
 
-        // CAPA 8.2: Modal de Actualización Over-The-Air (OTA)
+        // CAPA 8.2: Modal de ActualizaciÃ³n Over-The-Air (OTA)
         if (isUpdateModalVisible) {
             TvUpdateModal(
                 onDismiss = { isUpdateModalVisible = false }
@@ -3101,7 +3138,7 @@ fun TvHomeScreen(
             )
         }
 
-        // CAPA 8.5: Modal de Gestión de Categorías Visibles
+        // CAPA 8.5: Modal de GestiÃ³n de CategorÃ­as Visibles
         if (isCategoryManagerVisible) {
             TvCategoryManagerModal(
                 initialScope = categoryManagerInitialScope,
@@ -3145,7 +3182,7 @@ fun TvHomeScreen(
             )
         }
 
-        // CAPA 9: Modal de Detalle de Película / Serie y Selector de Episodios
+        // CAPA 9: Modal de Detalle de PelÃ­cula / Serie y Selector de Episodios
         if (activeDetailMedia != null) {
             TvMediaDetailModal(
                 media = activeDetailMedia!!,
@@ -3169,7 +3206,7 @@ fun TvHomeScreen(
                             playVod(ep.streamUrl, meta)
                         } else {
                             // FASE 33: el resolvedor decide; en fuentes M3U devuelve "" en vez
-                            // de una URL de Vercel que devolvería 404.
+                            // de una URL de Vercel que devolverÃ­a 404.
                             val targetId = ep?.episodeId ?: episodeId ?: media.id
                             val ext = ep?.containerExtension?.ifEmpty { "mp4" } ?: "mp4"
                             val fallbackUrl = StreamUrlResolver.resolve(
@@ -3215,7 +3252,7 @@ fun TvHomeScreen(
 
 
 
-        // CAPA 11: Feedback Flotante de Búsqueda/Avance (ej: ⏪ -10s o ⏩ +10s para control Xiaomi)
+        // CAPA 11: Feedback Flotante de BÃºsqueda/Avance (ej: âª -10s o â© +10s para control Xiaomi)
         if (seekFeedbackText != null) {
             Box(
                 modifier = Modifier
@@ -3240,7 +3277,7 @@ fun TvHomeScreen(
             }
         }
 
-        // CAPA 12: Banner de Sintonización Numérica Directa (Control Toshiba / HDMI-CEC)
+        // CAPA 12: Banner de SintonizaciÃ³n NumÃ©rica Directa (Control Toshiba / HDMI-CEC)
         if (channelInputBuffer.isNotEmpty()) {
             Box(
                 modifier = Modifier
@@ -3260,7 +3297,7 @@ fun TvHomeScreen(
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Text(
-                            text = "📺 SINTONIZAR",
+                            text = "ðŸ“º SINTONIZAR",
                             color = LelouchTextSecondary,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold
@@ -3277,7 +3314,7 @@ fun TvHomeScreen(
             }
         }
 
-        // HUD de depuración deshabilitado para mantener la pantalla de la TV limpia y despejada
+        // HUD de depuraciÃ³n deshabilitado para mantener la pantalla de la TV limpia y despejada
         val showDebugHud = false
         if (showDebugHud && !isFullscreen) {
             FocusDebugHud(
@@ -3291,8 +3328,8 @@ fun TvHomeScreen(
 /**
  * Tarjeta de Canal para Android TV con contenedor oficial de logo de canal,
  * escala D-Pad 1.08x, borde Cyan con brillo e indicador LIVE.
- * Soporta selección instantánea con botón OK / Centro del control Xiaomi.
- * Favorito: cuando está enfocada, muestra estrella ⭐ para agregar/quitar.
+ * Soporta selecciÃ³n instantÃ¡nea con botÃ³n OK / Centro del control Xiaomi.
+ * Favorito: cuando estÃ¡ enfocada, muestra estrella â­ para agregar/quitar.
  */
 @Composable
 fun TvChannelCard(
@@ -3306,7 +3343,7 @@ fun TvChannelCard(
     isFavorite: Boolean = false
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    // Una sola animación via TvMaterial3 (eliminada la doble animación redundante que sobrecargaba GPU del TV Box)
+    // Una sola animaciÃ³n via TvMaterial3 (eliminada la doble animaciÃ³n redundante que sobrecargaba GPU del TV Box)
 
     val widthModifier = if (cardWidth != androidx.compose.ui.unit.Dp.Unspecified) {
         Modifier.width(cardWidth)
@@ -3368,7 +3405,7 @@ fun TvChannelCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Contenedor del Logo de la Señal (62x38 dp)
+                // Contenedor del Logo de la SeÃ±al (62x38 dp)
                 Box(
                     modifier = Modifier
                         .size(width = 62.dp, height = 38.dp)
@@ -3403,7 +3440,7 @@ fun TvChannelCard(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    // Badge / Indicador de Favorito para TV Box y Móvil
+                    // Badge / Indicador de Favorito para TV Box y MÃ³vil
                     if (isFavorite) {
                         Box(
                             modifier = Modifier
@@ -3415,7 +3452,7 @@ fun TvChannelCard(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = if (isFocused) "⭐ FAV (OK largo)" else "⭐",
+                                text = if (isFocused) "â­ FAV (OK largo)" else "â­",
                                 color = Color(0xFFFFD700),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold
@@ -3432,7 +3469,7 @@ fun TvChannelCard(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "☆ +FAV",
+                                text = "â˜† +FAV",
                                 color = Color.White.copy(alpha = 0.85f),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Medium
@@ -3473,7 +3510,7 @@ fun TvChannelCard(
                 }
             }
 
-            // Fila Inferior: Nombre y Programa en Emisión
+            // Fila Inferior: Nombre y Programa en EmisiÃ³n
             Column {
                 Text(
                     text = channel.name,
@@ -3496,13 +3533,13 @@ fun TvChannelCard(
     }
 }
 
-// ══════════════════════════════════════════════════════════════════════
-// 🩺 FASE 33 — PANEL DE DIAGNÓSTICO DE REPRODUCCIÓN
-// Muestra la cadena completa: fuente activa -> ítems en Room -> URL final
-// -> estado de ExoPlayer. Pensado para dejar de adivinar por qué no suena.
-// ══════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ðŸ©º FASE 33 â€” PANEL DE DIAGNÃ“STICO DE REPRODUCCIÃ“N
+// Muestra la cadena completa: fuente activa -> Ã­tems en Room -> URL final
+// -> estado de ExoPlayer. Pensado para dejar de adivinar por quÃ© no suena.
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-/** Oculta credenciales de rutas Xtream (`/live/USER/PASS/`) y parámetros sensibles. */
+/** Oculta credenciales de rutas Xtream (`/live/USER/PASS/`) y parÃ¡metros sensibles. */
 private fun redactUrl(url: String?): String {
     return com.lelouch.core.network.UrlSanitizer.sanitizeUrl(url)
 }
@@ -3527,11 +3564,11 @@ private fun TvDiagnosticsSection(
 ) {
     val stateLabel = when (val s = playbackState) {
         is PlaybackState.Idle -> "En reposo"
-        is PlaybackState.Buffering -> "⏳ Cargando búfer…"
-        is PlaybackState.Playing -> "▶ Reproduciendo"
-        is PlaybackState.Paused -> "⏸ Pausado"
+        is PlaybackState.Buffering -> "â³ Cargando bÃºferâ€¦"
+        is PlaybackState.Playing -> "â–¶ Reproduciendo"
+        is PlaybackState.Paused -> "â¸ Pausado"
         is PlaybackState.Ended -> "Fin del stream"
-        is PlaybackState.Error -> "✖ ${s.errorMessage} (código ${s.errorCode})"
+        is PlaybackState.Error -> "âœ– ${s.errorMessage} (cÃ³digo ${s.errorCode})"
     }
 
     val isBroken = resolvedUrl.isNullOrBlank() ||
@@ -3545,7 +3582,7 @@ private fun TvDiagnosticsSection(
             .padding(18.dp)
     ) {
         Text(
-            text = "🩺 DIAGNÓSTICO DE REPRODUCCIÓN & TELEMETRÍA EN VIVO",
+            text = "ðŸ©º DIAGNÃ“STICO DE REPRODUCCIÃ“N & TELEMETRÃA EN VIVO",
             color = LelouchCyanAccent,
             fontSize = 16.sp,
             fontWeight = FontWeight.Black,
@@ -3564,71 +3601,71 @@ private fun TvDiagnosticsSection(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // ─── ⚡ TELEMETRÍA EN VIVO (HARDWARE & EXOPLAYER) ───
+        // â”€â”€â”€ âš¡ TELEMETRÃA EN VIVO (HARDWARE & EXOPLAYER) â”€â”€â”€
         Text(
-            text = "⚡ TELEMETRÍA EN TIEMPO REAL (HARDWARE & DECODER)",
+            text = "âš¡ TELEMETRÃA EN TIEMPO REAL (HARDWARE & DECODER)",
             color = LelouchTextSecondary,
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold
         )
         Spacer(modifier = Modifier.height(6.dp))
-        DiagnosticRow("Resolución Detectada", diagnosticInfo.resolution)
+        DiagnosticRow("ResoluciÃ³n Detectada", diagnosticInfo.resolution)
         DiagnosticRow(
             "Tasa de Cuadros (FPS)",
-            if (diagnosticInfo.frameRate > 0f) "%.2f fps".format(diagnosticInfo.frameRate) else "—"
+            if (diagnosticInfo.frameRate > 0f) "%.2f fps".format(diagnosticInfo.frameRate) else "â€”"
         )
         DiagnosticRow(
-            "Códec / Formato",
-            diagnosticInfo.mimeType.ifEmpty { "MPEG-TS / HLS (Automático)" }
+            "CÃ³dec / Formato",
+            diagnosticInfo.mimeType.ifEmpty { "MPEG-TS / HLS (AutomÃ¡tico)" }
         )
         DiagnosticRow(
             "Tasa de Bits (Bitrate)",
-            if (diagnosticInfo.bitrate > 0) "${diagnosticInfo.bitrate / 1000} kbps" else "Bitrate Dinámico / VBR"
+            if (diagnosticInfo.bitrate > 0) "${diagnosticInfo.bitrate / 1000} kbps" else "Bitrate DinÃ¡mico / VBR"
         )
         DiagnosticRow(
-            "Cuadros de Vídeo (Frames)",
-            "${diagnosticInfo.renderedFrames} procesados  •  ${diagnosticInfo.droppedFrames} perdidos"
+            "Cuadros de VÃ­deo (Frames)",
+            "${diagnosticInfo.renderedFrames} procesados  â€¢  ${diagnosticInfo.droppedFrames} perdidos"
         )
         DiagnosticRow(
             "Vigilante Anti-Congelamiento",
-            if (diagnosticInfo.stallCount > 0) "⚠️ ${diagnosticInfo.stallCount} auto-recuperaciones ejecutadas" else "✅ Activo (Sin congelamientos)"
+            if (diagnosticInfo.stallCount > 0) "âš ï¸ ${diagnosticInfo.stallCount} auto-recuperaciones ejecutadas" else "âœ… Activo (Sin congelamientos)"
         )
         if (diagnosticInfo.stallCount > 0) {
-            DiagnosticRow("Última Auto-Recuperación", diagnosticInfo.lastRecoveryReason)
+            DiagnosticRow("Ãšltima Auto-RecuperaciÃ³n", diagnosticInfo.lastRecoveryReason)
         }
 
         Spacer(modifier = Modifier.height(14.dp))
         Text(
-            text = "📡 FUENTE Y CATÁLOGO LOCAL",
+            text = "ðŸ“¡ FUENTE Y CATÃLOGO LOCAL",
             color = LelouchTextSecondary,
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold
         )
         Spacer(modifier = Modifier.height(6.dp))
 
-        DiagnosticRow("Fuente activa", activeSource?.name ?: "— ninguna —")
-        DiagnosticRow("ID de fuente (Room)", activeSource?.id ?: "—")
-        DiagnosticRow("Tipo", activeSource?.type?.name ?: "—")
+        DiagnosticRow("Fuente activa", activeSource?.name ?: "â€” ninguna â€”")
+        DiagnosticRow("ID de fuente (Room)", activeSource?.id ?: "â€”")
+        DiagnosticRow("Tipo", activeSource?.type?.name ?: "â€”")
         DiagnosticRow("Servidor", redactUrl(activeSource?.serverUrl))
         DiagnosticRow(
             "Usuario",
-            activeSource?.username?.takeIf { it.isNotBlank() } ?: "(vacío — es lista por token)"
+            activeSource?.username?.takeIf { it.isNotBlank() } ?: "(vacÃ­o â€” es lista por token)"
         )
 
         Spacer(modifier = Modifier.height(10.dp))
         DiagnosticRow("Canales en Room", liveCount.toString())
-        DiagnosticRow("Películas en Room", movieCount.toString())
+        DiagnosticRow("PelÃ­culas en Room", movieCount.toString())
         DiagnosticRow("Series en Room", seriesCount.toString())
         DiagnosticRow("Canales SIN URL", blankUrlCount.toString())
 
         Spacer(modifier = Modifier.height(10.dp))
-        DiagnosticRow("Canal enfocado", focusedChannelName ?: "—")
-        DiagnosticRow("Última sincronización", syncStateText.ifBlank { "— sin datos —" })
+        DiagnosticRow("Canal enfocado", focusedChannelName ?: "â€”")
+        DiagnosticRow("Ãšltima sincronizaciÃ³n", syncStateText.ifBlank { "â€” sin datos â€”" })
         DiagnosticRow("Estado del reproductor", "$stateLabel (${diagnosticInfo.stateName})")
 
         Spacer(modifier = Modifier.height(14.dp))
         Text(
-            text = "URL que recibiría el reproductor",
+            text = "URL que recibirÃ­a el reproductor",
             color = LelouchTextSecondary,
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold
@@ -3644,8 +3681,8 @@ private fun TvDiagnosticsSection(
         if (isBroken) {
             Spacer(modifier = Modifier.height(12.dp))
             Text(
-                text = "⚠️ La URL está vacía o apunta a Vercel, que no transmite vídeo. " +
-                    "Pulsa «🔄 Re-sincronizar Catálogo»; si persiste, la lista no tiene " +
+                text = "âš ï¸ La URL estÃ¡ vacÃ­a o apunta a Vercel, que no transmite vÃ­deo. " +
+                    "Pulsa Â«ðŸ”„ Re-sincronizar CatÃ¡logoÂ»; si persiste, la lista no tiene " +
                     "streamUrl guardado para este elemento.",
                 color = LelouchWarning,
                 fontSize = 12.sp,
@@ -3654,8 +3691,8 @@ private fun TvDiagnosticsSection(
         } else if (liveCount == 0 && movieCount == 0) {
             Spacer(modifier = Modifier.height(12.dp))
             Text(
-                text = "⚠️ Room está vacío para este sourceId. La app debería re-sincronizar " +
-                    "al arrancar; si no lo hace, usa «🔄 Re-sincronizar Catálogo».",
+                text = "âš ï¸ Room estÃ¡ vacÃ­o para este sourceId. La app deberÃ­a re-sincronizar " +
+                    "al arrancar; si no lo hace, usa Â«ðŸ”„ Re-sincronizar CatÃ¡logoÂ».",
                 color = LelouchWarning,
                 fontSize = 12.sp,
                 lineHeight = 17.sp
@@ -3678,7 +3715,7 @@ private fun IptvDiagnosticsBlock(
     onRun: (() -> Unit)?
 ) {
     Text(
-        text = "🧪 TEST DE CUENTA, LISTA Y RED",
+        text = "ðŸ§ª TEST DE CUENTA, LISTA Y RED",
         color = LelouchCyanAccent,
         fontSize = 14.sp,
         fontWeight = FontWeight.Black,
@@ -3686,9 +3723,9 @@ private fun IptvDiagnosticsBlock(
     )
     Spacer(modifier = Modifier.height(6.dp))
     Text(
-        text = "Mide desde este dispositivo: cuenta, conexiones, tamaño de la lista, servidores, " +
+        text = "Mide desde este dispositivo: cuenta, conexiones, tamaÃ±o de la lista, servidores, " +
             "primer byte, bitrate, DNS y latencia TCP. Descarga la lista completa y prueba " +
-            "3 canales; tarda entre 40 s y 2 min según el tamaño y puede ocupar una conexión " +
+            "3 canales; tarda entre 40 s y 2 min segÃºn el tamaÃ±o y puede ocupar una conexiÃ³n " +
             "de la cuenta.",
         color = LelouchTextSecondary,
         fontSize = 12.sp,
@@ -3699,22 +3736,22 @@ private fun IptvDiagnosticsBlock(
     if (activeSource == null) {
         Text("Selecciona una lista activa para poder medirla.", color = LelouchWarning, fontSize = 12.sp)
     } else if (onRun == null) {
-        Text("El test medido no está disponible en esta compilación.", color = LelouchWarning, fontSize = 12.sp)
+        Text("El test medido no estÃ¡ disponible en esta compilaciÃ³n.", color = LelouchWarning, fontSize = 12.sp)
     } else {
         ActionButton(
             icon = Icons.Default.Speed,
-            label = if (running) "Midiendo…" else "Ejecutar test",
+            label = if (running) "Midiendoâ€¦" else "Ejecutar test",
             onClick = { if (!running) onRun() }
         )
         if (running && progress.isNotBlank()) {
             Spacer(modifier = Modifier.height(8.dp))
-            Text("⏳ $progress", color = LelouchCyanAccent, fontSize = 12.sp)
+            Text("â³ $progress", color = LelouchCyanAccent, fontSize = 12.sp)
         }
     }
 
     if (error != null) {
         Spacer(modifier = Modifier.height(8.dp))
-        Text("⚠️ $error", color = LelouchWarning, fontSize = 12.sp, lineHeight = 17.sp)
+        Text("âš ï¸ $error", color = LelouchWarning, fontSize = 12.sp, lineHeight = 17.sp)
     }
 
     val current = report ?: return
@@ -3724,7 +3761,7 @@ private fun IptvDiagnosticsBlock(
         text = "Medido a las ${
             java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
                 .format(java.util.Date(current.measuredAt))
-        } · ${current.elapsedMs / 1000} s",
+        } Â· ${current.elapsedMs / 1000} s",
         color = LelouchTextSecondary,
         fontSize = 11.sp
     )
@@ -3732,13 +3769,13 @@ private fun IptvDiagnosticsBlock(
     current.account?.let { account ->
         DiagnosticGroupTitle("CUENTA")
         DiagnosticRow(
-            "Autenticación",
-            if (account.authenticated) "✅ ${account.status}" else "⛔ ${account.status}"
+            "AutenticaciÃ³n",
+            if (account.authenticated) "âœ… ${account.status}" else "â›” ${account.status}"
         )
         DiagnosticRow(
             "Vencimiento",
             account.expiry?.let { expiry ->
-                account.daysRemaining?.let { "$expiry · quedan $it días" } ?: expiry
+                account.daysRemaining?.let { "$expiry Â· quedan $it dÃ­as" } ?: expiry
             } ?: "sin fecha"
         )
         val activeConnections = account.activeConnections
@@ -3747,20 +3784,20 @@ private fun IptvDiagnosticsBlock(
             val limitReached = activeConnections >= maxConnections
             DiagnosticRow(
                 "Conexiones",
-                "${if (limitReached) "⚠️ " else ""}$activeConnections en uso de " +
+                "${if (limitReached) "âš ï¸ " else ""}$activeConnections en uso de " +
                     "$maxConnections permitidas"
             )
         }
         if (account.formats.isNotEmpty()) {
             DiagnosticRow("Formatos", account.formats.joinToString(", "))
         }
-        if (account.isTrial) DiagnosticRow("Tipo", "⚠️ cuenta de prueba (trial)")
+        if (account.isTrial) DiagnosticRow("Tipo", "âš ï¸ cuenta de prueba (trial)")
     }
 
     current.playlist?.let { list ->
         DiagnosticGroupTitle("LISTA")
         DiagnosticRow(
-            "Tamaño",
+            "TamaÃ±o",
             "%.1f MB / %d entradas".format(list.sizeMb, list.entries)
         )
         DiagnosticRow(
@@ -3769,7 +3806,7 @@ private fun IptvDiagnosticsBlock(
         )
         DiagnosticRow(
             "Contenido",
-            "${list.live} en vivo · ${list.movies} películas · ${list.series} series"
+            "${list.live} en vivo Â· ${list.movies} pelÃ­culas Â· ${list.series} series"
         )
         if (list.hostCounts.isNotEmpty()) {
             DiagnosticGroupTitle("SERVIDORES DE VIDEO")
@@ -3785,7 +3822,7 @@ private fun IptvDiagnosticsBlock(
             if (channel.ok) {
                 DiagnosticRow(
                     "Canal ${channel.number}",
-                    "%.1f Mbps · primer byte %.2f s · ${channel.host}:${channel.port}".format(
+                    "%.1f Mbps Â· primer byte %.2f s Â· ${channel.host}:${channel.port}".format(
                         channel.bitrateMbps,
                         channel.ttfbMs / 1000.0
                     )
@@ -3798,7 +3835,7 @@ private fun IptvDiagnosticsBlock(
         if (working.isNotEmpty()) {
             DiagnosticRow(
                 "Promedio",
-                "%.1f Mbps · primer byte %.2f s".format(
+                "%.1f Mbps Â· primer byte %.2f s".format(
                     working.map { it.bitrateMbps }.average(),
                     working.map { it.ttfbMs }.average() / 1000.0
                 )
@@ -3812,7 +3849,7 @@ private fun IptvDiagnosticsBlock(
     current.dns?.let { dns ->
         val routerText = if (dns.routerMs != null) "router ${dns.routerMs} ms" else "router sin respuesta"
         val publicText = dns.publicMs?.let { "1.1.1.1 $it ms" } ?: "1.1.1.1 sin respuesta"
-        DiagnosticRow("DNS de ${dns.host}", "$routerText · $publicText")
+        DiagnosticRow("DNS de ${dns.host}", "$routerText Â· $publicText")
     }
     current.panel?.let { panel ->
         val parts = listOfNotNull(
@@ -3821,7 +3858,7 @@ private fun IptvDiagnosticsBlock(
             panel.tcpAvgMs?.let { "TCP $it ms" },
             "${panel.tcpOk}/${panel.tcpAttempts} conexiones"
         )
-        DiagnosticRow("Panel", parts.joinToString(" · "))
+        DiagnosticRow("Panel", parts.joinToString(" Â· "))
     }
     current.videoServer?.let { server ->
         val parts = listOfNotNull(
@@ -3829,12 +3866,12 @@ private fun IptvDiagnosticsBlock(
             server.tcpAvgMs?.let { "TCP $it ms" },
             "${server.tcpOk}/${server.tcpAttempts} conexiones"
         )
-        DiagnosticRow("Servidor de video", parts.joinToString(" · "))
+        DiagnosticRow("Servidor de video", parts.joinToString(" Â· "))
     }
     if (current.dns != null) {
         Text(
-            "Nota: la ubicación del panel se consulta a ip-api.com (solo la IP del servidor). " +
-                "El bitrate es el del canal, no el máximo de tu línea.",
+            "Nota: la ubicaciÃ³n del panel se consulta a ip-api.com (solo la IP del servidor). " +
+                "El bitrate es el del canal, no el mÃ¡ximo de tu lÃ­nea.",
             color = LelouchTextSecondary,
             fontSize = 11.sp,
             lineHeight = 15.sp
@@ -3843,9 +3880,9 @@ private fun IptvDiagnosticsBlock(
 
     DiagnosticGroupTitle("VEREDICTO")
     val (icon, color) = when {
-        current.problems.isNotEmpty() -> "⛔" to LelouchError
-        current.warnings.isNotEmpty() -> "⚠️" to LelouchWarning
-        else -> "✅" to LelouchSuccess
+        current.problems.isNotEmpty() -> "â›”" to LelouchError
+        current.warnings.isNotEmpty() -> "âš ï¸" to LelouchWarning
+        else -> "âœ…" to LelouchSuccess
     }
     Text(
         text = "$icon ${current.verdict}",
@@ -4047,7 +4084,7 @@ private fun TvDnsSelectorModal(
                                             if (isBest) {
                                                 Spacer(Modifier.width(8.dp))
                                                 Text(
-                                                    text = "★ MEJOR",
+                                                    text = "â˜… MEJOR",
                                                     color = Color(0xFFFBBF24),
                                                     fontSize = 11.sp,
                                                     fontWeight = FontWeight.Black
@@ -4067,7 +4104,7 @@ private fun TvDnsSelectorModal(
                                     text = when {
                                         isTesting && probe == null -> "..."
                                         probe?.latencyMs != null -> "${probe.latencyMs} ms"
-                                        else -> "— ms"
+                                        else -> "â€” ms"
                                     },
                                     color = cyanAccent,
                                     fontWeight = FontWeight.ExtraBold,

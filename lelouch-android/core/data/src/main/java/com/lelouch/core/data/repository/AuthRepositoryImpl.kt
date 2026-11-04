@@ -1,4 +1,4 @@
-package com.lelouch.core.data.repository
+﻿package com.lelouch.core.data.repository
 
 import com.lelouch.core.data.preferences.UserPreferencesDataSource
 import com.lelouch.core.data.preferences.isRetiredCustomSource
@@ -54,13 +54,13 @@ class AuthRepositoryImpl(
         val source = preferencesDataSource.allSources.first().firstOrNull { it.id == sourceId }
         preferencesDataSource.removeSource(sourceId)
         // La lista personalizada retirada ya no tiene identidad en la nube (su id local no es
-        // un UUID). No se emite ningún DELETE: solo se purga el dispositivo.
+        // un UUID). No se emite ningÃºn DELETE: solo se purga el dispositivo.
         if (isRetiredCustomSource(sourceId, "")) return
         withContext(Dispatchers.IO) {
             try {
                 val supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvdHVwYmRlbGpnZmRkeXdyeWhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzNjA2MzksImV4cCI6MjEwNTkzNjYzOX0.zDVgrQo_IU5FhfSMpl0-MbS9Eod43czS21TBi5Z3Lvo"
                 // Las filas de `playlists` usan un UUID, pero el dispositivo conserva el id
-                // local del catálogo. Se localiza la fila por identidad, no por id.
+                // local del catÃ¡logo. Se localiza la fila por identidad, no por id.
                 val filter = when {
                     source == null -> "id=eq.${encode(sourceId)}"
                     source.type == SourceType.M3U || source.username.isBlank() ->
@@ -76,7 +76,7 @@ class AuthRepositoryImpl(
                     .build()
                 httpClient.newCall(delReq).execute().close()
 
-                // Si el sourceId también es un UUID de Supabase, asegurar borrado directo por id
+                // Si el sourceId tambiÃ©n es un UUID de Supabase, asegurar borrado directo por id
                 if (Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$").matches(sourceId)) {
                     val delByIdReq = Request.Builder()
                         .url("$supabaseBaseUrl/rest/v1/playlists?id=eq.${encode(sourceId)}")
@@ -110,7 +110,7 @@ class AuthRepositoryImpl(
             val response = try {
                 api.authenticate(user, pass)
             } catch (authErr: Exception) {
-                // Si el servidor falla con error TLS/SSL o handshake, reintentar autom�ticamente con http://
+                // Si el servidor falla con error TLS/SSL o handshake, reintentar automáticamente con http://
                 val isTlsError = authErr is javax.net.ssl.SSLException ||
                     authErr.message?.contains("TLS", ignoreCase = true) == true ||
                     authErr.message?.contains("SSL", ignoreCase = true) == true ||
@@ -124,12 +124,12 @@ class AuthRepositoryImpl(
                 }
             }
             val userInfo = response.userInfo ?: return@withContext Result.failure(
-                IllegalArgumentException("Respuesta inválida del servidor IPTV")
+                IllegalArgumentException("Respuesta invÃ¡lida del servidor IPTV")
             )
 
             if (userInfo.status != "Active") {
                 return@withContext Result.failure(
-                    IllegalStateException("La cuenta no está activa (Estado: ${userInfo.status})")
+                    IllegalStateException("La cuenta no estÃ¡ activa (Estado: ${userInfo.status})")
                 )
             }
 
@@ -223,13 +223,13 @@ class AuthRepositoryImpl(
     }
 
     override suspend fun syncCloudSources(): List<SourceConfig> = withContext(Dispatchers.IO) {
-        // Las fuentes locales se leen DESPUÉS de la red (no al entrar): así una lista agregada
-        // mientras el bootstrap está en vuelo no se pierde al reconciliar con una foto vieja.
+        // Las fuentes locales se leen DESPUÃ‰S de la red (no al entrar): asÃ­ una lista agregada
+        // mientras el bootstrap estÃ¡ en vuelo no se pierde al reconciliar con una foto vieja.
         val supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvdHVwYmRlbGpnZmRkeXdyeWhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzNjA2MzksImV4cCI6MjEwNTkzNjYzOX0.zDVgrQo_IU5FhfSMpl0-MbS9Eod43czS21TBi5Z3Lvo"
         val cloudSources = mutableListOf<SourceConfig>()
         var atLeastOneEndpointSuccessful = false
 
-        // ── 1. Fuentes LEGACY (playlists) — Opcional ──
+        // â”€â”€ 1. Fuentes LEGACY (playlists) â€” Opcional â”€â”€
         try {
             val legacyUrl = "$supabaseBaseUrl/rest/v1/playlists?select=*&order=updated_at.desc"
             val legacyReq = Request.Builder()
@@ -264,7 +264,7 @@ class AuthRepositoryImpl(
                         }
                         val passMatch = when {
                             !passFromUrl.isNullOrBlank() -> passFromUrl
-                            passwordCol.isNotBlank() && passwordCol != "••••••••" -> passwordCol
+                            passwordCol.isNotBlank() && passwordCol != "â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" -> passwordCol
                             else -> ""
                         }
 
@@ -330,17 +330,17 @@ class AuthRepositoryImpl(
             android.util.Log.w("AuthRepository", "SOURCE_SYNC_LEGACY_FAILED: ${e.message}")
         }
 
-        // ── 2. Manejo de Errores vs Lista Vacía vs Éxito ──
+        // â”€â”€ 2. Manejo de Errores vs Lista VacÃ­a vs Ã‰xito â”€â”€
         if (!atLeastOneEndpointSuccessful) {
             val currentSources = preferencesDataSource.allSources.first()
             isLastSyncFromCache = true
             if (currentSources.isNotEmpty()) {
                 // TEST G: ya existe source local, red falla -> conservar source local usable
-                android.util.Log.w("AuthRepository", "SOURCE_SYNC_USING_LOCAL_CACHE: Error de conexión a la nube; preservando caché local (${currentSources.size} fuentes)")
+                android.util.Log.w("AuthRepository", "SOURCE_SYNC_USING_LOCAL_CACHE: Error de conexiÃ³n a la nube; preservando cachÃ© local (${currentSources.size} fuentes)")
                 return@withContext currentSources
             } else {
                 // TEST D: la nube falla y no hay fuentes locales -> ERROR_LOADING_SOURCES
-                android.util.Log.e("AuthRepository", "SOURCE_SYNC_FAILED: No se pudo conectar a la nube y no hay caché local")
+                android.util.Log.e("AuthRepository", "SOURCE_SYNC_FAILED: No se pudo conectar a la nube y no hay cachÃ© local")
                 throw java.io.IOException("ERROR_LOADING_SOURCES: Fallo de red al conectar con fuentes en la nube")
             }
         }
@@ -348,7 +348,7 @@ class AuthRepositoryImpl(
 
         if (cloudSources.isEmpty()) {
             // FASE 35: la nube puede responder 200 sin filas utilizables (por ejemplo, solo la
-            // lista personalizada retirada). Vaciar las fuentes locales aquí borraba las listas
+            // lista personalizada retirada). Vaciar las fuentes locales aquÃ­ borraba las listas
             // Xtream del usuario y dejaba la pantalla sin nada. Se preservan las locales.
             val currentSources = preferencesDataSource.allSources.first()
             if (currentSources.isEmpty()) {
@@ -360,10 +360,10 @@ class AuthRepositoryImpl(
             return@withContext currentSources
         }
 
-        // ── 3. Reconciliación por identidad (servidor + usuario) ──
-        // Las filas de `playlists` traen ids UUID, mientras que Room indexa los catálogos por
+        // â”€â”€ 3. ReconciliaciÃ³n por identidad (servidor + usuario) â”€â”€
+        // Las filas de `playlists` traen ids UUID, mientras que Room indexa los catÃ¡logos por
         // el id local (`xtream_...`/`m3u_...`). Reutilizar el id local evita que un sync de la
-        // nube deje huérfano el catálogo ya descargado.
+        // nube deje huÃ©rfano el catÃ¡logo ya descargado.
         val currentSources = preferencesDataSource.allSources.first()
         val localByKey = currentSources.associateBy { sourceKey(it.serverUrl, it.username) }
         val currentActiveId = currentSources.firstOrNull { it.isActive }?.id
@@ -403,20 +403,11 @@ class AuthRepositoryImpl(
             )
         }
 
-        // La nube es un espejo parcial: las altas manuales Xtream nunca se subieron a
-        // `playlists` y desaparecían en el siguiente arranque. Se conservan las locales que la
-        // nube no menciona.
-        for (local in currentSources) {
-            if (isRetiredCustomSource(local.id, local.serverUrl)) continue
-            val key = sourceKey(local.serverUrl, local.username)
-            if (seenKeys.add(key)) {
-                val isLocalActive = local.id == currentActiveId ||
-                    (currentActiveId == null && local.isActive)
-                consolidatedSources.add(local.copy(isActive = isLocalActive))
-            }
-        }
+                // Sincronización recíproca con Supabase Cloud:
+        // Si la nube respondió exitosamente con fuentes, Supabase es la fuente de verdad.
+        // No se vuelven a agregar fuentes locales eliminadas de la nube.
 
-        // Si ninguna fuente quedó activa, activar la primera disponible.
+        // Si ninguna fuente quedÃ³ activa, activar la primera disponible.
         val finalSources = if (consolidatedSources.isNotEmpty() && consolidatedSources.none { it.isActive }) {
             consolidatedSources.mapIndexed { idx, s -> s.copy(isActive = idx == 0) }
         } else {
@@ -483,6 +474,6 @@ class AuthRepositoryImpl(
     private fun sourceKey(serverUrl: String, username: String): String =
         serverUrl.trimEnd('/') + "|" + username.trim().lowercase()
 
-    /** Codificación de un valor para un filtro PostgREST (`eq.<valor>`). */
+    /** CodificaciÃ³n de un valor para un filtro PostgREST (`eq.<valor>`). */
     private fun encode(value: String): String = java.net.URLEncoder.encode(value, "UTF-8")
 }
