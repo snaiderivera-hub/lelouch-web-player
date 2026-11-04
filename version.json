@@ -1,6 +1,7 @@
-﻿{
+{
   "versionName": "1.0.110",
-  "versionCode": 1000110,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.110/LELOUCH-PLUS-v1.0.110.apk",
-  "changelog": "- Ficha de detalles y botón de Corazón para Favoritos en Películas (Android TV Box y Móvil).\n- Sincronización recíproca de cuentas con Supabase Cloud (si borras una cuenta, se elimina en todos los dispositivos)."
+  "versionCode": 1000111,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.111/LELOUCH-PLUS-v1.0.111.apk",
+  "changelog": "- Ficha de detalles y botón de Corazón para Favoritos en Películas (Android TV Box y Móvil).\n- Sincronización recíproca de cuentas con Supabase Cloud (si borras una cuenta, se elimina en todos los dispositivos).",
+  "version": "1.0.111"
 }
