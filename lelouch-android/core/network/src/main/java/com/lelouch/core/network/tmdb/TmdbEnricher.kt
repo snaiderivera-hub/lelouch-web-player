@@ -68,13 +68,16 @@ object TmdbEnricher {
 
     fun cleanTitle(rawName: String): String {
         var title = rawName
+        // Eliminar prefijos de idioma / calidad / servidor IPTV comunes
+        title = title.replace(Regex("""^(?i)\s*(\[[^\]]*\]|\([^\)]*\)|[A-Z0-9]{2,4}\s*[:|•\-_/])+\s*"""), " ")
+        title = title.replace(Regex("""^(?i)\s*(ES|LAT|LATINO|ESP|SPA|EN|ENG|MX|USA|VOD|CINE|PELICULA|PELICULAS|PELIS|ESTRENO|ESTRENOS|4K|FHD|HD)\s*[:|•\-_/]\s*"""), " ")
         // Eliminar corchetes como [1080p], [4K], etc.
         title = title.replace(Regex("""\[[^\]]*\]"""), " ")
         // Eliminar año como (2021)
         title = title.replace(Regex("""\(\s*\d{4}\s*\)"""), " ")
         // Eliminar paréntesis con etiquetas de idioma/calidad (ej: (CAST), (LATINO), etc.)
-        title = title.replace(Regex("""\((LATINO|CASTELLANO|SUBTITULADO|SUB|DUAL|4K|UHD|FHD|1080P|720P|HD|HEVC|H264|H265|CAST)[^)]*\)""", RegexOption.IGNORE_CASE), " ")
-        title = title.replace(Regex("""\b(LATINO|CASTELLANO|SUBTITULADO|SUB|DUAL|4K|UHD|FHD|1080P|720P|HD|HEVC|H264|H265|CAST)\b""", RegexOption.IGNORE_CASE), " ")
+        title = title.replace(Regex("""\((LATINO|CASTELLANO|SUBTITULADO|SUB|DUAL|4K|UHD|FHD|1080P|720P|HD|HEVC|H264|H265|CAST|ORIGINAL|AUDIO)[^)]*\)""", RegexOption.IGNORE_CASE), " ")
+        title = title.replace(Regex("""\b(LATINO|CASTELLANO|SUBTITULADO|SUB|DUAL|4K|UHD|FHD|1080P|720P|HD|HEVC|H264|H265|CAST|WEB-?DL|WEBRIP|BLURAY|HDRIP|CAM|TS)\b""", RegexOption.IGNORE_CASE), " ")
         title = title.replace(Regex("""\b(S\d+|T\d+|TEMP\s*\d+|TEMPORADA\s*\d+)\b""", RegexOption.IGNORE_CASE), " ")
         // Eliminar comillas y caracteres especiales que arruinan la búsqueda en TMDB
         title = title.replace(Regex("""["'“”«»|•\-_/\\:]+"""), " ")
@@ -142,7 +145,7 @@ object TmdbEnricher {
 
         tvShowCache[query]?.let { return@withContext it }
 
-        val languages = listOf("es-ES", "es-MX")
+        val languages = listOf("es-ES", "es-MX", "en-US")
         var bestMatch: TmdbShowData? = null
 
         for (lang in languages) {
@@ -200,7 +203,7 @@ object TmdbEnricher {
         val cacheKey = "$tvId-$seasonNumber"
         seasonEpisodesCache[cacheKey]?.let { return@withContext it }
 
-        val languages = listOf("es-ES", "es-MX")
+        val languages = listOf("es-ES", "es-MX", "en-US")
         var bestMap = mapOf<Int, TmdbEpisodeData>()
 
         for (lang in languages) {
@@ -253,7 +256,7 @@ object TmdbEnricher {
 
         movieCache[query]?.let { return@withContext it }
 
-        val languages = listOf("es-ES", "es-MX")
+        val languages = listOf("es-ES", "es-MX", "en-US")
         var bestMatch: TmdbMovieData? = null
 
         for (lang in languages) {
@@ -302,6 +305,50 @@ object TmdbEnricher {
                     }
                 }
             } catch (_: Exception) {}
+        }
+
+        if (bestMatch == null) {
+            val simplified = query.replace(Regex("""^\d+\s*[-_.]?\s*"""), "").trim()
+            if (simplified != query && simplified.length >= 2) {
+                for (lang in languages) {
+                    try {
+                        val encodedQuery = URLEncoder.encode(simplified, "UTF-8")
+                        val url = "$BASE_URL/search/movie?api_key=$TMDB_API_KEY&query=$encodedQuery&language=$lang"
+                        val request = buildRequest(url)
+                        httpClient.newCall(request).execute().use { response ->
+                            if (!response.isSuccessful) return@use
+                            val bodyStr = response.body?.string() ?: return@use
+                            val root = JSONObject(bodyStr)
+                            val results = root.optJSONArray("results") ?: return@use
+                            if (results.length() == 0) return@use
+                            val first = results.getJSONObject(0)
+                            val id = first.optInt("id")
+                            val movieTitle = first.optString("title", simplified)
+                            val overview = first.optString("overview", "")
+                            val posterPath = first.optString("poster_path").takeIf { it.isNotBlank() }
+                            val backdropPath = first.optString("backdrop_path").takeIf { it.isNotBlank() }
+                            val voteAverage = first.optDouble("vote_average", 0.0).takeIf { it > 0 }
+                            val releaseDate = first.optString("release_date").takeIf { it.isNotBlank() }
+                            val (cast, director) = fetchCredits("movie", id, lang)
+                            val data = TmdbMovieData(
+                                id = id,
+                                title = movieTitle,
+                                overview = overview,
+                                posterUrl = posterPath?.let { "$IMAGE_BASE_W500$it" },
+                                backdropUrl = backdropPath?.let { "$IMAGE_BASE_W780$it" },
+                                rating = voteAverage,
+                                releaseDate = releaseDate,
+                                cast = cast,
+                                director = director
+                            )
+                            bestMatch = data
+                            if (overview.isNotBlank()) {
+                                return@withContext data.also { movieCache[query] = it }
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+            }
         }
 
         bestMatch?.also { movieCache[query] = it }

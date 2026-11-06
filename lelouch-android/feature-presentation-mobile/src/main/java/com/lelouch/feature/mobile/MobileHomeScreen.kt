@@ -469,6 +469,7 @@ fun MobileHomeScreen(
     var isDnsSelectorOpen by remember { mutableStateOf(false) }
     var isDownloadsDialogOpen by remember { mutableStateOf(false) }
     var diagnosticsTargetSource by remember { mutableStateOf<SourceConfig?>(null) }
+    var isAnimeCatalogOpen by remember { mutableStateOf(false) }
 
     // Comprobación automática silenciosa de nueva versión al iniciar la app
     val updateContext = LocalContext.current
@@ -544,7 +545,10 @@ fun MobileHomeScreen(
         )
     }
 
-    // BackHandler para película y serie seleccionadas en vista completa
+    // BackHandler para anime, película y serie seleccionadas en vista completa
+    BackHandler(enabled = isAnimeCatalogOpen && selectedMovie == null && selectedSeries == null && !isPlayerFullscreen) {
+        isAnimeCatalogOpen = false
+    }
     BackHandler(enabled = selectedMovie != null && !isPlayerFullscreen) {
         selectedMovie = null
     }
@@ -654,7 +658,8 @@ fun MobileHomeScreen(
                             onSeeAllSeries = { selectedTab = 1 },
                             onReloadCatalog = onForceSync,
                             onOpenSettings = { selectedTab = 4 },
-                            onSearchClick = { selectedTab = 1 }
+                            onSearchClick = { selectedTab = 1 },
+                            onSeeAllAnime = { isAnimeCatalogOpen = true }
                         )
                         1 -> MobileVodTab(
                             movies = if (searchQuery.isBlank()) filteredMovies
@@ -796,6 +801,17 @@ fun MobileHomeScreen(
                     startPlayback(url, false)
                 },
                 onBack = { selectedSeries = null }
+            )
+        }
+
+        // VISTA EXCLUSIVA DE CATÁLOGO ANIME (CUANDO SE PRESIONA "VER TODO" EN ANIME Y ANIMACIÓN)
+        if (isAnimeCatalogOpen && selectedMovie == null && selectedSeries == null && !isPlayerFullscreen) {
+            MobileAnimeCatalogView(
+                movies = filteredMovies,
+                seriesList = filteredSeriesList,
+                onMovieClick = { selectedMovie = it },
+                onSeriesClick = { selectedSeries = it },
+                onBack = { isAnimeCatalogOpen = false }
             )
         }
 
@@ -1517,7 +1533,8 @@ private fun MobileHomeTab(
     onSeeAllMovies: () -> Unit, onSeeAllSeries: () -> Unit,
     onReloadCatalog: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
-    onSearchClick: () -> Unit = onSeeAllMovies
+    onSearchClick: () -> Unit = onSeeAllMovies,
+    onSeeAllAnime: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val sportsCount = remember(liveChannels) {
@@ -1547,6 +1564,7 @@ private fun MobileHomeTab(
                 onReloadCatalog = onReloadCatalog,
                 onOpenSettings = onOpenSettings,
                 onSearchClick = onSearchClick,
+                onSeeAllAnime = onSeeAllAnime,
                 liveChannels = liveChannels,
                 movies = movies,
                 seriesList = seriesList,
@@ -1664,114 +1682,50 @@ private fun MobileLiveTab(
     }
 }
 
-// TAB 2: PELICULAS
+// TAB 2: PELICULAS (TODAS JUNTAS EN MOBILE SIN CHIPS DE CATEGORIAS)
 @Composable
 private fun MobileMoviesTab(
     movies: List<VodMovie>,
-    categories: List<MobileCategoryItem> = emptyList(),
     onMovieClick: (VodMovie) -> Unit
 ) {
     if (movies.isEmpty()) {
         EmptyState("No hay películas", "Sincroniza tu lista desde la pestaña Listas")
         return
     }
-    var selectedCategoryId by remember(categories) { mutableStateOf("all") }
-    val filtered = remember(selectedCategoryId, movies) {
-        if (selectedCategoryId == "all") movies
-        else movies.filter { it.categoryId == selectedCategoryId }
-    }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        if (categories.isNotEmpty()) {
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(categories) { cat ->
-                    val isSel = cat.id == selectedCategoryId
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(if (isSel) LelouchCyanAccent else LelouchSurface)
-                            .clickable { selectedCategoryId = cat.id }
-                            .padding(horizontal = 14.dp, vertical = 7.dp)
-                    ) {
-                        Text(
-                            cat.name,
-                            color = if (isSel) Color.Black else LelouchTextSecondary,
-                            fontSize = 12.sp,
-                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
-                        )
-                    }
-                }
-            }
-        }
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(85.dp),
-            contentPadding = PaddingValues(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.fillMaxSize()
-        ) {
-            itemsIndexed(filtered, key = { idx, movie -> "mobile_movie_${movie.streamId}_${movie.id}_$idx" }) { _, movie ->
-                MovieGridCard(movie = movie, onClick = { onMovieClick(movie) })
-            }
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(85.dp),
+        contentPadding = PaddingValues(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        itemsIndexed(movies, key = { idx, movie -> "mobile_movie_${movie.streamId}_${movie.id}_$idx" }) { _, movie ->
+            MovieGridCard(movie = movie, onClick = { onMovieClick(movie) })
         }
     }
 }
 
-// TAB 3: SERIES
+// TAB 3: SERIES (TODAS JUNTAS EN MOBILE SIN CHIPS DE CATEGORIAS)
 @Composable
 private fun MobileSeriesTab(
     seriesList: List<Series>,
-    categories: List<MobileCategoryItem> = emptyList(),
     onSeriesClick: (Series) -> Unit
 ) {
     if (seriesList.isEmpty()) {
         EmptyState("No hay series", "Sincroniza tu lista desde la pestaña Listas")
         return
     }
-    var selectedCategoryId by remember(categories) { mutableStateOf("all") }
-    val filtered = remember(selectedCategoryId, seriesList) {
-        if (selectedCategoryId == "all") seriesList
-        else seriesList.filter { it.categoryId == selectedCategoryId }
-    }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        if (categories.isNotEmpty()) {
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(categories) { cat ->
-                    val isSel = cat.id == selectedCategoryId
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(if (isSel) LelouchCyanAccent else LelouchSurface)
-                            .clickable { selectedCategoryId = cat.id }
-                            .padding(horizontal = 14.dp, vertical = 7.dp)
-                    ) {
-                        Text(
-                            cat.name,
-                            color = if (isSel) Color.Black else LelouchTextSecondary,
-                            fontSize = 12.sp,
-                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
-                        )
-                    }
-                }
-            }
-        }
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(85.dp),
-            contentPadding = PaddingValues(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.fillMaxSize()
-        ) {
-            itemsIndexed(filtered, key = { idx, s -> "mobile_series_${s.seriesId}_$idx" }) { _, s ->
-                SeriesGridCard(series = s, onClick = { onSeriesClick(s) })
-            }
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(85.dp),
+        contentPadding = PaddingValues(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        itemsIndexed(seriesList, key = { idx, s -> "mobile_series_${s.seriesId}_$idx" }) { _, s ->
+            SeriesGridCard(series = s, onClick = { onSeriesClick(s) })
         }
     }
 }
@@ -1844,9 +1798,9 @@ private fun MobileVodTab(
         }
 
         if (subTab == 0) {
-            MobileMoviesTab(movies = movies, categories = movieCategories, onMovieClick = onMovieClick)
+            MobileMoviesTab(movies = movies, onMovieClick = onMovieClick)
         } else {
-            MobileSeriesTab(seriesList = seriesList, categories = seriesCategories, onSeriesClick = onSeriesClick)
+            MobileSeriesTab(seriesList = seriesList, onSeriesClick = onSeriesClick)
         }
     }
 }
@@ -2044,6 +1998,18 @@ private fun MobileSettingsTab(
     var wifiOnlyDownloads by remember { mutableStateOf(false) }
     var backgroundDownloadsEnabled by remember { mutableStateOf(true) }
     var isAttributionsDialogOpen by remember { mutableStateOf(false) }
+    var isLanguageDialogOpen by remember { mutableStateOf(false) }
+    var isInterfaceDialogOpen by remember { mutableStateOf(false) }
+
+    val prefs = remember { context.getSharedPreferences("lelouch_mobile_settings", android.content.Context.MODE_PRIVATE) }
+    var currentLanguage by remember { mutableStateOf(prefs.getString("app_language", "es") ?: "es") }
+
+    val langLabel = when (currentLanguage) {
+        "es" -> "Español (América Latina / España)"
+        "en" -> "English"
+        "pt" -> "Português"
+        else -> "Seguir sistema"
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -2103,7 +2069,9 @@ private fun MobileSettingsTab(
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     // 1. Idioma
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { isLanguageDialogOpen = true },
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
@@ -2118,8 +2086,9 @@ private fun MobileSettingsTab(
                         Spacer(Modifier.width(14.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Idioma", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            Text("Seguir sistema", color = BixTextMuted, fontSize = 11.sp)
+                            Text(langLabel, color = BixTextMuted, fontSize = 11.sp)
                         }
+                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = BixTextMuted, modifier = Modifier.size(20.dp))
                     }
 
                     HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
@@ -2258,7 +2227,9 @@ private fun MobileSettingsTab(
 
                     // 6. Interfaz
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { isInterfaceDialogOpen = true },
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
@@ -2273,8 +2244,9 @@ private fun MobileSettingsTab(
                         Spacer(Modifier.width(14.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Interfaz", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            Text("Interfaz normal (móvil)", color = BixTextMuted, fontSize = 11.sp)
+                            Text("Modo Móvil / Tablet (Activo)", color = LelouchCyanAccent, fontSize = 11.sp)
                         }
+                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = BixTextMuted, modifier = Modifier.size(20.dp))
                     }
 
                     HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
@@ -3206,6 +3178,31 @@ private fun MobileSettingsTab(
             onDismiss = { isAttributionsDialogOpen = false }
         )
     }
+
+    if (isLanguageDialogOpen) {
+        MobileLanguageSelectorDialog(
+            currentLanguage = currentLanguage,
+            onSelectLanguage = { selected ->
+                currentLanguage = selected
+                prefs.edit().putString("app_language", selected).apply()
+                val toastName = when (selected) {
+                    "es" -> "Español"
+                    "en" -> "English"
+                    "pt" -> "Português"
+                    else -> "Idioma del sistema"
+                }
+                android.widget.Toast.makeText(context, "Idioma configurado: $toastName", android.widget.Toast.LENGTH_SHORT).show()
+                isLanguageDialogOpen = false
+            },
+            onDismiss = { isLanguageDialogOpen = false }
+        )
+    }
+
+    if (isInterfaceDialogOpen) {
+        MobileInterfaceSelectorDialog(
+            onDismiss = { isInterfaceDialogOpen = false }
+        )
+    }
 }
 
 @Composable
@@ -3439,6 +3436,456 @@ private fun AttributionCard(
                 color = Color.White.copy(alpha = 0.4f),
                 fontSize = 10.sp
             )
+        }
+    }
+}
+
+private sealed class MobileAnimeItem {
+    data class MovieItem(val movie: VodMovie) : MobileAnimeItem()
+    data class SeriesItem(val series: Series) : MobileAnimeItem()
+}
+
+@Composable
+private fun MobileAnimeCatalogView(
+    movies: List<VodMovie>,
+    seriesList: List<Series>,
+    onMovieClick: (VodMovie) -> Unit,
+    onSeriesClick: (Series) -> Unit,
+    onBack: () -> Unit
+) {
+    val animeKeywords = remember {
+        listOf("anime", "animaci", "manga", "otaku", "japón", "japon", "dragon ball", "naruto", "one piece", "demon slayer", "shingeki", "ghibli", "pokemon", "pokémon", "jujutsu", "bleach", "crunchyroll")
+    }
+
+    val animeSeries = remember(seriesList) {
+        seriesList.filter { s ->
+            animeKeywords.any { kw ->
+                s.name.contains(kw, ignoreCase = true) ||
+                (s.categoryName ?: "").contains(kw, ignoreCase = true) ||
+                (s.plot ?: "").contains(kw, ignoreCase = true)
+            }
+        }
+    }
+
+    val animeMovies = remember(movies) {
+        movies.filter { m ->
+            animeKeywords.any { kw ->
+                m.name.contains(kw, ignoreCase = true) ||
+                (m.categoryName ?: "").contains(kw, ignoreCase = true)
+            }
+        }
+    }
+
+    var selectedFilter by remember { mutableIntStateOf(0) } // 0: Todo, 1: Series, 2: Películas
+    var searchQuery by remember { mutableStateOf("") }
+
+    val filteredSeries = remember(animeSeries, searchQuery) {
+        if (searchQuery.isBlank()) animeSeries
+        else animeSeries.filter { it.name.contains(searchQuery, ignoreCase = true) }
+    }
+
+    val filteredMovies = remember(animeMovies, searchQuery) {
+        if (searchQuery.isBlank()) animeMovies
+        else animeMovies.filter { it.name.contains(searchQuery, ignoreCase = true) }
+    }
+
+    val displayItems: List<MobileAnimeItem> = remember(selectedFilter, filteredSeries, filteredMovies) {
+        when (selectedFilter) {
+            1 -> filteredSeries.map { MobileAnimeItem.SeriesItem(it) }
+            2 -> filteredMovies.map { MobileAnimeItem.MovieItem(it) }
+            else -> {
+                (filteredSeries.map { MobileAnimeItem.SeriesItem(it) } + filteredMovies.map { MobileAnimeItem.MovieItem(it) })
+                    .sortedBy {
+                        when (it) {
+                            is MobileAnimeItem.MovieItem -> it.movie.name
+                            is MobileAnimeItem.SeriesItem -> it.series.name
+                        }
+                    }
+            }
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(BixDarkBackground)
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Cabecera superior
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowBack,
+                        contentDescription = "Atrás",
+                        tint = Color.White
+                    )
+                }
+                Spacer(Modifier.width(4.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Anime y Animación",
+                        color = Color.White,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 18.sp
+                    )
+                    Text(
+                        text = "${animeSeries.size} series • ${animeMovies.size} películas de anime",
+                        color = LelouchCyanAccent,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+
+            // Barra de búsqueda dentro de la sección anime
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0xFF1B1D26))
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Search, contentDescription = null, tint = BixTextMuted, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    BasicTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
+                        cursorBrush = SolidColor(LelouchCyanAccent),
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        decorationBox = { innerTextField ->
+                            if (searchQuery.isEmpty()) {
+                                Text("Buscar en anime...", color = BixTextMuted, fontSize = 13.sp)
+                            }
+                            innerTextField()
+                        }
+                    )
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }, modifier = Modifier.size(20.dp)) {
+                            Icon(Icons.Default.Close, contentDescription = "Limpiar", tint = BixTextMuted, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+            }
+
+            // Pestañas filtro: Todo, Series, Películas
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf(
+                    "Todo (${filteredSeries.size + filteredMovies.size})" to 0,
+                    "Series (${filteredSeries.size})" to 1,
+                    "Películas (${filteredMovies.size})" to 2
+                ).forEach { (label, idx) ->
+                    val isSelected = selectedFilter == idx
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(if (isSelected) LelouchCyanAccent else Color.White.copy(alpha = 0.08f))
+                            .clickable { selectedFilter = idx }
+                            .padding(horizontal = 14.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = label,
+                            color = if (isSelected) Color.Black else Color.White,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            }
+
+            // Cuadrícula exclusiva de anime
+            if (displayItems.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("No se encontraron animes", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Text("Prueba con otro término de búsqueda", color = BixTextMuted, fontSize = 12.sp)
+                    }
+                }
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(85.dp),
+                    contentPadding = PaddingValues(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    items(displayItems, key = { item ->
+                        when (item) {
+                            is MobileAnimeItem.MovieItem -> "anime_m_${item.movie.streamId}_${item.movie.id}"
+                            is MobileAnimeItem.SeriesItem -> "anime_s_${item.series.seriesId}_${item.series.name}"
+                        }
+                    }) { item ->
+                        when (item) {
+                            is MobileAnimeItem.MovieItem -> MovieGridCard(movie = item.movie, onClick = { onMovieClick(item.movie) })
+                            is MobileAnimeItem.SeriesItem -> SeriesGridCard(series = item.series, onClick = { onSeriesClick(item.series) })
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MobileLanguageSelectorDialog(
+    currentLanguage: String,
+    onSelectLanguage: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val languages = listOf(
+        Triple("es", "Español", "América Latina y España (Predeterminado)"),
+        Triple("en", "English", "United States and United Kingdom"),
+        Triple("pt", "Português", "Brasil e Portugal"),
+        Triple("system", "Seguir sistema", "Usar el idioma configurado en Android")
+    )
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color(0xFF14151C))
+                .border(1.dp, LelouchCyanAccent.copy(alpha = 0.35f), RoundedCornerShape(18.dp))
+                .padding(20.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Idioma de la Interfaz",
+                        color = Color.White,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = Color.White.copy(0.7f), modifier = Modifier.size(18.dp))
+                    }
+                }
+
+                Text(
+                    text = "Selecciona el idioma principal para los textos y opciones de la aplicación:",
+                    color = BixTextMuted,
+                    fontSize = 12.sp
+                )
+
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    languages.forEach { (code, name, subtitle) ->
+                        val isSelected = currentLanguage == code
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (isSelected) LelouchCyanAccent.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.04f))
+                                .border(
+                                    1.dp,
+                                    if (isSelected) LelouchCyanAccent else Color.White.copy(alpha = 0.08f),
+                                    RoundedCornerShape(12.dp)
+                                )
+                                .clickable { onSelectLanguage(code) }
+                                .padding(14.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = name,
+                                        color = if (isSelected) LelouchCyanAccent else Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp
+                                    )
+                                    Text(text = subtitle, color = BixTextMuted, fontSize = 11.sp)
+                                }
+                                if (isSelected) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = "Seleccionado",
+                                        tint = LelouchCyanAccent,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Button(
+                    onClick = onDismiss,
+                    colors = ButtonDefaults.buttonColors(containerColor = LelouchCyanAccent),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Aceptar", color = Color.Black, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MobileInterfaceSelectorDialog(
+    onDismiss: () -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color(0xFF14151C))
+                .border(1.dp, LelouchCyanAccent.copy(alpha = 0.35f), RoundedCornerShape(18.dp))
+                .padding(20.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Modo de Interfaz",
+                        color = Color.White,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = Color.White.copy(0.7f), modifier = Modifier.size(18.dp))
+                    }
+                }
+
+                Text(
+                    text = "Lelouch Plus integra dos interfaces nativas completas adaptadas a cada pantalla:",
+                    color = BixTextMuted,
+                    fontSize = 12.sp
+                )
+
+                // Opción 1: Modo Móvil (Activo)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(LelouchCyanAccent.copy(alpha = 0.12f))
+                        .border(1.dp, LelouchCyanAccent, RoundedCornerShape(12.dp))
+                        .padding(14.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(LelouchCyanAccent.copy(alpha = 0.2f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.PhoneAndroid, contentDescription = null, tint = LelouchCyanAccent, modifier = Modifier.size(22.dp))
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("Modo Móvil / Tablet", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Spacer(Modifier.width(6.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(LelouchCyanAccent)
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text("ACTIVO", color = Color.Black, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                                }
+                            }
+                            Text(
+                                "Diseño táctil vertical y horizontal, barra inferior fija, mini-reproductor arrastrable y controles gestuales.",
+                                color = BixTextMuted,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+
+                // Opción 2: Modo Android TV / TV Box
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color.White.copy(alpha = 0.04f))
+                        .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
+                        .padding(14.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color.White.copy(alpha = 0.08f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Tv, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("Modo Android TV / TV Box", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Spacer(Modifier.width(6.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(Color.White.copy(alpha = 0.15f))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text("TV BOX", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            Text(
+                                "Navegación neón D-Pad para control remoto, sintonía numérica HDMI-CEC y portal dashboard de gran formato.",
+                                color = BixTextMuted,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+
+                Text(
+                    text = "💡 Lelouch Plus detecta automáticamente el hardware al arrancar: si abres esta misma app en una Smart TV o TV Box, iniciará directamente en Modo Android TV con control remoto.",
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp
+                )
+
+                Button(
+                    onClick = onDismiss,
+                    colors = ButtonDefaults.buttonColors(containerColor = LelouchCyanAccent),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Entendido", color = Color.Black, fontWeight = FontWeight.Bold)
+                }
+            }
         }
     }
 }

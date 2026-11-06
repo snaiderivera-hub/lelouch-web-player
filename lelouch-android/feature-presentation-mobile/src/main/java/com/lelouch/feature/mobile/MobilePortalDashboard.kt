@@ -75,6 +75,7 @@ fun MobilePortalDashboard(
     onReloadCatalog: () -> Unit,
     onOpenSettings: () -> Unit,
     onSearchClick: () -> Unit = onNavigateToMovies,
+    onSeeAllAnime: () -> Unit = {},
     modifier: Modifier = Modifier,
     liveChannels: List<LiveStream> = emptyList(),
     movies: List<VodMovie> = emptyList(),
@@ -289,54 +290,6 @@ fun MobilePortalDashboard(
             }
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
-
-        // ══════════════════════════════════════════════════════════════════════
-        // 3. SECCIÓN EXPLORAR POR CATEGORÍA
-        // ══════════════════════════════════════════════════════════════════════
-        Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-            Text(
-                text = "EXPLORAR",
-                color = Color.White,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Black,
-                letterSpacing = 0.5.sp
-            )
-            Text(
-                text = "Explorar por categoria",
-                color = BixTextMuted,
-                fontSize = 11.sp
-            )
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            BixExplorePill(
-                icon = Icons.Default.Movie,
-                label = "PELÍCULAS",
-                onClick = onNavigateToMovies,
-                modifier = Modifier.weight(1f)
-            )
-            BixExplorePill(
-                icon = Icons.Default.Tv,
-                label = "SERIES",
-                onClick = onNavigateToSeries,
-                modifier = Modifier.weight(1f)
-            )
-            BixExplorePill(
-                icon = Icons.Default.LiveTv,
-                label = "EN VIVO",
-                onClick = onNavigateToLive,
-                modifier = Modifier.weight(1f)
-            )
-        }
-
         Spacer(modifier = Modifier.height(18.dp))
 
         // ══════════════════════════════════════════════════════════════════════
@@ -413,7 +366,7 @@ fun MobilePortalDashboard(
             CuratedSectionHeader(
                 title = "Anime y Animación",
                 actionText = "VER TODO →",
-                onActionClick = onNavigateToSeries
+                onActionClick = onSeeAllAnime
             )
 
             LazyRow(
