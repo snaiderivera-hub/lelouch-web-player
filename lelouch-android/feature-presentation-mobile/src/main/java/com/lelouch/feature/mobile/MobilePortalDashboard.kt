@@ -83,20 +83,56 @@ fun MobilePortalDashboard(
     onMovieClick: (VodMovie) -> Unit = {},
     onSeriesClick: (Series) -> Unit = {}
 ) {
-    // Top 10 películas más recientes / destacadas con imagen válida
-    val topTenMovies = remember(movies) {
+    val currentYear = remember { java.util.Calendar.getInstance().get(java.util.Calendar.YEAR) }
+    val currentYearStr = remember(currentYear) { currentYear.toString() }
+    val previousYearStr = remember(currentYear) { (currentYear - 1).toString() }
+
+    // Helper defensivo para comprobar si un contenido pertenece al año en curso
+    fun isMovieFromYear(movie: VodMovie, year: String): Boolean {
+        return movie.year?.contains(year) == true ||
+               movie.added?.startsWith(year) == true ||
+               movie.name.contains(year)
+    }
+
+    fun isSeriesFromYear(series: Series, year: String): Boolean {
+        return series.releaseDate?.startsWith(year) == true ||
+               series.name.contains(year)
+    }
+
+    // Top 10 películas más recientes / destacadas exclusivamente del año en curso con imagen válida
+    val topTenMovies = remember(movies, currentYearStr) {
         val valid = movies.filter { it.streamIcon?.trim().orEmpty().startsWith("http") }
-        if (valid.isNotEmpty()) valid.take(10) else movies.take(10)
+        val currentYearMovies = valid.filter { isMovieFromYear(it, currentYearStr) }
+        if (currentYearMovies.size >= 3) {
+            currentYearMovies.take(10)
+        } else {
+            val fallback = valid.filter { isMovieFromYear(it, currentYearStr) || isMovieFromYear(it, previousYearStr) }
+            if (fallback.isNotEmpty()) fallback.take(10) else valid.take(10)
+        }
     }
 
-    // Mejores películas de la semana (excluyendo posters rotos)
-    val weeklyMovies = remember(movies) {
-        movies.filter { it.streamIcon?.trim().orEmpty().startsWith("http") }.take(25)
+    // Mejores películas de la semana (exclusivamente del año en curso)
+    val weeklyMovies = remember(movies, currentYearStr) {
+        val valid = movies.filter { it.streamIcon?.trim().orEmpty().startsWith("http") }
+        val currentYearMovies = valid.filter { isMovieFromYear(it, currentYearStr) }
+        if (currentYearMovies.size >= 3) {
+            currentYearMovies.take(25)
+        } else {
+            val fallback = valid.filter { isMovieFromYear(it, currentYearStr) || isMovieFromYear(it, previousYearStr) }
+            if (fallback.isNotEmpty()) fallback.take(25) else valid.take(25)
+        }
     }
 
-    // Mejores series de la semana (excluyendo covers rotos)
-    val weeklySeries = remember(seriesList) {
-        seriesList.filter { it.cover?.trim().orEmpty().startsWith("http") }.take(25)
+    // Mejores series de la semana (exclusivamente del año en curso)
+    val weeklySeries = remember(seriesList, currentYearStr) {
+        val valid = seriesList.filter { it.cover?.trim().orEmpty().startsWith("http") }
+        val currentYearSeries = valid.filter { isSeriesFromYear(it, currentYearStr) }
+        if (currentYearSeries.size >= 3) {
+            currentYearSeries.take(25)
+        } else {
+            val fallback = valid.filter { isSeriesFromYear(it, currentYearStr) || isSeriesFromYear(it, previousYearStr) }
+            if (fallback.isNotEmpty()) fallback.take(25) else valid.take(25)
+        }
     }
 
     // Sección Anime y Animación solicitada explícitamente por el usuario

@@ -1,7 +1,7 @@
 {
-  "versionName": "1.0.112",
-  "versionCode": 1000112,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.112/LELOUCH-PLUS-v1.0.112.apk",
-  "changelog": "- Carrusel Top 10 Hero y Rieles de contenido curado (Películas, Series, Anime).\n- Panel Administrador por secciones: General, Descargas, Motor Lelouch y Cuentas.\n- Descargas persistentes en segundo plano con botón Reanudar.\n- Filtro automático de carátulas rotas o vacías.\n- Corrección TLS Fallback y cambio de listas ultrarrápido sin errores.\n- Integración AniList y AniSkip con botón Saltar Intro/Ending en series de anime.\n- Atribuciones de Software Libre y licencias de código abierto.",
-  "version": "1.0.112"
+  "versionName": "1.0.113",
+  "versionCode": 1000113,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.113/LELOUCH-PLUS-v1.0.113.apk",
+  "changelog": "- Corrección y blindaje de reproducción de series: resolución segura y aislada de intros de anime sin cierres forzados.\n- Reparto y Actores: enriquecimiento automático de créditos con TMDB e integración visual de chips en películas y series.\n- Carrusel Top 10 y Rieles de la Semana filtrados exclusivamente por el año en curso (2026).\n- Ficha técnica enriquecida con información de director, reparto y transmisión.",
+  "version": "1.0.113"
 }

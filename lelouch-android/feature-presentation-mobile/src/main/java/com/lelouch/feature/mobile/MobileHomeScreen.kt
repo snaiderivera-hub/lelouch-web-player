@@ -809,14 +809,18 @@ fun MobileHomeScreen(
             }
 
             LaunchedEffect(activeContentMeta?.title, activeContentMeta?.episodeNumber) {
-                val epNum = activeContentMeta?.episodeNumber
-                val metaTitle = activeContentMeta?.title
-                if (epNum != null && !metaTitle.isNullOrBlank()) {
-                    skipIntervals = com.lelouch.core.network.anime.AnimeEnricher.resolveSkipForEpisode(
-                        seriesTitle = metaTitle,
-                        episodeNumber = epNum
-                    )
-                } else {
+                runCatching {
+                    val epNum = activeContentMeta?.episodeNumber
+                    val metaTitle = activeContentMeta?.title
+                    if (epNum != null && !metaTitle.isNullOrBlank()) {
+                        skipIntervals = com.lelouch.core.network.anime.AnimeEnricher.resolveSkipForEpisode(
+                            seriesTitle = metaTitle,
+                            episodeNumber = epNum
+                        )
+                    } else {
+                        skipIntervals = emptyList()
+                    }
+                }.onFailure {
                     skipIntervals = emptyList()
                 }
             }
@@ -3680,6 +3684,78 @@ fun TmdbAttributionCard(modifier: Modifier = Modifier) {
     }
 }
 
+@Composable
+private fun CastAndCrewSection(director: String?, cast: String?) {
+    if (director.isNullOrBlank() && cast.isNullOrBlank()) return
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 16.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(LelouchSurfaceVariant.copy(alpha = 0.5f))
+            .border(1.dp, LelouchBorder.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+            .padding(14.dp)
+    ) {
+        if (!director.isNullOrBlank()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "🎬 Dirección:",
+                    color = LelouchCyanAccent,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = director,
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            if (!cast.isNullOrBlank()) {
+                Spacer(Modifier.height(12.dp))
+            }
+        }
+
+        if (!cast.isNullOrBlank()) {
+            Text(
+                text = "🎭 Reparto Principal",
+                color = LelouchCyanAccent,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.height(8.dp))
+            val actors = cast.split(",").map { it.trim() }.filter { it.isNotBlank() }
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(actors) { actor ->
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color.Black.copy(alpha = 0.6f))
+                            .border(1.dp, LelouchCyanAccent.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("👤", fontSize = 11.sp)
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = actor,
+                                color = LelouchTextPrimary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 // DIALOGOS DE DETALLE
 @Composable
 private fun MobileMovieDetailView(
@@ -3909,16 +3985,10 @@ private fun MobileMovieDetailView(
                                     )
                                 }
 
-                                if (!movieState.director.isNullOrBlank() || !movieState.cast.isNullOrBlank()) {
-                                    Spacer(Modifier.height(16.dp))
-                                    if (!movieState.director.isNullOrBlank()) {
-                                        Text("Director: ${movieState.director}", color = LelouchTextMuted, fontSize = 12.sp)
-                                        Spacer(Modifier.height(4.dp))
-                                    }
-                                    if (!movieState.cast.isNullOrBlank()) {
-                                        Text("Reparto: ${movieState.cast}", color = LelouchTextMuted, fontSize = 12.sp)
-                                    }
-                                }
+                                CastAndCrewSection(
+                                    director = movieState.director,
+                                    cast = movieState.cast
+                                )
 
                                 Spacer(Modifier.height(18.dp))
                                 TmdbAttributionCard()
@@ -3945,8 +4015,10 @@ private fun MobileMovieDetailView(
                             )
                         }
 
-                        val specs = listOf(
+                        val specs = listOfNotNull(
                             "Título Original / Búsqueda" to com.lelouch.core.network.tmdb.TmdbEnricher.cleanTitle(movieState.name),
+                            if (!movieState.director.isNullOrBlank()) "Dirección" to movieState.director!! else null,
+                            if (!movieState.cast.isNullOrBlank()) "Reparto Principal" to movieState.cast!! else null,
                             "Calidad de Video" to "Full HD 1080p / 4K Ultra HD",
                             "Formato / Contenedor" to movieState.containerExtension.ifBlank { "MP4" }.uppercase(),
                             "Duración" to if (movieState.durationFormatted.isNotBlank()) movieState.durationFormatted else "Estándar VOD",
@@ -4375,16 +4447,10 @@ private fun MobileSeriesDetailView(
                                     )
                                 }
 
-                                if (!seriesState.director.isNullOrBlank() || !seriesState.cast.isNullOrBlank()) {
-                                    Spacer(Modifier.height(16.dp))
-                                    if (!seriesState.director.isNullOrBlank()) {
-                                        Text("Director: ${seriesState.director}", color = LelouchTextMuted, fontSize = 12.sp)
-                                        Spacer(Modifier.height(4.dp))
-                                    }
-                                    if (!seriesState.cast.isNullOrBlank()) {
-                                        Text("Reparto: ${seriesState.cast}", color = LelouchTextMuted, fontSize = 12.sp)
-                                    }
-                                }
+                                CastAndCrewSection(
+                                    director = seriesState.director,
+                                    cast = seriesState.cast
+                                )
 
                                 Spacer(Modifier.height(18.dp))
                                 TmdbAttributionCard()
@@ -4411,7 +4477,10 @@ private fun MobileSeriesDetailView(
                             )
                         }
 
-                        val specs = listOf(
+                        val specs = listOfNotNull(
+                            "Título Original / Búsqueda" to com.lelouch.core.network.tmdb.TmdbEnricher.cleanTitle(seriesState.name),
+                            if (!seriesState.director.isNullOrBlank()) "Dirección / Creador" to seriesState.director!! else null,
+                            if (!seriesState.cast.isNullOrBlank()) "Reparto Principal" to seriesState.cast!! else null,
                             "Temporadas Disponibles" to "${if (series.seasonsCount > 0) series.seasonsCount else seasons.size} temporada(s)",
                             "Total de Capítulos" to "${episodes.size} episodios listados",
                             "Calidad de Video" to "Full HD 1080p / H.264 High Profile",

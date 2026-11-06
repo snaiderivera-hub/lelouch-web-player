@@ -40,7 +40,9 @@ object TmdbEnricher {
         val posterUrl: String?,
         val backdropUrl: String?,
         val rating: Double?,
-        val firstAirDate: String?
+        val firstAirDate: String?,
+        val cast: String? = null,
+        val director: String? = null
     )
 
     data class TmdbEpisodeData(
@@ -59,7 +61,9 @@ object TmdbEnricher {
         val posterUrl: String?,
         val backdropUrl: String?,
         val rating: Double?,
-        val releaseDate: String?
+        val releaseDate: String?,
+        val cast: String? = null,
+        val director: String? = null
     )
 
     fun cleanTitle(rawName: String): String {
@@ -84,6 +88,52 @@ object TmdbEnricher {
             .header("Authorization", "Bearer $TMDB_BEARER_TOKEN")
             .header("Accept", "application/json")
             .build()
+    }
+
+    /**
+     * Consulta créditos (/credits) en TMDB para extraer actores principales y director.
+     */
+    private suspend fun fetchCredits(mediaType: String, id: Int, language: String): Pair<String?, String?> = withContext(Dispatchers.IO) {
+        val url = "$BASE_URL/$mediaType/$id/credits?api_key=$TMDB_API_KEY&language=$language"
+        val request = buildRequest(url)
+        runCatching {
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use Pair(null, null)
+                val bodyStr = response.body?.string() ?: return@use Pair(null, null)
+                val root = JSONObject(bodyStr)
+
+                // Cast (top 8 actores destacados)
+                val castArr = root.optJSONArray("cast")
+                val castList = mutableListOf<String>()
+                if (castArr != null) {
+                    val limit = minOf(castArr.length(), 8)
+                    for (i in 0 until limit) {
+                        val actorObj = castArr.optJSONObject(i) ?: continue
+                        val actorName = actorObj.optString("name").trim()
+                        if (actorName.isNotBlank() && !castList.contains(actorName)) {
+                            castList.add(actorName)
+                        }
+                    }
+                }
+                val castStr = if (castList.isNotEmpty()) castList.joinToString(", ") else null
+
+                // Director / Showrunner
+                val crewArr = root.optJSONArray("crew")
+                var directorName: String? = null
+                if (crewArr != null) {
+                    for (i in 0 until crewArr.length()) {
+                        val crewObj = crewArr.optJSONObject(i) ?: continue
+                        val job = crewObj.optString("job")
+                        if (job.equals("Director", ignoreCase = true) || job.equals("Creator", ignoreCase = true)) {
+                            directorName = crewObj.optString("name").takeIf { it.isNotBlank() }
+                            break
+                        }
+                    }
+                }
+
+                Pair(castStr, directorName)
+            }
+        }.getOrDefault(Pair(null, null))
     }
 
     suspend fun searchTvShow(name: String): TmdbShowData? = withContext(Dispatchers.IO) {
@@ -117,6 +167,9 @@ object TmdbEnricher {
                     val voteAverage = first.optDouble("vote_average", 0.0).takeIf { it > 0 }
                     val firstAirDate = first.optString("first_air_date").takeIf { it.isNotBlank() }
 
+                    // Obtener reparto y director en segundo paso ligero
+                    val (cast, director) = fetchCredits("tv", id, lang)
+
                     val data = TmdbShowData(
                         id = id,
                         name = showName,
@@ -124,7 +177,9 @@ object TmdbEnricher {
                         posterUrl = posterPath?.let { "$IMAGE_BASE_W500$it" },
                         backdropUrl = backdropPath?.let { "$IMAGE_BASE_W780$it" },
                         rating = voteAverage,
-                        firstAirDate = firstAirDate
+                        firstAirDate = firstAirDate,
+                        cast = cast,
+                        director = director
                     )
 
                     if (bestMatch == null || (bestMatch?.overview.isNullOrBlank() && overview.isNotBlank())) {
@@ -223,6 +278,9 @@ object TmdbEnricher {
                     val voteAverage = first.optDouble("vote_average", 0.0).takeIf { it > 0 }
                     val releaseDate = first.optString("release_date").takeIf { it.isNotBlank() }
 
+                    // Obtener reparto y director en segundo paso ligero
+                    val (cast, director) = fetchCredits("movie", id, lang)
+
                     val data = TmdbMovieData(
                         id = id,
                         title = movieTitle,
@@ -230,7 +288,9 @@ object TmdbEnricher {
                         posterUrl = posterPath?.let { "$IMAGE_BASE_W500$it" },
                         backdropUrl = backdropPath?.let { "$IMAGE_BASE_W780$it" },
                         rating = voteAverage,
-                        releaseDate = releaseDate
+                        releaseDate = releaseDate,
+                        cast = cast,
+                        director = director
                     )
 
                     if (bestMatch == null || (bestMatch?.overview.isNullOrBlank() && overview.isNotBlank())) {
@@ -305,12 +365,16 @@ object TmdbEnricher {
         val newBackdrop = movie.backdropPath?.takeIf { it.isNotBlank() } ?: tmdb.backdropUrl
         val newIcon = movie.streamIcon?.takeIf { it.isNotBlank() } ?: tmdb.posterUrl
         val newRating = movie.rating?.takeIf { it > 0 } ?: tmdb.rating
+        val newCast = movie.cast?.takeIf { it.isNotBlank() } ?: tmdb.cast
+        val newDirector = movie.director?.takeIf { it.isNotBlank() } ?: tmdb.director
 
         movie.copy(
             plot = newPlot,
             backdropPath = newBackdrop,
             streamIcon = newIcon,
-            rating = newRating
+            rating = newRating,
+            cast = newCast,
+            director = newDirector
         )
     }
 
@@ -327,12 +391,16 @@ object TmdbEnricher {
         val newBackdrop = series.backdropPath?.takeIf { it.isNotBlank() } ?: tmdb.backdropUrl
         val newCover = series.cover?.takeIf { it.isNotBlank() } ?: tmdb.posterUrl
         val newRating = series.rating?.takeIf { it > 0 } ?: tmdb.rating
+        val newCast = series.cast?.takeIf { it.isNotBlank() } ?: tmdb.cast
+        val newDirector = series.director?.takeIf { it.isNotBlank() } ?: tmdb.director
 
         series.copy(
             plot = newPlot,
             backdropPath = newBackdrop,
             cover = newCover,
-            rating = newRating
+            rating = newRating,
+            cast = newCast,
+            director = newDirector
         )
     }
 }

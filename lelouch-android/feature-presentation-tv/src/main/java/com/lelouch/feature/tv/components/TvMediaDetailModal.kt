@@ -57,6 +57,7 @@ data class MediaDetailUiModel(
     val duration: String? = null,
     val genre: String? = null,
     val director: String? = null,
+    val cast: String? = null,
     val containerExtension: String = "mp4",
     val streamUrl: String = "",
     val isSeries: Boolean = false,
@@ -290,9 +291,21 @@ fun TvMediaDetailModal(
                         if (!media.director.isNullOrBlank()) {
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "Director: ${media.director}",
+                                text = "🎬 Director: ${media.director}",
+                                color = LelouchCyanAccent,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+
+                        if (!media.cast.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "🎭 Reparto: ${media.cast}",
                                 color = LelouchTextMuted,
-                                fontSize = 12.sp
+                                fontSize = 12.sp,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
 
