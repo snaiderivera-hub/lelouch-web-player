@@ -1,0 +1,46 @@
+{
+  "name": "Lelouch TV",
+  "short_name": "Lelouch",
+  "description": "Reproductor IPTV Cinemático para Smart TV VIDAA (En Vivo, Películas, Series)",
+  "version": "1.0.0",
+  "manifest_version": 2,
+  "app_type": "web",
+  "start_url": "index.html",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#070B10",
+  "theme_color": "#E50914",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/banner.png",
+      "sizes": "1920x1080",
+      "type": "image/png"
+    }
+  ],
+  "categories": ["entertainment", "video"],
+  "developer": {
+    "name": "Lelouch IPTV Team",
+    "url": "https://github.com/snaiderivera-hub/lelouch-web-player"
+  },
+  "default_locale": "es",
+  "permissions": [
+    "network",
+    "storage",
+    "video"
+  ],
+  "device_info": {
+    "device_type": ["tv"],
+    "screen_orientation": "landscape"
+  }
+}
+

@@ -86,10 +86,7 @@ class XtreamCatalogSyncManager private constructor(
     }
     companion object {
         val defaultHttpClient: OkHttpClient by lazy {
-            OkHttpClient.Builder()
-                .connectTimeout(15, TimeUnit.SECONDS)
-                .readTimeout(15, TimeUnit.SECONDS)
-                .build()
+            NetworkClient.createOkHttpClient()
         }
         const val XTREAM_DEFAULT_TTL_MS: Long = 24 * 60 * 60 * 1000L // 24 horas para Xtream
         const val M3U_DEFAULT_TTL_MS: Long = 24 * 60 * 60 * 1000L // 24 horas para M3U genérico
@@ -298,6 +295,9 @@ class XtreamCatalogSyncManager private constructor(
             return@withContext syncXtreamToStaging(sourceId, syncId, serverUrl, user, pass)
 
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) {
+                throw e
+            }
             val errorMsg = e.localizedMessage ?: "Error de sincronización con el servidor IPTV"
             _syncState.value = SyncState.Error(errorMsg)
             Result.failure(e)

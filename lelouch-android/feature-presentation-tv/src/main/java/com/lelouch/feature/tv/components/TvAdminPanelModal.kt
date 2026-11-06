@@ -60,6 +60,7 @@ fun TvAdminPanelModal(
     onDismiss: () -> Unit
 ) {
     var selectedTab by remember { mutableIntStateOf(0) } // 0 = Listas Guardadas, 1 = Agregar Nueva, 2 = Mantenimiento
+    var showAttributionsDialog by remember { mutableStateOf(false) }
 
     // Formulario de nueva cuenta
     var newName by remember { mutableStateOf("") }
@@ -686,6 +687,36 @@ fun TvAdminPanelModal(
                                         }
                                     }
 
+                                    var isAttributionsFocused by remember { mutableStateOf(false) }
+                                    Box(
+                                        modifier = Modifier
+                                            .focusable()
+                                            .onFocusChanged { isAttributionsFocused = it.isFocused }
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(if (isAttributionsFocused) Color(0xFF00E5C9) else LelouchSurfaceVariant)
+                                            .border(1.dp, if (isAttributionsFocused) Color.White else LelouchBorder, RoundedCornerShape(8.dp))
+                                            .clickable {
+                                                showAttributionsDialog = true
+                                            }
+                                            .padding(horizontal = 18.dp, vertical = 10.dp)
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                imageVector = Icons.Default.Info,
+                                                contentDescription = null,
+                                                tint = if (isAttributionsFocused) Color.Black else Color(0xFF00E5C9),
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "Atribuciones y Software Libre",
+                                                color = if (isAttributionsFocused) Color.Black else LelouchTextPrimary,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+
                                     var isLogoutFocused by remember { mutableStateOf(false) }
                                     Box(
                                         modifier = Modifier
@@ -716,6 +747,172 @@ fun TvAdminPanelModal(
                                         }
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showAttributionsDialog) {
+        TvAttributionsModal(onDismiss = { showAttributionsDialog = false })
+    }
+}
+
+@Composable
+private fun TvAttributionsModal(onDismiss: () -> Unit) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.85f)
+                .fillMaxHeight(0.88f)
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color(0xFF0F1016))
+                .border(2.dp, Color(0xFF00E5C9).copy(alpha = 0.5f), RoundedCornerShape(18.dp))
+                .padding(24.dp)
+        ) {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Cabecera TV
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0xFF00E5C9).copy(alpha = 0.15f))
+                                .border(1.dp, Color(0xFF00E5C9).copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                        ) {
+                            Text(
+                                "SOFTWARE LIBRE & ATRIBUCIONES (ANDROID TV)",
+                                color = Color(0xFF00E5C9),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 1.sp
+                            )
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "Créditos de Código Abierto",
+                            color = Color.White,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            "Lelouch IPTV integra motores audiovisuales y de red bajo licencias Apache 2.0, MIT y BSD-3.",
+                            color = Color.White.copy(alpha = 0.6f),
+                            fontSize = 12.sp
+                        )
+                    }
+
+                    var isCloseFocused by remember { mutableStateOf(false) }
+                    Box(
+                        modifier = Modifier
+                            .focusable()
+                            .onFocusChanged { isCloseFocused = it.isFocused }
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isCloseFocused) Color(0xFF00E5C9) else Color.White.copy(0.08f))
+                            .border(1.dp, if (isCloseFocused) Color.White else Color.White.copy(0.2f), RoundedCornerShape(8.dp))
+                            .clickable { onDismiss() }
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            "Cerrar (BACK)",
+                            color = if (isCloseFocused) Color.Black else Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(16.dp))
+
+                // Lista TV Scrollable
+                TvLazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    val credits = listOf(
+                        Triple(
+                            "Jetpack Media3 (ExoPlayer) • Apache License 2.0",
+                            "Motor de reproducción de baja latencia con aceleración HW, buffers dinámicos y soporte nativo HLS/TS/MP4.",
+                            "Google LLC • androidx.media3"
+                        ),
+                        Triple(
+                            "AniSkip & IntroDB • MIT License",
+                            "Detección y salto inteligente de openings y endings para series y animes mediante base comunitaria.",
+                            "AniSkip Community Project"
+                        ),
+                        Triple(
+                            "Google Cast SDK • Google APIs Terms",
+                            "Soporte de transmisión y descubrimiento de pantallas Cast / Chromecast en la red local.",
+                            "Google LLC"
+                        ),
+                        Triple(
+                            "NanoHTTPD • BSD 3-Clause",
+                            "Micro-servidor HTTP local embebido y ultraligero para bridging de reproducción y streams DLNA.",
+                            "NanoHTTPD Project"
+                        ),
+                        Triple(
+                            "OkHttp 4 & Retrofit 2 • Apache License 2.0",
+                            "Cliente HTTP resiliente con TLS Fallback automático, pool de sockets persistentes y DoH.",
+                            "Square, Inc."
+                        ),
+                        Triple(
+                            "Coil 3 Image Loader • Apache License 2.0",
+                            "Caché y carga asíncrona de pósters y carátulas a 60 FPS con corrutinas de Kotlin.",
+                            "Colin White & Coil Contributors"
+                        ),
+                        Triple(
+                            "Room Persistence Library • Apache License 2.0",
+                            "Base de datos relacional SQLite embebida para búsquedas instantáneas offline de catálogos masivos.",
+                            "Google LLC"
+                        )
+                    )
+
+                    itemsIndexed(credits) { _, (title, desc, author) ->
+                        var isItemFocused by remember { mutableStateOf(false) }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusable()
+                                .onFocusChanged { isItemFocused = it.isFocused }
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (isItemFocused) Color(0xFF1E2130) else Color(0xFF141620))
+                                .border(
+                                    1.dp,
+                                    if (isItemFocused) Color(0xFF00E5C9) else Color.White.copy(0.08f),
+                                    RoundedCornerShape(10.dp)
+                                )
+                                .padding(14.dp)
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    title,
+                                    color = if (isItemFocused) Color(0xFF00E5C9) else Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                                Text(
+                                    desc,
+                                    color = Color.White.copy(alpha = 0.7f),
+                                    fontSize = 12.sp
+                                )
+                                Text(
+                                    author,
+                                    color = Color.White.copy(alpha = 0.4f),
+                                    fontSize = 11.sp
+                                )
                             }
                         }
                     }

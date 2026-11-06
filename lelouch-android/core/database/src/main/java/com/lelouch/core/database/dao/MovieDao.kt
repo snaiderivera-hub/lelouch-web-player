@@ -14,28 +14,28 @@ interface MovieDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMovies(movies: List<MovieEntity>)
 
-    @Query("SELECT * FROM movies WHERE categoryId = :categoryId ORDER BY rating DESC, added DESC LIMIT :limit")
+    @Query("SELECT * FROM movies WHERE categoryId = :categoryId AND streamIcon IS NOT NULL AND streamIcon != '' AND streamIcon LIKE 'http%' ORDER BY rating DESC, added DESC LIMIT :limit")
     fun getMoviesForRail(categoryId: String, limit: Int = 20): Flow<List<MovieEntity>>
 
-    @Query("SELECT * FROM movies WHERE categoryId = :categoryId ORDER BY rating DESC, added DESC")
+    @Query("SELECT * FROM movies WHERE categoryId = :categoryId AND streamIcon IS NOT NULL AND streamIcon != '' AND streamIcon LIKE 'http%' ORDER BY rating DESC, added DESC")
     fun getMoviesByCategoryPaging(categoryId: String): PagingSource<Int, MovieEntity>
 
-    @Query("SELECT * FROM movies WHERE sourceId = :sourceId GROUP BY name ORDER BY name ASC, id ASC")
+    @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND streamIcon IS NOT NULL AND streamIcon != '' AND streamIcon LIKE 'http%' GROUP BY name ORDER BY name ASC, id ASC")
     fun getPagingMoviesBySource(sourceId: String): PagingSource<Int, MovieEntity>
 
-    @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND categoryId = :categoryId GROUP BY name ORDER BY name ASC, id ASC")
+    @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND categoryId = :categoryId AND streamIcon IS NOT NULL AND streamIcon != '' AND streamIcon LIKE 'http%' GROUP BY name ORDER BY name ASC, id ASC")
     fun getPagingMoviesBySourceAndCategory(sourceId: String, categoryId: String): PagingSource<Int, MovieEntity>
 
-    @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND categoryId NOT IN (:hiddenCategoryIds) GROUP BY name ORDER BY name ASC, id ASC")
+    @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND categoryId NOT IN (:hiddenCategoryIds) AND streamIcon IS NOT NULL AND streamIcon != '' AND streamIcon LIKE 'http%' GROUP BY name ORDER BY name ASC, id ASC")
     fun getPagingMoviesExcludingCategories(sourceId: String, hiddenCategoryIds: List<String>): PagingSource<Int, MovieEntity>
 
-    @Query("SELECT * FROM movies ORDER BY added DESC LIMIT :limit")
+    @Query("SELECT * FROM movies WHERE streamIcon IS NOT NULL AND streamIcon != '' AND streamIcon LIKE 'http%' ORDER BY added DESC LIMIT :limit")
     fun getRecentlyAddedMovies(limit: Int = 20): Flow<List<MovieEntity>>
 
-    @Query("SELECT * FROM movies WHERE rating >= 7.5 ORDER BY rating DESC LIMIT :limit")
+    @Query("SELECT * FROM movies WHERE rating >= 7.5 AND streamIcon IS NOT NULL AND streamIcon != '' AND streamIcon LIKE 'http%' ORDER BY rating DESC LIMIT :limit")
     fun getTopRatedMovies(limit: Int = 20): Flow<List<MovieEntity>>
 
-    @Query("SELECT * FROM movies WHERE isFavorite = 1 ORDER BY added DESC")
+    @Query("SELECT * FROM movies WHERE isFavorite = 1 AND streamIcon IS NOT NULL AND streamIcon != '' AND streamIcon LIKE 'http%' ORDER BY added DESC")
     fun getFavoriteMovies(): Flow<List<MovieEntity>>
 
     @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND streamId = :streamId LIMIT 1")
@@ -50,10 +50,13 @@ interface MovieDao {
     @Query("UPDATE movies SET isFavorite = :isFavorite WHERE streamId = :streamId")
     suspend fun updateFavoriteStatus(streamId: Int, isFavorite: Boolean)
 
-    @Query("SELECT * FROM movies WHERE sourceId = :sourceId ORDER BY name ASC")
+    @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND streamIcon IS NOT NULL AND streamIcon != '' AND streamIcon LIKE 'http%' GROUP BY name ORDER BY name ASC")
     fun getAllMoviesBySource(sourceId: String): Flow<List<MovieEntity>>
 
-    @Query("SELECT * FROM movies ORDER BY name ASC")
+    @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND categoryId = :categoryId AND streamIcon IS NOT NULL AND streamIcon != '' AND streamIcon LIKE 'http%' GROUP BY name ORDER BY name ASC")
+    fun getMoviesByCategory(sourceId: String, categoryId: String): Flow<List<MovieEntity>>
+
+    @Query("SELECT * FROM movies WHERE streamIcon IS NOT NULL AND streamIcon != '' AND streamIcon LIKE 'http%' GROUP BY name ORDER BY name ASC")
     fun getAllMovies(): Flow<List<MovieEntity>>
 
     @Query("DELETE FROM movies WHERE sourceId = :sourceId")

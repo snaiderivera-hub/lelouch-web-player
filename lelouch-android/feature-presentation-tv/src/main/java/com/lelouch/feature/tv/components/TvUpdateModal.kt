@@ -157,19 +157,43 @@ fun TvUpdateModal(
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(LelouchCyanAccent.copy(alpha = 0.12f))
                                 .border(1.dp, LelouchCyanAccent.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                                .padding(16.dp)
+                                .padding(18.dp)
                         ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "🚀 ¡NUEVA ACTUALIZACIÓN DISPONIBLE!",
+                                    color = LelouchCyanAccent,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(LelouchCyanAccent)
+                                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = state.info.versionName,
+                                        color = Color.Black,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(10.dp))
                             Text(
-                                text = "🎉 ¡Nueva versión disponible: ${state.info.versionName}!",
+                                text = "✨ MEJORAS Y NOVEDADES DE ESTA VERSIÓN:",
                                 color = LelouchCyanAccent,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Black
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = state.info.changelog.ifBlank { "Mejoras de rendimiento y corrección de categorías." },
+                                text = state.info.changelog.ifBlank { "• Corrección y estabilidad de canales y catálogo VOD.\n• Mejoras de rendimiento en reproducción." },
                                 color = LelouchTextPrimary,
-                                fontSize = 13.sp
+                                fontSize = 13.sp,
+                                lineHeight = 18.sp
                             )
                         }
                     }

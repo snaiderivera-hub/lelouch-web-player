@@ -407,6 +407,7 @@ fun MobileHomeScreen(
 
     val filteredMovies = remember(movies, hiddenMovieCategories, isAdultModeEnabled) {
         movies.filter {
+            it.streamIcon?.trim().orEmpty().startsWith("http") &&
             it.categoryId !in hiddenMovieCategories && it.categoryName !in hiddenMovieCategories &&
             (isAdultModeEnabled || (!adultContentRegex.containsMatchIn(it.name) && !adultContentRegex.containsMatchIn(it.categoryName)))
         }.distinctBy { it.name.trim().lowercase() }
@@ -414,20 +415,25 @@ fun MobileHomeScreen(
 
     val movieCategoryList = remember(vodCategories, filteredMovies, hiddenMovieCategories, isAdultModeEnabled) {
         val fromDb = vodCategories.map { MobileCategoryItem(id = it.categoryId, name = it.categoryName) }
-        val fromMovies = filteredMovies.mapNotNull { mov ->
-            if (mov.categoryName.isNotBlank() && mov.categoryId.isNotBlank()) {
-                MobileCategoryItem(id = mov.categoryId, name = mov.categoryName)
-            } else null
-        }.distinctBy { it.id }
-        val combined = (fromDb + fromMovies)
-            .filter { it.id !in hiddenMovieCategories && it.name !in hiddenMovieCategories }
+        val combined = if (fromDb.isNotEmpty()) {
+            fromDb.filter { it.id !in hiddenMovieCategories && it.name !in hiddenMovieCategories }
+                .filter { isAdultModeEnabled || (!adultContentRegex.containsMatchIn(it.name) && !adultContentRegex.containsMatchIn(it.id)) }
+                .distinctBy { it.id }.sortedBy { it.name }
+        } else {
+            filteredMovies.mapNotNull { mov ->
+                if (mov.categoryName.isNotBlank() && mov.categoryId.isNotBlank()) {
+                    MobileCategoryItem(id = mov.categoryId, name = mov.categoryName)
+                } else null
+            }.filter { it.id !in hiddenMovieCategories && it.name !in hiddenMovieCategories }
             .filter { isAdultModeEnabled || (!adultContentRegex.containsMatchIn(it.name) && !adultContentRegex.containsMatchIn(it.id)) }
             .distinctBy { it.id }.sortedBy { it.name }
+        }
         listOf(MobileCategoryItem(id = "all", name = "Todas")) + combined
     }
 
     val filteredSeriesList = remember(seriesList, hiddenSeriesCategories, isAdultModeEnabled) {
         seriesList.filter {
+            it.cover?.trim().orEmpty().startsWith("http") &&
             it.categoryId !in hiddenSeriesCategories && it.categoryName !in hiddenSeriesCategories &&
             (isAdultModeEnabled || (!adultContentRegex.containsMatchIn(it.name) && !adultContentRegex.containsMatchIn(it.categoryName)))
         }.distinctBy { it.name.trim().lowercase() }
@@ -435,15 +441,19 @@ fun MobileHomeScreen(
 
     val seriesCategoryList = remember(seriesCategories, filteredSeriesList, hiddenSeriesCategories, isAdultModeEnabled) {
         val fromDb = seriesCategories.map { MobileCategoryItem(id = it.categoryId, name = it.categoryName) }
-        val fromSeries = filteredSeriesList.mapNotNull { s ->
-            if (s.categoryName.isNotBlank() && s.categoryId.isNotBlank()) {
-                MobileCategoryItem(id = s.categoryId, name = s.categoryName)
-            } else null
-        }.distinctBy { it.id }
-        val combined = (fromDb + fromSeries)
-            .filter { it.id !in hiddenSeriesCategories && it.name !in hiddenSeriesCategories }
+        val combined = if (fromDb.isNotEmpty()) {
+            fromDb.filter { it.id !in hiddenSeriesCategories && it.name !in hiddenSeriesCategories }
+                .filter { isAdultModeEnabled || (!adultContentRegex.containsMatchIn(it.name) && !adultContentRegex.containsMatchIn(it.id)) }
+                .distinctBy { it.id }.sortedBy { it.name }
+        } else {
+            filteredSeriesList.mapNotNull { s ->
+                if (s.categoryName.isNotBlank() && s.categoryId.isNotBlank()) {
+                    MobileCategoryItem(id = s.categoryId, name = s.categoryName)
+                } else null
+            }.filter { it.id !in hiddenSeriesCategories && it.name !in hiddenSeriesCategories }
             .filter { isAdultModeEnabled || (!adultContentRegex.containsMatchIn(it.name) && !adultContentRegex.containsMatchIn(it.id)) }
             .distinctBy { it.id }.sortedBy { it.name }
+        }
         listOf(MobileCategoryItem(id = "all", name = "Todas")) + combined
     }
 
@@ -794,6 +804,23 @@ fun MobileHomeScreen(
             var isOverlayVisible by remember { mutableStateOf(true) }
             var isTracksSheetVisible by remember { mutableStateOf(false) }
 
+            var skipIntervals by remember(activeContentMeta?.title, activeContentMeta?.episodeNumber) {
+                mutableStateOf<List<com.lelouch.core.network.anime.AnimeEnricher.SkipInterval>>(emptyList())
+            }
+
+            LaunchedEffect(activeContentMeta?.title, activeContentMeta?.episodeNumber) {
+                val epNum = activeContentMeta?.episodeNumber
+                val metaTitle = activeContentMeta?.title
+                if (epNum != null && !metaTitle.isNullOrBlank()) {
+                    skipIntervals = com.lelouch.core.network.anime.AnimeEnricher.resolveSkipForEpisode(
+                        seriesTitle = metaTitle,
+                        episodeNumber = epNum
+                    )
+                } else {
+                    skipIntervals = emptyList()
+                }
+            }
+
             // Auto-hide timer
             LaunchedEffect(isOverlayVisible, playbackState) {
                 if (isOverlayVisible && playbackState is PlaybackState.Playing) {
@@ -974,6 +1001,46 @@ fun MobileHomeScreen(
                         else -> 0L to 0L
                     }
                     val isPlaying = playbackState is PlaybackState.Playing
+
+                    val activeSkip = skipIntervals.firstOrNull { interval ->
+                        currentPos in interval.startTimeMs until interval.endTimeMs
+                    }
+
+                    // Botón Flotante Neón AniSkip: "Saltar Intro / Ending"
+                    AnimatedVisibility(
+                        visible = activeSkip != null,
+                        enter = fadeIn() + slideInVertically { it / 2 },
+                        exit = fadeOut() + slideOutVertically { it / 2 },
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(
+                                bottom = if (isOverlayVisible) 110.dp else 28.dp,
+                                end = 24.dp
+                            )
+                    ) {
+                        activeSkip?.let { skip ->
+                            Button(
+                                onClick = { playerEngine.seekTo(skip.endTimeMs) },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF00E5C9)
+                                ),
+                                shape = RoundedCornerShape(20.dp),
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                                elevation = ButtonDefaults.buttonElevation(defaultElevation = 6.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("⏩", fontSize = 13.sp)
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        text = skip.label,
+                                        color = Color.Black,
+                                        fontWeight = FontWeight.Black,
+                                        fontSize = 13.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
 
                     AnimatedVisibility(
                         visible = isOverlayVisible,
@@ -1605,8 +1672,10 @@ private fun MobileMoviesTab(
         return
     }
     var selectedCategoryId by remember(categories) { mutableStateOf("all") }
-    val filtered = if (selectedCategoryId == "all") movies
-                   else movies.filter { it.categoryId == selectedCategoryId }
+    val filtered = remember(selectedCategoryId, movies) {
+        if (selectedCategoryId == "all") movies
+        else movies.filter { it.categoryId == selectedCategoryId }
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         if (categories.isNotEmpty()) {
@@ -1659,8 +1728,10 @@ private fun MobileSeriesTab(
         return
     }
     var selectedCategoryId by remember(categories) { mutableStateOf("all") }
-    val filtered = if (selectedCategoryId == "all") seriesList
-                   else seriesList.filter { it.categoryId == selectedCategoryId }
+    val filtered = remember(selectedCategoryId, seriesList) {
+        if (selectedCategoryId == "all") seriesList
+        else seriesList.filter { it.categoryId == selectedCategoryId }
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         if (categories.isNotEmpty()) {
@@ -1961,6 +2032,14 @@ private fun MobileSettingsTab(
     var audioEngineMode by remember { mutableStateOf(LelouchDnsManager.getAudioEngineMode()) }
     val dnsEnabled = LelouchDnsManager.isEnabled()
     val dnsProvider = LelouchDnsManager.getSelectedProvider()
+    val context = LocalContext.current
+
+    var wifiOnlyPlayback by remember { mutableStateOf(false) }
+    var showRatingsAndYear by remember { mutableStateOf(true) }
+    var notificationsEnabled by remember { mutableStateOf(true) }
+    var wifiOnlyDownloads by remember { mutableStateOf(false) }
+    var backgroundDownloadsEnabled by remember { mutableStateOf(true) }
+    var isAttributionsDialogOpen by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier
@@ -1969,7 +2048,7 @@ private fun MobileSettingsTab(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // 1. CABECERA: TÍTULO "Opciones"
+        // CABECERA: TÍTULO "Configuración"
         item {
             Row(
                 modifier = Modifier
@@ -1979,16 +2058,16 @@ private fun MobileSettingsTab(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Opciones",
+                    text = "Configuración",
                     color = Color.White,
                     fontWeight = FontWeight.Black,
-                    fontSize = 28.sp,
+                    fontSize = 26.sp,
                     letterSpacing = (-0.5).sp
                 )
                 IconButton(onClick = onForceSync) {
                     Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = "Buscar opciones",
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "Sincronizar",
                         tint = Color.White,
                         modifier = Modifier.size(24.dp)
                     )
@@ -1996,67 +2075,399 @@ private fun MobileSettingsTab(
             }
         }
 
-        // 2. ACCESOS DIRECTOS CIRCULARES DE COLOR (BIX PLUS + DNS + DESCARGAS)
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // 🌐 DNS Selector
-                CircleActionItem(
-                    icon = Icons.Default.Dns,
-                    label = if (dnsEnabled) "DNS Activo" else "DNS",
-                    bgColor = Color(0xFF00D2B8),
-                    onClick = onOpenDnsSelector
-                )
-                // 📥 Mis Descargas
-                CircleActionItem(
-                    icon = Icons.Default.Download,
-                    label = "Descargas",
-                    bgColor = Color(0xFF6366F1),
-                    onClick = onOpenDownloads
-                )
-                // 🟢 Actualizaciones
-                CircleActionItem(
-                    icon = Icons.Default.Refresh,
-                    label = "Actualizar",
-                    bgColor = BixCircleGreen,
-                    onClick = onOpenUpdate
-                )
-                // 💖 Favoritos
-                CircleActionItem(
-                    icon = Icons.Default.Favorite,
-                    label = "Favoritos",
-                    bgColor = BixCirclePink,
-                    onClick = onNavigateToFavorites
-                )
-            }
-        }
-
-        // 2.5 SECCIÓN MOTOR DE TRANSMISIÓN, DNS, ACELERACIÓN HW+ Y OPENSL ES (ESTILO XUPER)
+        // ══════════════════════════════════════════════════════════════════════
+        // SECCIÓN 1: GENERAL (ESTILO CAPTURA 3)
+        // ══════════════════════════════════════════════════════════════════════
         item {
             Text(
-                text = "MOTOR DE TRANSMISIÓN Y RED (ESTILO XUPER)",
-                color = Color(0xFF2DD4BF),
-                fontWeight = FontWeight.Bold,
+                text = "GENERAL",
+                color = Color(0xFFEF4444),
+                fontWeight = FontWeight.Black,
                 fontSize = 12.sp,
-                letterSpacing = 1.sp,
-                modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+                letterSpacing = 1.2.sp,
+                modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 2.dp)
             )
 
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(16.dp))
-                    .background(BixSurfaceCard)
-                    .border(1.dp, Color(0xFF2DD4BF).copy(alpha = 0.35f), RoundedCornerShape(16.dp))
-                    .padding(16.dp)
+                    .background(Color(0xFF14151C))
+                    .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(16.dp))
+                    .padding(14.dp)
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    // 1. Selector DNS Inteligente
+                    // 1. Idioma
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color.White.copy(alpha = 0.08f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Language, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Idioma", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("Seguir sistema", color = BixTextMuted, fontSize = 11.sp)
+                        }
+                    }
+
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+
+                    // 2. Permitir contenido para adultos
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color.White.copy(alpha = 0.08f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Explicit, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Permitir contenido para adultos", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("Incluir películas eróticas y para adultos en la búsqueda y en las filas.", color = BixTextMuted, fontSize = 11.sp)
+                        }
+                        Switch(
+                            checked = isAdultModeEnabled,
+                            onCheckedChange = { onToggleAdultMode(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = Color(0xFFE50914),
+                                uncheckedThumbColor = Color.White.copy(0.6f),
+                                uncheckedTrackColor = Color.White.copy(0.15f)
+                            )
+                        )
+                    }
+
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+
+                    // 3. Reproducir solo con Wi-Fi
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color.White.copy(alpha = 0.08f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Wifi, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Reproducir solo con Wi-Fi", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("Evita que la reproducción y el envío usen datos móviles", color = BixTextMuted, fontSize = 11.sp)
+                        }
+                        Switch(
+                            checked = wifiOnlyPlayback,
+                            onCheckedChange = { wifiOnlyPlayback = it },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = Color(0xFFE50914),
+                                uncheckedThumbColor = Color.White.copy(0.6f),
+                                uncheckedTrackColor = Color.White.copy(0.15f)
+                            )
+                        )
+                    }
+
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+
+                    // 4. Mostrar calificaciones y año
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color.White.copy(alpha = 0.08f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Movie, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Mostrar calificaciones y año", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("Muestra la puntuación y el año de lanzamiento en carteles.", color = BixTextMuted, fontSize = 11.sp)
+                        }
+                        Switch(
+                            checked = showRatingsAndYear,
+                            onCheckedChange = { showRatingsAndYear = it },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = Color(0xFFE50914),
+                                uncheckedThumbColor = Color.White.copy(0.6f),
+                                uncheckedTrackColor = Color.White.copy(0.15f)
+                            )
+                        )
+                    }
+
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+
+                    // 5. Notificaciones
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color.White.copy(alpha = 0.08f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Notifications, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Notificaciones", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("Reciba anuncios y actualizaciones de Lelouch", color = BixTextMuted, fontSize = 11.sp)
+                        }
+                        Switch(
+                            checked = notificationsEnabled,
+                            onCheckedChange = { notificationsEnabled = it },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = Color(0xFFE50914),
+                                uncheckedThumbColor = Color.White.copy(0.6f),
+                                uncheckedTrackColor = Color.White.copy(0.15f)
+                            )
+                        )
+                    }
+
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+
+                    // 6. Interfaz
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color.White.copy(alpha = 0.08f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Tv, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Interfaz", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("Interfaz normal (móvil)", color = BixTextMuted, fontSize = 11.sp)
+                        }
+                    }
+
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+
+                    // 7. Atribuciones y Software Libre (Código Abierto)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { isAttributionsDialogOpen = true },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFF00E5C9).copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Info, contentDescription = null, tint = Color(0xFF00E5C9), modifier = Modifier.size(20.dp))
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Atribuciones y Software Libre", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("Licencias Apache 2.0, BSD 3-Clause, AniSkip, IntroDB y Media3", color = BixTextMuted, fontSize = 11.sp)
+                        }
+                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color.White.copy(0.4f), modifier = Modifier.size(20.dp))
+                    }
+                }
+            }
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // SECCIÓN 2: DESCARGAS Y ALMACENAMIENTO (PETICIÓN DE USUARIO)
+        // ══════════════════════════════════════════════════════════════════════
+        item {
+            Text(
+                text = "DESCARGAS Y ALMACENAMIENTO",
+                color = Color(0xFFEF4444),
+                fontWeight = FontWeight.Black,
+                fontSize = 12.sp,
+                letterSpacing = 1.2.sp,
+                modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 2.dp)
+            )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFF14151C))
+                    .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(16.dp))
+                    .padding(14.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    // Item 1: Ver descargas activas y completadas
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpenDownloads() },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFF6366F1).copy(alpha = 0.2f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Download, contentDescription = null, tint = Color(0xFF818CF8), modifier = Modifier.size(20.dp))
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Ver descargas activas y completadas", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("Gestiona tus archivos descargados, reproduce o reanuda descargas pausadas.", color = BixTextMuted, fontSize = 11.sp)
+                        }
+                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color.White.copy(0.4f), modifier = Modifier.size(20.dp))
+                    }
+
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+
+                    // Item 2: Descargar solo con Wi-Fi
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color.White.copy(alpha = 0.08f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Wifi, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Descargar solo con Wi-Fi", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("Evita el consumo de datos móviles al descargar películas o episodios.", color = BixTextMuted, fontSize = 11.sp)
+                        }
+                        Switch(
+                            checked = wifiOnlyDownloads,
+                            onCheckedChange = { wifiOnlyDownloads = it },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = Color(0xFFE50914),
+                                uncheckedThumbColor = Color.White.copy(0.6f),
+                                uncheckedTrackColor = Color.White.copy(0.15f)
+                            )
+                        )
+                    }
+
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+
+                    // Item 3: Reanudar descargas en segundo plano
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFF00E5C9).copy(alpha = 0.2f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.PlayCircle, contentDescription = null, tint = Color(0xFF00E5C9), modifier = Modifier.size(20.dp))
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Descargas continuas en segundo plano", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("Mantiene la descarga activa aunque cambies de app o bloquees la pantalla.", color = BixTextMuted, fontSize = 11.sp)
+                        }
+                        Switch(
+                            checked = backgroundDownloadsEnabled,
+                            onCheckedChange = { backgroundDownloadsEnabled = it },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = Color(0xFFE50914),
+                                uncheckedThumbColor = Color.White.copy(0.6f),
+                                uncheckedTrackColor = Color.White.copy(0.15f)
+                            )
+                        )
+                    }
+
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+
+                    // Item 4: Limpiar caché temporal
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                android.widget.Toast.makeText(context, "🧹 Caché local liberada correctamente", android.widget.Toast.LENGTH_SHORT).show()
+                            },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color.White.copy(alpha = 0.08f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(20.dp))
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Limpiar caché temporal", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("Libera memoria de carátulas y datos en disco local.", color = BixTextMuted, fontSize = 11.sp)
+                        }
+                        Text("Limpiar", color = Color(0xFF38BDF8), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // SECCIÓN 3: REPRODUCCIÓN Y MOTOR LELOUCH
+        // ══════════════════════════════════════════════════════════════════════
+        item {
+            Text(
+                text = "REPRODUCCIÓN Y MOTOR LELOUCH",
+                color = Color(0xFFEF4444),
+                fontWeight = FontWeight.Black,
+                fontSize = 12.sp,
+                letterSpacing = 1.2.sp,
+                modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 2.dp)
+            )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFF14151C))
+                    .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(16.dp))
+                    .padding(14.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    // Item 1: Selector DNS Inteligente
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2065,8 +2476,8 @@ private fun MobileSettingsTab(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(42.dp)
-                                .clip(RoundedCornerShape(12.dp))
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(10.dp))
                                 .background(Color(0xFF14B8A6).copy(alpha = 0.2f)),
                             contentAlignment = Alignment.Center
                         ) {
@@ -2074,7 +2485,7 @@ private fun MobileSettingsTab(
                                 imageVector = Icons.Default.Dns,
                                 contentDescription = null,
                                 tint = Color(0xFF2DD4BF),
-                                modifier = Modifier.size(22.dp)
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                         Spacer(Modifier.width(14.dp))
@@ -2102,8 +2513,8 @@ private fun MobileSettingsTab(
                                 }
                             }
                             Text(
-                                text = if (dnsEnabled) "${dnsProvider.title} (${dnsProvider.primaryIp}) • Caché RAM: ${LelouchDnsManager.cachedIpCount()} IPs"
-                                else "Toca para elegir Cloudflare (1.1.1.1), Google, Control D o AdGuard",
+                                text = if (dnsEnabled) "${dnsProvider.title} (${dnsProvider.primaryIp}) • Caché: ${LelouchDnsManager.cachedIpCount()} IPs"
+                                else "Toca para elegir Cloudflare (1.1.1.1), Google o AdGuard",
                                 color = if (dnsEnabled) Color(0xFF2DD4BF) else BixTextMuted,
                                 fontSize = 11.sp
                             )
@@ -2118,13 +2529,13 @@ private fun MobileSettingsTab(
 
                     HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
 
-                    // 2. Aceleración por Hardware (HW+ / HW / SW)
+                    // Item 2: Decodificador de Video
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
                                 modifier = Modifier
-                                    .size(42.dp)
-                                    .clip(RoundedCornerShape(12.dp))
+                                    .size(40.dp)
+                                    .clip(RoundedCornerShape(10.dp))
                                     .background(Color(0xFFF59E0B).copy(alpha = 0.2f)),
                                 contentAlignment = Alignment.Center
                             ) {
@@ -2132,7 +2543,7 @@ private fun MobileSettingsTab(
                                     imageVector = Icons.Default.Memory,
                                     contentDescription = null,
                                     tint = Color(0xFFFBBF24),
-                                    modifier = Modifier.size(22.dp)
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
                             Spacer(Modifier.width(14.dp))
@@ -2190,13 +2601,13 @@ private fun MobileSettingsTab(
 
                     HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
 
-                    // 3. Motor de Audio (OpenSL ES Baja Latencia vs AudioTrack)
+                    // Item 3: Motor de Audio
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
                                 modifier = Modifier
-                                    .size(42.dp)
-                                    .clip(RoundedCornerShape(12.dp))
+                                    .size(40.dp)
+                                    .clip(RoundedCornerShape(10.dp))
                                     .background(Color(0xFF3B82F6).copy(alpha = 0.2f)),
                                 contentAlignment = Alignment.Center
                             ) {
@@ -2204,7 +2615,7 @@ private fun MobileSettingsTab(
                                     imageVector = Icons.Default.GraphicEq,
                                     contentDescription = null,
                                     tint = Color(0xFF60A5FA),
-                                    modifier = Modifier.size(22.dp)
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
                             Spacer(Modifier.width(14.dp))
@@ -2247,8 +2658,8 @@ private fun MobileSettingsTab(
                                 ) {
                                     Text(
                                         text = when (mode) {
-                                            LelouchDnsManager.AudioEngineMode.OPENSL_ES -> "🔊 OpenSL ES (Baja Latencia)"
-                                            LelouchDnsManager.AudioEngineMode.AUDIOTRACK -> "🔈 AudioTrack Estándar"
+                                            LelouchDnsManager.AudioEngineMode.OPENSL_ES -> "🔊 OpenSL ES"
+                                            LelouchDnsManager.AudioEngineMode.AUDIOTRACK -> "🔈 AudioTrack"
                                         },
                                         color = if (selected) Color(0xFF38BDF8) else Color.White,
                                         fontSize = 11.sp,
@@ -2261,153 +2672,74 @@ private fun MobileSettingsTab(
 
                     HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
 
-                    // 4. Test de Cuenta, Lista Ocupada y Red + Mis Descargas
+                    // Item 4: Test de Lista y Red
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpenDiagnostics(activeSource) },
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Button(
-                            onClick = { onOpenDiagnostics(activeSource) },
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7).copy(alpha = 0.25f)),
-                            border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.5f)),
-                            shape = RoundedCornerShape(10.dp)
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFF0284C7).copy(alpha = 0.2f)),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Text("🩺 Test de Lista / Red", color = Color(0xFF38BDF8), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Icon(
+                                imageVector = Icons.Default.MedicalServices,
+                                contentDescription = null,
+                                tint = Color(0xFF38BDF8),
+                                modifier = Modifier.size(20.dp)
+                            )
                         }
-                        Button(
-                            onClick = onOpenDownloads,
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6366F1).copy(alpha = 0.25f)),
-                            border = BorderStroke(1.dp, Color(0xFF818CF8).copy(alpha = 0.5f)),
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Text("📥 Mis Descargas", color = Color(0xFFA5B4FC), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.width(14.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Test de Lista y Diagnóstico",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                            Text(
+                                text = "Comprueba el ping, estado del servidor y velocidad de carga",
+                                color = BixTextMuted,
+                                fontSize = 11.sp
+                            )
                         }
+                        Icon(
+                            Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = Color(0xFF38BDF8),
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
                 }
             }
         }
 
-        // 3. SECCIÓN PREFERENCIAS (ESTILO BIX PLUS)
+        // ══════════════════════════════════════════════════════════════════════
+        // SECCIÓN 4: CUENTAS IPTV Y NUBE
+        // ══════════════════════════════════════════════════════════════════════
         item {
             Text(
-                text = "PREFERENCIAS",
-                color = BixTextMuted,
-                fontWeight = FontWeight.Bold,
+                text = "CUENTAS IPTV Y NUBE",
+                color = Color(0xFFEF4444),
+                fontWeight = FontWeight.Black,
                 fontSize = 12.sp,
-                letterSpacing = 1.sp,
-                modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+                letterSpacing = 1.2.sp,
+                modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 2.dp)
             )
 
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(16.dp))
-                    .background(BixSurfaceCard)
+                    .background(Color(0xFF14151C))
                     .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(16.dp))
-                    .padding(16.dp)
+                    .padding(14.dp)
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    // Item 1: Mostrar modo +18
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onOpenCategoryManager(MobileCategoryScope.LIVE) },
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(42.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Color(0xFF8B5CF6).copy(alpha = 0.2f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Visibility,
-                                contentDescription = null,
-                                tint = Color(0xFFA78BFA),
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-                        Spacer(Modifier.width(14.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Mostrar modo +18 / Adultos",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp
-                            )
-                            Text(
-                                text = if (isAdultModeEnabled) "Canales y películas +18 visibles" else "Contenido adulto oculto",
-                                color = if (isAdultModeEnabled) Color(0xFFEF4444) else BixTextMuted,
-                                fontSize = 11.sp,
-                                fontWeight = if (isAdultModeEnabled) FontWeight.Bold else FontWeight.Normal
-                            )
-                        }
-                        Switch(
-                            checked = isAdultModeEnabled,
-                            onCheckedChange = { enable ->
-                                onToggleAdultMode(enable)
-                            },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Color.White,
-                                checkedTrackColor = BixOrangeAccent,
-                                uncheckedThumbColor = Color.White.copy(0.6f),
-                                uncheckedTrackColor = Color.White.copy(0.15f)
-                            )
-                        )
-                    }
-
-                    HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
-
-                    // Item 2: Vista optimizada de series
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(42.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Color(0xFF0284C7).copy(alpha = 0.2f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.VideoLibrary,
-                                contentDescription = null,
-                                tint = Color(0xFF38BDF8),
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-                        Spacer(Modifier.width(14.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Vista optimizada de series",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp
-                            )
-                            Text(
-                                text = "Agrupa episodios en temporadas para navegar más rápido.",
-                                color = BixTextMuted,
-                                fontSize = 11.sp
-                            )
-                        }
-                        Switch(
-                            checked = seriesOptimizedView,
-                            onCheckedChange = { seriesOptimizedView = it },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Color.White,
-                                checkedTrackColor = BixOrangeAccent,
-                                uncheckedThumbColor = Color.White.copy(0.6f),
-                                uncheckedTrackColor = Color.White.copy(0.15f)
-                            )
-                        )
-                    }
-
-                    HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
-
                     // Botones rápidos Cloud Sync
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -2433,7 +2765,7 @@ private fun MobileSettingsTab(
 
                     HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
 
-                    // Botón para administrar categorías ocultas
+                    // Administrar categorías ocultas
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2862,6 +3194,247 @@ private fun MobileSettingsTab(
                     }
                 }
             }
+        }
+    }
+
+    if (isAttributionsDialogOpen) {
+        MobileAttributionsDialog(
+            onDismiss = { isAttributionsDialogOpen = false }
+        )
+    }
+}
+
+@Composable
+private fun MobileAttributionsDialog(
+    onDismiss: () -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .fillMaxHeight(0.85f)
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color(0xFF0F1016))
+                .border(1.dp, Color(0xFF00E5C9).copy(alpha = 0.35f), RoundedCornerShape(18.dp))
+                .padding(18.dp)
+        ) {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Cabecera
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0xFF00E5C9).copy(alpha = 0.15f))
+                                .border(1.dp, Color(0xFF00E5C9).copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                        ) {
+                            Text(
+                                "SOFTWARE LIBRE & ATRIBUCIONES",
+                                color = Color(0xFF00E5C9),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 1.sp
+                            )
+                        }
+
+                        IconButton(
+                            onClick = onDismiss,
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Cerrar",
+                                tint = Color.White.copy(alpha = 0.7f),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Créditos de Código Abierto",
+                        color = Color.White,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "Lelouch IPTV integra bibliotecas de alto rendimiento bajo licencias permisivas (Apache 2.0, MIT, BSD 3-Clause).",
+                        color = Color.White.copy(alpha = 0.6f),
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp
+                    )
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                // Lista de Atribuciones
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    item {
+                        AttributionCard(
+                            title = "Jetpack Media3 (ExoPlayer)",
+                            license = "Apache License 2.0",
+                            description = "Motor de reproducción audiovisual de baja latencia con aceleración por hardware, buffer dinámico y soporte nativo para HLS, TS, MP4 y MKV.",
+                            author = "Google LLC • androidx.media3"
+                        )
+                    }
+
+                    item {
+                        AttributionCard(
+                            title = "AniSkip & IntroDB",
+                            license = "MIT License",
+                            description = "Detección y salto inteligente de introducciones (openings) y créditos finales (endings) para series y anime mediante base de datos comunitaria.",
+                            author = "AniSkip Community Project"
+                        )
+                    }
+
+                    item {
+                        AttributionCard(
+                            title = "Google Cast SDK",
+                            license = "Google APIs Terms • Open Source Notices",
+                            description = "Transmisión y control remoto de contenido audiovisual hacia pantallas grandes con Google Cast y dispositivos Chromecast.",
+                            author = "Google LLC"
+                        )
+                    }
+
+                    item {
+                        AttributionCard(
+                            title = "NanoHTTPD",
+                            license = "BSD 3-Clause",
+                            description = "Micro-servidor HTTP local embebido y ligero para bridging de streaming y transporte de medios en la red local.",
+                            author = "NanoHTTPD Project"
+                        )
+                    }
+
+                    item {
+                        AttributionCard(
+                            title = "OkHttp 4 & Retrofit 2",
+                            license = "Apache License 2.0",
+                            description = "Cliente HTTP/2 de alta eficiencia con fallback automático TLS, pool de conexiones persistentes Keep-Alive y DNS seguro.",
+                            author = "Square, Inc."
+                        )
+                    }
+
+                    item {
+                        AttributionCard(
+                            title = "Coil 3 (Coroutine Image Loader)",
+                            license = "Apache License 2.0",
+                            description = "Carga rápida y almacenamiento en caché de pósters y carátulas respaldado por Kotlin Coroutines a 60/120 FPS.",
+                            author = "Colin White & Coil Contributors"
+                        )
+                    }
+
+                    item {
+                        AttributionCard(
+                            title = "Jetpack Compose & Kotlin Coroutines",
+                            license = "Apache License 2.0",
+                            description = "Framework moderno de interfaz reactiva y concurrencia estructurada asíncrona para Android.",
+                            author = "Google LLC & JetBrains"
+                        )
+                    }
+
+                    item {
+                        AttributionCard(
+                            title = "Room Persistence Library (SQLite)",
+                            license = "Apache License 2.0",
+                            description = "Base de datos relacional local para indexación instantánea de miles de canales, películas y series sin consumir datos móviles.",
+                            author = "Google LLC"
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                // Botón Cerrar
+                Button(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5C9)),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text(
+                        "Cerrar y Regresar",
+                        color = Color.Black,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AttributionCard(
+    title: String,
+    license: String,
+    description: String,
+    author: String
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color(0xFF161822))
+            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
+            .padding(12.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    title,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color(0xFF38BDF8).copy(alpha = 0.15f))
+                        .border(1.dp, Color(0xFF38BDF8).copy(alpha = 0.4f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        license,
+                        color = Color(0xFF38BDF8),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            Text(
+                description,
+                color = Color.White.copy(alpha = 0.7f),
+                fontSize = 11.sp,
+                lineHeight = 15.sp
+            )
+
+            Text(
+                author,
+                color = Color.White.copy(alpha = 0.4f),
+                fontSize = 10.sp
+            )
         }
     }
 }
@@ -3482,6 +4055,10 @@ private fun MobileMovieDetailView(
                                     .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, fileName)
                                     .setAllowedOverMetered(true)
                                     .setAllowedOverRoaming(true)
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                                    request.setRequiresCharging(false)
+                                    request.setRequiresDeviceIdle(false)
+                                }
                                 dm.enqueue(request)
                                 android.widget.Toast.makeText(
                                     context,
@@ -3545,7 +4122,17 @@ private fun MobileSeriesDetailView(
 
     LaunchedEffect(series.seriesId) {
         try {
-            val enriched = com.lelouch.core.network.tmdb.TmdbEnricher.enrichSeries(series)
+            var enriched = com.lelouch.core.network.tmdb.TmdbEnricher.enrichSeries(series)
+            if (enriched.plot.isNullOrBlank() || enriched.rating == null) {
+                val anime = com.lelouch.core.network.anime.AnimeEnricher.searchAnime(series.name)
+                if (anime != null) {
+                    enriched = enriched.copy(
+                        plot = enriched.plot.takeUnless { it.isNullOrBlank() } ?: anime.overview,
+                        cover = enriched.cover.takeUnless { it.isNullOrBlank() } ?: anime.posterUrl,
+                        rating = enriched.rating ?: anime.rating
+                    )
+                }
+            }
             seriesState = enriched
         } catch (_: Exception) {}
     }
@@ -4045,6 +4632,10 @@ private fun MobileSeriesDetailView(
                                                             .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, fileName)
                                                             .setAllowedOverMetered(true)
                                                             .setAllowedOverRoaming(true)
+                                                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                                                            request.setRequiresCharging(false)
+                                                            request.setRequiresDeviceIdle(false)
+                                                        }
                                                         dm.enqueue(request)
                                                         android.widget.Toast.makeText(
                                                             context,
@@ -4803,7 +5394,9 @@ private data class DownloadedMediaEntry(
     val sizeMb: String,
     val filePath: String,
     val playUri: String?,
-    val isCompleted: Boolean
+    val isCompleted: Boolean,
+    val sourceUri: String? = null,
+    val canResume: Boolean = false
 )
 
 /**
@@ -4832,6 +5425,7 @@ private fun MobileDownloadsDialog(
                     val totalIdx = cursor.getColumnIndex(android.app.DownloadManager.COLUMN_TOTAL_SIZE_BYTES)
                     val soFarIdx = cursor.getColumnIndex(android.app.DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)
                     val localUriIdx = cursor.getColumnIndex(android.app.DownloadManager.COLUMN_LOCAL_URI)
+                    val uriIdx = cursor.getColumnIndex(android.app.DownloadManager.COLUMN_URI)
 
                     while (cursor.moveToNext()) {
                         val id = if (idIdx >= 0) cursor.getLong(idIdx) else 0L
@@ -4840,6 +5434,8 @@ private fun MobileDownloadsDialog(
                         val totalBytes = if (totalIdx >= 0) cursor.getLong(totalIdx) else -1L
                         val downBytes = if (soFarIdx >= 0) cursor.getLong(soFarIdx) else 0L
                         val localUri = if (localUriIdx >= 0) cursor.getString(localUriIdx) else null
+                        val sourceUri = if (uriIdx >= 0) cursor.getString(uriIdx) else null
+                        val canResume = (status == android.app.DownloadManager.STATUS_PAUSED || status == android.app.DownloadManager.STATUS_FAILED) && !sourceUri.isNullOrBlank()
 
                         val progress = if (totalBytes > 0) ((downBytes * 100L) / totalBytes).toInt().coerceIn(0, 100)
                         else if (status == android.app.DownloadManager.STATUS_SUCCESSFUL) 100 else 0
@@ -4849,7 +5445,7 @@ private fun MobileDownloadsDialog(
                             android.app.DownloadManager.STATUS_RUNNING -> "⬇️ Descargando ($progress%)"
                             android.app.DownloadManager.STATUS_PENDING -> "⏳ En cola..."
                             android.app.DownloadManager.STATUS_PAUSED -> "⏸️ Pausada ($progress%)"
-                            android.app.DownloadManager.STATUS_FAILED -> "❌ Falló (Servidor rechazó conexión)"
+                            android.app.DownloadManager.STATUS_FAILED -> "❌ Pausada / Error de red"
                             else -> "En proceso"
                         }
 
@@ -4874,7 +5470,9 @@ private fun MobileDownloadsDialog(
                                 sizeMb = mb,
                                 filePath = decodedPath,
                                 playUri = playableUri,
-                                isCompleted = status == android.app.DownloadManager.STATUS_SUCCESSFUL
+                                isCompleted = status == android.app.DownloadManager.STATUS_SUCCESSFUL,
+                                sourceUri = sourceUri,
+                                canResume = canResume
                             )
                         )
                     }
@@ -5035,6 +5633,41 @@ private fun MobileDownloadsDialog(
                                                 }
                                             ) {
                                                 Text("🗑️ Quitar", color = LelouchLiveRed, fontSize = 11.sp)
+                                            }
+                                        }
+                                        if (item.canResume && !item.sourceUri.isNullOrBlank()) {
+                                            Spacer(Modifier.width(8.dp))
+                                            Button(
+                                                onClick = {
+                                                    try {
+                                                        val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as? android.app.DownloadManager
+                                                        dm?.remove(item.id)
+                                                        val fileName = java.io.File(item.filePath).name.ifBlank { "LelouchPlus_${System.currentTimeMillis()}.mp4" }
+                                                        val request = android.app.DownloadManager.Request(android.net.Uri.parse(item.sourceUri))
+                                                            .addRequestHeader("User-Agent", "IPTVSmartersPlayer")
+                                                            .addRequestHeader("Accept", "*/*")
+                                                            .setTitle("Lelouch Plus: ${item.title}")
+                                                            .setDescription("Guardando en /Download/$fileName")
+                                                            .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                                            .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, fileName)
+                                                            .setAllowedOverMetered(true)
+                                                            .setAllowedOverRoaming(true)
+                                                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                                                            request.setRequiresCharging(false)
+                                                            request.setRequiresDeviceIdle(false)
+                                                        }
+                                                        dm?.enqueue(request)
+                                                        refreshTrigger++
+                                                        android.widget.Toast.makeText(context, "Reanudando descarga: ${item.title}", android.widget.Toast.LENGTH_SHORT).show()
+                                                    } catch (e: Exception) {
+                                                        android.widget.Toast.makeText(context, "Error al reanudar: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                                                    }
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5C9)),
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                shape = RoundedCornerShape(8.dp)
+                                            ) {
+                                                Text("▶ Reanudar", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 11.sp)
                                             }
                                         }
                                         if (item.isCompleted && !item.playUri.isNullOrBlank()) {

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<widget xmlns="http://www.w3.org/ns/widgets" id="http://lelouch.tv/app" version="1.0.0" viewmodes="fullscreen">
+    <name>LELOUCH TV</name>
+    <description>Reproductor IPTV Cinemático para Smart TV (En Vivo, Películas y Series)</description>
+    <author href="https://github.com/snaiderivera-hub/lelouch-web-player">Lelouch Team</author>
+    <content src="index.html"/>
+    <icon src="icons/icon-512.png"/>
+    <feature name="http://tizen.org/feature/screen.size.all"/>
+    <preference name="Auto-Rotate" value="disable"/>
+</widget>
+

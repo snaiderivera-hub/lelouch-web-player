@@ -1,5 +1,5 @@
 ================================================================================
-  LELOUCH PLUS IPTV — PAQUETE PORTABLE PARA MEMORIA USB (v1.0.100)
+  LELOUCH PLUS IPTV — PAQUETE PORTABLE PARA MEMORIA USB (v1.0.111)
 ================================================================================
 
 Este paquete está 100% listo y optimizado para ser transportado en una memoria USB 
@@ -16,11 +16,13 @@ sin necesidad de instalar programas adicionales.
    - Conectado en vivo a Supabase con sincronización de cuentas compartidas.
    - Incluye el nuevo motor de Streaming Chunked 64KB (sin congelamientos).
 
-2. "LELOUCH-PLUS-v1.0.100.apk"       (📱 INSTALADOR ANDROID)
-   - Archivo APK listo para copiar a tu TV Box o teléfono Android.
+2. "LELOUCH-PLUS-v1.0.111.apk"       (📱 INSTALADOR ANDROID TV Y MÓVIL)
+   - Archivo APK actualizado para instalar en tu TV Box o teléfono Android.
+   - Modal cinemático de Películas y Series con botón de Corazón de Favoritos.
+   - Sincronización recíproca unilateral con Supabase Cloud (cuentas borradas se purgan en todos los dispositivos).
+   - Codificación UTF-8 pura sin caracteres extraños ni problemas de idioma.
+   - Zona blindada de canales en vivo ultra-estable con reconexión automática.
    - Con selector DNS dinámico (Cloudflare/Google/Control D/AdGuard).
-   - Con auto-fallback anti-SSL (soluciona error de paquete TLS).
-   - Con terminal de descarga interactivo paso a paso estilo Web Player.
 
 3. "CERRAR_IPTV_Y_DESCONECTAR_USB.bat"
    - Doble clic para cerrar los servidores en segundo plano y liberar los puertos
@@ -33,7 +35,7 @@ sin necesidad de instalar programas adicionales.
    - 4_ESCANEAR_TVBOX_ADB.bat: Escanea IPs de TV Boxes en tu red WiFi.
 
 5. Carpeta "iptv-app/"
-   - Código fuente completo del reproductor web local.
+   - Código fuente completo del reproductor web local con soporte offline.
 
 --------------------------------------------------------------------------------
 ¿CÓMO USARLO EN OTRA COMPUTADORA?
@@ -43,4 +45,3 @@ sin necesidad de instalar programas adicionales.
 3. Al terminar de ver TV, haz doble clic en "CERRAR_IPTV_Y_DESCONECTAR_USB.bat"
    para expulsar la memoria USB de forma limpia y segura.
 ================================================================================
-

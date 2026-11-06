@@ -11,6 +11,7 @@ interface VodRepository {
     fun getMoviesForRail(categoryId: String, limit: Int = 20): Flow<List<VodMovie>>
     fun getRecentlyAddedMovies(limit: Int = 20): Flow<List<VodMovie>>
     fun getFavoriteMovies(): Flow<List<VodMovie>>
+    fun getMoviesByCategory(sourceId: String, categoryId: String): Flow<List<VodMovie>>
     fun getAllMovies(sourceId: String? = null): Flow<List<VodMovie>>
     fun getMoviesPaging(
         sourceId: String,

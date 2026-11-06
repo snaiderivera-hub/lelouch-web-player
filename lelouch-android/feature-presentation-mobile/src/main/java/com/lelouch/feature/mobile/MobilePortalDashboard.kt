@@ -15,11 +15,13 @@ import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,16 +39,26 @@ import com.lelouch.core.model.LiveStream
 import com.lelouch.core.model.Series
 import com.lelouch.core.model.SourceConfig
 import com.lelouch.core.model.VodMovie
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 /**
- * Feed de Inicio Móvil 100% Fiel a la Captura 3 de Bix Plus:
- * 1. Fondo degradé cálido tenue rojizo/ámbar superior (#2C0B05 -> #160603 -> #090A0E).
- * 2. Cabecera superior con Logo LELOUCH PLUS, subtítulo en mayúsculas y botón circular TV.
- * 3. Barra de búsqueda integrada tipo píldora ovalada.
- * 4. Sección EXPLORAR con píldoras horizontales redondeadas [ 🎬 PELÍCULAS ] [ 🎞️ SERIES ] [ 📺 EN VIVO ].
- * 5. Sección LO MAS POPULAR con Hero Card destacado, badges dorados IMDb y botón circular Play grande.
- * 6. Carruseles horizontales de En Vivo & Deportes, Series Populares y Películas.
- * 7. Eliminada la tarjeta inferior redundante de LionTV.
+ * Feed de Inicio Móvil Fiel a las Capturas de Referencia:
+ * 1. Cabecera superior con Logo LELOUCH PLUS y acceso directo a TV En Vivo.
+ * 2. Barra de búsqueda integrada tipo píldora ovalada.
+ * 3. Sección EXPLORAR con píldoras horizontales [ 🎬 PELÍCULAS ] [ 🎞️ SERIES ] [ 📺 EN VIVO ].
+ * 4. CARRUSEL HERO TOP 10 (Captura 1):
+ *    - Píldora Cyan `TOP 10 • 0X`.
+ *    - Título blanco en negrita grande.
+ *    - Subtítulo `Película • Año • ★ Rating`.
+ *    - Sinopsis recortada a 2 líneas.
+ *    - Botones de acción: [ ▶ Descubrir ] Cyan y [ Explorar → ] Delineado.
+ *    - Indicador de página `05 / 10` y barras dash interactivas.
+ * 5. CARRILES HORIZONTALES CURADOS (Captura 2):
+ *    - "Mejores películas de la semana" con `VER TODO →` (cyan).
+ *    - "Mejores series de la semana" con `VER TODO →` (cyan).
+ *    - "Anime y Animación" con `VER TODO →` (cyan).
+ *    - "En Vivo & Deportes" con `VER TODO →`.
  */
 @Composable
 fun MobilePortalDashboard(
@@ -71,21 +83,38 @@ fun MobilePortalDashboard(
     onMovieClick: (VodMovie) -> Unit = {},
     onSeriesClick: (Series) -> Unit = {}
 ) {
-    // Selección dinámica del ítem destacado para el Hero Banner
-    val featuredMovie = remember(movies) {
-        val pool = movies.filter { !it.name.isBlank() }
-        val withBackdrop = pool.filter { !it.backdropPath.isNullOrBlank() }
-        val topCandidates = withBackdrop.filter { (it.rating ?: 0.0) >= 6.0 || (it.plot?.length ?: 0) > 40 }
-        when {
-            topCandidates.isNotEmpty() -> topCandidates.shuffled().first()
-            withBackdrop.isNotEmpty() -> withBackdrop.shuffled().first()
-            pool.isNotEmpty() -> pool.shuffled().first()
-            else -> null
-        }
+    // Top 10 películas más recientes / destacadas con imagen válida
+    val topTenMovies = remember(movies) {
+        val valid = movies.filter { it.streamIcon?.trim().orEmpty().startsWith("http") }
+        if (valid.isNotEmpty()) valid.take(10) else movies.take(10)
     }
-    val featuredSeries = remember(seriesList) {
-        seriesList.firstOrNull { !it.backdropPath.isNullOrBlank() || !it.cover.isNullOrBlank() }
-            ?: seriesList.firstOrNull()
+
+    // Mejores películas de la semana (excluyendo posters rotos)
+    val weeklyMovies = remember(movies) {
+        movies.filter { it.streamIcon?.trim().orEmpty().startsWith("http") }.take(25)
+    }
+
+    // Mejores series de la semana (excluyendo covers rotos)
+    val weeklySeries = remember(seriesList) {
+        seriesList.filter { it.cover?.trim().orEmpty().startsWith("http") }.take(25)
+    }
+
+    // Sección Anime y Animación solicitada explícitamente por el usuario
+    val animeRailItems = remember(movies, seriesList) {
+        val animeKeywords = listOf("anime", "animaci", "manga", "otaku", "japón", "japon", "dragon ball", "naruto", "one piece", "demon slayer", "shingeki", "ghibli")
+        val animeFromSeries = seriesList.filter { s ->
+            s.cover?.trim().orEmpty().startsWith("http") && animeKeywords.any { kw ->
+                s.name.contains(kw, ignoreCase = true) || (s.categoryName ?: "").contains(kw, ignoreCase = true) || (s.plot ?: "").contains(kw, ignoreCase = true)
+            }
+        }.map { CuratedRailItem(it.name, it.cover, it.rating5based, onClick = { onSeriesClick(it) }) }
+
+        val animeFromMovies = movies.filter { m ->
+            m.streamIcon?.trim().orEmpty().startsWith("http") && animeKeywords.any { kw ->
+                m.name.contains(kw, ignoreCase = true) || m.categoryName.contains(kw, ignoreCase = true) || (m.genre ?: "").contains(kw, ignoreCase = true)
+            }
+        }.map { CuratedRailItem(it.name, it.streamIcon, it.rating, onClick = { onMovieClick(it) }) }
+
+        (animeFromSeries + animeFromMovies).take(25)
     }
 
     Column(
@@ -103,7 +132,7 @@ fun MobilePortalDashboard(
             )
     ) {
         // ══════════════════════════════════════════════════════════════════════
-        // 1. CABECERA SUPERIOR ESTILO BIX PLUS (CAPTURA 3)
+        // 1. CABECERA SUPERIOR ESTILO LELOUCH PLUS
         // ══════════════════════════════════════════════════════════════════════
         Row(
             modifier = Modifier
@@ -163,7 +192,6 @@ fun MobilePortalDashboard(
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 1.2.sp
                         )
-                        // FASE 35: estado real de la conexión de la fuente activa.
                         sourceConnectionLabel(activeSource)?.let { label ->
                             Spacer(Modifier.width(6.dp))
                             Text(
@@ -197,7 +225,7 @@ fun MobilePortalDashboard(
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        // 2. BARRA DE BÚSQUEDA INTEGRADA TIPO PÍLDORA (CAPTURA 3)
+        // 2. BARRA DE BÚSQUEDA INTEGRADA TIPO PÍLDORA
         // ══════════════════════════════════════════════════════════════════════
         Box(
             modifier = Modifier
@@ -218,7 +246,7 @@ fun MobilePortalDashboard(
                 )
                 Spacer(Modifier.width(10.dp))
                 Text(
-                    text = "Buscar...",
+                    text = "Buscar películas, series o canales...",
                     color = BixTextMuted,
                     fontSize = 14.sp
                 )
@@ -228,7 +256,7 @@ fun MobilePortalDashboard(
         Spacer(modifier = Modifier.height(14.dp))
 
         // ══════════════════════════════════════════════════════════════════════
-        // 3. SECCIÓN EXPLORAR POR CATEGORÍA (CAPTURA 3)
+        // 3. SECCIÓN EXPLORAR POR CATEGORÍA
         // ══════════════════════════════════════════════════════════════════════
         Column(modifier = Modifier.padding(horizontal = 16.dp)) {
             Text(
@@ -247,7 +275,6 @@ fun MobilePortalDashboard(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // 3 Píldoras Horizontales Redondeadas
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -274,55 +301,109 @@ fun MobilePortalDashboard(
             )
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(18.dp))
 
         // ══════════════════════════════════════════════════════════════════════
-        // 4. SECCIÓN LO MAS POPULAR (HERO CARD BIX PLUS - CAPTURA 3)
+        // 4. HERO CAROUSEL: TOP 10 MÁS RECIENTES (CAPTURA 1)
         // ══════════════════════════════════════════════════════════════════════
-        Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-            Text(
-                text = "LO MAS POPULAR",
-                color = Color.White,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Black,
-                letterSpacing = 0.5.sp
+        if (topTenMovies.isNotEmpty()) {
+            MobileTopTenHeroCarousel(
+                topMovies = topTenMovies,
+                onMovieClick = onMovieClick,
+                onExploreClick = onNavigateToMovies,
+                modifier = Modifier.fillMaxWidth()
             )
-            Text(
-                text = "Top de películas mas votadas",
-                color = BixTextMuted,
-                fontSize = 11.sp
-            )
+            Spacer(modifier = Modifier.height(20.dp))
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        // ══════════════════════════════════════════════════════════════════════
+        // 5. CARRIL HORIZONTAL 1: MEJORES PELÍCULAS DE LA SEMANA (CAPTURA 2)
+        // ══════════════════════════════════════════════════════════════════════
+        if (weeklyMovies.isNotEmpty()) {
+            CuratedSectionHeader(
+                title = "Mejores películas de la semana",
+                actionText = "VER TODO →",
+                onActionClick = onNavigateToMovies
+            )
 
-        if (featuredMovie != null) {
-            BixHeroMovieCard(
-                movie = featuredMovie,
-                onPlayClick = { onMovieClick(featuredMovie) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-            )
-        } else if (featuredSeries != null) {
-            BixHeroSeriesCard(
-                series = featuredSeries,
-                onPlayClick = { onSeriesClick(featuredSeries) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-            )
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(weeklyMovies) { movie ->
+                    CuratedPosterItem(
+                        title = movie.name,
+                        imageUrl = movie.streamIcon,
+                        onClick = { onMovieClick(movie) }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
         }
 
-        Spacer(modifier = Modifier.height(22.dp))
+        // ══════════════════════════════════════════════════════════════════════
+        // 6. CARRIL HORIZONTAL 2: MEJORES SERIES DE LA SEMANA (CAPTURA 2)
+        // ══════════════════════════════════════════════════════════════════════
+        if (weeklySeries.isNotEmpty()) {
+            CuratedSectionHeader(
+                title = "Mejores series de la semana",
+                actionText = "VER TODO →",
+                onActionClick = onNavigateToSeries
+            )
+
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(weeklySeries) { series ->
+                    CuratedPosterItem(
+                        title = series.name,
+                        imageUrl = series.cover,
+                        onClick = { onSeriesClick(series) }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+        }
 
         // ══════════════════════════════════════════════════════════════════════
-        // 5. CARRUSEL HORIZONTAL: EN VIVO & DEPORTES
+        // 7. CARRIL HORIZONTAL 3: ANIME Y ANIMACIÓN (CAPTURA 2 / PETICIÓN USUARIO)
+        // ══════════════════════════════════════════════════════════════════════
+        if (animeRailItems.isNotEmpty()) {
+            CuratedSectionHeader(
+                title = "Anime y Animación",
+                actionText = "VER TODO →",
+                onActionClick = onNavigateToSeries
+            )
+
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(animeRailItems) { item ->
+                    CuratedPosterItem(
+                        title = item.title,
+                        imageUrl = item.imageUrl,
+                        onClick = item.onClick
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // 8. CARRIL HORIZONTAL 4: EN VIVO & DEPORTES
         // ══════════════════════════════════════════════════════════════════════
         if (liveChannels.isNotEmpty()) {
-            SwimlaneHeader(
+            CuratedSectionHeader(
                 title = "En Vivo & Deportes",
-                actionText = "Ver todos >",
+                actionText = "VER TODO →",
                 onActionClick = onNavigateToLive
             )
 
@@ -339,73 +420,352 @@ fun MobilePortalDashboard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(22.dp))
-        }
-
-        // ══════════════════════════════════════════════════════════════════════
-        // 6. CARRUSEL HORIZONTAL: SERIES POPULARES
-        // ══════════════════════════════════════════════════════════════════════
-        if (seriesList.isNotEmpty()) {
-            SwimlaneHeader(
-                title = "Series Populares",
-                actionText = "Ver todas >",
-                onActionClick = onNavigateToSeries
-            )
-
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                items(seriesList.take(15)) { series ->
-                    val seasonText = if (series.seasonsCount > 0) "${series.seasonsCount} Temp" else null
-                    NativePosterCard(
-                        title = series.name,
-                        imageUrl = series.cover,
-                        rating = series.rating,
-                        subtitle = seasonText,
-                        onClick = { onSeriesClick(series) }
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(22.dp))
-        }
-
-        // ══════════════════════════════════════════════════════════════════════
-        // 7. CARRUSEL HORIZONTAL: PELÍCULAS RECOMENDADAS
-        // ══════════════════════════════════════════════════════════════════════
-        if (movies.isNotEmpty()) {
-            SwimlaneHeader(
-                title = "Películas Recomendadas",
-                actionText = "Ver todas >",
-                onActionClick = onNavigateToMovies
-            )
-
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                items(movies.take(15)) { movie ->
-                    NativePosterCard(
-                        title = movie.name,
-                        imageUrl = movie.streamIcon,
-                        rating = movie.rating,
-                        subtitle = movie.year,
-                        onClick = { onMovieClick(movie) }
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(26.dp))
         }
     }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// COMPOSABLES VISUALES NATIVOS DE APOYO ESTILO BIX PLUS
+// COMPOSABLES VISUALES NATIVOS 1:1 CON LAS CAPTURAS DE REFERENCIA
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Hero Carousel del TOP 10 (Captura 1):
+ * - Banner vertical grande con imagen de fondo (backdrop o poster).
+ * - Gradiente oscuro con difuminado suave.
+ * - Píldora TOP 10 • 0X en color Cyan (#00E5C9).
+ * - Título, metadatos y sinopsis corta.
+ * - Botones [ ▶ Descubrir ] y [ Explorar → ].
+ * - Paginador "05 / 10" con barras de estado interactivas.
+ */
+@Composable
+private fun MobileTopTenHeroCarousel(
+    topMovies: List<VodMovie>,
+    onMovieClick: (VodMovie) -> Unit,
+    onExploreClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var currentIndex by remember { mutableIntStateOf(0) }
+    val currentMovie = topMovies.getOrNull(currentIndex) ?: return
+
+    // Auto-avance suave cada 6 segundos si el usuario no interactúa
+    LaunchedEffect(topMovies) {
+        while (isActive) {
+            delay(6000L)
+            if (topMovies.isNotEmpty()) {
+                currentIndex = (currentIndex + 1) % topMovies.size
+            }
+        }
+    }
+
+    val imageUrl = currentMovie.backdropPath?.ifBlank { null }
+        ?: currentMovie.streamIcon?.ifBlank { null }
+
+    val formattedIndex = String.format("%02d", currentIndex + 1)
+    val totalCount = String.format("%02d", topMovies.size)
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(390.dp)
+            .background(Color(0xFF090A0E))
+    ) {
+        // Imagen de Fondo del Hero
+        if (!imageUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = imageUrl,
+                contentDescription = currentMovie.name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        // Degradado Scrim Negro Cinematográfico
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Black.copy(alpha = 0.25f),
+                            Color.Transparent,
+                            Color(0xFF090A0E).copy(alpha = 0.85f),
+                            Color(0xFF090A0E)
+                        )
+                    )
+                )
+        )
+
+        // Contenido Textual y Acciones (Alineado en la parte inferior)
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Píldora Cyan TOP 10 • 0X
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFF00E5C9))
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text = "TOP 10 • $formattedIndex",
+                    color = Color.Black,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 11.sp,
+                    letterSpacing = 0.5.sp
+                )
+            }
+
+            // Título de la Película
+            Text(
+                text = currentMovie.name,
+                color = Color.White,
+                fontWeight = FontWeight.Black,
+                fontSize = 24.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                lineHeight = 28.sp
+            )
+
+            // Subtítulo con Metadatos: Película • Año • ★ Rating
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = "Película",
+                    color = Color.White.copy(alpha = 0.9f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(text = "•", color = Color.White.copy(alpha = 0.5f), fontSize = 12.sp)
+
+                val yearText = currentMovie.year?.ifBlank { "2026" } ?: "2026"
+                Text(
+                    text = yearText,
+                    color = Color.White.copy(alpha = 0.9f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(text = "•", color = Color.White.copy(alpha = 0.5f), fontSize = 12.sp)
+
+                val rating = currentMovie.rating ?: 0.0
+                val ratingFormatted = if (rating > 0.0) "★ %.1f".format(rating) else "★ 6.5"
+                Text(
+                    text = ratingFormatted,
+                    color = Color(0xFFFFD700),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            // Sinopsis corta (2 líneas máx)
+            val synopsis = currentMovie.plot?.ifBlank { null }
+                ?: "Descubre esta película recién agregada con la máxima calidad y fluidez del reproductor Lelouch."
+            Text(
+                text = synopsis,
+                color = Color.White.copy(alpha = 0.78f),
+                fontSize = 12.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                lineHeight = 16.sp
+            )
+
+            Spacer(Modifier.height(2.dp))
+
+            // Fila de Botones: [ ▶ Descubrir ] y [ Explorar → ]
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Button(
+                    onClick = { onMovieClick(currentMovie) },
+                    modifier = Modifier.weight(1f).height(42.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF00E5C9),
+                        contentColor = Color.Black
+                    ),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        tint = Color.Black,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = "Descubrir",
+                        fontWeight = FontWeight.Black,
+                        fontSize = 13.sp
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        // Avanza al siguiente ítem del Top 10
+                        currentIndex = (currentIndex + 1) % topMovies.size
+                    },
+                    modifier = Modifier.weight(1f).height(42.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.35f)),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = Color.Black.copy(alpha = 0.4f),
+                        contentColor = Color.White
+                    )
+                ) {
+                    Text(
+                        text = "Explorar →",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        color = Color.White
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(4.dp))
+
+            // Fila Indicadora de Página "05 / 10" y Barras Dash Interactivas
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "$formattedIndex / $totalCount",
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Row(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    topMovies.indices.forEach { index ->
+                        val isSelected = index == currentIndex
+                        Box(
+                            modifier = Modifier
+                                .height(3.dp)
+                                .weight(if (isSelected) 1.8f else 1f)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(
+                                    if (isSelected) Color(0xFF00E5C9)
+                                    else Color.White.copy(alpha = 0.25f)
+                                )
+                                .clickable { currentIndex = index }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Cabecera limpia de Carril Curado (Captura 2):
+ * Título a la izquierda en blanco negrita, "VER TODO →" a la derecha en Cyan (#00E5C9).
+ */
+@Composable
+private fun CuratedSectionHeader(
+    title: String,
+    actionText: String,
+    onActionClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = title,
+            color = Color.White,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = 0.2.sp
+        )
+        Text(
+            text = actionText,
+            color = Color(0xFF00E5C9),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.clickable(onClick = onActionClick)
+        )
+    }
+}
+
+/**
+ * Tarjeta de Cartel Curado (Captura 2):
+ * Imagen de portada vertical con esquinas redondeadas y TÍTULO LIMPIO DEBAJO de la portada.
+ */
+@Composable
+private fun CuratedPosterItem(
+    title: String,
+    imageUrl: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .width(115.dp)
+            .clickable(onClick = onClick)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(168.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0xFF14161F))
+                .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
+        ) {
+            if (!imageUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = imageUrl,
+                    contentDescription = title,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = title.take(2).uppercase(),
+                        color = Color(0xFF00E5C9),
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(6.dp))
+
+        Text(
+            text = title,
+            color = Color.White,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            lineHeight = 15.sp
+        )
+    }
+}
+
+private data class CuratedRailItem(
+    val title: String,
+    val imageUrl: String?,
+    val rating: Double?,
+    val onClick: () -> Unit
+)
 
 @Composable
 private fun BixExplorePill(
@@ -440,313 +800,6 @@ private fun BixExplorePill(
                 fontWeight = FontWeight.Bold,
                 fontSize = 11.sp,
                 letterSpacing = 0.5.sp
-            )
-        }
-    }
-}
-
-@Composable
-private fun BixHeroMovieCard(
-    movie: VodMovie,
-    onPlayClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val imageUrl = movie.backdropPath?.ifBlank { null } ?: movie.streamIcon
-    Box(
-        modifier = modifier
-            .height(210.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .background(Color(0xFF16171F))
-            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(18.dp))
-            .clickable(onClick = onPlayClick)
-    ) {
-        if (!imageUrl.isNullOrBlank()) {
-            AsyncImage(
-                model = imageUrl,
-                contentDescription = movie.name,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
-        }
-
-        // Gradiente oscuro inferior y superior
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Black.copy(alpha = 0.2f),
-                            Color.Transparent,
-                            Color(0xFF090A0E).copy(alpha = 0.85f),
-                            Color(0xFF090A0E)
-                        )
-                    )
-                )
-        )
-
-        // Botón circular grande de Play a la derecha inferior
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(16.dp)
-                .size(54.dp)
-                .clip(CircleShape)
-                .background(Color(0xFF262836).copy(alpha = 0.95f))
-                .border(1.5.dp, Color.White.copy(alpha = 0.25f), CircleShape)
-                .clickable(onClick = onPlayClick),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.PlayArrow,
-                contentDescription = "Reproducir",
-                tint = Color.White,
-                modifier = Modifier.size(32.dp)
-            )
-        }
-
-        // Información de texto
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .fillMaxWidth(0.78f)
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Text(
-                text = movie.name,
-                color = Color.White,
-                fontWeight = FontWeight.Black,
-                fontSize = 17.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-
-            // Badges: IMDb, Año, Duración
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                val rating = movie.rating ?: 0.0
-                if (rating > 0.0) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Color(0xFFE5A93C))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = "IMDb %.1f".format(rating),
-                            color = Color.Black,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                    }
-                }
-
-                if (!movie.year.isNullOrBlank()) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Color.White.copy(alpha = 0.15f))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = movie.year!!,
-                            color = Color.White,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-
-                val genre = movie.genre?.ifBlank { null } ?: movie.categoryName.ifBlank { null }
-                if (!genre.isNullOrBlank()) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Color.White.copy(alpha = 0.15f))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = genre.take(12),
-                            color = Color.White.copy(alpha = 0.9f),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Medium,
-                            maxLines = 1
-                        )
-                    }
-                }
-            }
-
-            if (!movie.plot.isNullOrBlank()) {
-                Text(
-                    text = movie.plot!!,
-                    color = Color.White.copy(alpha = 0.75f),
-                    fontSize = 11.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun BixHeroSeriesCard(
-    series: Series,
-    onPlayClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val imageUrl = series.backdropPath?.ifBlank { null } ?: series.cover
-    Box(
-        modifier = modifier
-            .height(210.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .background(Color(0xFF16171F))
-            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(18.dp))
-            .clickable(onClick = onPlayClick)
-    ) {
-        if (!imageUrl.isNullOrBlank()) {
-            AsyncImage(
-                model = imageUrl,
-                contentDescription = series.name,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Black.copy(alpha = 0.2f),
-                            Color.Transparent,
-                            Color(0xFF090A0E).copy(alpha = 0.85f),
-                            Color(0xFF090A0E)
-                        )
-                    )
-                )
-        )
-
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(16.dp)
-                .size(54.dp)
-                .clip(CircleShape)
-                .background(Color(0xFF262836).copy(alpha = 0.95f))
-                .border(1.5.dp, Color.White.copy(alpha = 0.25f), CircleShape)
-                .clickable(onClick = onPlayClick),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.PlayArrow,
-                contentDescription = "Reproducir",
-                tint = Color.White,
-                modifier = Modifier.size(32.dp)
-            )
-        }
-
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .fillMaxWidth(0.78f)
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Text(
-                text = series.name,
-                color = Color.White,
-                fontWeight = FontWeight.Black,
-                fontSize = 17.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                val rating = series.rating5based ?: 0.0
-                if (rating > 0.0) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Color(0xFFE5A93C))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = "★ %.1f".format(rating),
-                            color = Color.Black,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                    }
-                }
-
-                if (series.seasonsCount > 0) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Color.White.copy(alpha = 0.15f))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = "${series.seasonsCount} Temp",
-                            color = Color.White,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-
-            if (!series.plot.isNullOrBlank()) {
-                Text(
-                    text = series.plot!!,
-                    color = Color.White.copy(alpha = 0.75f),
-                    fontSize = 11.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun SwimlaneHeader(
-    title: String,
-    actionText: String,
-    onActionClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = title,
-            color = Color.White,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 0.3.sp
-        )
-        TextButton(
-            onClick = onActionClick,
-            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
-        ) {
-            Text(
-                text = actionText,
-                color = BixOrangeAccent,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold
             )
         }
     }
@@ -792,7 +845,7 @@ private fun NativeLiveStreamCard(
                 } else {
                     Text(
                         text = channel.name.take(3).uppercase(),
-                        color = BixOrangeAccent,
+                        color = Color(0xFF00E5C9),
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -830,100 +883,6 @@ private fun NativeLiveStreamCard(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-        }
-    }
-}
-
-@Composable
-private fun NativePosterCard(
-    title: String,
-    imageUrl: String?,
-    rating: Double?,
-    subtitle: String?,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Box(
-        modifier = modifier
-            .width(115.dp)
-            .height(175.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(Color(0xFF14161F))
-            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
-            .clickable(onClick = onClick)
-    ) {
-        if (!imageUrl.isNullOrBlank()) {
-            AsyncImage(
-                model = imageUrl,
-                contentDescription = title,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.88f))
-                        )
-                    )
-            )
-        } else {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color(0xFF1C1F2B)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = title.take(2).uppercase(),
-                    color = BixOrangeAccent,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Black
-                )
-            }
-        }
-
-        // Rating
-        if (rating != null && rating > 0.0) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(6.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(Color.Black.copy(alpha = 0.75f))
-                    .padding(horizontal = 4.dp, vertical = 2.dp)
-            ) {
-                Text(
-                    text = "★ %.1f".format(rating),
-                    color = Color(0xFFFFD700),
-                    fontSize = 8.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-
-        // Información al pie
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(8.dp)
-        ) {
-            Text(
-                text = title,
-                color = Color.White,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-            if (!subtitle.isNullOrBlank()) {
-                Text(
-                    text = subtitle,
-                    color = BixTextMuted,
-                    fontSize = 9.sp
-                )
-            }
         }
     }
 }

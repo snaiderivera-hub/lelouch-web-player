@@ -169,7 +169,12 @@ class MainActivity : ComponentActivity() {
                             force = true
                         )
                         result.onFailure { error ->
-                            errorMessage = error.localizedMessage ?: "No se pudo recargar la lista."
+                            if (error is kotlinx.coroutines.CancellationException) return@onFailure
+                            val msg = error.localizedMessage ?: "No se pudo recargar la lista."
+                            if (!msg.contains("left the composition", ignoreCase = true) &&
+                                !msg.contains("StandaloneCoroutine was cancelled", ignoreCase = true)) {
+                                errorMessage = msg
+                            }
                         }
                     }
                     // Si la fuente cambia, LaunchedEffect consume la petición forzada.
@@ -265,19 +270,35 @@ class MainActivity : ComponentActivity() {
                 if (activeSource == null) {
                     app.authRepository.activateSource(src.id)
                 }
-                val result = app.syncManager.syncAll(
-                    sourceId = src.id,
-                    serverUrl = src.serverUrl,
-                    user = src.username,
-                    pass = src.password,
-                    sourceType = src.type,
-                    force = force
-                )
-                result.onFailure { error ->
-                    val msg = error.localizedMessage ?: "No se pudo sincronizar la lista."
-                    // El mutex devuelve esto cuando dos pantallas piden la misma fuente a la
-                    // vez; no es un fallo para el usuario.
-                    if (!msg.contains("ya en curso")) errorMessage = msg
+                try {
+                    val result = app.syncManager.syncAll(
+                        sourceId = src.id,
+                        serverUrl = src.serverUrl,
+                        user = src.username,
+                        pass = src.password,
+                        sourceType = src.type,
+                        force = force
+                    )
+                    result.onFailure { error ->
+                        if (error is kotlinx.coroutines.CancellationException) return@onFailure
+                        val msg = error.localizedMessage ?: "No se pudo sincronizar la lista."
+                        // El mutex devuelve esto cuando dos pantallas piden la misma fuente a la vez;
+                        // y la cancelación ocurre normalmente al cambiar de lista. No son fallos de usuario.
+                        if (!msg.contains("ya en curso") &&
+                            !msg.contains("left the composition", ignoreCase = true) &&
+                            !msg.contains("StandaloneCoroutine was cancelled", ignoreCase = true)) {
+                            errorMessage = msg
+                        }
+                    }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    // Cancelación normal al cambiar de lista o salir de la pantalla
+                } catch (e: Exception) {
+                    val msg = e.localizedMessage ?: "No se pudo sincronizar la lista."
+                    if (!msg.contains("ya en curso") &&
+                        !msg.contains("left the composition", ignoreCase = true) &&
+                        !msg.contains("StandaloneCoroutine was cancelled", ignoreCase = true)) {
+                        errorMessage = msg
+                    }
                 }
             }
 

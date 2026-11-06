@@ -236,7 +236,7 @@ fun MobileUpdateModal(
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    text = "🎉 ¡Nueva Versión!",
+                                    text = "🚀 ¡Nueva Versión Disponible!",
                                     color = LelouchCyanAccent,
                                     fontWeight = FontWeight.Black,
                                     fontSize = 15.sp
@@ -256,12 +256,19 @@ fun MobileUpdateModal(
                                     )
                                 }
                             }
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(10.dp))
                             Text(
-                                text = state.info.changelog.ifBlank { "Corrección de canales, adelantar/retroceder en reproductor VOD y mejoras de estabilidad." },
+                                text = "✨ MEJORAS Y NOVEDADES DE ESTA VERSIÓN:",
+                                color = LelouchCyanAccent,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = state.info.changelog.ifBlank { "• Corrección de canales, adelantar/retroceder en reproductor VOD y mejoras de estabilidad." },
                                 color = LelouchTextPrimary,
                                 fontSize = 12.sp,
-                                lineHeight = 16.sp
+                                lineHeight = 17.sp
                             )
                             Spacer(modifier = Modifier.height(14.dp))
                             Button(
@@ -272,7 +279,7 @@ fun MobileUpdateModal(
                             ) {
                                 Icon(Icons.Default.Download, contentDescription = null, tint = Color.Black)
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("Descargar e Instalar", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text("Descargar e Instalar Ahora", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             }
                         }
                     }

@@ -50,6 +50,14 @@ object AppUpdateManager {
                 }
             } catch (e: Exception) { 1 }
 
+            // FASE 38: Priorizar lectura directa de version.json (sin rate limits de GitHub API)
+            if (customUrl.isNullOrBlank()) {
+                val rawResult = checkFromRawVersion(client, RAW_VERSION_URL, installedVersionCode)
+                if (rawResult.isSuccess && rawResult.getOrNull() != null) {
+                    return@withContext rawResult
+                }
+            }
+
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     if (targetUrl == GITHUB_LATEST_RELEASE_URL) {
@@ -137,17 +145,24 @@ object AppUpdateManager {
                 val str = res.body?.string() ?: return Result.success(null)
                 val json = JSONObject(str)
                 val rawVc = json.optInt("versionCode", 0)
-                val vName = json.optString("versionName", "1.0.0")
+                val vName = if (json.has("versionName") && json.optString("versionName").isNotBlank()) {
+                    json.optString("versionName")
+                } else {
+                    json.optString("version", "1.0.0")
+                }
+                val apkUrl = json.optString("apkUrl", json.optString("downloadUrl", ""))
+                if (apkUrl.isBlank()) return Result.success(null)
+
                 val remoteVersionCode = if (rawVc >= 100_000) rawVc else parseVersionNumber(vName)
                 if (remoteVersionCode <= installedVersionCode) {
                     return Result.success(null) // Ya está al día
                 }
                 Result.success(
                     UpdateInfo(
-                        versionName = json.optString("versionName", "1.0.0"),
+                        versionName = vName,
                         versionCode = remoteVersionCode,
-                        downloadUrl = json.getString("apkUrl"),
-                        changelog = json.optString("changelog", "Mejoras de rendimiento y estabilidad.")
+                        downloadUrl = apkUrl,
+                        changelog = json.optString("changelog", "Mejoras de rendimiento, corrección de canales y estabilidad.")
                     )
                 )
             }

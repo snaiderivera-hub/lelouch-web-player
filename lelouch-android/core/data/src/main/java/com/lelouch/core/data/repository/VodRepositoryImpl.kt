@@ -51,6 +51,12 @@ class VodRepositoryImpl(
         }
     }
 
+    override fun getMoviesByCategory(sourceId: String, categoryId: String): Flow<List<VodMovie>> {
+        return movieDao.getMoviesByCategory(sourceId, categoryId).map { entities ->
+            entities.map { it.toDomain() }
+        }
+    }
+
     override fun getAllMovies(sourceId: String?): Flow<List<VodMovie>> {
         val flow = if (sourceId != null) movieDao.getAllMoviesBySource(sourceId) else movieDao.getAllMovies()
         return flow.map { entities ->

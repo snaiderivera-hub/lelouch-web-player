@@ -1,7 +1,7 @@
 {
-  "versionName": "1.0.110",
-  "versionCode": 1000111,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.111/LELOUCH-PLUS-v1.0.111.apk",
-  "changelog": "- Ficha de detalles y botón de Corazón para Favoritos en Películas (Android TV Box y Móvil).\n- Sincronización recíproca de cuentas con Supabase Cloud (si borras una cuenta, se elimina en todos los dispositivos).",
-  "version": "1.0.111"
+  "versionName": "1.0.112",
+  "versionCode": 1000112,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.112/LELOUCH-PLUS-v1.0.112.apk",
+  "changelog": "- Carrusel Top 10 Hero y Rieles de contenido curado (Películas, Series, Anime).\n- Panel Administrador por secciones: General, Descargas, Motor Lelouch y Cuentas.\n- Descargas persistentes en segundo plano con botón Reanudar.\n- Filtro automático de carátulas rotas o vacías.\n- Corrección TLS Fallback y cambio de listas ultrarrápido sin errores.\n- Integración AniList y AniSkip con botón Saltar Intro/Ending en series de anime.\n- Atribuciones de Software Libre y licencias de código abierto.",
+  "version": "1.0.112"
 }
