@@ -1,7 +1,7 @@
 {
-  "versionName": "1.0.115",
-  "versionCode": 1000115,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.115/LELOUCH-PLUS-v1.0.115.apk",
-  "changelog": "- TV Box: Buscador interactivo por control remoto en Películas y Series.\n- TV Box: Opciones interactivas durante la reproducción (botón de Favoritos ❤️, Audio y Subtítulos 💬, controles de transporte).\n- Optimizaciones de rendimiento y sincronización instantánea de listas.",
-  "version": "1.0.115"
+  "versionName": "1.0.116",
+  "versionCode": 1000116,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.116/LELOUCH-PLUS-v1.0.116.apk",
+  "changelog": "- TV Box: Buscador nativo con soporte completo para control remoto (D-Pad), teclado del sistema (Gboard/Leanback) y micrófono por voz (Google Voice).\n- TV Box: Búsqueda unificada en Películas y Series.\n- TV Box: Opciones interactivas durante la reproducción (Favoritos ❤️, Audio y Subtítulos 💬).\n- TV Box: Avance y retroceso continuo (+10s / -10s) con control remoto.\n- Reutilización instantánea de listas guardadas en almacenamiento local Room.",
+  "version": "1.0.116"
 }
