@@ -1335,10 +1335,10 @@ fun TvHomeScreen(
                             KeyEvent.KEYCODE_PAGE_UP -> {
                                 if (isLiveStream && activePlaybackChannels.isNotEmpty()) {
                                     val userT0 = android.os.SystemClock.elapsedRealtime()
-                                    // D-Pad UP va hacia "arriba" en la lista visual (índice anterior) - Zapping inmediato sin esperar
-                                    val prevIndex = if (activePlaybackChannelIndex > 0) activePlaybackChannelIndex - 1 else activePlaybackChannels.lastIndex
-                                    activePlaybackChannelIndex = prevIndex
-                                    val ch = activePlaybackChannels[prevIndex]
+                                    // D-Pad UP: cambia para adelante al siguiente canal (+1)
+                                    val nextIndex = if (activePlaybackChannelIndex < activePlaybackChannels.lastIndex) activePlaybackChannelIndex + 1 else 0
+                                    activePlaybackChannelIndex = nextIndex
+                                    val ch = activePlaybackChannels[nextIndex]
                                     // Actualizar focusedChannelIndex en la lista global para coherencia visual
                                     focusedChannelIndex = visibleChannels.indexOfFirst { it.streamId == ch.streamId }.coerceAtLeast(0)
                                     focusedChannel = ch
@@ -1356,10 +1356,10 @@ fun TvHomeScreen(
                             KeyEvent.KEYCODE_PAGE_DOWN -> {
                                 if (isLiveStream && activePlaybackChannels.isNotEmpty()) {
                                     val userT0 = android.os.SystemClock.elapsedRealtime()
-                                    // D-Pad DOWN va hacia "abajo" en la lista visual (siguiente índice) - Zapping inmediato sin esperar
-                                    val nextIndex = if (activePlaybackChannelIndex < activePlaybackChannels.lastIndex) activePlaybackChannelIndex + 1 else 0
-                                    activePlaybackChannelIndex = nextIndex
-                                    val ch = activePlaybackChannels[nextIndex]
+                                    // D-Pad DOWN: retrocede al canal anterior (-1)
+                                    val prevIndex = if (activePlaybackChannelIndex > 0) activePlaybackChannelIndex - 1 else activePlaybackChannels.lastIndex
+                                    activePlaybackChannelIndex = prevIndex
+                                    val ch = activePlaybackChannels[prevIndex]
                                     focusedChannelIndex = visibleChannels.indexOfFirst { it.streamId == ch.streamId }.coerceAtLeast(0)
                                     focusedChannel = ch
                                     isPlayingLive = true
@@ -3182,11 +3182,12 @@ fun TvHomeScreen(
                                 .onPreviewKeyEvent { event ->
                                     if (event.type == KeyEventType.KeyDown) {
                                         when (event.nativeKeyEvent.keyCode) {
-                                            KeyEvent.KEYCODE_DPAD_DOWN,
-                                            KeyEvent.KEYCODE_CHANNEL_DOWN,
-                                            KeyEvent.KEYCODE_PAGE_DOWN -> {
+                                            KeyEvent.KEYCODE_DPAD_UP,
+                                            KeyEvent.KEYCODE_CHANNEL_UP,
+                                            KeyEvent.KEYCODE_PAGE_UP -> {
                                                 if (isPlayingLive && activePlaybackChannels.isNotEmpty()) {
                                                     val userT0 = android.os.SystemClock.elapsedRealtime()
+                                                    // ARRIBA: cambia para adelante al siguiente canal (+1)
                                                     val nextIndex = if (activePlaybackChannelIndex < activePlaybackChannels.lastIndex) activePlaybackChannelIndex + 1 else 0
                                                     activePlaybackChannelIndex = nextIndex
                                                     val ch = activePlaybackChannels[nextIndex]
@@ -3198,11 +3199,12 @@ fun TvHomeScreen(
                                                     true
                                                 } else false
                                             }
-                                            KeyEvent.KEYCODE_DPAD_UP,
-                                            KeyEvent.KEYCODE_CHANNEL_UP,
-                                            KeyEvent.KEYCODE_PAGE_UP -> {
+                                            KeyEvent.KEYCODE_DPAD_DOWN,
+                                            KeyEvent.KEYCODE_CHANNEL_DOWN,
+                                            KeyEvent.KEYCODE_PAGE_DOWN -> {
                                                 if (isPlayingLive && activePlaybackChannels.isNotEmpty()) {
                                                     val userT0 = android.os.SystemClock.elapsedRealtime()
+                                                    // ABAJO: retrocede al canal anterior (-1)
                                                     val prevIndex = if (activePlaybackChannelIndex > 0) activePlaybackChannelIndex - 1 else activePlaybackChannels.lastIndex
                                                     activePlaybackChannelIndex = prevIndex
                                                     val ch = activePlaybackChannels[prevIndex]
