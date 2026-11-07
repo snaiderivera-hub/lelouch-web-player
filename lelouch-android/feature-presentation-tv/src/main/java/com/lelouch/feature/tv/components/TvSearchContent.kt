@@ -1,5 +1,11 @@
 package com.lelouch.feature.tv.components
 
+import android.app.Activity
+import android.content.Intent
+import android.speech.RecognizerIntent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -15,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -29,6 +36,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -85,6 +93,18 @@ fun TvSearchContent(
 ) {
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var isInputFocused by remember { mutableStateOf(false) }
+
+    val context = LocalContext.current
+    val voiceLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val spoken = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+            if (!spoken.isNullOrBlank()) {
+                searchQuery = spoken
+            }
+        }
+    }
 
     var searchChannelsResults by remember { mutableStateOf<List<ChannelUiModel>>(emptyList()) }
     var searchMoviesResults by remember { mutableStateOf<List<VodMovie>>(emptyList()) }
@@ -167,73 +187,124 @@ fun TvSearchContent(
             .fillMaxSize()
             .padding(horizontal = 36.dp, vertical = 24.dp)
     ) {
-        // Search Input Bar
+        // Search Input Bar con soporte para Teclado y Botón de Voz
         Row(
-            modifier = Modifier
-                .fillMaxWidth(0.85f)
-                .clip(RoundedCornerShape(12.dp))
-                .background(if (isInputFocused) LelouchCardFocused else LelouchSurface)
-                .border(
-                    width = if (isInputFocused) 2.dp else 1.dp,
-                    color = if (isInputFocused) LelouchCyanAccent else LelouchBorder,
-                    shape = RoundedCornerShape(12.dp)
-                )
-                .padding(horizontal = 18.dp, vertical = 14.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = Icons.Default.Search,
-                contentDescription = null,
-                tint = if (isInputFocused) LelouchCyanAccent else LelouchTextSecondary,
-                modifier = Modifier.size(24.dp)
-            )
-
-            Spacer(modifier = Modifier.width(14.dp))
-
-            BasicTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                singleLine = true,
-                cursorBrush = SolidColor(LelouchCyanAccent),
-                textStyle = TextStyle(
-                    color = Color.White,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Medium
-                ),
+            Row(
                 modifier = Modifier
                     .weight(1f)
-                    .focusRequester(searchFocusRequester)
-                    .focusProperties {
-                        if (sidebarRequester != null) {
-                            left = sidebarRequester
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (isInputFocused) LelouchCardFocused else LelouchSurface)
+                    .border(
+                        width = if (isInputFocused) 2.dp else 1.dp,
+                        color = if (isInputFocused) LelouchCyanAccent else LelouchBorder,
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = null,
+                    tint = if (isInputFocused) LelouchCyanAccent else LelouchTextSecondary,
+                    modifier = Modifier.size(24.dp)
+                )
+
+                Spacer(modifier = Modifier.width(14.dp))
+
+                BasicTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    singleLine = true,
+                    cursorBrush = SolidColor(LelouchCyanAccent),
+                    textStyle = TextStyle(
+                        color = Color.White,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Medium
+                    ),
+                    modifier = Modifier
+                        .weight(1f)
+                        .focusRequester(searchFocusRequester)
+                        .focusProperties {
+                            if (sidebarRequester != null) {
+                                left = sidebarRequester
+                            }
                         }
+                        .releasesFocusVertically()
+                        .onFocusChanged { isInputFocused = it.isFocused },
+                    decorationBox = { innerTextField ->
+                        if (searchQuery.isEmpty()) {
+                            Text(
+                                text = "Escribe o usa tu voz para buscar canales, películas o series...",
+                                color = LelouchTextMuted,
+                                fontSize = 16.sp
+                            )
+                        }
+                        innerTextField()
                     }
-                    .releasesFocusVertically()
-                    .onFocusChanged { isInputFocused = it.isFocused },
-                decorationBox = { innerTextField ->
-                    if (searchQuery.isEmpty()) {
-                        Text(
-                            text = "Escribe o usa tu voz para buscar canales, películas o series...",
-                            color = LelouchTextMuted,
-                            fontSize = 16.sp
+                )
+
+                if (searchQuery.isNotEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .clickable { searchQuery = "" }
+                            .padding(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Limpiar",
+                            tint = LelouchTextSecondary,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
-                    innerTextField()
                 }
-            )
+            }
 
-            if (searchQuery.isNotEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .clip(CircleShape)
-                        .clickable { searchQuery = "" }
-                        .padding(6.dp)
+            Spacer(modifier = Modifier.width(16.dp))
+
+            // Botón de Búsqueda por Voz directa con micrófono del control remoto
+            Surface(
+                onClick = {
+                    try {
+                        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                            putExtra(RecognizerIntent.EXTRA_PROMPT, "Habla para buscar canales, películas o series...")
+                        }
+                        voiceLauncher.launch(intent)
+                    } catch (_: Exception) {
+                        android.widget.Toast.makeText(context, "Búsqueda por voz no disponible en este dispositivo", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                },
+                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+                colors = ClickableSurfaceDefaults.colors(
+                    containerColor = Color(0xFF00E5C9).copy(alpha = 0.25f),
+                    focusedContainerColor = Color(0xFF00E5C9)
+                ),
+                border = ClickableSurfaceDefaults.border(
+                    border = Border(BorderStroke(1.dp, Color(0xFF00E5C9).copy(alpha = 0.5f))),
+                    focusedBorder = Border(BorderStroke(2.dp, Color.White))
+                )
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Limpiar",
-                        tint = LelouchTextSecondary,
-                        modifier = Modifier.size(20.dp)
+                        imageVector = Icons.Default.Mic,
+                        contentDescription = "Búsqueda por Voz",
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Voz",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }

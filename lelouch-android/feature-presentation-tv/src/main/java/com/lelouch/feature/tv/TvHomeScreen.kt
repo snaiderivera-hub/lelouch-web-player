@@ -1999,9 +1999,9 @@ fun TvHomeScreen(
                                     )
                                 }
 
-                                // Barra de Búsqueda de Películas optimizada para TV Box con D-Pad
+                                // Barra de Búsqueda de Películas optimizada para TV Box con D-Pad y Voz
                                 Surface(
-                                    onClick = { isSearchModalVisible = true },
+                                    onClick = { selectedTopTab = 0 },
                                     shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
                                     scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
                                     colors = ClickableSurfaceDefaults.colors(
@@ -2028,33 +2028,19 @@ fun TvHomeScreen(
                                         )
                                         Spacer(modifier = Modifier.width(10.dp))
                                         Text(
-                                            text = if (movieSearchQuery.isEmpty()) {
-                                                "🔍 Buscar películas en catálogo con control remoto (Presiona OK)..."
-                                            } else {
-                                                "Filtro activo: '$movieSearchQuery' (Presiona OK para abrir teclado en pantalla)"
-                                            },
-                                            color = if (movieSearchQuery.isEmpty()) LelouchTextMuted else Color.White,
+                                            text = "🔍 Buscar en catálogo con teclado o voz (Presiona OK)...",
+                                            color = Color.White,
                                             fontSize = 14.sp,
                                             fontWeight = FontWeight.Medium,
                                             modifier = Modifier.weight(1f)
                                         )
-                                        if (movieSearchQuery.isNotEmpty()) {
-                                            Surface(
-                                                onClick = { movieSearchQuery = "" },
-                                                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
-                                                colors = ClickableSurfaceDefaults.colors(
-                                                    containerColor = Color(0xFFEF4444).copy(alpha = 0.2f),
-                                                    focusedContainerColor = Color(0xFFEF4444)
-                                                )
-                                            ) {
-                                                Text(
-                                                    text = "Limpiar ✖",
-                                                    color = Color.White,
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                                )
-                                            }
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                text = "🎤 Voz / Teclado",
+                                                color = LelouchCyanAccent,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
                                         }
                                     }
                                 }
@@ -2276,9 +2262,9 @@ fun TvHomeScreen(
                                     )
                                 }
 
-                                // Barra de Búsqueda de Series optimizada para TV Box con D-Pad
+                                // Barra de Búsqueda de Series optimizada para TV Box con D-Pad y Voz
                                 Surface(
-                                    onClick = { isSearchModalVisible = true },
+                                    onClick = { selectedTopTab = 0 },
                                     shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
                                     scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
                                     colors = ClickableSurfaceDefaults.colors(
@@ -2305,12 +2291,20 @@ fun TvHomeScreen(
                                         )
                                         Spacer(modifier = Modifier.width(10.dp))
                                         Text(
-                                            text = "🔍 Buscar series completas con control remoto (Presiona OK)...",
+                                            text = "🔍 Buscar series completas con teclado o voz (Presiona OK)...",
                                             color = LelouchTextMuted,
                                             fontSize = 14.sp,
                                             fontWeight = FontWeight.Medium,
                                             modifier = Modifier.weight(1f)
                                         )
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                text = "🎤 Voz / Teclado",
+                                                color = LelouchCyanAccent,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
                                     }
                                 }
 
