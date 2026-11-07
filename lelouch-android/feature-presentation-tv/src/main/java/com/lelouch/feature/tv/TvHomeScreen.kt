@@ -308,6 +308,8 @@ fun TvHomeScreen(
     var currentPlayingMedia by remember { mutableStateOf<MediaDetailUiModel?>(null) }
     val hudPlayPauseRequester = remember { FocusRequester() }
     val hudFavoriteRequester = remember { FocusRequester() }
+    val hudTracksRequester = remember { FocusRequester() }
+    val hudExitRequester = remember { FocusRequester() }
     var seekFeedbackText by remember { mutableStateOf<String?>(null) }
     var pendingSeekTargetMs by remember { mutableStateOf<Long?>(null) }
     var seekDebounceJob by remember { mutableStateOf<Job?>(null) }
@@ -1222,15 +1224,19 @@ fun TvHomeScreen(
         }
     }
 
-    // Auto-ocultar info badge HUD tras 6 segundos de inactividad y enfocar controles del HUD
+    // Auto-ocultar info badge HUD tras 3.5 segundos de inactividad
     LaunchedEffect(isHudVisible, isTracksPanelVisible) {
         if (isTracksPanelVisible) return@LaunchedEffect
         if (isHudVisible) {
             delay(120L)
             try {
-                hudPlayPauseRequester.requestFocus()
+                if (isPlayingLive) {
+                    hudFavoriteRequester.requestFocus()
+                } else {
+                    hudPlayPauseRequester.requestFocus()
+                }
             } catch (_: Exception) {}
-            delay(6000L)
+            delay(3500L)
             isHudVisible = false
             if (!isTracksPanelVisible) {
                 try {
@@ -1327,10 +1333,9 @@ fun TvHomeScreen(
                             KeyEvent.KEYCODE_DPAD_UP,
                             KeyEvent.KEYCODE_CHANNEL_UP,
                             KeyEvent.KEYCODE_PAGE_UP -> {
-
                                 if (isLiveStream && activePlaybackChannels.isNotEmpty()) {
                                     val userT0 = android.os.SystemClock.elapsedRealtime()
-                                    // D-Pad UP va hacia "arriba" en la lista visual (índice anterior)
+                                    // D-Pad UP va hacia "arriba" en la lista visual (índice anterior) - Zapping inmediato sin esperar
                                     val prevIndex = if (activePlaybackChannelIndex > 0) activePlaybackChannelIndex - 1 else activePlaybackChannels.lastIndex
                                     activePlaybackChannelIndex = prevIndex
                                     val ch = activePlaybackChannels[prevIndex]
@@ -1349,10 +1354,9 @@ fun TvHomeScreen(
                             KeyEvent.KEYCODE_DPAD_DOWN,
                             KeyEvent.KEYCODE_CHANNEL_DOWN,
                             KeyEvent.KEYCODE_PAGE_DOWN -> {
-
                                 if (isLiveStream && activePlaybackChannels.isNotEmpty()) {
                                     val userT0 = android.os.SystemClock.elapsedRealtime()
-                                    // D-Pad DOWN va hacia "abajo" en la lista visual (siguiente índice)
+                                    // D-Pad DOWN va hacia "abajo" en la lista visual (siguiente índice) - Zapping inmediato sin esperar
                                     val nextIndex = if (activePlaybackChannelIndex < activePlaybackChannels.lastIndex) activePlaybackChannelIndex + 1 else 0
                                     activePlaybackChannelIndex = nextIndex
                                     val ch = activePlaybackChannels[nextIndex]
@@ -1366,7 +1370,7 @@ fun TvHomeScreen(
                                     if (!isHudVisible) {
                                         isHudVisible = true
                                     } else {
-                                        try { hudFavoriteRequester.requestFocus() } catch (_: Exception) {}
+                                        try { hudPlayPauseRequester.requestFocus() } catch (_: Exception) {}
                                     }
                                     true
                                 }
@@ -1378,8 +1382,13 @@ fun TvHomeScreen(
                             KeyEvent.KEYCODE_MEDIA_PREVIOUS,
                             KeyEvent.KEYCODE_BUTTON_L1 -> {
                                 if (isLiveStream) {
-                                    isHudVisible = !isHudVisible
-                                    true
+                                    if (isHudVisible) {
+                                        // Con el HUD visible, permitir que el D-pad IZQUIERDA navegue naturalmente entre los botones
+                                        false
+                                    } else {
+                                        isHudVisible = true
+                                        true
+                                    }
                                 } else {
                                     val repeat = keyEvent.nativeKeyEvent.repeatCount
                                     val basePos = pendingSeekTargetMs ?: playerEngine.currentPositionMs
@@ -1409,8 +1418,13 @@ fun TvHomeScreen(
                             KeyEvent.KEYCODE_MEDIA_NEXT,
                             KeyEvent.KEYCODE_BUTTON_R1 -> {
                                 if (isLiveStream) {
-                                    isHudVisible = !isHudVisible
-                                    true
+                                    if (isHudVisible) {
+                                        // Con el HUD visible, permitir que el D-pad DERECHA navegue naturalmente entre los botones
+                                        false
+                                    } else {
+                                        isHudVisible = true
+                                        true
+                                    }
                                 } else {
                                     val repeat = keyEvent.nativeKeyEvent.repeatCount
                                     val basePos = pendingSeekTargetMs ?: playerEngine.currentPositionMs
@@ -1443,16 +1457,20 @@ fun TvHomeScreen(
                                     true
                                 } else if (System.currentTimeMillis() - lastFullscreenEntryTime < 600L) {
                                     true
-                                } else {
-                                    if (isLiveStream) {
-                                        isHudVisible = !isHudVisible
+                                } else if (isLiveStream) {
+                                    if (isHudVisible) {
+                                        // Con el HUD visible, dejar que el botón enfocado (Favoritos / Audio / Salir) procese el click
+                                        false
                                     } else {
-                                        if (!isHudVisible) {
-                                            isHudVisible = true
-                                        } else {
-                                            if (playbackState is PlaybackState.Playing) playerEngine.pause()
-                                            else playerEngine.resume()
-                                        }
+                                        isHudVisible = true
+                                        true
+                                    }
+                                } else {
+                                    if (!isHudVisible) {
+                                        isHudVisible = true
+                                    } else {
+                                        if (playbackState is PlaybackState.Playing) playerEngine.pause()
+                                        else playerEngine.resume()
                                     }
                                     true
                                 }
@@ -3159,7 +3177,47 @@ fun TvHomeScreen(
                         Spacer(modifier = Modifier.height(14.dp))
 
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .onPreviewKeyEvent { event ->
+                                    if (event.type == KeyEventType.KeyDown) {
+                                        when (event.nativeKeyEvent.keyCode) {
+                                            KeyEvent.KEYCODE_DPAD_DOWN,
+                                            KeyEvent.KEYCODE_CHANNEL_DOWN,
+                                            KeyEvent.KEYCODE_PAGE_DOWN -> {
+                                                if (isPlayingLive && activePlaybackChannels.isNotEmpty()) {
+                                                    val userT0 = android.os.SystemClock.elapsedRealtime()
+                                                    val nextIndex = if (activePlaybackChannelIndex < activePlaybackChannels.lastIndex) activePlaybackChannelIndex + 1 else 0
+                                                    activePlaybackChannelIndex = nextIndex
+                                                    val ch = activePlaybackChannels[nextIndex]
+                                                    focusedChannelIndex = visibleChannels.indexOfFirst { it.streamId == ch.streamId }.coerceAtLeast(0)
+                                                    focusedChannel = ch
+                                                    isPlayingLive = true
+                                                    playerEngine.playStream(ch.streamUrl, isLive = true, userT0 = userT0)
+                                                    isHudVisible = true
+                                                    true
+                                                } else false
+                                            }
+                                            KeyEvent.KEYCODE_DPAD_UP,
+                                            KeyEvent.KEYCODE_CHANNEL_UP,
+                                            KeyEvent.KEYCODE_PAGE_UP -> {
+                                                if (isPlayingLive && activePlaybackChannels.isNotEmpty()) {
+                                                    val userT0 = android.os.SystemClock.elapsedRealtime()
+                                                    val prevIndex = if (activePlaybackChannelIndex > 0) activePlaybackChannelIndex - 1 else activePlaybackChannels.lastIndex
+                                                    activePlaybackChannelIndex = prevIndex
+                                                    val ch = activePlaybackChannels[prevIndex]
+                                                    focusedChannelIndex = visibleChannels.indexOfFirst { it.streamId == ch.streamId }.coerceAtLeast(0)
+                                                    focusedChannel = ch
+                                                    isPlayingLive = true
+                                                    playerEngine.playStream(ch.streamUrl, isLive = true, userT0 = userT0)
+                                                    isHudVisible = true
+                                                    true
+                                                } else false
+                                            }
+                                            else -> false
+                                        }
+                                    } else false
+                                },
                             horizontalArrangement = Arrangement.spacedBy(14.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -3183,7 +3241,9 @@ fun TvHomeScreen(
                                 border = ClickableSurfaceDefaults.border(
                                     focusedBorder = Border(BorderStroke(2.dp, Color.White))
                                 ),
-                                modifier = Modifier.focusRequester(hudFavoriteRequester)
+                                modifier = Modifier
+                                    .focusRequester(hudFavoriteRequester)
+                                    .focusProperties { right = hudTracksRequester }
                             ) {
                                 Row(
                                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
@@ -3218,7 +3278,13 @@ fun TvHomeScreen(
                                 ),
                                 border = ClickableSurfaceDefaults.border(
                                     focusedBorder = Border(BorderStroke(2.dp, Color.White))
-                                )
+                                ),
+                                modifier = Modifier
+                                    .focusRequester(hudTracksRequester)
+                                    .focusProperties {
+                                        left = hudFavoriteRequester
+                                        right = hudExitRequester
+                                    }
                             ) {
                                 Row(
                                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
@@ -3253,7 +3319,10 @@ fun TvHomeScreen(
                                 ),
                                 border = ClickableSurfaceDefaults.border(
                                     focusedBorder = Border(BorderStroke(2.dp, Color.White))
-                                )
+                                ),
+                                modifier = Modifier
+                                    .focusRequester(hudExitRequester)
+                                    .focusProperties { left = hudTracksRequester }
                             ) {
                                 Row(
                                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),

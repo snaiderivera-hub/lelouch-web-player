@@ -1,7 +1,7 @@
 {
-  "versionName": "1.0.117",
-  "versionCode": 1000117,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.117/LELOUCH-PLUS-v1.0.117.apk",
-  "changelog": "- Restablecimiento completo de launcher en Xiaomi TV Stick y eliminación de Orizon.\n- Menú de Ajustes en TV Box reorganizado en 5 secciones idéntico a Móvil.\n- Modo de Pantalla (Ajustar, Zoom, Estirar 16:9) en panel de reproducción TV Box y Móvil.\n- Selector de Audio e Idioma siempre visible en panel de pistas.\n- Categoría Eventos filtrando exclusivamente canales de Guatemala.\n- Avance/retroceso continuo (scrubbing) ultrasuave en móvil y control remoto TV.",
-  "version": "1.0.117"
+  "versionName": "1.0.119",
+  "versionCode": 1000119,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.119/LELOUCH-PLUS-v1.0.119.apk",
+  "changelog": "- TV Box: Zapping continuo e instantáneo con D-Pad Arriba/Abajo sin esperar a que se oculte la barra de opciones.\n- TV Box: Navegación horizontal fluida con D-Pad Izquierda/Derecha entre Favoritos, Audio y Salir.\n- TV Box: Selección con botón Central/OK y auto-ocultado rápido de 3.5s para no obstruir la pantalla.\n- Modo de Pantalla (Ajustar, Zoom, Estirar 16:9), pista de Audio siempre visible y Ajustes reorganizados.",
+  "version": "1.0.119"
 }
