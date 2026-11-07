@@ -225,53 +225,16 @@ class XtreamCatalogSyncManager private constructor(
             val totalLocal = chCount + movCount + serCount
             val isRoomEmpty = (totalLocal == 0)
 
-            // PASO 2, 5, 6: Si no es forzado y Room tiene datos, comprobar frescura
+            // Si la lista ya está guardada localmente en Room y NO es una recarga forzada,
+            // reutilizar el catálogo local del teléfono de inmediato sin bloquear ni volver a descargar.
+            if (!force && !isRoomEmpty) {
+                android.util.Log.i("XtreamCatalogSync", "CACHE_HIT: Fuente $sourceId ya tiene $totalLocal items en Room. Activación instantánea.")
+                _syncState.value = SyncState.UpToDate(sourceId, "Catálogo local listo ($totalLocal items)")
+                return@withContext Result.success(Unit)
+            }
+
             var remoteVersionToSave = ""
             var remoteEtagToSave = ""
-
-            if (!force && !isRoomEmpty) {
-                _syncState.value = SyncState.Checking(sourceId)
-                val metadata = preferencesDataSource?.getSyncMetadata(sourceId)
-
-                val freshness = when {
-                    // Tipo B: Xtream Directo
-                    effectiveType == com.lelouch.core.model.SourceType.XTREAM -> {
-                        checkXtreamFreshness(sourceId, metadata)
-                    }
-                    // Tipo D: M3U Local
-                    effectiveType == com.lelouch.core.model.SourceType.M3U && isLocalFile(serverUrl) -> {
-                        checkLocalM3uFreshness(sourceId, serverUrl, metadata)
-                    }
-                    // Tipo C: M3U Remoto Genérico
-                    else -> {
-                        checkGenericM3uFreshness(sourceId, serverUrl, metadata)
-                    }
-                }
-
-                when (freshness) {
-                    is FreshnessResult.Unchanged -> {
-                        android.util.Log.i("XtreamCatalogSync", "SYNC_SKIPPED_UNCHANGED: source $sourceId al día comprobado (versión=${freshness.version})")
-                        _syncState.value = SyncState.UpToDate(sourceId, "Catálogo al día (comprobado)")
-                        return@withContext Result.success(Unit)
-                    }
-                    is FreshnessResult.TtlFresh -> {
-                        val hoursRemaining = ((freshness.ttlMs - (System.currentTimeMillis() - freshness.lastSyncAt)) / 3600000).coerceAtLeast(0)
-                        android.util.Log.i("XtreamCatalogSync", "SYNC_SKIPPED_TTL_FRESH: source $sourceId dentro de período TTL (~${hoursRemaining}h restantes). Sync omitido.")
-                        _syncState.value = SyncState.TtlFresh(sourceId, "Catálogo dentro de TTL (~${hoursRemaining}h restantes)")
-                        return@withContext Result.success(Unit)
-                    }
-                    is FreshnessResult.CheckFailed -> {
-                        android.util.Log.w("XtreamCatalogSync", "FRESHNESS_CHECK_FAILED: ${freshness.reason}. Se preserva catálogo local de Room.")
-                        _syncState.value = SyncState.OfflineUsingCache(sourceId, "Modo sin conexión - Catálogo local disponible")
-                        return@withContext Result.success(Unit)
-                    }
-                    is FreshnessResult.Changed -> {
-                        android.util.Log.i("XtreamCatalogSync", "Cambio detectado para $sourceId (nueva versión=${freshness.newVersion}). Iniciando sync hacia staging.")
-                        remoteVersionToSave = freshness.newVersion
-                        remoteEtagToSave = freshness.newEtag
-                    }
-                }
-            }
 
             // PASO 4 (P0 #4): Generar syncId único para aislar completamente esta ejecución en staging
             val syncId = UUID.randomUUID().toString()
@@ -452,97 +415,114 @@ class XtreamCatalogSyncManager private constructor(
 
             if (totalInStaging == 0 && (serverUrl.startsWith("http") || isLocalFile(serverUrl))) {
                 try {
-                    val m3uReq = Request.Builder().url(serverUrl).build()
+                    val m3uReq = Request.Builder()
+                        .url(serverUrl)
+                        .header("Accept-Encoding", "gzip, deflate")
+                        .build()
                     val m3uRes = httpClient.newCall(m3uReq).execute()
                     if (m3uRes.isSuccessful) {
-                        val body = m3uRes.body?.string() ?: ""
-                        var count = 0
-                        val lines = body.lines()
-                        var currentName = "Canal"
-                        var currentGroup = "General"
-                        var currentLogo: String? = null
-                        var currentMediaType: String? = null
-                        val groupRegex = Regex("group-title=\"([^\"]+)\"")
-                        val logoRegex = Regex("tvg-logo=\"([^\"]+)\"")
-                        val mediaTypeRegex = Regex("(?:tvg-type|media-type)=\"([^\"]+)\"")
+                        val inputStream = if (isLocalFile(serverUrl)) {
+                            java.io.File(serverUrl.removePrefix("file://")).inputStream()
+                        } else {
+                            m3uRes.body?.byteStream()
+                        }
 
-                        for (line in lines) {
-                            val trimmed = line.trim()
-                            if (trimmed.startsWith("#EXTINF:")) {
-                                currentGroup = groupRegex.find(trimmed)?.groupValues?.get(1) ?: "General"
-                                currentLogo = logoRegex.find(trimmed)?.groupValues?.get(1)
-                                currentMediaType = mediaTypeRegex.find(trimmed)?.groupValues?.get(1)
-                                currentName = trimmed.substringAfterLast(",").trim().ifEmpty { "Canal" }
-                            } else if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-                                val streamId = (currentName + trimmed).hashCode().let { if (it == Int.MIN_VALUE) 0 else kotlin.math.abs(it) }
-                                val resolvedType = detectMediaType(currentMediaType, currentName, currentGroup, trimmed)
+                        if (inputStream != null) {
+                            val bufferedReader = java.io.BufferedReader(java.io.InputStreamReader(inputStream, Charsets.UTF_8), 65536)
+                            var count = 0
+                            var currentName = "Canal"
+                            var currentGroup = "General"
+                            var currentLogo: String? = null
+                            var currentMediaType: String? = null
 
-                                if (resolvedType == "movie") {
-                                    vodCategories.add(currentGroup)
-                                    movieStagingBatch.add(
-                                        MovieStagingEntity(
-                                            syncId = syncId,
-                                            id = "$sourceId-$count",
-                                            streamId = streamId,
-                                            num = count,
-                                            name = currentName,
-                                            title = currentName,
-                                            streamIcon = currentLogo,
-                                            categoryId = "$sourceId-${currentGroup.hashCode()}",
-                                            categoryName = currentGroup,
-                                            containerExtension = "mp4",
-                                            streamUrl = trimmed,
-                                            sourceId = sourceId
-                                        )
-                                    )
-                                } else if (resolvedType == "series") {
-                                    seriesCategories.add(currentGroup)
-                                    seriesStagingBatch.add(
-                                        SeriesStagingEntity(
-                                            syncId = syncId,
-                                            id = "$sourceId-$count",
-                                            seriesId = streamId,
-                                            num = count,
-                                            name = currentName,
-                                            title = currentName,
-                                            cover = currentLogo,
-                                            categoryId = "$sourceId-${currentGroup.hashCode()}",
-                                            categoryName = currentGroup,
-                                            sourceId = sourceId
-                                        )
-                                    )
-                                } else {
-                                    liveCategories.add(currentGroup)
-                                    channelStagingBatch.add(
-                                        ChannelStagingEntity(
-                                            syncId = syncId,
-                                            id = "$sourceId-$count",
-                                            streamId = streamId,
-                                            num = count,
-                                            name = currentName,
-                                            streamType = "live",
-                                            streamIcon = currentLogo,
-                                            categoryId = "$sourceId-${currentGroup.hashCode()}",
-                                            categoryName = currentGroup,
-                                            streamUrl = trimmed,
-                                            containerExtension = "m3u8",
-                                            sourceId = sourceId
-                                        )
-                                    )
-                                }
-                                count++
+                            bufferedReader.useLines { lines ->
+                                for (line in lines) {
+                                    val trimmed = line.trim()
+                                    if (trimmed.isEmpty()) continue
 
-                                if (channelStagingBatch.size >= 500) {
-                                    database.catalogStagingDao().insertChannelsStaging(channelStagingBatch)
-                                    channelStagingBatch.clear()
-                                }
-                                if (movieStagingBatch.size >= 500) {
-                                    database.catalogStagingDao().insertMoviesStaging(movieStagingBatch)
-                                    movieStagingBatch.clear()
-                                }
-                                if (seriesStagingBatch.size >= 500) {
-                                    database.catalogStagingDao().insertSeriesStaging(seriesStagingBatch)
-                                    seriesStagingBatch.clear()
+                                    if (trimmed.startsWith("#EXTINF:", ignoreCase = true)) {
+                                        currentGroup = extractFastAttribute(trimmed, "group-title") ?: "General"
+                                        currentLogo = extractFastAttribute(trimmed, "tvg-logo")
+                                        currentMediaType = extractFastAttribute(trimmed, "tvg-type") ?: extractFastAttribute(trimmed, "media-type")
+                                        val commaIdx = trimmed.lastIndexOf(',')
+                                        currentName = if (commaIdx in 0 until trimmed.length - 1) {
+                                            trimmed.substring(commaIdx + 1).trim().ifEmpty { "Canal" }
+                                        } else {
+                                            "Canal"
+                                        }
+                                    } else if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true) || trimmed.startsWith("rtmp://", ignoreCase = true)) {
+                                        val streamId = (currentName + trimmed).hashCode().let { if (it == Int.MIN_VALUE) 0 else kotlin.math.abs(it) }
+                                        val resolvedType = detectMediaType(currentMediaType, currentName, currentGroup, trimmed)
+
+                                        if (resolvedType == "movie") {
+                                            vodCategories.add(currentGroup)
+                                            movieStagingBatch.add(
+                                                MovieStagingEntity(
+                                                    syncId = syncId,
+                                                    id = "$sourceId-$count",
+                                                    streamId = streamId,
+                                                    num = count,
+                                                    name = currentName,
+                                                    title = currentName,
+                                                    streamIcon = currentLogo,
+                                                    categoryId = "$sourceId-${currentGroup.hashCode()}",
+                                                    categoryName = currentGroup,
+                                                    containerExtension = "mp4",
+                                                    streamUrl = trimmed,
+                                                    sourceId = sourceId
+                                                )
+                                            )
+                                        } else if (resolvedType == "series") {
+                                            seriesCategories.add(currentGroup)
+                                            seriesStagingBatch.add(
+                                                SeriesStagingEntity(
+                                                    syncId = syncId,
+                                                    id = "$sourceId-$count",
+                                                    seriesId = streamId,
+                                                    num = count,
+                                                    name = currentName,
+                                                    title = currentName,
+                                                    cover = currentLogo,
+                                                    categoryId = "$sourceId-${currentGroup.hashCode()}",
+                                                    categoryName = currentGroup,
+                                                    sourceId = sourceId
+                                                )
+                                            )
+                                        } else {
+                                            liveCategories.add(currentGroup)
+                                            channelStagingBatch.add(
+                                                ChannelStagingEntity(
+                                                    syncId = syncId,
+                                                    id = "$sourceId-$count",
+                                                    streamId = streamId,
+                                                    num = count,
+                                                    name = currentName,
+                                                    streamType = "live",
+                                                    streamIcon = currentLogo,
+                                                    categoryId = "$sourceId-${currentGroup.hashCode()}",
+                                                    categoryName = currentGroup,
+                                                    streamUrl = trimmed,
+                                                    containerExtension = "m3u8",
+                                                    sourceId = sourceId
+                                                )
+                                            )
+                                        }
+                                        count++
+
+                                        if (channelStagingBatch.size >= 2500) {
+                                            database.catalogStagingDao().insertChannelsStaging(channelStagingBatch)
+                                            channelStagingBatch.clear()
+                                            _syncState.value = SyncState.SyncingLive(count)
+                                        }
+                                        if (movieStagingBatch.size >= 2500) {
+                                            database.catalogStagingDao().insertMoviesStaging(movieStagingBatch)
+                                            movieStagingBatch.clear()
+                                        }
+                                        if (seriesStagingBatch.size >= 2500) {
+                                            database.catalogStagingDao().insertSeriesStaging(seriesStagingBatch)
+                                            seriesStagingBatch.clear()
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -946,6 +926,24 @@ class XtreamCatalogSyncManager private constructor(
         isFavorite = isFavorite,
         sourceId = sourceId
     )
+
+    private fun extractFastAttribute(line: String, key: String): String? {
+        val keyDq = "$key=\""
+        var idx = line.indexOf(keyDq, ignoreCase = true)
+        if (idx >= 0) {
+            val start = idx + keyDq.length
+            val end = line.indexOf('"', start)
+            if (end > start) return line.substring(start, end).trim()
+        }
+        val keySq = "$key='"
+        idx = line.indexOf(keySq, ignoreCase = true)
+        if (idx >= 0) {
+            val start = idx + keySq.length
+            val end = line.indexOf('\'', start)
+            if (end > start) return line.substring(start, end).trim()
+        }
+        return null
+    }
 
     /**
      * FASE 35 — La lista personalizada fue retirada; no se suben canales a Supabase.
