@@ -180,6 +180,30 @@ fun MobileHomeScreen(
     val context = LocalContext.current
     val activity = context as? Activity
 
+    // Asegurar que fuera del reproductor de video, la interfaz nunca controle ni altere el brillo del sistema
+    LaunchedEffect(isPlayerFullscreen, activeStreamUrl) {
+        if (!isPlayerFullscreen || activeStreamUrl == null) {
+            activity?.window?.let { win ->
+                val params = win.attributes
+                if (params.screenBrightness != android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE) {
+                    params.screenBrightness = android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                    win.attributes = params
+                }
+            }
+        }
+    }
+    DisposableEffect(activity) {
+        onDispose {
+            activity?.window?.let { win ->
+                val params = win.attributes
+                if (params.screenBrightness != android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE) {
+                    params.screenBrightness = android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                    win.attributes = params
+                }
+            }
+        }
+    }
+
     // FASE 38: casting DLNA (sin Play Services) del contenido en curso.
     val castManager = remember(context) { DlnaCastManager(context) }
     var isCastSheetVisible by remember { mutableStateOf(false) }

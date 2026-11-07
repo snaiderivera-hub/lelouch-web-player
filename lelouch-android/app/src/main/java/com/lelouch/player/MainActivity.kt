@@ -640,6 +640,17 @@ class MainActivity : ComponentActivity() {
         isInPictureInPicture = isInPictureInPictureMode
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (!isPlaybackActive) {
+            val lp = window.attributes
+            if (lp.screenBrightness != android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE) {
+                lp.screenBrightness = android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                window.attributes = lp
+            }
+        }
+    }
+
     /**
      * Servidores DNS que usa la red activa. Se pasan al test para comparar el DNS del router
      * con 1.1.1.1 sin que el módulo de red dependa del contexto de Android.

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -60,8 +61,14 @@ fun PlayerGestureLayer(
         context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
     }
 
+    DisposableEffect(activity) {
+        onDispose {
+            activity?.restoreSystemBrightness()
+        }
+    }
+
     var osd by remember { mutableStateOf<GestureOsd?>(null) }
-    var brightness by remember { mutableFloatStateOf(activity.initialBrightness()) }
+    var brightness by remember { mutableFloatStateOf(activity.initialBrightness(context)) }
     var pendingSeekMs by remember { mutableStateOf(0L) }
 
     val maxVolume = remember(audioManager) {
@@ -211,15 +218,33 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
     else -> null
 }
 
-private fun Activity?.initialBrightness(): Float {
+private fun Context.getSystemBrightness(): Float {
+    return try {
+        val sysInt = android.provider.Settings.System.getInt(
+            contentResolver,
+            android.provider.Settings.System.SCREEN_BRIGHTNESS
+        )
+        (sysInt / 255f).coerceIn(0.02f, 1f)
+    } catch (_: Exception) {
+        0.7f
+    }
+}
+
+private fun Activity?.initialBrightness(context: Context): Float {
     val stored = this?.window?.attributes?.screenBrightness ?: -1f
-    // -1 significa «brillo del sistema»: arrancamos desde la mitad para no dar un salto brusco.
-    return if (stored < 0f) 0.5f else stored.coerceIn(0.02f, 1f)
+    return if (stored < 0f) context.getSystemBrightness() else stored.coerceIn(0.02f, 1f)
 }
 
 private fun Activity?.applyBrightness(value: Float) {
     val window = this?.window ?: return
     val params = window.attributes
     params.screenBrightness = value.coerceIn(0.02f, 1f)
+    window.attributes = params
+}
+
+private fun Activity?.restoreSystemBrightness() {
+    val window = this?.window ?: return
+    val params = window.attributes
+    params.screenBrightness = android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
     window.attributes = params
 }
