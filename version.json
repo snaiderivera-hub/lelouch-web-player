@@ -1,7 +1,7 @@
 {
-  "versionName": "1.0.114",
-  "versionCode": 1000114,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.114/LELOUCH-PLUS-v1.0.114.apk",
-  "changelog": "- Selector rápido de listas/cuentas IPTV: ahora puedes cambiar de cuenta inmediatamente tocando el nombre de la lista en la cabecera tanto en TV Box (con D-Pad) como en Móvil.\n- Optimización de rendimiento y fluidez en navegación de catálogo sin selector de categorías redundante.",
-  "version": "1.0.114"
+  "versionName": "1.0.115",
+  "versionCode": 1000115,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.115/LELOUCH-PLUS-v1.0.115.apk",
+  "changelog": "- TV Box: Buscador interactivo por control remoto en Películas y Series.\n- TV Box: Opciones interactivas durante la reproducción (botón de Favoritos ❤️, Audio y Subtítulos 💬, controles de transporte).\n- Optimizaciones de rendimiento y sincronización instantánea de listas.",
+  "version": "1.0.115"
 }
