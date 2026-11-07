@@ -604,9 +604,7 @@ fun TvHomeScreen(
         listOf(CategoryUiItem(id = "all", name = "Todas")) + visibleCats
     }
     var selectedMovieCategoryId by remember { mutableStateOf("all") }
-    val activeMovieCatName = remember(movieCategoryList, selectedMovieCategoryId) {
-        movieCategoryList.find { it.id == selectedMovieCategoryId }?.name ?: "Todas"
-    }
+    val activeMovieCatName = "Todas"
     val liveMoviesPagingFlow = remember(
         vodRepository,
         activeSource?.id,
@@ -616,48 +614,42 @@ fun TvHomeScreen(
     ) {
         val srcId = activeSource?.id.orEmpty()
         if (vodRepository != null && srcId.isNotBlank()) {
-            snapshotFlow { selectedMovieCategoryId }
-                .flatMapLatest { catId ->
-                    vodRepository.getMoviesPaging(
-                        sourceId = srcId,
-                        categoryId = catId.takeIf { it != "all" },
-                        hiddenCategoryIds = if (catId == "all") {
-                            (hiddenMovieCategories + (if (!isAdultModeEnabled) movieCategoryItemModels.filter { it.isAdult }.map { it.id } else emptyList())).toList()
-                        } else {
-                            hiddenMovieCategories.toList()
-                        }
+            val hiddenCats = (hiddenMovieCategories + (if (!isAdultModeEnabled) movieCategoryItemModels.filter { it.isAdult }.map { it.id } else emptyList())).toList()
+            vodRepository.getMoviesPaging(
+                sourceId = srcId,
+                categoryId = null,
+                hiddenCategoryIds = hiddenCats
+            ).map { pagingData ->
+                pagingData.map { movie ->
+                    val resolvedCategoryName = vodCatMap[movie.categoryId]
+                        ?: movie.categoryName.takeIf { it.isNotBlank() }
+                        ?: "General"
+                    val ext = movie.containerExtension.trimStart('.').ifEmpty { "mp4" }
+                    val streamUrl = StreamUrlResolver.resolve(
+                        directUrl = movie.streamUrl,
+                        source = activeSource,
+                        streamId = movie.streamId,
+                        kind = StreamUrlResolver.Kind.VOD,
+                        extension = ext
                     )
-                }.map { pagingData ->
-                    pagingData.map { movie ->
-                        val resolvedCategoryName = vodCatMap[movie.categoryId]
-                            ?: movie.categoryName.takeIf { it.isNotBlank() }
-                            ?: "General"
-                        val ext = movie.containerExtension.trimStart('.').ifEmpty { "mp4" }
-                        val streamUrl = StreamUrlResolver.resolve(
-                            directUrl = movie.streamUrl,
-                            source = activeSource,
-                            streamId = movie.streamId,
-                            kind = StreamUrlResolver.Kind.VOD,
-                            extension = ext
-                        )
-                        MovieUiModel(
-                            id = movie.id,
-                            streamId = movie.streamId,
-                            name = movie.name,
-                            categoryName = resolvedCategoryName,
-                            categoryId = movie.categoryId,
-                            streamIcon = movie.streamIcon,
-                            streamUrl = streamUrl,
-                            rating = movie.rating ?: 0.0,
-                            year = movie.year,
-                            containerExtension = ext,
-                            isFavorite = movie.isFavorite,
-                            backdropPath = movie.backdropPath,
-                            plot = movie.plot,
-                            genre = movie.genre
-                        )
-                    }
-                }.cachedIn(coroutineScope)
+                    MovieUiModel(
+                        id = movie.id,
+                        streamId = movie.streamId,
+                        name = movie.name,
+                        categoryName = resolvedCategoryName,
+                        categoryId = movie.categoryId,
+                        streamIcon = movie.streamIcon,
+                        streamUrl = streamUrl,
+                        rating = movie.rating ?: 0.0,
+                        year = movie.year,
+                        containerExtension = ext,
+                        isFavorite = movie.isFavorite,
+                        backdropPath = movie.backdropPath,
+                        plot = movie.plot,
+                        genre = movie.genre
+                    )
+                }
+            }.cachedIn(coroutineScope)
         } else {
             emptyFlow()
         }
@@ -692,9 +684,7 @@ fun TvHomeScreen(
         listOf(CategoryUiItem(id = "all", name = "Todas")) + visibleCats
     }
     var selectedSeriesCategoryId by remember { mutableStateOf("all") }
-    val activeSeriesCatName = remember(seriesCategoryList, selectedSeriesCategoryId) {
-        seriesCategoryList.find { it.id == selectedSeriesCategoryId }?.name ?: "Todas"
-    }
+    val activeSeriesCatName = "Todas"
     val liveSeriesPagingFlow = remember(
         seriesRepository,
         activeSource?.id,
@@ -704,40 +694,34 @@ fun TvHomeScreen(
     ) {
         val srcId = activeSource?.id.orEmpty()
         if (seriesRepository != null && srcId.isNotBlank()) {
-            snapshotFlow { selectedSeriesCategoryId }
-                .flatMapLatest { catId ->
-                    seriesRepository.getSeriesPaging(
-                        sourceId = srcId,
-                        categoryId = catId.takeIf { it != "all" },
-                        hiddenCategoryIds = if (catId == "all") {
-                            (hiddenSeriesCategories + (if (!isAdultModeEnabled) seriesCategoryItemModels.filter { it.isAdult }.map { it.id } else emptyList())).toList()
-                        } else {
-                            hiddenSeriesCategories.toList()
-                        }
+            val hiddenCats = (hiddenSeriesCategories + (if (!isAdultModeEnabled) seriesCategoryItemModels.filter { it.isAdult }.map { it.id } else emptyList())).toList()
+            seriesRepository.getSeriesPaging(
+                sourceId = srcId,
+                categoryId = null,
+                hiddenCategoryIds = hiddenCats
+            ).map { pagingData ->
+                pagingData.map { series ->
+                    val resolvedCategoryName = seriesCatMap[series.categoryId]
+                        ?: series.categoryName.takeIf { it.isNotBlank() }
+                        ?: "General"
+                    SeriesUiModel(
+                        id = series.id,
+                        seriesId = series.seriesId,
+                        name = series.name,
+                        categoryName = resolvedCategoryName,
+                        categoryId = series.categoryId,
+                        cover = series.cover,
+                        backdropPath = series.backdropPath,
+                        rating = series.rating ?: 0.0,
+                        releaseDate = series.releaseDate,
+                        seasonsCount = 0,
+                        plot = series.plot,
+                        genre = series.genre,
+                        isFavorite = series.isFavorite,
+                        sourceId = activeSource?.id.orEmpty()
                     )
-                }.map { pagingData ->
-                    pagingData.map { series ->
-                        val resolvedCategoryName = seriesCatMap[series.categoryId]
-                            ?: series.categoryName.takeIf { it.isNotBlank() }
-                            ?: "General"
-                        SeriesUiModel(
-                            id = series.id,
-                            seriesId = series.seriesId,
-                            name = series.name,
-                            categoryName = resolvedCategoryName,
-                            categoryId = series.categoryId,
-                            cover = series.cover,
-                            backdropPath = series.backdropPath,
-                            rating = series.rating ?: 0.0,
-                            releaseDate = series.releaseDate,
-                            seasonsCount = 0,
-                            plot = series.plot,
-                            genre = series.genre,
-                            isFavorite = series.isFavorite,
-                            sourceId = series.sourceId
-                        )
-                    }
-                }.cachedIn(coroutineScope)
+                }
+            }.cachedIn(coroutineScope)
         } else {
             emptyFlow()
         }
@@ -745,19 +729,62 @@ fun TvHomeScreen(
     val pagedSeries = liveSeriesPagingFlow.collectAsLazyPagingItems()
 
     val visibleChannels = remember(pagedChannels.itemSnapshotList, hiddenLiveCategories) {
-        pagedChannels.itemSnapshotList.items.filterNotNull().filter { ch ->
+        pagedChannels.itemSnapshotList.items.filterNotNull().take(25).filter { ch ->
             ch.categoryId !in hiddenLiveCategories && ch.categoryName !in hiddenLiveCategories
         }
     }
-    val visibleMovies = remember(pagedMovies.itemSnapshotList, hiddenMovieCategories) {
-        pagedMovies.itemSnapshotList.items.filterNotNull().filter { mov ->
-            mov.categoryId !in hiddenMovieCategories && mov.categoryName !in hiddenMovieCategories
-        }.distinctBy { it.name.trim().lowercase() }
+    val visibleMovies = remember(recentMovies, pagedMovies.itemSnapshotList, hiddenMovieCategories) {
+        if (recentMovies.isNotEmpty()) {
+            recentMovies.filter { it.categoryId !in hiddenMovieCategories && it.categoryName.orEmpty() !in hiddenMovieCategories }.map { movie ->
+                val ext = movie.containerExtension.trimStart('.').ifEmpty { "mp4" }
+                MovieUiModel(
+                    id = movie.id,
+                    streamId = movie.streamId,
+                    name = movie.name,
+                    categoryName = vodCatMap[movie.categoryId] ?: movie.categoryName ?: "General",
+                    categoryId = movie.categoryId,
+                    streamIcon = movie.streamIcon,
+                    streamUrl = StreamUrlResolver.resolve(movie.streamUrl, activeSource, movie.streamId, StreamUrlResolver.Kind.VOD, ext),
+                    rating = movie.rating ?: 0.0,
+                    year = movie.year,
+                    containerExtension = ext,
+                    isFavorite = movie.isFavorite,
+                    backdropPath = movie.backdropPath,
+                    plot = movie.plot,
+                    genre = movie.genre
+                )
+            }
+        } else {
+            pagedMovies.itemSnapshotList.items.filterNotNull().take(25).filter { mov ->
+                mov.categoryId !in hiddenMovieCategories && mov.categoryName !in hiddenMovieCategories
+            }
+        }
     }
-    val visibleSeriesList = remember(pagedSeries.itemSnapshotList, hiddenSeriesCategories) {
-        pagedSeries.itemSnapshotList.items.filterNotNull().filter { ser ->
-            ser.categoryId !in hiddenSeriesCategories && ser.categoryName !in hiddenSeriesCategories
-        }.distinctBy { it.name.trim().lowercase() }
+    val visibleSeriesList = remember(featuredSeries, pagedSeries.itemSnapshotList, hiddenSeriesCategories) {
+        if (featuredSeries.isNotEmpty()) {
+            featuredSeries.filter { it.categoryId !in hiddenSeriesCategories && it.categoryName.orEmpty() !in hiddenSeriesCategories }.map { series ->
+                SeriesUiModel(
+                    id = series.id,
+                    seriesId = series.seriesId,
+                    name = series.name,
+                    categoryName = seriesCatMap[series.categoryId] ?: series.categoryName ?: "General",
+                    categoryId = series.categoryId,
+                    cover = series.cover,
+                    backdropPath = series.backdropPath,
+                    rating = series.rating ?: 0.0,
+                    releaseDate = series.releaseDate,
+                    seasonsCount = 0,
+                    plot = series.plot,
+                    genre = series.genre,
+                    isFavorite = series.isFavorite,
+                    sourceId = activeSource?.id.orEmpty()
+                )
+            }
+        } else {
+            pagedSeries.itemSnapshotList.items.filterNotNull().take(25).filter { ser ->
+                ser.categoryId !in hiddenSeriesCategories && ser.categoryName !in hiddenSeriesCategories
+            }
+        }
     }
 
     val topRatedMovies = remember(visibleMovies) {
@@ -1925,15 +1952,11 @@ fun TvHomeScreen(
                                             fontWeight = FontWeight.Black,
                                             letterSpacing = 1.sp
                                         )
-                                        val activeMovieCatCount = remember(selectedMovieCategoryId, movieCategoryItemModels) {
-                                            if (selectedMovieCategoryId == "all") {
-                                                movieCategoryItemModels.sumOf { it.itemCount }
-                                            } else {
-                                                movieCategoryItemModels.find { it.id == selectedMovieCategoryId }?.itemCount ?: 0
-                                            }
+                                        val activeMovieCatCount = remember(vodCategories) {
+                                            vodCategories.sumOf { it.itemCount }
                                         }
                                         Text(
-                                            text = "$activeMovieCatCount películas disponibles • Categoría: $activeMovieCatName",
+                                            text = if (activeMovieCatCount > 0) "$activeMovieCatCount películas disponibles" else "Catálogo completo de películas",
                                             color = LelouchTextSecondary,
                                             fontSize = 13.sp
                                         )
@@ -2017,16 +2040,7 @@ fun TvHomeScreen(
                                 }
 
                                 val isMovieSearchActive = movieSearchQuery.trim().length >= 2
-                                if (!isMovieSearchActive) {
-                                    TvCategorySelectorBar(
-                                        categories = movieCategoryList,
-                                        selectedCategoryId = selectedMovieCategoryId,
-                                        onSelectCategory = { selectedMovieCategoryId = it.id },
-                                        firstItemRequester = contentFocusRequester,
-                                        sidebarRequester = sidebarRequesters[3],
-                                        modifier = Modifier.padding(bottom = 12.dp)
-                                    )
-                                } else {
+                                if (isMovieSearchActive) {
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -2050,7 +2064,7 @@ fun TvHomeScreen(
                                             )
                                         ) {
                                             Text(
-                                                text = "Ver Todas las Categorías",
+                                                text = "Ver Todo el Catálogo",
                                                 color = Color.White,
                                                 fontSize = 12.sp,
                                                 fontWeight = FontWeight.Bold,
@@ -2147,7 +2161,7 @@ fun TvHomeScreen(
                                                 Text(text = "🎬", fontSize = 36.sp)
                                                 Spacer(modifier = Modifier.height(8.dp))
                                                 Text(
-                                                    text = "No hay películas en '$activeMovieCatName'",
+                                                    text = "No hay películas disponibles",
                                                     color = Color.White,
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 18.sp
@@ -2177,10 +2191,10 @@ fun TvHomeScreen(
                                         ) { idx ->
                                             val movie = pagedMovies[idx] ?: return@items
                                             val isFirstColumn = (idx % 6 == 0)
-                                            val cardModifier = if (isFirstColumn) {
-                                                Modifier.focusProperties { left = sidebarRequesters[3] }
-                                            } else {
-                                                Modifier
+                                            val cardModifier = when {
+                                                idx == 0 && !isMovieSearchActive -> Modifier.focusRequester(contentFocusRequester).focusProperties { left = sidebarRequesters[3] }
+                                                isFirstColumn -> Modifier.focusProperties { left = sidebarRequesters[3] }
+                                                else -> Modifier
                                             }
 
                                             TvPosterCard(
@@ -2204,18 +2218,14 @@ fun TvHomeScreen(
                         }
 
                         4 -> {
-                            // 📺 SERIES EN GRID VERTICAL CON SELECTOR DE CATEGORÍAS
+                            // 📺 SERIES EN GRID VERTICAL CON CATÁLOGO COMPLETO UNIFICADO
                             Column(
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .padding(start = 32.dp, end = 32.dp, top = 16.dp)
                             ) {
-                                val activeSeriesCatCount = remember(selectedSeriesCategoryId, seriesCategoryItemModels, seriesCategories) {
-                                    if (selectedSeriesCategoryId == "all") {
-                                        seriesCategories.sumOf { it.itemCount }
-                                    } else {
-                                        seriesCategoryItemModels.find { it.id == selectedSeriesCategoryId }?.itemCount ?: 0
-                                    }
+                                val activeSeriesCatCount = remember(seriesCategories) {
+                                    seriesCategories.sumOf { it.itemCount }
                                 }
                                 Row(
                                     modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
@@ -2231,7 +2241,7 @@ fun TvHomeScreen(
                                             letterSpacing = 1.sp
                                         )
                                         Text(
-                                            text = "$activeSeriesCatCount series completas • Categoría: $activeSeriesCatName",
+                                            text = if (activeSeriesCatCount > 0) "$activeSeriesCatCount series completas" else "Catálogo completo de series",
                                             color = LelouchTextSecondary,
                                             fontSize = 13.sp
                                         )
@@ -2244,15 +2254,6 @@ fun TvHomeScreen(
                                         onOpenAdmin = { selectedTopTab = 7 }
                                     )
                                 }
-
-                                TvCategorySelectorBar(
-                                    categories = seriesCategoryList,
-                                    selectedCategoryId = selectedSeriesCategoryId,
-                                    onSelectCategory = { selectedSeriesCategoryId = it.id },
-                                    firstItemRequester = contentFocusRequester,
-                                    sidebarRequester = sidebarRequesters[4],
-                                    modifier = Modifier.padding(bottom = 12.dp)
-                                )
 
                                 if (pagedSeries.itemCount == 0 && pagedSeries.loadState.refresh !is androidx.paging.LoadState.Loading) {
                                     Box(
@@ -2281,7 +2282,7 @@ fun TvHomeScreen(
                                                 Text(text = "📺", fontSize = 36.sp)
                                                 Spacer(modifier = Modifier.height(8.dp))
                                                 Text(
-                                                    text = if (seriesCategoryList.size <= 1) "No hay series visibles activadas" else "No hay series en '$activeSeriesCatName'",
+                                                    text = "No hay series disponibles",
                                                     color = Color.White,
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 18.sp
@@ -2311,10 +2312,10 @@ fun TvHomeScreen(
                                         ) { idx ->
                                             val series = pagedSeries[idx] ?: return@items
                                             val isFirstColumn = (idx % 6 == 0)
-                                            val cardModifier = if (isFirstColumn) {
-                                                Modifier.focusProperties { left = sidebarRequesters[4] }
-                                            } else {
-                                                Modifier
+                                            val cardModifier = when {
+                                                idx == 0 -> Modifier.focusRequester(contentFocusRequester).focusProperties { left = sidebarRequesters[4] }
+                                                isFirstColumn -> Modifier.focusProperties { left = sidebarRequesters[4] }
+                                                else -> Modifier
                                             }
 
                                             TvPosterCard(
