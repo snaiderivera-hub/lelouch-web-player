@@ -603,6 +603,10 @@ fun MobileHomeScreen(
         selectedTab = 0
     }
 
+    BackHandler(enabled = searchQuery.isNotEmpty() && selectedMovie == null && selectedSeries == null && !isPlayerFullscreen) {
+        searchQuery = ""
+    }
+
     // FASE 37/38: capas que deben consumir BACK antes de que actúe la navegación por pestañas.
     BackHandler(enabled = isHistoryVisible) {
         isHistoryVisible = false
@@ -703,7 +707,8 @@ fun MobileHomeScreen(
                             onReloadCatalog = onForceSync,
                             onOpenSettings = { selectedTab = 4 },
                             onOpenAccountSwitcher = { isAccountSwitcherOpen = true },
-                            onSearchClick = { selectedTab = 1 },
+                            searchQuery = searchQuery,
+                            onSearchChange = { searchQuery = it },
                             onSeeAllAnime = { isAnimeCatalogOpen = true }
                         )
                         1 -> MobileVodTab(
@@ -1586,7 +1591,8 @@ private fun MobileHomeTab(
     onReloadCatalog: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     onOpenAccountSwitcher: () -> Unit = onOpenSettings,
-    onSearchClick: () -> Unit = onSeeAllMovies,
+    searchQuery: String = "",
+    onSearchChange: (String) -> Unit = {},
     onSeeAllAnime: () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -1617,7 +1623,8 @@ private fun MobileHomeTab(
                 onReloadCatalog = onReloadCatalog,
                 onOpenSettings = onOpenSettings,
                 onOpenAccountSwitcher = onOpenAccountSwitcher,
-                onSearchClick = onSearchClick,
+                searchQuery = searchQuery,
+                onSearchChange = onSearchChange,
                 onSeeAllAnime = onSeeAllAnime,
                 liveChannels = liveChannels,
                 movies = movies,

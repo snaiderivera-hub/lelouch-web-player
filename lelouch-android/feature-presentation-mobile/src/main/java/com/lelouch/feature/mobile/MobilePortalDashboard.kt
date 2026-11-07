@@ -1,5 +1,10 @@
 package com.lelouch.feature.mobile
 
+import android.app.Activity
+import android.content.Intent
+import android.speech.RecognizerIntent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -9,8 +14,11 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -18,6 +26,7 @@ import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -27,8 +36,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -75,7 +87,9 @@ fun MobilePortalDashboard(
     onReloadCatalog: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenAccountSwitcher: () -> Unit = onOpenSettings,
-    onSearchClick: () -> Unit = onNavigateToMovies,
+    onSearchClick: () -> Unit = {},
+    searchQuery: String = "",
+    onSearchChange: (String) -> Unit = {},
     onSeeAllAnime: () -> Unit = {},
     modifier: Modifier = Modifier,
     liveChannels: List<LiveStream> = emptyList(),
@@ -290,154 +304,356 @@ fun MobilePortalDashboard(
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        // 2. BARRA DE BÚSQUEDA INTEGRADA TIPO PÍLDORA
+        // 2. BARRA DE BÚSQUEDA INTEGRADA TIPO PÍLDORA (INTERACTIVA CON VOZ)
         // ══════════════════════════════════════════════════════════════════════
+        val context = LocalContext.current
+        val voiceLauncher = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.StartActivityForResult()
+        ) { result ->
+            if (result.resultCode == Activity.RESULT_OK) {
+                val spokenText = result.data
+                    ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+                    ?.firstOrNull()
+                if (!spokenText.isNullOrBlank()) {
+                    onSearchChange(spokenText)
+                }
+            }
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 6.dp)
                 .clip(RoundedCornerShape(24.dp))
                 .background(Color(0xFF14161F))
-                .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(24.dp))
-                .clickable { onSearchClick() }
-                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .border(1.dp, if (searchQuery.isNotEmpty()) LelouchCyanAccent else Color.White.copy(alpha = 0.08f), RoundedCornerShape(24.dp))
+                .padding(horizontal = 14.dp, vertical = 8.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = Icons.Default.Search,
-                    contentDescription = null,
-                    tint = BixTextMuted,
+                    contentDescription = "Buscar",
+                    tint = if (searchQuery.isNotEmpty()) LelouchCyanAccent else BixTextMuted,
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(Modifier.width(10.dp))
-                Text(
-                    text = "Buscar películas, series o canales...",
-                    color = BixTextMuted,
-                    fontSize = 14.sp
+                BasicTextField(
+                    value = searchQuery,
+                    onValueChange = onSearchChange,
+                    singleLine = true,
+                    textStyle = TextStyle(
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    ),
+                    cursorBrush = SolidColor(LelouchCyanAccent),
+                    modifier = Modifier.weight(1f),
+                    decorationBox = { innerTextField ->
+                        if (searchQuery.isEmpty()) {
+                            Text(
+                                text = "Buscar películas, series o canales...",
+                                color = BixTextMuted,
+                                fontSize = 14.sp
+                            )
+                        }
+                        innerTextField()
+                    }
                 )
+                if (searchQuery.isNotEmpty()) {
+                    IconButton(
+                        onClick = { onSearchChange("") },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Limpiar",
+                            tint = LelouchTextSecondary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+                Spacer(Modifier.width(4.dp))
+                IconButton(
+                    onClick = {
+                        try {
+                            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                putExtra(RecognizerIntent.EXTRA_PROMPT, "Habla para buscar canales, películas o series...")
+                            }
+                            voiceLauncher.launch(intent)
+                        } catch (e: Exception) {
+                            android.widget.Toast.makeText(context, "Búsqueda por voz no disponible", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Mic,
+                        contentDescription = "Voz",
+                        tint = LelouchCyanAccent,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
         }
 
         Spacer(modifier = Modifier.height(18.dp))
 
-        // ══════════════════════════════════════════════════════════════════════
-        // 4. HERO CAROUSEL: TOP 10 MÁS RECIENTES (CAPTURA 1)
-        // ══════════════════════════════════════════════════════════════════════
-        if (topTenMovies.isNotEmpty()) {
-            MobileTopTenHeroCarousel(
-                topMovies = topTenMovies,
-                onMovieClick = onMovieClick,
-                onExploreClick = onNavigateToMovies,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(20.dp))
-        }
+        if (searchQuery.isNotBlank()) {
+            val q = searchQuery.trim()
+            val matchingChannels = remember(liveChannels, q) {
+                liveChannels.filter { it.name.contains(q, ignoreCase = true) || it.categoryName.contains(q, ignoreCase = true) }.take(25)
+            }
+            val matchingMovies = remember(movies, q) {
+                movies.filter { it.name.contains(q, ignoreCase = true) || it.categoryName.contains(q, ignoreCase = true) }.take(25)
+            }
+            val matchingSeries = remember(seriesList, q) {
+                seriesList.filter { it.name.contains(q, ignoreCase = true) || it.categoryName.contains(q, ignoreCase = true) }.take(25)
+            }
+            val totalResults = matchingChannels.size + matchingMovies.size + matchingSeries.size
 
-        // ══════════════════════════════════════════════════════════════════════
-        // 5. CARRIL HORIZONTAL 1: MEJORES PELÍCULAS DE LA SEMANA (CAPTURA 2)
-        // ══════════════════════════════════════════════════════════════════════
-        if (weeklyMovies.isNotEmpty()) {
-            CuratedSectionHeader(
-                title = "Mejores películas de la semana",
-                actionText = "VER TODO →",
-                onActionClick = onNavigateToMovies
-            )
-
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxWidth()
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
-                items(weeklyMovies) { movie ->
-                    CuratedPosterItem(
-                        title = movie.name,
-                        imageUrl = movie.streamIcon,
-                        onClick = { onMovieClick(movie) }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Resultados para \"$q\"",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "$totalResults encontrados",
+                        color = LelouchCyanAccent,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
                     )
                 }
-            }
 
-            Spacer(modifier = Modifier.height(24.dp))
-        }
+                if (totalResults == 0) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 40.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(text = "🔍", fontSize = 36.sp)
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                text = "Sin resultados para \"$q\"",
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = "Intenta con otro título o presiona el micrófono 🎤",
+                                color = BixTextMuted,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                } else {
+                    // Canales
+                    if (matchingChannels.isNotEmpty()) {
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            text = "📺 Canales en Vivo (${matchingChannels.size})",
+                            color = Color(0xFF00E5C9),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            items(matchingChannels) { ch ->
+                                NativeLiveStreamCard(
+                                    channel = ch,
+                                    onClick = { onChannelClick(ch.name, ch.streamUrl ?: "") }
+                                )
+                            }
+                        }
+                    }
 
-        // ══════════════════════════════════════════════════════════════════════
-        // 6. CARRIL HORIZONTAL 2: MEJORES SERIES DE LA SEMANA (CAPTURA 2)
-        // ══════════════════════════════════════════════════════════════════════
-        if (weeklySeries.isNotEmpty()) {
-            CuratedSectionHeader(
-                title = "Mejores series de la semana",
-                actionText = "VER TODO →",
-                onActionClick = onNavigateToSeries
-            )
+                    // Películas
+                    if (matchingMovies.isNotEmpty()) {
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            text = "🎬 Películas (${matchingMovies.size})",
+                            color = Color(0xFF00E5C9),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            items(matchingMovies) { movie ->
+                                CuratedPosterItem(
+                                    title = movie.name,
+                                    imageUrl = movie.streamIcon,
+                                    onClick = { onMovieClick(movie) }
+                                )
+                            }
+                        }
+                    }
 
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                items(weeklySeries) { series ->
-                    CuratedPosterItem(
-                        title = series.name,
-                        imageUrl = series.cover,
-                        onClick = { onSeriesClick(series) }
-                    )
+                    // Series
+                    if (matchingSeries.isNotEmpty()) {
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            text = "🎞️ Series (${matchingSeries.size})",
+                            color = Color(0xFF00E5C9),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            items(matchingSeries) { series ->
+                                CuratedPosterItem(
+                                    title = series.name,
+                                    imageUrl = series.cover,
+                                    onClick = { onSeriesClick(series) }
+                                )
+                            }
+                        }
+                    }
                 }
+                Spacer(Modifier.height(24.dp))
+            }
+        } else {
+            // ══════════════════════════════════════════════════════════════════════
+            // 4. HERO CAROUSEL: TOP 10 MÁS RECIENTES (CAPTURA 1)
+            // ══════════════════════════════════════════════════════════════════════
+            if (topTenMovies.isNotEmpty()) {
+                MobileTopTenHeroCarousel(
+                    topMovies = topTenMovies,
+                    onMovieClick = onMovieClick,
+                    onExploreClick = onNavigateToMovies,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(20.dp))
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
-        }
+            // ══════════════════════════════════════════════════════════════════════
+            // 5. CARRIL HORIZONTAL 1: MEJORES PELÍCULAS DE LA SEMANA (CAPTURA 2)
+            // ══════════════════════════════════════════════════════════════════════
+            if (weeklyMovies.isNotEmpty()) {
+                CuratedSectionHeader(
+                    title = "Mejores películas de la semana",
+                    actionText = "VER TODO →",
+                    onActionClick = onNavigateToMovies
+                )
 
-        // ══════════════════════════════════════════════════════════════════════
-        // 7. CARRIL HORIZONTAL 3: ANIME Y ANIMACIÓN (CAPTURA 2 / PETICIÓN USUARIO)
-        // ══════════════════════════════════════════════════════════════════════
-        if (animeRailItems.isNotEmpty()) {
-            CuratedSectionHeader(
-                title = "Anime y Animación",
-                actionText = "VER TODO →",
-                onActionClick = onSeeAllAnime
-            )
-
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                items(animeRailItems) { item ->
-                    CuratedPosterItem(
-                        title = item.title,
-                        imageUrl = item.imageUrl,
-                        onClick = item.onClick
-                    )
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(weeklyMovies) { movie ->
+                        CuratedPosterItem(
+                            title = movie.name,
+                            imageUrl = movie.streamIcon,
+                            onClick = { onMovieClick(movie) }
+                        )
+                    }
                 }
+
+                Spacer(modifier = Modifier.height(24.dp))
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
-        }
+            // ══════════════════════════════════════════════════════════════════════
+            // 6. CARRIL HORIZONTAL 2: MEJORES SERIES DE LA SEMANA (CAPTURA 2)
+            // ══════════════════════════════════════════════════════════════════════
+            if (weeklySeries.isNotEmpty()) {
+                CuratedSectionHeader(
+                    title = "Mejores series de la semana",
+                    actionText = "VER TODO →",
+                    onActionClick = onNavigateToSeries
+                )
 
-        // ══════════════════════════════════════════════════════════════════════
-        // 8. CARRIL HORIZONTAL 4: EN VIVO & DEPORTES
-        // ══════════════════════════════════════════════════════════════════════
-        if (liveChannels.isNotEmpty()) {
-            CuratedSectionHeader(
-                title = "En Vivo & Deportes",
-                actionText = "VER TODO →",
-                onActionClick = onNavigateToLive
-            )
-
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                items(liveChannels.take(15)) { channel ->
-                    NativeLiveStreamCard(
-                        channel = channel,
-                        onClick = { onChannelClick(channel.streamUrl, channel.name) }
-                    )
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(weeklySeries) { series ->
+                        CuratedPosterItem(
+                            title = series.name,
+                            imageUrl = series.cover,
+                            onClick = { onSeriesClick(series) }
+                        )
+                    }
                 }
+
+                Spacer(modifier = Modifier.height(24.dp))
             }
 
-            Spacer(modifier = Modifier.height(26.dp))
+            // ══════════════════════════════════════════════════════════════════════
+            // 7. CARRIL HORIZONTAL 3: ANIME Y ANIMACIÓN (CAPTURA 2 / PETICIÓN USUARIO)
+            // ══════════════════════════════════════════════════════════════════════
+            if (animeRailItems.isNotEmpty()) {
+                CuratedSectionHeader(
+                    title = "Anime y Animación",
+                    actionText = "VER TODO →",
+                    onActionClick = onSeeAllAnime
+                )
+
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(animeRailItems) { item ->
+                        CuratedPosterItem(
+                            title = item.title,
+                            imageUrl = item.imageUrl,
+                            onClick = item.onClick
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+            }
+
+            // ══════════════════════════════════════════════════════════════════════
+            // 8. CARRIL HORIZONTAL 4: EN VIVO & DEPORTES
+            // ══════════════════════════════════════════════════════════════════════
+            if (liveChannels.isNotEmpty()) {
+                CuratedSectionHeader(
+                    title = "En Vivo & Deportes",
+                    actionText = "VER TODO →",
+                    onActionClick = onNavigateToLive
+                )
+
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(liveChannels.take(15)) { channel ->
+                        NativeLiveStreamCard(
+                            channel = channel,
+                            onClick = { onChannelClick(channel.name, channel.streamUrl ?: "") }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(26.dp))
+            }
         }
     }
 }
