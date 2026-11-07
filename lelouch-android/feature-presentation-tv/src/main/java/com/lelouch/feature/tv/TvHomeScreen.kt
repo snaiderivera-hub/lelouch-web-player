@@ -1195,18 +1195,10 @@ fun TvHomeScreen(
         }
     }
 
-    // Auto-ocultar info badge HUD tras interacción
+    // Auto-ocultar info badge HUD tras 5 segundos de inactividad
     LaunchedEffect(isHudVisible) {
         if (isHudVisible) {
-            delay(120L)
-            try {
-                if (isPlayingLive) {
-                    hudFavoriteRequester.requestFocus()
-                } else {
-                    hudPlayPauseRequester.requestFocus()
-                }
-            } catch (_: Exception) {}
-            delay(6500)
+            delay(5000L)
             isHudVisible = false
         }
     }
@@ -1307,6 +1299,7 @@ fun TvHomeScreen(
                                     isHudVisible = true
                                     true
                                 } else {
+                                    isHudVisible = false
                                     true
                                 }
                             }
@@ -1327,47 +1320,40 @@ fun TvHomeScreen(
                                     isHudVisible = true
                                     true
                                 } else {
+                                    if (!isHudVisible) {
+                                        isHudVisible = true
+                                    } else {
+                                        try { hudFavoriteRequester.requestFocus() } catch (_: Exception) {}
+                                    }
                                     true
                                 }
                             }
                             KeyEvent.KEYCODE_DPAD_LEFT,
                             KeyEvent.KEYCODE_MEDIA_REWIND -> {
                                 if (isLiveStream) {
-                                    if (!isHudVisible) {
-                                        isHudVisible = true
-                                        true
-                                    } else {
-                                        false
-                                    }
-                                } else if (!isHudVisible) {
+                                    isHudVisible = !isHudVisible
+                                    true
+                                } else {
                                     val isRewindKey = keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_MEDIA_REWIND
                                     val offsetMs = if (isRewindKey) -30_000L else -10_000L
                                     playerEngine.seekBy(offsetMs)
                                     seekFeedbackText = if (isRewindKey) "⏪ -30s" else "⏪ -10s"
                                     isHudVisible = true
                                     true
-                                } else {
-                                    false
                                 }
                             }
                             KeyEvent.KEYCODE_DPAD_RIGHT,
                             KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
                                 if (isLiveStream) {
-                                    if (!isHudVisible) {
-                                        isHudVisible = true
-                                        true
-                                    } else {
-                                        false
-                                    }
-                                } else if (!isHudVisible) {
+                                    isHudVisible = !isHudVisible
+                                    true
+                                } else {
                                     val isFfKey = keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD
                                     val offsetMs = if (isFfKey) 30_000L else 10_000L
                                     playerEngine.seekBy(offsetMs)
                                     seekFeedbackText = if (isFfKey) "⏩ +30s" else "⏩ +10s"
                                     isHudVisible = true
                                     true
-                                } else {
-                                    false
                                 }
                             }
                             KeyEvent.KEYCODE_DPAD_CENTER,
@@ -1381,14 +1367,14 @@ fun TvHomeScreen(
                                 } else if (System.currentTimeMillis() - lastFullscreenEntryTime < 600L) {
                                     true
                                 } else {
-                                    if (!isHudVisible) {
-                                        // Contexto Player con controles ocultos: CENTER muestra controles
-                                        isHudVisible = true
-                                        true
+                                    if (isLiveStream) {
+                                        isHudVisible = !isHudVisible
                                     } else {
-                                        // Contexto Player con controles visibles: permite a los botones hijos (Surface) recibir el click
-                                        false
+                                        if (playbackState is PlaybackState.Playing) playerEngine.pause()
+                                        else playerEngine.resume()
+                                        isHudVisible = true
                                     }
+                                    true
                                 }
                             }
                             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
