@@ -69,6 +69,7 @@ fun TvPortalDashboard(
     onReloadCatalog: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenDiagnostics: () -> Unit,
+    onOpenAccountSwitcher: () -> Unit = onOpenSettings,
     onOpenCategoryFilter: () -> Unit = {},
     onNavigateToSearch: () -> Unit = {},
     onNavigateToFavorites: () -> Unit = {},
@@ -107,6 +108,7 @@ fun TvPortalDashboard(
             ?: visibleSeriesList.firstOrNull()
     }
 
+    val accountPillFocusRequester = remember { FocusRequester() }
     val headerFocusRequester = remember { FocusRequester() }
     val settingsFocusRequester = remember { FocusRequester() }
 
@@ -193,11 +195,63 @@ fun TvPortalDashboard(
                 }
             }
 
-            // Botones Circulares de Acceso Rápido: Lupa (Buscar) y Engranaje (Ajustes)
+            // Botones de Acceso Rápido y Selector de Cuenta Activa
             Row(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // 0. Pill Selector de Cuenta Activa con D-Pad
+                if (activeSource != null) {
+                    var isPillFocused by remember { mutableStateOf(false) }
+                    Surface(
+                        onClick = onOpenAccountSwitcher,
+                        modifier = Modifier
+                            .focusRequester(accountPillFocusRequester)
+                            .onFocusChanged { isPillFocused = it.isFocused }
+                            .focusProperties {
+                                right = headerFocusRequester
+                                down = heroPlayTarget
+                            },
+                        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(20.dp)),
+                        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+                        colors = ClickableSurfaceDefaults.colors(
+                            containerColor = Color(0xFF1A1C23),
+                            focusedContainerColor = Color(0xFFFF6B00).copy(alpha = 0.35f)
+                        ),
+                        border = ClickableSurfaceDefaults.border(
+                            border = Border(BorderStroke(1.dp, Color(0xFF334155))),
+                            focusedBorder = Border(BorderStroke(2.dp, Color(0xFFFF6B00)))
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF10B981))
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = activeSource.name,
+                                color = if (isPillFocused) Color.White else LelouchTextPrimary,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Cambiar ▼",
+                                color = Color(0xFFFF6B00),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+
                 // 1. Lupa (Buscar)
                 Surface(
                     onClick = onNavigateToSearch,
@@ -205,6 +259,7 @@ fun TvPortalDashboard(
                         .size(44.dp)
                         .focusRequester(headerFocusRequester)
                         .focusProperties {
+                            left = if (activeSource != null) accountPillFocusRequester else androidx.compose.ui.focus.FocusRequester.Cancel
                             right = settingsFocusRequester
                             down = heroPlayTarget
                         },

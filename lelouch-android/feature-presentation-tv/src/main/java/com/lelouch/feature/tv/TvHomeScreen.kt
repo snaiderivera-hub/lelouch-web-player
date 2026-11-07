@@ -225,6 +225,7 @@ fun TvHomeScreen(
     var isSearchModalVisible by remember { mutableStateOf(false) }
     var isEpgModalVisible by remember { mutableStateOf(false) }
     var isAdminModalVisible by remember { mutableStateOf(false) }
+    var isAccountSwitcherVisible by remember { mutableStateOf(false) }
     var isCategoryManagerVisible by remember { mutableStateOf(false) }
     var categoryManagerInitialScope by remember { mutableStateOf(CategoryScope.LIVE) }
     var isUpdateModalVisible by remember { mutableStateOf(false) }
@@ -1570,6 +1571,7 @@ fun TvHomeScreen(
                                         onReloadCatalog = { onForceSync() },
                                         onOpenSettings = { selectedTopTab = 7 },
                                         onOpenDiagnostics = { selectedTopTab = 7 },
+                                        onOpenAccountSwitcher = { isAccountSwitcherVisible = true },
                                         onOpenCategoryFilter = { isCategoryManagerVisible = true },
                                         onNavigateToSearch = { selectedTopTab = 0 },
                                         onNavigateToFavorites = { selectedTopTab = 5 },
@@ -1639,7 +1641,8 @@ fun TvHomeScreen(
                                         activeSource = activeSource,
                                         videoInfo = videoInfo,
                                         playbackState = playbackState,
-                                        onOpenAdmin = { selectedTopTab = 7 }
+                                        onOpenAdmin = { selectedTopTab = 7 },
+                                        onOpenAccountSwitcher = { isAccountSwitcherVisible = true }
                                     )
                                 }
 
@@ -1966,7 +1969,8 @@ fun TvHomeScreen(
                                         activeSource = activeSource,
                                         videoInfo = videoInfo,
                                         playbackState = playbackState,
-                                        onOpenAdmin = { selectedTopTab = 7 }
+                                        onOpenAdmin = { selectedTopTab = 7 },
+                                        onOpenAccountSwitcher = { isAccountSwitcherVisible = true }
                                     )
                                 }
 
@@ -2251,7 +2255,8 @@ fun TvHomeScreen(
                                         activeSource = activeSource,
                                         videoInfo = videoInfo,
                                         playbackState = playbackState,
-                                        onOpenAdmin = { selectedTopTab = 7 }
+                                        onOpenAdmin = { selectedTopTab = 7 },
+                                        onOpenAccountSwitcher = { isAccountSwitcherVisible = true }
                                     )
                                 }
 
@@ -3112,6 +3117,21 @@ fun TvHomeScreen(
                     isEpgModalVisible = false
                 },
                 onDismiss = { isEpgModalVisible = false }
+            )
+        }
+
+        // CAPA 7.5: Modal Rápido de Intercambio de Cuentas / Listas IPTV
+        if (isAccountSwitcherVisible) {
+            TvAccountSwitchModal(
+                activeSource = activeSource,
+                allSources = allSources,
+                onSelectSource = { src ->
+                    if (src.id != activeSource?.id) {
+                        onActivateSource(src.id)
+                    }
+                    isAccountSwitcherVisible = false
+                },
+                onDismiss = { isAccountSwitcherVisible = false }
             )
         }
 

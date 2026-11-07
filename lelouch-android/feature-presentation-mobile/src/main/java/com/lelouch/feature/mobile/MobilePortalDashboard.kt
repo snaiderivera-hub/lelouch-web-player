@@ -74,6 +74,7 @@ fun MobilePortalDashboard(
     onDownloadM3U: () -> Unit,
     onReloadCatalog: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenAccountSwitcher: () -> Unit = onOpenSettings,
     onSearchClick: () -> Unit = onNavigateToMovies,
     onSeeAllAnime: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -238,6 +239,33 @@ fun MobilePortalDashboard(
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1
                             )
+                        }
+                    }
+
+                    if (activeSource != null) {
+                        Spacer(Modifier.height(4.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFF1E202B))
+                                .border(1.dp, BixOrangeAccent.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                                .clickable { onOpenAccountSwitcher() }
+                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color(0xFF10B981)))
+                                Spacer(Modifier.width(5.dp))
+                                Text(
+                                    text = activeSource.name,
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Spacer(Modifier.width(5.dp))
+                                Text("Cambiar ▼", color = BixOrangeAccent, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }

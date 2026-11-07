@@ -49,6 +49,7 @@ fun HomeHeaderBar(
     videoInfo: VideoTrackInfo,
     playbackState: PlaybackState,
     onOpenAdmin: () -> Unit,
+    onOpenAccountSwitcher: () -> Unit = onOpenAdmin,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -61,7 +62,7 @@ fun HomeHeaderBar(
         // Active Source Pill (Clickable & Focusable)
         var isPillFocused by remember { mutableStateOf(false) }
         Surface(
-            onClick = onOpenAdmin,
+            onClick = onOpenAccountSwitcher,
             modifier = Modifier.onFocusChanged { isPillFocused = it.isFocused },
             shape = ClickableSurfaceDefaults.shape(
                 shape = RoundedCornerShape(20.dp),
@@ -97,7 +98,7 @@ fun HomeHeaderBar(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "Ajustes ▼",
+                    text = "Cambiar ▼",
                     color = LelouchCyanAccent,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold

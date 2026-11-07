@@ -470,6 +470,7 @@ fun MobileHomeScreen(
     var isDownloadsDialogOpen by remember { mutableStateOf(false) }
     var diagnosticsTargetSource by remember { mutableStateOf<SourceConfig?>(null) }
     var isAnimeCatalogOpen by remember { mutableStateOf(false) }
+    var isAccountSwitcherOpen by remember { mutableStateOf(false) }
 
     // Comprobación automática silenciosa de nueva versión al iniciar la app
     val updateContext = LocalContext.current
@@ -545,6 +546,24 @@ fun MobileHomeScreen(
         )
     }
 
+    if (isAccountSwitcherOpen) {
+        MobileAccountSwitchModal(
+            activeSource = activeSource,
+            allSources = allSources,
+            onSelectSource = { source ->
+                if (source.id != activeSource?.id) {
+                    onActivateSource(source.id)
+                }
+                isAccountSwitcherOpen = false
+            },
+            onOpenSettings = {
+                isAccountSwitcherOpen = false
+                selectedTab = 4
+            },
+            onDismiss = { isAccountSwitcherOpen = false }
+        )
+    }
+
     // BackHandler para anime, película y serie seleccionadas en vista completa
     BackHandler(enabled = isAnimeCatalogOpen && selectedMovie == null && selectedSeries == null && !isPlayerFullscreen) {
         isAnimeCatalogOpen = false
@@ -600,6 +619,7 @@ fun MobileHomeScreen(
                         searchQuery = searchQuery,
                         onSearchChange = { searchQuery = it },
                         onSettingsTap = { selectedTab = 4 },
+                        onOpenAccountSwitcher = { isAccountSwitcherOpen = true },
                         selectedTab = selectedTab,
                         onBackTap = { selectedTab = 0 }
                     )
@@ -658,6 +678,7 @@ fun MobileHomeScreen(
                             onSeeAllSeries = { selectedTab = 1 },
                             onReloadCatalog = onForceSync,
                             onOpenSettings = { selectedTab = 4 },
+                            onOpenAccountSwitcher = { isAccountSwitcherOpen = true },
                             onSearchClick = { selectedTab = 1 },
                             onSeeAllAnime = { isAnimeCatalogOpen = true }
                         )
@@ -1408,6 +1429,7 @@ fun MobileHomeScreen(
 private fun MobileTopBar(
     activeSource: SourceConfig?, showSearch: Boolean,
     searchQuery: String, onSearchChange: (String) -> Unit, onSettingsTap: () -> Unit,
+    onOpenAccountSwitcher: () -> Unit = onSettingsTap,
     selectedTab: Int = 0, onBackTap: () -> Unit = {}
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -1445,8 +1467,12 @@ private fun MobileTopBar(
                 if (activeSource != null) {
                     Spacer(Modifier.width(10.dp))
                     Box(
-                        modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(LelouchSurfaceVariant)
-                            .padding(horizontal = 8.dp, vertical = 3.dp) // Quitado clickable(onSettingsTap)
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(LelouchSurfaceVariant)
+                            .border(1.dp, LelouchCyanAccent.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                            .clickable { onOpenAccountSwitcher() }
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color(0xFF10B981)))
@@ -1465,6 +1491,8 @@ private fun MobileTopBar(
                                     maxLines = 1
                                 )
                             }
+                            Spacer(Modifier.width(4.dp))
+                            Text("▼", color = LelouchCyanAccent, fontSize = 8.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -1533,6 +1561,7 @@ private fun MobileHomeTab(
     onSeeAllMovies: () -> Unit, onSeeAllSeries: () -> Unit,
     onReloadCatalog: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
+    onOpenAccountSwitcher: () -> Unit = onOpenSettings,
     onSearchClick: () -> Unit = onSeeAllMovies,
     onSeeAllAnime: () -> Unit = {}
 ) {
@@ -1563,6 +1592,7 @@ private fun MobileHomeTab(
                 },
                 onReloadCatalog = onReloadCatalog,
                 onOpenSettings = onOpenSettings,
+                onOpenAccountSwitcher = onOpenAccountSwitcher,
                 onSearchClick = onSearchClick,
                 onSeeAllAnime = onSeeAllAnime,
                 liveChannels = liveChannels,
