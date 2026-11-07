@@ -11,6 +11,11 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- FASE 38: SSDP/DLNA necesita recibir multicast en la red local. -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <!-- Búsqueda por Voz interna para Android TV y Móvil -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-feature
+        android:name="android.hardware.microphone"
+        android:required="false" />
 
     <!-- Compatibilidad Híbrida: Teléfonos, Tablets y Android TV -->
     <uses-feature
@@ -19,6 +24,16 @@
     <uses-feature
         android:name="android.software.leanback"
         android:required="false" />
+
+    <!-- Queries para Reconocimiento de Voz nativo en Android TV (API 30+) -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <intent>
+            <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
+        </intent>
+    </queries>
 
     <application
         android:name=".LelouchApplication"

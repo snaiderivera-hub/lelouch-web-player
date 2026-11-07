@@ -34,6 +34,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.media3.ui.AspectRatioFrameLayout
 import com.lelouch.core.designsystem.LelouchBorder
 import com.lelouch.core.designsystem.LelouchCyanAccent
 import com.lelouch.core.designsystem.LelouchSurface
@@ -45,15 +46,20 @@ import com.lelouch.core.player.AUTO_VIDEO_TRACK_ID
 import com.lelouch.core.player.LelouchPlayerEngine
 
 /**
- * FASE 36 · Hoja inferior de pistas para móvil/tablet.
+ * FASE 36 & 37 · Hoja inferior de pistas y formato de pantalla para móvil/tablet.
  *
- * Misma semántica que [com.lelouch.feature.tv.components.TvTracksPanel]: calidad de video,
- * pista de audio y subtítulos (embebidos o externos).
+ * Permite cambiar:
+ * 1. Modo de Pantalla (Ajustar / Llenar Zoom / Estirar 16:9)
+ * 2. Calidad de video (o Auto)
+ * 3. Pista de audio
+ * 4. Subtítulos embebidos o externos
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MobileTracksSheet(
     engine: LelouchPlayerEngine,
+    currentResizeMode: Int = AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
+    onResizeModeChanged: ((Int) -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     val state by engine.trackSelection.collectAsState()
@@ -88,16 +94,40 @@ fun MobileTracksSheet(
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
-                .padding(bottom = 28.dp)
+                .padding(bottom = 32.dp)
         ) {
             Text(
-                text = "Pistas y subtítulos",
-                color = LelouchTextPrimary,
+                text = "Configuración de Pantalla y Pistas",
+                color = LelouchCyanAccent,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold
             )
             Spacer(modifier = Modifier.height(16.dp))
 
+            // ── MODO DE PANTALLA (FORMATO) ──
+            MobileSectionTitle("Modo de Pantalla")
+            MobileTrackRow(
+                title = "Ajustar (Original)",
+                subtitle = "Mantiene proporción original con barras",
+                isSelected = currentResizeMode == AspectRatioFrameLayout.RESIZE_MODE_FIT,
+                onClick = { onResizeModeChanged?.invoke(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
+            )
+            MobileTrackRow(
+                title = "Llenar Pantalla (Zoom)",
+                subtitle = "Ocupa toda la pantalla recortando bordes suaves",
+                isSelected = currentResizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
+                onClick = { onResizeModeChanged?.invoke(AspectRatioFrameLayout.RESIZE_MODE_ZOOM) }
+            )
+            MobileTrackRow(
+                title = "Estirar a Pantalla Completa (16:9)",
+                subtitle = "Estira al 100% sin barras negras ni recortes",
+                isSelected = currentResizeMode == AspectRatioFrameLayout.RESIZE_MODE_FILL,
+                onClick = { onResizeModeChanged?.invoke(AspectRatioFrameLayout.RESIZE_MODE_FILL) }
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // ── CALIDAD DE VIDEO ──
             MobileSectionTitle("Calidad de video")
             MobileTrackRow(
                 title = "Auto (adaptativo)",
@@ -114,9 +144,10 @@ fun MobileTracksSheet(
                 )
             }
 
+            // ── AUDIO ──
+            Spacer(modifier = Modifier.height(14.dp))
+            MobileSectionTitle("Audio / Idioma")
             if (state.audio.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(14.dp))
-                MobileSectionTitle("Audio")
                 state.audio.forEach { track ->
                     MobileTrackRow(
                         title = track.label,
@@ -125,8 +156,16 @@ fun MobileTracksSheet(
                         onClick = { engine.selectAudioTrack(track.id) }
                     )
                 }
+            } else {
+                MobileTrackRow(
+                    title = "Pista Principal (Original / Estéreo)",
+                    subtitle = "Audio nativo predeterminado del stream",
+                    isSelected = true,
+                    onClick = {}
+                )
             }
 
+            // ── SUBTÍTULOS ──
             Spacer(modifier = Modifier.height(14.dp))
             MobileSectionTitle("Subtítulos")
             MobileTrackRow(

@@ -68,6 +68,7 @@ import com.lelouch.core.network.StreamUrlResolver
 import com.lelouch.core.network.diagnostics.IptvDiagnostics
 import com.lelouch.core.network.dns.LelouchDnsManager
 import com.lelouch.core.player.LelouchVideoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
 import com.lelouch.core.player.PlayerGestureLayer
 import com.lelouch.core.player.rememberLelouchPlayer
 import androidx.compose.runtime.rememberCoroutineScope
@@ -405,13 +406,10 @@ fun MobileHomeScreen(
             } else null
         }
         val isEventCat = { name: String ->
-            name.contains("EVENTO", ignoreCase = true) ||
-            name.contains("PPV", ignoreCase = true) ||
-            name.contains("PRIME", ignoreCase = true) ||
-            name.contains("LALIGA", ignoreCase = true) ||
-            name.contains("CHAMPIONS", ignoreCase = true) ||
-            name.contains("DISNEY+", ignoreCase = true) ||
-            name.contains("VIX", ignoreCase = true)
+            name.contains("GUATEMALA", ignoreCase = true) ||
+            name.contains("GT |", ignoreCase = true) ||
+            name.contains("GT:", ignoreCase = true) ||
+            name.contains("[GT]", ignoreCase = true)
         }
         val combined = (fromDb + fromChannels)
             .filter { it.id != "all" && it.id != "events" && !it.name.equals("todos", ignoreCase = true) }
@@ -423,7 +421,7 @@ fun MobileHomeScreen(
         val result = mutableListOf<MobileCategoryItem>()
         result.add(MobileCategoryItem(id = "all", name = "Todos"))
         if (hasEvents) {
-            result.add(MobileCategoryItem(id = "events", name = "\u26BD Eventos del D\u00EDa"))
+            result.add(MobileCategoryItem(id = "events", name = "🇬🇹 Canales Guatemala (Eventos)"))
         }
         result.addAll(combined)
         result
@@ -869,6 +867,7 @@ fun MobileHomeScreen(
         if (isPlayerFullscreen && activeStreamUrl != null) {
             var isOverlayVisible by remember { mutableStateOf(true) }
             var isTracksSheetVisible by remember { mutableStateOf(false) }
+            var mobileResizeMode by remember { mutableStateOf(AspectRatioFrameLayout.RESIZE_MODE_ZOOM) }
 
             var skipIntervals by remember(activeContentMeta?.title, activeContentMeta?.episodeNumber) {
                 mutableStateOf<List<com.lelouch.core.network.anime.AnimeEnricher.SkipInterval>>(emptyList())
@@ -923,6 +922,7 @@ fun MobileHomeScreen(
                 LelouchVideoPlayer(
                     playerEngine = playerEngine,
                     isLive = isLivePlayback,
+                    resizeMode = if (isLivePlayback) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else mobileResizeMode,
                     modifier = Modifier.fillMaxSize()
                 )
 
@@ -940,6 +940,8 @@ fun MobileHomeScreen(
                 if (isTracksSheetVisible) {
                     MobileTracksSheet(
                         engine = playerEngine,
+                        currentResizeMode = mobileResizeMode,
+                        onResizeModeChanged = { mobileResizeMode = it },
                         onDismiss = { isTracksSheetVisible = false }
                     )
                 }
@@ -1070,6 +1072,7 @@ fun MobileHomeScreen(
                         is PlaybackState.Paused -> ps.positionMs to ps.durationMs
                         else -> 0L to 0L
                     }
+                    var draggingSeekPos by remember { mutableStateOf<Float?>(null) }
                     val isPlaying = playbackState is PlaybackState.Playing
 
                     val activeSkip = skipIntervals.firstOrNull { interval ->
@@ -1129,16 +1132,23 @@ fun MobileHomeScreen(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            val displayPos = draggingSeekPos?.toLong() ?: currentPos
                             Text(
-                                text = formatDuration(currentPos),
+                                text = formatDuration(displayPos),
                                 color = Color.White.copy(0.9f),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
                             Slider(
-                                value = if (totalDur > 0) currentPos.toFloat().coerceIn(0f, totalDur.toFloat()) else 0f,
+                                value = draggingSeekPos ?: (if (totalDur > 0) currentPos.toFloat().coerceIn(0f, totalDur.toFloat()) else 0f),
                                 onValueChange = { targetPos ->
-                                    playerEngine.seekTo(targetPos.toLong())
+                                    draggingSeekPos = targetPos
+                                },
+                                onValueChangeFinished = {
+                                    draggingSeekPos?.let { target ->
+                                        playerEngine.seekTo(target.toLong())
+                                    }
+                                    draggingSeekPos = null
                                 },
                                 valueRange = 0f..(if (totalDur > 0) totalDur.toFloat() else 1f),
                                 modifier = Modifier
@@ -1685,11 +1695,14 @@ private fun MobileLiveTab(
         "events" -> channels.filter { ch ->
             val cat = ch.categoryName
             val nm = ch.name
-            cat.contains("EVENTO", ignoreCase = true) || cat.contains("PPV", ignoreCase = true) ||
-            cat.contains("PRIME", ignoreCase = true) || cat.contains("LALIGA", ignoreCase = true) ||
-            cat.contains("CHAMPIONS", ignoreCase = true) || cat.contains("DISNEY+", ignoreCase = true) ||
-            cat.contains("VIX", ignoreCase = true) || nm.contains("PPV", ignoreCase = true) ||
-            nm.contains("EVENTO", ignoreCase = true)
+            cat.contains("GUATEMALA", ignoreCase = true) ||
+            nm.contains("GUATEMALA", ignoreCase = true) ||
+            cat.contains("GT |", ignoreCase = true) ||
+            nm.contains("GT |", ignoreCase = true) ||
+            cat.contains("GT:", ignoreCase = true) ||
+            nm.contains("GT:", ignoreCase = true) ||
+            cat.contains("[GT]", ignoreCase = true) ||
+            nm.contains("[GT]", ignoreCase = true)
         }
         else -> channels.filter {
             it.categoryId == selectedCategoryId ||

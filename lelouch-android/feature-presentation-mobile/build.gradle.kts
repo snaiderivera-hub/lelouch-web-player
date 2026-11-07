@@ -33,6 +33,7 @@ dependencies {
     implementation(project(":core:domain"))
     implementation(project(":core:network"))
     implementation(project(":core:player"))
+    implementation(libs.androidx.media3.ui)
 
 
     implementation(platform(libs.androidx.compose.bom))

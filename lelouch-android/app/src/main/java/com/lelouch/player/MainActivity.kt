@@ -49,6 +49,7 @@ class MainActivity : ComponentActivity() {
      */
     private var isInPictureInPicture by mutableStateOf(false)
     private var isPlaybackActive = false
+    private var isHardwareVoiceSearchRequested by mutableStateOf(false)
 
     private val pipSupported: Boolean
         get() = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O
@@ -374,7 +375,9 @@ class MainActivity : ComponentActivity() {
                                         effectiveActiveSource.password,
                                         seriesId
                                     )
-                                }
+                                },
+                                isHardwareVoiceSearch = isHardwareVoiceSearchRequested,
+                                onHardwareVoiceSearchConsumed = { isHardwareVoiceSearchRequested = false }
                             )
                         } else {
                             when (val bs = bootstrapState) {
@@ -568,6 +571,19 @@ class MainActivity : ComponentActivity() {
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         // Telemetría segura de teclas del control remoto Xiaomi (sin URLs ni credenciales)
         if (event.action == KeyEvent.ACTION_DOWN) {
+            if (isAndroidTvDevice() && (
+                event.keyCode == KeyEvent.KEYCODE_SEARCH ||
+                event.keyCode == KeyEvent.KEYCODE_VOICE_ASSIST ||
+                event.keyCode == KeyEvent.KEYCODE_ASSIST ||
+                event.keyCode == 219 ||
+                event.keyCode == 231 ||
+                event.keyCode == 84
+            )) {
+                android.util.Log.d("XIAOMI_REMOTE", "Hardware Voice/Search key intercepted: keyCode=${event.keyCode}")
+                isHardwareVoiceSearchRequested = true
+                return true
+            }
+
             val keyName = when (event.keyCode) {
                 KeyEvent.KEYCODE_DPAD_UP -> "DPAD_UP"
                 KeyEvent.KEYCODE_DPAD_DOWN -> "DPAD_DOWN"

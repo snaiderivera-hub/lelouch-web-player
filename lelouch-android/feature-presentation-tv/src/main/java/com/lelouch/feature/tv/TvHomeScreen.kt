@@ -200,7 +200,9 @@ fun TvHomeScreen(
     onRunDiagnostics: (suspend (SourceConfig, suspend (String) -> Unit) -> IptvDiagnostics.Report)? = null,
     onFetchSeriesDetails: (suspend (seriesId: Int) -> Pair<List<Int>, List<Episode>>)? = null,
     // FASE 37: historial y «continuar viendo». Si es null, la función queda desactivada.
-    playbackHistory: com.lelouch.core.domain.repository.PlaybackHistoryRepository? = null
+    playbackHistory: com.lelouch.core.domain.repository.PlaybackHistoryRepository? = null,
+    isHardwareVoiceSearch: Boolean = false,
+    onHardwareVoiceSearchConsumed: (() -> Unit)? = null
 ) {
     val playerEngine = rememberLelouchPlayer()
     val playbackState by playerEngine.playbackState.collectAsStateWithLifecycle()
@@ -299,6 +301,7 @@ fun TvHomeScreen(
     var isFullscreen by remember { mutableStateOf(false) }
     var isHudVisible by remember { mutableStateOf(false) }
     var isTracksPanelVisible by remember { mutableStateOf(false) }
+    var vodResizeMode by remember { mutableStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
 
     var isPlayingLive by remember { mutableStateOf(true) }
     var currentPlayingTitle by remember { mutableStateOf<String?>(null) }
@@ -306,6 +309,20 @@ fun TvHomeScreen(
     val hudPlayPauseRequester = remember { FocusRequester() }
     val hudFavoriteRequester = remember { FocusRequester() }
     var seekFeedbackText by remember { mutableStateOf<String?>(null) }
+    var pendingSeekTargetMs by remember { mutableStateOf<Long?>(null) }
+    var seekDebounceJob by remember { mutableStateOf<Job?>(null) }
+    var isVoiceSearchRequested by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isHardwareVoiceSearch) {
+        if (isHardwareVoiceSearch) {
+            if (isFullscreen) {
+                playerEngine.pause()
+            }
+            isVoiceSearchRequested = true
+            isSearchModalVisible = true
+            onHardwareVoiceSearchConsumed?.invoke()
+        }
+    }
     var channelInputBuffer by remember { mutableStateOf("") }
     var channelInputJob by remember { mutableStateOf<Job?>(null) }
     var movieSearchQuery by rememberSaveable { mutableStateOf("") }
@@ -524,7 +541,17 @@ fun TvHomeScreen(
             .filter { it.id !in hiddenLiveCategories && it.name !in hiddenLiveCategories }
             .filter { isAdultModeEnabled || !it.isAdult }
             .map { CategoryUiItem(id = it.id, name = it.name) }
-        listOf(CategoryUiItem(id = "all", name = "Todos")) + visibleCats
+        val guatemalaCat = visibleCats.firstOrNull {
+            it.name.contains("GUATEMALA", ignoreCase = true) || it.name.contains("GT", ignoreCase = true)
+        }
+        if (guatemalaCat != null) {
+            listOf(
+                CategoryUiItem(id = "all", name = "Todos"),
+                CategoryUiItem(id = guatemalaCat.id, name = "🇬🇹 Guatemala (Eventos)")
+            ) + visibleCats.filter { it.id != guatemalaCat.id }
+        } else {
+            listOf(CategoryUiItem(id = "all", name = "Todos")) + visibleCats
+        }
     }
     var selectedChannelCategoryId by remember { mutableStateOf("all") }
     val activeChannelCatName = remember(channelCategoryList, selectedChannelCategoryId) {
@@ -1195,11 +1222,27 @@ fun TvHomeScreen(
         }
     }
 
-    // Auto-ocultar info badge HUD tras 5 segundos de inactividad
-    LaunchedEffect(isHudVisible) {
+    // Auto-ocultar info badge HUD tras 6 segundos de inactividad y enfocar controles del HUD
+    LaunchedEffect(isHudVisible, isTracksPanelVisible) {
+        if (isTracksPanelVisible) return@LaunchedEffect
         if (isHudVisible) {
-            delay(5000L)
+            delay(120L)
+            try {
+                hudPlayPauseRequester.requestFocus()
+            } catch (_: Exception) {}
+            delay(6000L)
             isHudVisible = false
+            if (!isTracksPanelVisible) {
+                try {
+                    playerFocusRequester.requestFocus()
+                } catch (_: Exception) {}
+            }
+        } else {
+            if (!isTracksPanelVisible) {
+                try {
+                    playerFocusRequester.requestFocus()
+                } catch (_: Exception) {}
+            }
         }
     }
 
@@ -1329,30 +1372,64 @@ fun TvHomeScreen(
                                 }
                             }
                             KeyEvent.KEYCODE_DPAD_LEFT,
-                            KeyEvent.KEYCODE_MEDIA_REWIND -> {
+                            KeyEvent.KEYCODE_MEDIA_REWIND,
+                            KeyEvent.KEYCODE_MEDIA_SKIP_BACKWARD,
+                            KeyEvent.KEYCODE_MEDIA_STEP_BACKWARD,
+                            KeyEvent.KEYCODE_MEDIA_PREVIOUS,
+                            KeyEvent.KEYCODE_BUTTON_L1 -> {
                                 if (isLiveStream) {
                                     isHudVisible = !isHudVisible
                                     true
                                 } else {
-                                    val isRewindKey = keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_MEDIA_REWIND
-                                    val offsetMs = if (isRewindKey) -30_000L else -10_000L
-                                    playerEngine.seekBy(offsetMs)
-                                    seekFeedbackText = if (isRewindKey) "⏪ -30s" else "⏪ -10s"
+                                    val repeat = keyEvent.nativeKeyEvent.repeatCount
+                                    val basePos = pendingSeekTargetMs ?: playerEngine.currentPositionMs
+                                    val stepMs = if (repeat > 6) 60_000L else if (repeat > 2) 30_000L else 10_000L
+                                    val totalDur = playerEngine.durationMs
+                                    val target = (basePos - stepMs).coerceIn(0L, if (totalDur > 0L) totalDur else Long.MAX_VALUE)
+                                    pendingSeekTargetMs = target
+                                    val diffSec = (target - playerEngine.currentPositionMs) / 1000L
+                                    val sign = if (diffSec >= 0) "+" else ""
+                                    val posMin = (target / 1000) / 60
+                                    val posSec = (target / 1000) % 60
+                                    seekFeedbackText = String.format("⏪ %02d:%02d (%s%ds)", posMin, posSec, sign, diffSec)
                                     isHudVisible = true
+                                    seekDebounceJob?.cancel()
+                                    seekDebounceJob = coroutineScope.launch {
+                                        delay(400L)
+                                        playerEngine.seekTo(target)
+                                        pendingSeekTargetMs = null
+                                    }
                                     true
                                 }
                             }
                             KeyEvent.KEYCODE_DPAD_RIGHT,
-                            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
+                            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD,
+                            KeyEvent.KEYCODE_MEDIA_SKIP_FORWARD,
+                            KeyEvent.KEYCODE_MEDIA_STEP_FORWARD,
+                            KeyEvent.KEYCODE_MEDIA_NEXT,
+                            KeyEvent.KEYCODE_BUTTON_R1 -> {
                                 if (isLiveStream) {
                                     isHudVisible = !isHudVisible
                                     true
                                 } else {
-                                    val isFfKey = keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD
-                                    val offsetMs = if (isFfKey) 30_000L else 10_000L
-                                    playerEngine.seekBy(offsetMs)
-                                    seekFeedbackText = if (isFfKey) "⏩ +30s" else "⏩ +10s"
+                                    val repeat = keyEvent.nativeKeyEvent.repeatCount
+                                    val basePos = pendingSeekTargetMs ?: playerEngine.currentPositionMs
+                                    val stepMs = if (repeat > 6) 60_000L else if (repeat > 2) 30_000L else 10_000L
+                                    val totalDur = playerEngine.durationMs
+                                    val target = (basePos + stepMs).coerceIn(0L, if (totalDur > 0L) totalDur else Long.MAX_VALUE)
+                                    pendingSeekTargetMs = target
+                                    val diffSec = (target - playerEngine.currentPositionMs) / 1000L
+                                    val sign = if (diffSec >= 0) "+" else ""
+                                    val posMin = (target / 1000) / 60
+                                    val posSec = (target / 1000) % 60
+                                    seekFeedbackText = String.format("⏩ %02d:%02d (%s%ds)", posMin, posSec, sign, diffSec)
                                     isHudVisible = true
+                                    seekDebounceJob?.cancel()
+                                    seekDebounceJob = coroutineScope.launch {
+                                        delay(400L)
+                                        playerEngine.seekTo(target)
+                                        pendingSeekTargetMs = null
+                                    }
                                     true
                                 }
                             }
@@ -1370,12 +1447,28 @@ fun TvHomeScreen(
                                     if (isLiveStream) {
                                         isHudVisible = !isHudVisible
                                     } else {
-                                        if (playbackState is PlaybackState.Playing) playerEngine.pause()
-                                        else playerEngine.resume()
-                                        isHudVisible = true
+                                        if (!isHudVisible) {
+                                            isHudVisible = true
+                                        } else {
+                                            if (playbackState is PlaybackState.Playing) playerEngine.pause()
+                                            else playerEngine.resume()
+                                        }
                                     }
                                     true
                                 }
+                            }
+                            KeyEvent.KEYCODE_SEARCH,
+                            KeyEvent.KEYCODE_VOICE_ASSIST,
+                            KeyEvent.KEYCODE_ASSIST,
+                            219,
+                            231,
+                            84 -> {
+                                if (isFullscreen) {
+                                    playerEngine.pause()
+                                }
+                                isVoiceSearchRequested = true
+                                isSearchModalVisible = true
+                                true
                             }
                             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
                                 if (playbackState is PlaybackState.Playing) playerEngine.pause()
@@ -1393,7 +1486,12 @@ fun TvHomeScreen(
                             KeyEvent.KEYCODE_PROG_BLUE,
                             KeyEvent.KEYCODE_BUTTON_X -> {
                                 // FASE 36: abre/cierra el panel de pistas (calidad / audio / subtítulos)
-                                isTracksPanelVisible = !isTracksPanelVisible
+                                if (!isTracksPanelVisible) {
+                                    isHudVisible = false
+                                    isTracksPanelVisible = true
+                                } else {
+                                    isTracksPanelVisible = false
+                                }
                                 true
                             }
                             KeyEvent.KEYCODE_PROG_YELLOW,
@@ -1470,7 +1568,7 @@ fun TvHomeScreen(
                 LelouchVideoPlayer(
                     playerEngine = playerEngine,
                     modifier = Modifier.fillMaxSize(),
-                    resizeMode = if (isPlayingLive) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT,
+                    resizeMode = if (isPlayingLive) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else vodResizeMode,
                     isLive = isPlayingLive
                 )
             }
@@ -1598,7 +1696,10 @@ fun TvHomeScreen(
                                         onOpenDiagnostics = { selectedTopTab = 7 },
                                         onOpenAccountSwitcher = { isAccountSwitcherVisible = true },
                                         onOpenCategoryFilter = { isCategoryManagerVisible = true },
-                                        onNavigateToSearch = { selectedTopTab = 0 },
+                                        onNavigateToSearch = {
+                                            isVoiceSearchRequested = false
+                                            isSearchModalVisible = true
+                                        },
                                         onNavigateToFavorites = { selectedTopTab = 5 },
                                         visibleChannels = visibleChannels,
                                         visibleMovies = visibleMovies,
@@ -2001,7 +2102,10 @@ fun TvHomeScreen(
 
                                 // Barra de Búsqueda de Películas optimizada para TV Box con D-Pad y Voz
                                 Surface(
-                                    onClick = { selectedTopTab = 0 },
+                                    onClick = {
+                                        isVoiceSearchRequested = false
+                                        isSearchModalVisible = true
+                                    },
                                     shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
                                     scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
                                     colors = ClickableSurfaceDefaults.colors(
@@ -2264,7 +2368,10 @@ fun TvHomeScreen(
 
                                 // Barra de Búsqueda de Series optimizada para TV Box con D-Pad y Voz
                                 Surface(
-                                    onClick = { selectedTopTab = 0 },
+                                    onClick = {
+                                        isVoiceSearchRequested = false
+                                        isSearchModalVisible = true
+                                    },
                                     shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
                                     scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
                                     colors = ClickableSurfaceDefaults.colors(
@@ -2610,120 +2717,176 @@ fun TvHomeScreen(
 
                                         Spacer(modifier = Modifier.height(20.dp))
 
-                                        // 1. BARRA DE ACCIONES RÁPIDAS (ORGANIZADA EN 2 FILAS LIMPIAS PARA EVITAR DESBORDES)
-                                        Column(
+                                        // 1. SECCIÓN: GENERAL
+                                        Text(
+                                            text = "1. GENERAL",
+                                            color = Color(0xFFEF4444),
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = 12.sp,
+                                            letterSpacing = 1.2.sp,
+                                            modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 8.dp)
+                                        )
+                                        Row(
                                             modifier = Modifier.fillMaxWidth(),
-                                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                                         ) {
-                                            // Fila 1: Navegación y Preferencias
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                            ) {
-                                                ActionButton(
-                                                    icon = Icons.Default.ArrowBack,
-                                                    label = "Volver al Inicio",
-                                                    modifier = Modifier
-                                                        .focusRequester(contentFocusRequester)
-                                                        .focusProperties { left = sidebarRequesters[7] },
-                                                    onClick = { selectedTopTab = 1 }
-                                                )
-                                                ActionButton(
-                                                    icon = if (isAdultModeEnabled) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                                    label = if (isAdultModeEnabled) "Modo +18: ON" else "Modo +18: OFF",
-                                                    onClick = { toggleAdultMode(!isAdultModeEnabled) }
-                                                )
-                                                ActionButton(
-                                                    icon = Icons.Default.Refresh,
-                                                    label = "Actualizaciones",
-                                                    onClick = { isUpdateModalVisible = true }
-                                                )
-                                                ActionButton(
-                                                    icon = Icons.Default.FilterList,
-                                                    label = "Filtrar Categorías",
-                                                    onClick = { isCategoryManagerVisible = true }
-                                                )
-                                            }
+                                            ActionButton(
+                                                icon = Icons.Default.ArrowBack,
+                                                label = "Volver al Inicio",
+                                                modifier = Modifier
+                                                    .focusRequester(contentFocusRequester)
+                                                    .focusProperties { left = sidebarRequesters[7] },
+                                                onClick = { selectedTopTab = 1 }
+                                            )
+                                            ActionButton(
+                                                icon = if (isAdultModeEnabled) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                                label = if (isAdultModeEnabled) "Modo +18: ON" else "Modo +18: OFF",
+                                                onClick = { toggleAdultMode(!isAdultModeEnabled) }
+                                            )
+                                            ActionButton(
+                                                icon = Icons.Default.FilterList,
+                                                label = "Filtrar Categorías",
+                                                onClick = { isCategoryManagerVisible = true }
+                                            )
+                                            ActionButton(
+                                                icon = Icons.Default.Refresh,
+                                                label = "Actualizaciones",
+                                                onClick = { isUpdateModalVisible = true }
+                                            )
+                                        }
 
-                                            // Fila 2: Cuentas y Operaciones
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                            ) {
-                                                ActionButton(
-                                                    icon = Icons.Default.Add,
-                                                    label = "Gestionar Cuentas",
-                                                    onClick = { isAdminModalVisible = true }
-                                                )
-                                                ActionButton(
-                                                    icon = Icons.Default.CloudSync,
-                                                    label = "Sincronizar Nube",
-                                                    onClick = onSyncCloudSources
-                                                )
-                                                ActionButton(
-                                                    icon = Icons.Default.Refresh,
-                                                    label = "Recargar Catálogo",
-                                                    onClick = onForceSync
-                                                )
-                                                ActionButton(
-                                                    icon = Icons.Default.Logout,
-                                                    label = "Cerrar Sesión",
-                                                    isDanger = true,
-                                                    onClick = onLogout
-                                                )
-                                            }
+                                        Spacer(modifier = Modifier.height(20.dp))
 
-                                            // Fila 3: Motor Xuper (DNS, Aceleración HW+, OpenSL ES y Verificación de Ocupación)
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                            ) {
-                                                val dnsLabel = if (LelouchDnsManager.isEnabled()) {
-                                                    "DNS: ${LelouchDnsManager.getSelectedProvider().title} (ACTIVO)"
-                                                } else {
-                                                    "Selector DNS (Inactivo)"
+                                        // 2. SECCIÓN: DESCARGAS Y ALMACENAMIENTO
+                                        Text(
+                                            text = "2. DESCARGAS Y ALMACENAMIENTO",
+                                            color = Color(0xFFEF4444),
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = 12.sp,
+                                            letterSpacing = 1.2.sp,
+                                            modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 8.dp)
+                                        )
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                            ActionButton(
+                                                icon = Icons.Default.DeleteSweep,
+                                                label = "Limpiar Caché Local",
+                                                onClick = {
+                                                    android.widget.Toast.makeText(context, "🧹 Caché local de TV liberada correctamente", android.widget.Toast.LENGTH_SHORT).show()
                                                 }
-                                                ActionButton(
-                                                    icon = Icons.Default.Dns,
-                                                    label = dnsLabel,
-                                                    onClick = { isTvDnsModalVisible = true }
-                                                )
-                                                ActionButton(
-                                                    icon = Icons.Default.Memory,
-                                                    label = "Video: ${when (tvVideoDecoderMode) {
-                                                        LelouchDnsManager.VideoDecoderMode.HW_PLUS -> "HW+ (DirectSurface)"
-                                                        LelouchDnsManager.VideoDecoderMode.HW_ONLY -> "HW (Estándar)"
-                                                        LelouchDnsManager.VideoDecoderMode.SW_ONLY -> "SW (Software CPU)"
-                                                    }}",
-                                                    onClick = {
-                                                        val modes = LelouchDnsManager.VideoDecoderMode.entries
-                                                        val next = modes[(modes.indexOf(tvVideoDecoderMode) + 1) % modes.size]
-                                                        tvVideoDecoderMode = next
-                                                        LelouchDnsManager.setVideoDecoderMode(next)
-                                                    }
-                                                )
-                                                ActionButton(
-                                                    icon = Icons.Default.GraphicEq,
-                                                    label = "Audio: ${when (tvAudioEngineMode) {
-                                                        LelouchDnsManager.AudioEngineMode.OPENSL_ES -> "OpenSL ES (16-bit)"
-                                                        LelouchDnsManager.AudioEngineMode.AUDIOTRACK -> "AudioTrack"
-                                                    }}",
-                                                    onClick = {
-                                                        val modes = LelouchDnsManager.AudioEngineMode.entries
-                                                        val next = modes[(modes.indexOf(tvAudioEngineMode) + 1) % modes.size]
-                                                        tvAudioEngineMode = next
-                                                        LelouchDnsManager.setAudioEngineMode(next)
-                                                    }
-                                                )
-                                                ActionButton(
-                                                    icon = Icons.Default.VerifiedUser,
-                                                    label = "Verificar Fechas y Ocupación",
-                                                    onClick = onRefreshAccountsStatus
-                                                )
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.height(20.dp))
+
+                                        // 3. SECCIÓN: REPRODUCCIÓN Y MOTOR LELOUCH
+                                        Text(
+                                            text = "3. REPRODUCCIÓN Y MOTOR LELOUCH",
+                                            color = Color(0xFFEF4444),
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = 12.sp,
+                                            letterSpacing = 1.2.sp,
+                                            modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 8.dp)
+                                        )
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                            val dnsLabel = if (LelouchDnsManager.isEnabled()) {
+                                                "DNS: ${LelouchDnsManager.getSelectedProvider().title} (ACTIVO)"
+                                            } else {
+                                                "Selector DNS (Inactivo)"
                                             }
+                                            ActionButton(
+                                                icon = Icons.Default.Dns,
+                                                label = dnsLabel,
+                                                onClick = { isTvDnsModalVisible = true }
+                                            )
+                                            ActionButton(
+                                                icon = Icons.Default.Memory,
+                                                label = "Video: ${when (tvVideoDecoderMode) {
+                                                    LelouchDnsManager.VideoDecoderMode.HW_PLUS -> "HW+ (DirectSurface)"
+                                                    LelouchDnsManager.VideoDecoderMode.HW_ONLY -> "HW (Estándar)"
+                                                    LelouchDnsManager.VideoDecoderMode.SW_ONLY -> "SW (Software CPU)"
+                                                }}",
+                                                onClick = {
+                                                    val modes = LelouchDnsManager.VideoDecoderMode.entries
+                                                    val next = modes[(modes.indexOf(tvVideoDecoderMode) + 1) % modes.size]
+                                                    tvVideoDecoderMode = next
+                                                    LelouchDnsManager.setVideoDecoderMode(next)
+                                                }
+                                            )
+                                            ActionButton(
+                                                icon = Icons.Default.GraphicEq,
+                                                label = "Audio: ${when (tvAudioEngineMode) {
+                                                    LelouchDnsManager.AudioEngineMode.OPENSL_ES -> "OpenSL ES (16-bit)"
+                                                    LelouchDnsManager.AudioEngineMode.AUDIOTRACK -> "AudioTrack"
+                                                }}",
+                                                onClick = {
+                                                    val modes = LelouchDnsManager.AudioEngineMode.entries
+                                                    val next = modes[(modes.indexOf(tvAudioEngineMode) + 1) % modes.size]
+                                                    tvAudioEngineMode = next
+                                                    LelouchDnsManager.setAudioEngineMode(next)
+                                                }
+                                            )
+                                            ActionButton(
+                                                icon = Icons.Default.VerifiedUser,
+                                                label = "Verificar Ocupación",
+                                                onClick = onRefreshAccountsStatus
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.height(20.dp))
+
+                                        // 4. SECCIÓN: CUENTAS IPTV Y NUBE
+                                        Text(
+                                            text = "4. CUENTAS IPTV Y NUBE",
+                                            color = Color(0xFFEF4444),
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = 12.sp,
+                                            letterSpacing = 1.2.sp,
+                                            modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 8.dp)
+                                        )
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                            ActionButton(
+                                                icon = Icons.Default.Add,
+                                                label = "Gestionar Cuentas",
+                                                onClick = { isAdminModalVisible = true }
+                                            )
+                                            ActionButton(
+                                                icon = Icons.Default.CloudSync,
+                                                label = "Sincronizar Nube",
+                                                onClick = onSyncCloudSources
+                                            )
+                                            ActionButton(
+                                                icon = Icons.Default.Refresh,
+                                                label = "Recargar Catálogo",
+                                                onClick = onForceSync
+                                            )
+                                            ActionButton(
+                                                icon = Icons.Default.Logout,
+                                                label = "Cerrar Sesión",
+                                                isDanger = true,
+                                                onClick = onLogout
+                                            )
                                         }
 
                                         Spacer(modifier = Modifier.height(24.dp))
+
+                                        // 5. SECCIÓN: DIAGNÓSTICO Y ESTADO DE RED
+                                        Text(
+                                            text = "5. DIAGNÓSTICO Y ESTADO DE RED",
+                                            color = Color(0xFFEF4444),
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = 12.sp,
+                                            letterSpacing = 1.2.sp,
+                                            modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 8.dp)
+                                        )
 
                                         // 🩺 DIAGNÓSTICO DE REPRODUCCIÓN (Mantenido intacto)
                                         TvDiagnosticsSection(
@@ -3043,7 +3206,10 @@ fun TvHomeScreen(
                             }
 
                             Surface(
-                                onClick = { isTracksPanelVisible = true },
+                                onClick = {
+                                    isHudVisible = false
+                                    isTracksPanelVisible = true
+                                },
                                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
                                 scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
                                 colors = ClickableSurfaceDefaults.colors(
@@ -3111,6 +3277,15 @@ fun TvHomeScreen(
                         }
                     }
                 } else {
+                    val posMs = pendingSeekTargetMs
+                        ?: (playbackState as? PlaybackState.Playing)?.positionMs
+                        ?: (playbackState as? PlaybackState.Paused)?.positionMs ?: 0L
+                    val durMs = (playbackState as? PlaybackState.Playing)?.durationMs
+                        ?: (playbackState as? PlaybackState.Paused)?.durationMs ?: 0L
+                    val posMin = (posMs / 1000) / 60
+                    val posSec = (posMs / 1000) % 60
+                    val durMin = (durMs / 1000) / 60
+                    val durSec = (durMs / 1000) % 60
                     Column {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -3172,17 +3347,9 @@ fun TvHomeScreen(
                                     fontWeight = FontWeight.Bold
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
-                                val posMs = (playbackState as? PlaybackState.Playing)?.positionMs
-                                    ?: (playbackState as? PlaybackState.Paused)?.positionMs ?: 0L
-                                val durMs = (playbackState as? PlaybackState.Playing)?.durationMs
-                                    ?: (playbackState as? PlaybackState.Paused)?.durationMs ?: 0L
-                                val posMin = (posMs / 1000) / 60
-                                val posSec = (posMs / 1000) % 60
-                                val durMin = (durMs / 1000) / 60
-                                val durSec = (durMs / 1000) % 60
                                 Text(
                                     text = String.format("%02d:%02d / %02d:%02d", posMin, posSec, durMin, durSec),
-                                    color = LelouchTextSecondary,
+                                    color = if (pendingSeekTargetMs != null) LelouchCyanAccent else LelouchTextSecondary,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.SemiBold
                                 )
@@ -3191,10 +3358,6 @@ fun TvHomeScreen(
 
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        val posMs = (playbackState as? PlaybackState.Playing)?.positionMs
-                            ?: (playbackState as? PlaybackState.Paused)?.positionMs ?: 0L
-                        val durMs = (playbackState as? PlaybackState.Playing)?.durationMs
-                            ?: (playbackState as? PlaybackState.Paused)?.durationMs ?: 0L
                         val progress = if (durMs > 0L) (posMs.toFloat() / durMs.toFloat()).coerceIn(0f, 1f) else 0f
 
                         Box(
@@ -3216,7 +3379,15 @@ fun TvHomeScreen(
                         Spacer(modifier = Modifier.height(14.dp))
 
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .onKeyEvent { event ->
+                                    if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                                        isHudVisible = false
+                                        try { playerFocusRequester.requestFocus() } catch (_: Exception) {}
+                                        true
+                                    } else false
+                                },
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -3373,7 +3544,10 @@ fun TvHomeScreen(
 
                             // 💬 Audio / Subtítulos
                             Surface(
-                                onClick = { isTracksPanelVisible = true },
+                                onClick = {
+                                    isHudVisible = false
+                                    isTracksPanelVisible = true
+                                },
                                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
                                 scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
                                 colors = ClickableSurfaceDefaults.colors(
@@ -3450,21 +3624,34 @@ fun TvHomeScreen(
         if (isFullscreen && isTracksPanelVisible) {
             TvTracksPanel(
                 engine = playerEngine,
-                onDismiss = { isTracksPanelVisible = false }
+                currentResizeMode = vodResizeMode,
+                onResizeModeChanged = { vodResizeMode = it },
+                onDismiss = {
+                    isTracksPanelVisible = false
+                    try {
+                        playerFocusRequester.requestFocus()
+                    } catch (_: Exception) {}
+                }
             )
         }
 
-        // CAPA 6: Modal de Búsqueda FTS5 Instantánea
+        // CAPA 6: Modal de Búsqueda FTS5 Instantánea con Teclado D-Pad y Voz
         if (isSearchModalVisible) {
             TvSearchModal(
                 channels = liveChannels,
                 movies = movies,
                 seriesList = seriesList,
+                channelRepository = channelRepository,
+                vodRepository = vodRepository,
+                seriesRepository = seriesRepository,
+                activeSourceId = activeSource?.id,
+                initialVoiceSearch = isVoiceSearchRequested,
                 onSelectChannel = { channel ->
                     val idx = visibleChannels.indexOfFirst { it.streamId == channel.streamId }
                     if (idx >= 0) focusedChannelIndex = idx
-                    selectedTopTab = 1
+                    selectedTopTab = 2
                     isSearchModalVisible = false
+                    isVoiceSearchRequested = false
                 },
                 onSelectMovie = { movie ->
                     activeDetailMedia = MediaDetailUiModel(
@@ -3482,12 +3669,17 @@ fun TvHomeScreen(
                         isFavorite = movie.isFavorite
                     )
                     isSearchModalVisible = false
+                    isVoiceSearchRequested = false
                 },
                 onSelectSeries = { series ->
                     openSeriesDetails(series)
                     isSearchModalVisible = false
+                    isVoiceSearchRequested = false
                 },
-                onDismiss = { isSearchModalVisible = false }
+                onDismiss = {
+                    isSearchModalVisible = false
+                    isVoiceSearchRequested = false
+                }
             )
         }
 

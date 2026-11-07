@@ -11,6 +11,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -20,10 +21,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -45,6 +44,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.tv.foundation.lazy.list.TvLazyColumn
+import androidx.tv.foundation.lazy.list.items
 import com.lelouch.core.designsystem.LelouchBorder
 import com.lelouch.core.designsystem.LelouchCardFocused
 import com.lelouch.core.designsystem.LelouchCyanAccent
@@ -57,16 +59,16 @@ import com.lelouch.core.player.AUTO_VIDEO_TRACK_ID
 import com.lelouch.core.player.LelouchPlayerEngine
 
 /**
- * FASE 36 · Panel de pistas para Android TV (D-pad).
+ * FASE 36 & 37 · Panel de pistas y formato de pantalla para Android TV (D-pad).
  *
- * Permite cambiar calidad de video (o volver a Auto/ABR), pista de audio y subtítulos
- * embebidos, además de cargar un subtítulo externo (`.srt`, `.vtt`, `.ass`, `.ttml`).
- *
- * Se abre con el botón AZUL del control remoto y se cierra con BACK o el mismo botón.
+ * Utiliza [TvLazyColumn] nativo de Android TV para garantizar un desplazamiento fluido
+ * y retención inquebrantable de foco con el control remoto (no pierde el cursor al bajar).
  */
 @Composable
 fun TvTracksPanel(
     engine: LelouchPlayerEngine,
+    currentResizeMode: Int = AspectRatioFrameLayout.RESIZE_MODE_FIT,
+    onResizeModeChanged: ((Int) -> Unit)? = null,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -85,7 +87,7 @@ fun TvTracksPanel(
                     Intent.FLAG_GRANT_READ_URI_PERMISSION
                 )
             } catch (_: Exception) {
-                // Algunos proveedores no conceden permiso persistente; el subtítulo sigue válido en esta sesión.
+                // Permiso no persistente: el subtítulo sigue válido en esta sesión.
             }
             engine.addExternalSubtitle(uri.toString())
         }
@@ -94,17 +96,16 @@ fun TvTracksPanel(
     BackHandler { onDismiss() }
 
     LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(100L)
         try {
             firstRowFocus.requestFocus()
-        } catch (_: Exception) {
-            // El árbol de foco puede no estar listo en el primer frame; el usuario puede navegar con D-pad.
-        }
+        } catch (_: Exception) {}
     }
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.55f))
+            .background(Color.Black.copy(alpha = 0.65f))
             .onKeyEvent { keyEvent ->
                 if (keyEvent.type != KeyEventType.KeyDown) return@onKeyEvent false
                 when (keyEvent.nativeKeyEvent.keyCode) {
@@ -119,103 +120,185 @@ fun TvTracksPanel(
             },
         contentAlignment = Alignment.CenterEnd
     ) {
-        Column(
+        Box(
             modifier = Modifier
-                .width(470.dp)
+                .width(490.dp)
                 .fillMaxHeight()
                 .background(LelouchSurface.copy(alpha = 0.98f))
-                .padding(horizontal = 24.dp, vertical = 22.dp)
-                .verticalScroll(rememberScrollState())
+                .border(width = 1.dp, color = LelouchCyanAccent.copy(alpha = 0.35f))
         ) {
-            Text(
-                text = "PISTAS Y SUBTÍTULOS",
-                color = LelouchCyanAccent,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Black
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "Calidad de video · Audio · Subtítulos",
-                color = LelouchTextMuted,
-                fontSize = 12.sp
-            )
-            Spacer(modifier = Modifier.height(18.dp))
+            TvLazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 24.dp),
+                contentPadding = PaddingValues(top = 22.dp, bottom = 28.dp)
+            ) {
+                // ── CABECERA ──
+                item {
+                    Text(
+                        text = "CONFIGURACIÓN DE REPRODUCCIÓN",
+                        color = LelouchCyanAccent,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Formato de pantalla · Calidad · Audio · Subtítulos",
+                        color = LelouchTextMuted,
+                        fontSize = 12.sp
+                    )
+                    Spacer(modifier = Modifier.height(18.dp))
+                }
 
-            SectionTitle("Calidad de video")
-            TrackRow(
-                title = "Auto (adaptativo)",
-                subtitle = "Ajusta la resolución al ancho de banda disponible",
-                isSelected = state.autoVideoSelected,
-                focusRequester = firstRowFocus,
-                onClick = { engine.selectVideoTrack(AUTO_VIDEO_TRACK_ID) }
-            )
-            state.video.forEach { track ->
-                TrackRow(
-                    title = track.label,
-                    subtitle = track.secondaryLabel,
-                    isSelected = !state.autoVideoSelected && track.isSelected,
-                    onClick = { engine.selectVideoTrack(track.id) }
-                )
-            }
-            if (state.video.isEmpty()) {
-                EmptyHint("El stream no declara variantes de video seleccionables.")
-            }
+                // ── SECCIÓN 1: MODO DE PANTALLA (FORMATO) ──
+                item {
+                    SectionTitle("Modo de Pantalla")
+                }
+                item {
+                    TrackRow(
+                        title = "Ajustar (Original)",
+                        subtitle = "Proporción original con barras si corresponde",
+                        isSelected = currentResizeMode == AspectRatioFrameLayout.RESIZE_MODE_FIT,
+                        focusRequester = firstRowFocus,
+                        isFirstItem = true,
+                        onClick = { onResizeModeChanged?.invoke(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
+                    )
+                }
+                item {
+                    TrackRow(
+                        title = "Llenar Pantalla (Zoom)",
+                        subtitle = "Ocupa toda la pantalla sin distorsión (recorte suave)",
+                        isSelected = currentResizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
+                        onClick = { onResizeModeChanged?.invoke(AspectRatioFrameLayout.RESIZE_MODE_ZOOM) }
+                    )
+                }
+                item {
+                    TrackRow(
+                        title = "Estirar a Pantalla Completa (16:9)",
+                        subtitle = "Estira al 100% de la pantalla eliminando barras negras",
+                        isSelected = currentResizeMode == AspectRatioFrameLayout.RESIZE_MODE_FILL,
+                        onClick = { onResizeModeChanged?.invoke(AspectRatioFrameLayout.RESIZE_MODE_FILL) }
+                    )
+                }
 
-            if (state.audio.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(14.dp))
-                SectionTitle("Audio")
-                state.audio.forEach { track ->
+                // ── SECCIÓN 2: CALIDAD DE VIDEO ──
+                item {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    SectionTitle("Calidad de video")
+                }
+                item {
+                    TrackRow(
+                        title = "Auto (adaptativo)",
+                        subtitle = "Ajusta la resolución al ancho de banda disponible",
+                        isSelected = state.autoVideoSelected,
+                        onClick = { engine.selectVideoTrack(AUTO_VIDEO_TRACK_ID) }
+                    )
+                }
+                items(state.video) { track ->
                     TrackRow(
                         title = track.label,
                         subtitle = track.secondaryLabel,
-                        isSelected = track.isSelected,
-                        onClick = { engine.selectAudioTrack(track.id) }
+                        isSelected = !state.autoVideoSelected && track.isSelected,
+                        onClick = { engine.selectVideoTrack(track.id) }
                     )
                 }
-            }
+                if (state.video.isEmpty()) {
+                    item {
+                        EmptyHint("El stream no declara variantes de video seleccionables.")
+                    }
+                }
 
-            Spacer(modifier = Modifier.height(14.dp))
-            SectionTitle("Subtítulos")
-            TrackRow(
-                title = "Desactivados",
-                subtitle = null,
-                isSelected = !state.subtitlesEnabled,
-                onClick = { engine.selectSubtitleTrack(null) }
-            )
-            state.subtitles.forEach { track ->
-                TrackRow(
-                    title = track.label,
-                    subtitle = track.secondaryLabel,
-                    isSelected = state.subtitlesEnabled && track.isSelected,
-                    onClick = { engine.selectSubtitleTrack(track.id) }
-                )
-            }
-            TrackRow(
-                title = "Cargar archivo externo…",
-                subtitle = ".srt · .vtt · .ass · .ttml",
-                isSelected = false,
-                onClick = {
-                    subtitlePicker.launch(
-                        arrayOf(
-                            "application/x-subrip",
-                            "text/vtt",
-                            "text/plain",
-                            "application/octet-stream",
-                            "*/*"
+                // ── SECCIÓN 3: PISTAS DE AUDIO ──
+                item {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    SectionTitle("Audio / Idioma")
+                }
+                if (state.audio.isNotEmpty()) {
+                    items(state.audio) { track ->
+                        TrackRow(
+                            title = track.label,
+                            subtitle = track.secondaryLabel,
+                            isSelected = track.isSelected,
+                            onClick = { engine.selectAudioTrack(track.id) }
                         )
+                    }
+                } else {
+                    item {
+                        TrackRow(
+                            title = "Pista Principal (Original / Estéreo)",
+                            subtitle = "Pista de audio nativa predeterminada del stream",
+                            isSelected = true,
+                            onClick = {}
+                        )
+                    }
+                }
+
+                // ── SECCIÓN 4: SUBTÍTULOS ──
+                item {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    SectionTitle("Subtítulos")
+                }
+                item {
+                    TrackRow(
+                        title = "Desactivados",
+                        subtitle = null,
+                        isSelected = !state.subtitlesEnabled,
+                        onClick = { engine.selectSubtitleTrack(null) }
                     )
                 }
-            )
-            if (state.subtitles.isEmpty()) {
-                EmptyHint("Este contenido no incluye subtítulos embebidos; puedes cargar uno externo.")
-            }
+                items(state.subtitles) { track ->
+                    TrackRow(
+                        title = track.label,
+                        subtitle = track.secondaryLabel,
+                        isSelected = state.subtitlesEnabled && track.isSelected,
+                        onClick = { engine.selectSubtitleTrack(track.id) }
+                    )
+                }
+                item {
+                    TrackRow(
+                        title = "Cargar archivo externo…",
+                        subtitle = ".srt · .vtt · .ass · .ttml",
+                        isSelected = false,
+                        onClick = {
+                            subtitlePicker.launch(
+                                arrayOf(
+                                    "application/x-subrip",
+                                    "text/vtt",
+                                    "text/plain",
+                                    "application/octet-stream",
+                                    "*/*"
+                                )
+                            )
+                        }
+                    )
+                }
+                if (state.subtitles.isEmpty()) {
+                    item {
+                        EmptyHint("Este contenido no incluye subtítulos embebidos; puedes cargar uno externo.")
+                    }
+                }
 
-            Spacer(modifier = Modifier.height(20.dp))
-            Text(
-                text = "BACK o AZUL: cerrar panel",
-                color = LelouchTextMuted,
-                fontSize = 11.sp
-            )
+                // ── SECCIÓN 5: BOTÓN DE CIERRE (BLINDAJE DE FOCO) ──
+                item {
+                    Spacer(modifier = Modifier.height(24.dp))
+                    TrackRow(
+                        title = "✕ CERRAR PANEL",
+                        subtitle = "Volver a la reproducción",
+                        isSelected = false,
+                        isLastItem = true,
+                        onClick = { onDismiss() }
+                    )
+                }
+
+                item {
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text(
+                        text = "BACK o AZUL: cerrar panel",
+                        color = LelouchTextMuted,
+                        fontSize = 11.sp
+                    )
+                }
+            }
         }
     }
 }
@@ -242,8 +325,8 @@ private fun EmptyHint(text: String) {
 }
 
 /**
- * Fila enfocable optimizada para D-pad. El foco se dibuja con borde cian y fondo elevado,
- * siguiendo el lenguaje visual del resto de la app.
+ * Fila enfocable optimizada para D-pad con retención estricta de límites.
+ * El foco se dibuja con borde blanco brillante y fondo cian elevado.
  */
 @Composable
 private fun TrackRow(
@@ -251,6 +334,8 @@ private fun TrackRow(
     subtitle: String?,
     isSelected: Boolean,
     focusRequester: FocusRequester? = null,
+    isFirstItem: Boolean = false,
+    isLastItem: Boolean = false,
     onClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
@@ -261,6 +346,16 @@ private fun TrackRow(
             .padding(vertical = 3.dp)
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .onFocusChanged { isFocused = it.isFocused }
+            .onKeyEvent { keyEvent ->
+                if (keyEvent.type != KeyEventType.KeyDown) return@onKeyEvent false
+                val code = keyEvent.nativeKeyEvent.keyCode
+                when {
+                    isFirstItem && code == KeyEvent.KEYCODE_DPAD_UP -> true
+                    isLastItem && code == KeyEvent.KEYCODE_DPAD_DOWN -> true
+                    code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT -> true
+                    else -> false
+                }
+            }
             .clickable { onClick() }
             .background(
                 color = when {
@@ -271,10 +366,10 @@ private fun TrackRow(
                 shape = RoundedCornerShape(9.dp)
             )
             .border(
-                width = if (isFocused) 2.dp else 1.dp,
+                width = if (isFocused) 2.5.dp else 1.dp,
                 color = when {
-                    isFocused -> LelouchCyanAccent
-                    isSelected -> LelouchCyanAccent.copy(alpha = 0.45f)
+                    isFocused -> Color.White
+                    isSelected -> LelouchCyanAccent.copy(alpha = 0.5f)
                     else -> LelouchBorder
                 },
                 shape = RoundedCornerShape(9.dp)
@@ -286,7 +381,11 @@ private fun TrackRow(
             modifier = Modifier
                 .size(10.dp)
                 .background(
-                    color = if (isSelected) LelouchCyanAccent else LelouchBorder,
+                    color = when {
+                        isSelected -> LelouchCyanAccent
+                        isFocused -> Color.White
+                        else -> LelouchBorder
+                    },
                     shape = CircleShape
                 )
         )
@@ -297,14 +396,18 @@ private fun TrackRow(
         ) {
             Text(
                 text = title,
-                color = if (isFocused || isSelected) LelouchTextPrimary else LelouchTextSecondary,
+                color = when {
+                    isFocused -> Color.White
+                    isSelected -> LelouchTextPrimary
+                    else -> LelouchTextSecondary
+                },
                 fontSize = 15.sp,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                fontWeight = if (isFocused || isSelected) FontWeight.Bold else FontWeight.Medium
             )
             if (!subtitle.isNullOrBlank()) {
                 Text(
                     text = subtitle,
-                    color = LelouchTextMuted,
+                    color = if (isFocused) Color.White.copy(alpha = 0.85f) else LelouchTextMuted,
                     fontSize = 11.sp
                 )
             }

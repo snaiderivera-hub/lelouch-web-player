@@ -25,6 +25,7 @@ import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.LoadEventInfo
@@ -158,11 +159,12 @@ class LelouchPlayerEngine(
             .setUserAgent(config.userAgent)
     }
 
-    // FASE 34 & 35: Cliente HTTP para VOD y Series con timeout de 15s para descargas progresivas pesadas (MKV/MP4)
+    // FASE 34 & 35: Cliente HTTP para VOD y Series con timeout de 20s y pool con Keep-Alive para peticiones Range fluidas
     private val vodHttpClient: OkHttpClient by lazy {
         streamingOkHttpClient.newBuilder()
-            .readTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
             .connectTimeout(15, TimeUnit.SECONDS)
+            .connectionPool(ConnectionPool(5, 2, TimeUnit.MINUTES))
             .build()
     }
 
@@ -352,6 +354,7 @@ class LelouchPlayerEngine(
             .setRenderersFactory(renderersFactory)
             .setLoadControl(loadControl)
             .setTrackSelector(trackSelector)
+            .setSeekParameters(SeekParameters.CLOSEST_SYNC)
             .build().apply {
                 playWhenReady = true
                 addListener(playerListener)
@@ -713,6 +716,7 @@ class LelouchPlayerEngine(
 
     private val extractorsFactory by lazy {
         DefaultExtractorsFactory().apply {
+            setConstantBitrateSeekingEnabled(true)
             setTsExtractorFlags(
                 DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
                 DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS or
