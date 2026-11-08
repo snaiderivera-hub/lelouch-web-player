@@ -1121,13 +1121,13 @@ Univision`;
     navBtnExtractor.addEventListener('click', () => switchMainTab('extractor'));
     navBtnLists.addEventListener('click', () => switchMainTab('lists'));
 
-    // Descarga robusta con fallbacks CORS transparentes
+    // Descarga robusta con fallbacks transparentes
     async function fetchPlaylistContent(url) {
       showToast('Descargando lista M3U...');
       // 1. Intento directo
       try {
         const controller = new AbortController();
-        const tId = setTimeout(() => controller.abort(), 6000);
+        const tId = setTimeout(() => controller.abort(), 8000);
         const res = await fetch(url, { signal: controller.signal });
         clearTimeout(tId);
         if (res.ok) {
@@ -1135,15 +1135,15 @@ Univision`;
           if (txt && (txt.includes('#EXT') || txt.includes('http'))) return txt;
         }
       } catch (e) {
-        console.warn('Fetch directo bloqueado o falló, probando proxy CORS...', e);
+        console.warn('Fetch directo bloqueado o falló, probando proxy...', e);
       }
 
-      // 2. Proxy CORS 1 (corsproxy.io)
+      // 2. Proxy codetabs (gratuito y funcional)
       try {
-        showToast('Descargando vía Proxy CORS rápido...');
-        const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(url)}`;
+        showToast('Descargando vía Proxy (codetabs)...');
+        const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`;
         const controller = new AbortController();
-        const tId = setTimeout(() => controller.abort(), 8000);
+        const tId = setTimeout(() => controller.abort(), 12000);
         const res = await fetch(proxyUrl, { signal: controller.signal });
         clearTimeout(tId);
         if (res.ok) {
@@ -1151,26 +1151,28 @@ Univision`;
           if (txt && (txt.includes('#EXT') || txt.includes('http'))) return txt;
         }
       } catch (e) {
-        console.warn('corsproxy falló, probando allorigins...', e);
+        console.warn('Proxy codetabs falló...', e);
       }
 
-      // 3. Proxy CORS 2 (allorigins.win)
+      // 3. Proxy allorigins get API
       try {
-        showToast('Descargando vía Proxy de respaldo...');
-        const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+        showToast('Descargando vía Proxy de respaldo (allorigins)...');
+        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
         const controller = new AbortController();
-        const tId = setTimeout(() => controller.abort(), 9000);
+        const tId = setTimeout(() => controller.abort(), 12000);
         const res = await fetch(proxyUrl, { signal: controller.signal });
         clearTimeout(tId);
         if (res.ok) {
-          const txt = await res.text();
-          if (txt && (txt.includes('#EXT') || txt.includes('http'))) return txt;
+          const data = await res.json();
+          if (data && data.contents && (data.contents.includes('#EXT') || data.contents.includes('http'))) {
+            return data.contents;
+          }
         }
       } catch (e) {
         console.warn('Proxy allorigins falló', e);
       }
 
-      throw new Error('No se pudo descargar la lista. El servidor IPTV no respondió o tiene bloqueo geográfico/CORS. Puedes abrir la URL directamente en otra pestaña del navegador para descargar el .m3u y arrastrarlo a la Pestaña A.');
+      throw new Error('DOWNLOAD_FAILED');
     }
 
     // Botón URL (Vista 1)
@@ -1182,7 +1184,16 @@ Univision`;
         loadM3UText(txt);
         updateActiveBadge(url);
       } catch (e) {
-        alert(e.message);
+        const wantOpen = confirm(
+          `⚠️ No se pudo descargar la lista automáticamente.\n\n` +
+          `Causas comunes:\n` +
+          `• El servidor IPTV bloquea peticiones de navegadores o está caído.\n` +
+          `• La lista es muy pesada (>10MB).\n\n` +
+          `¿Deseas abrir el enlace directamente en una nueva pestaña para descargarlo a tu PC y luego arrastrar el archivo .m3u aquí?`
+        );
+        if (wantOpen) {
+          window.open(url, '_blank');
+        }
       }
     });
 
@@ -1522,7 +1533,10 @@ Univision`;
             </td>
             <td style="text-align:right;">
               <button class="btn btn-sm btn-primary" onclick="loadExtractedListIntoChannels(${originalIndex})" title="Cargar canales en Extractor y ver la tabla">
-                📥 ${isLoaded ? 'Cargada' : 'Cargar en Canales'}
+                📥 ${isLoaded ? 'Cargada' : 'Cargar'}
+              </button>
+              <button class="btn btn-sm" onclick="openDirectUrl(${originalIndex})" title="Abrir enlace en pestaña nueva para descargar con el navegador">
+                🌐 Abrir
               </button>
               <button class="btn btn-sm" onclick="pingSingleFullList(${originalIndex})" title="Medir latencia y región">
                 ⚡ Test
@@ -1592,6 +1606,13 @@ Univision`;
       });
     };
 
+    window.openDirectUrl = function(idx) {
+      const item = extractedLists[idx];
+      if (!item) return;
+      window.open(item.url, '_blank');
+      showToast(`🌐 Abriendo en navegador: ${item.host}`);
+    };
+
     window.loadExtractedListIntoChannels = async function(idx) {
       const item = extractedLists[idx];
       if (!item) return;
@@ -1605,7 +1626,14 @@ Univision`;
         switchMainTab('extractor'); // Cambiar automáticamente a la Pestaña 1
         showToast(`✓ Lista cargada: ${item.host}. Mostrando canales...`);
       } catch (err) {
-        alert(err.message);
+        const wantOpen = confirm(
+          `⚠️ No se pudo descargar la lista de ${item.host} mediante JavaScript.\n\n` +
+          `Motivo habitual: El servidor IPTV bloquea peticiones de navegador (CORS) o está tardando más de 12s.\n\n` +
+          `¿Deseas abrir el enlace directamente en una nueva pestaña para que tu navegador descargue el archivo .m3u a tu carpeta de Descargas? (Luego solo lo arrastras a la Pestaña 1).`
+        );
+        if (wantOpen) {
+          window.open(item.url, '_blank');
+        }
       }
     };
 
