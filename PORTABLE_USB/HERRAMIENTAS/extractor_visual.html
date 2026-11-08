@@ -57,6 +57,40 @@
       font-size: 0.8rem;
       font-weight: 600;
     }
+    .main-nav-tabs {
+      display: flex;
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.75rem;
+      flex-wrap: wrap;
+    }
+    .main-nav-btn {
+      background: var(--card-sub);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 0.7rem 1.4rem;
+      border-radius: 10px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.6rem;
+      transition: all 0.2s ease;
+    }
+    .main-nav-btn:hover {
+      border-color: rgba(0, 229, 255, 0.4);
+      color: var(--text);
+      background: rgba(0, 229, 255, 0.05);
+    }
+    .main-nav-btn.active {
+      background: rgba(0, 229, 255, 0.12);
+      border-color: var(--accent);
+      color: var(--accent);
+      font-weight: 700;
+      box-shadow: var(--accent-glow);
+    }
     .main-grid {
       display: grid;
       grid-template-columns: 360px 1fr;
@@ -345,73 +379,41 @@
     </div>
   </header>
 
-  <div class="main-grid">
+  <!-- NAVEGACIÓN PRINCIPAL (PESTAÑAS GLOBALES) -->
+  <nav class="main-nav-tabs">
+    <button class="main-nav-btn active" id="nav-btn-extractor">
+      <span style="font-size:1.15rem;">📺</span>
+      <span>1. Extractor y Filtro de Canales</span>
+      <span class="badge-pill" id="nav-badge-channels" style="font-size:0.7rem; padding:2px 7px;">0 cargados</span>
+    </button>
+    <button class="main-nav-btn" id="nav-btn-lists">
+      <span style="font-size:1.15rem;">⚡</span>
+      <span>2. Analizador de Listas, Región y Velocidad</span>
+      <span class="badge-pill" id="nav-badge-lists" style="font-size:0.7rem; padding:2px 7px; display:none; background:rgba(0,229,255,0.18);">0 listas</span>
+    </button>
+  </nav>
+
+  <!-- VISTA 1: EXTRACTOR Y FILTRO DE CANALES (LAYOUT 2 COLUMNAS) -->
+  <div class="main-grid" id="view-channels-extractor">
     <!-- PANEL IZQUIERDO: CARGA Y FILTROS -->
     <div class="panel-card">
       <div style="display:flex; justify-content:space-between; align-items:center;">
-        <h3 style="font-size:0.95rem; font-family:'Outfit'; margin:0;">1. Cargar Listas</h3>
+        <h3 style="font-size:0.95rem; font-family:'Outfit'; margin:0;">1. Cargar Archivo M3U o URL</h3>
         <span id="active-list-source-badge" class="badge-pill" style="font-size:0.7rem; padding:2px 8px; display:none;"></span>
       </div>
-
-      <!-- SELECTOR DE PESTAÑAS (A / B) -->
-      <div style="display:flex; gap:4px; background:rgba(0,0,0,0.3); padding:4px; border-radius:10px; border:1px solid var(--border);">
-        <button type="button" id="tab-btn-single" style="flex:1; padding:6px 6px; border-radius:7px; border:none; background:rgba(0,229,255,0.15); color:var(--accent); font-weight:700; font-size:0.74rem; cursor:pointer; transition:all 0.2s;">
-          📁 Archivo / URL
-        </button>
-        <button type="button" id="tab-btn-multi" style="flex:1; padding:6px 6px; border-radius:7px; border:none; background:transparent; color:var(--text-muted); font-weight:600; font-size:0.74rem; cursor:pointer; transition:all 0.2s;">
-          📝 Pegar Texto Múltiple
-        </button>
+      
+      <div class="drop-zone" id="drop-zone">
+        <div style="font-size:2rem; margin-bottom:0.4rem;">📁</div>
+        <strong style="font-size:0.85rem;">Arrastra aquí tu archivo .m3u</strong>
+        <p style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">o haz clic para examinar</p>
+        <input type="file" id="file-input" accept=".m3u,.m3u8,.txt" style="display:none">
       </div>
 
-      <!-- PESTAÑA A: ARCHIVO M3U O URL DIRECTA -->
-      <div id="tab-pane-single" style="display:flex; flex-direction:column; gap:0.75rem;">
-        <div class="drop-zone" id="drop-zone">
-          <div style="font-size:1.8rem; margin-bottom:0.3rem;">📁</div>
-          <strong style="font-size:0.85rem;">Arrastra aquí tu archivo .m3u</strong>
-          <p style="font-size:0.73rem; color:var(--text-muted); margin-top:2px;">o haz clic para examinar</p>
-          <input type="file" id="file-input" accept=".m3u,.m3u8,.txt" style="display:none">
-        </div>
-
-        <div>
-          <label style="font-size:0.73rem; color:var(--text-muted); display:block; margin-bottom:4px;">O introduce URL directa del M3U:</label>
-          <div style="display:flex; gap:0.4rem;">
-            <input type="text" id="url-input" class="input-field" placeholder="http://servidor:puerto/get.php?..." />
-            <button class="btn btn-sm" id="btn-load-url">Cargar</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- PESTAÑA B: PEGAR TEXTO CON MÚLTIPLES LISTAS -->
-      <div id="tab-pane-multi" style="display:none; flex-direction:column; gap:0.75rem;">
-        <div>
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-            <label style="font-size:0.73rem; color:var(--text-muted);">Pega texto con cientos de links o cuentas:</label>
-            <span style="font-size:0.7rem; color:var(--accent);" id="pasted-status-hint">Detección auto</span>
-          </div>
-          <textarea id="multi-text-input" class="input-field" style="min-height:110px; font-size:0.72rem; line-height:1.3;" placeholder="Pega aquí texto con links http://.../get.php?... o bloques NewScan/Telegram..."></textarea>
-        </div>
-
+      <div>
+        <label style="font-size:0.75rem; color:var(--text-muted); display:block; margin-bottom:4px;">O introduce URL directa del M3U:</label>
         <div style="display:flex; gap:0.4rem;">
-          <button class="btn btn-primary btn-sm" id="btn-extract-lists" style="flex:1; height:34px;">
-            🔍 Extraer y Listar Cuentas
-          </button>
-          <button class="btn btn-sm" id="btn-clear-extracted" title="Limpiar listas extraídas" style="padding:0 10px;">
-            🧹 Limpiar
-          </button>
-        </div>
-
-        <!-- LISTAS DETECTADAS -->
-        <div id="extracted-lists-section" style="display:none; flex-direction:column; gap:0.5rem; border-top:1px solid var(--border); padding-top:0.6rem;">
-          <div style="display:flex; justify-content:space-between; align-items:center;">
-            <strong style="font-size:0.75rem; color:var(--accent);" id="extracted-count-label">0 Listas Detectadas</strong>
-            <button class="btn btn-sm btn-success" id="btn-test-all-speed" style="font-size:0.7rem; padding:2px 8px;">
-              ⚡ Test Rapidez a Todas
-            </button>
-          </div>
-          
-          <div id="extracted-cards-container" style="max-height:260px; overflow-y:auto; display:flex; flex-direction:column; gap:6px; padding-right:2px;">
-            <!-- Cards generadas aquí dinámicamente -->
-          </div>
+          <input type="text" id="url-input" class="input-field" placeholder="http://servidor:puerto/get.php?..." />
+          <button class="btn btn-sm" id="btn-load-url">Cargar</button>
         </div>
       </div>
 
@@ -527,6 +529,92 @@
     </div>
   </div>
 
+  <!-- VISTA 2: ANALIZADOR DE LISTAS, REGIÓN Y VELOCIDAD (PANTALLA COMPLETA) -->
+  <div id="view-lists-analyzer" style="display:none; flex-direction:column; gap:1.25rem;">
+    <!-- Panel Superior: Entrada de Texto y Acciones -->
+    <div class="panel-card">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem;">
+        <div>
+          <h2 style="font-size:1.15rem; font-family:'Outfit'; color:var(--accent); display:flex; align-items:center; gap:8px;">
+            <span>⚡ Analizador Masivo de Listas M3U</span>
+            <span class="badge-pill" id="full-lists-count-badge">0 listas detectadas</span>
+          </h2>
+          <p style="font-size:0.75rem; color:var(--text-muted); margin-top:3px;">
+            Pega cientos de enlaces o bloques de texto (Telegram, chats, NewScan). Detecta país/región, mide velocidad en tiempo real y carga la mejor lista con un clic.
+          </p>
+        </div>
+        <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+          <button class="btn btn-primary" id="full-btn-extract-lists" style="height:36px;">
+            🔍 Extraer y Analizar Texto
+          </button>
+          <button class="btn btn-success" id="full-btn-test-all-speed" style="height:36px;">
+            ⚡ Medir Rapidez a Todas
+          </button>
+          <button class="btn" id="full-btn-resolve-all-geo" style="height:36px;" title="Detectar país y región de todos los servidores">
+            🌍 Detectar Regiones
+          </button>
+          <button class="btn btn-sm" id="full-btn-toggle-online" style="height:36px;">
+            🟢 Solo Online
+          </button>
+          <button class="btn btn-danger btn-sm" id="full-btn-clear" style="height:36px;" title="Limpiar listas">
+            🧹 Limpiar
+          </button>
+        </div>
+      </div>
+
+      <textarea id="full-multi-text-input" class="input-field" style="min-height:120px; font-size:0.78rem; font-family:'JetBrains Mono', monospace;" placeholder="Pega aquí el texto con cientos de links http://servidor:puerto/get.php?... o bloques completos de NewScan/Telegram..."></textarea>
+    </div>
+
+    <!-- Panel Inferior: Tabla de Resultados Full-Width -->
+    <div class="panel-card" id="full-lists-table-card" style="display:none;">
+      <div class="results-header">
+        <div style="display:flex; align-items:center; gap:1rem; flex-wrap:wrap;">
+          <h3 style="font-size:1rem; font-family:'Outfit';">Listas Encontradas</h3>
+          <div style="display:flex; gap:0.5rem; align-items:center;">
+            <span class="status-badge status-online" id="stat-online-badge">0 Online</span>
+            <span class="status-badge status-offline" id="stat-offline-badge">0 Caídas</span>
+            <span class="status-badge status-unknown" id="stat-unknown-badge">0 Sin medir</span>
+          </div>
+        </div>
+        <div style="display:flex; gap:0.5rem; align-items:center;">
+          <input type="text" id="full-search-input" class="input-field" style="width:260px; padding:0.4rem 0.75rem; font-size:0.78rem;" placeholder="🔎 Filtrar por host, usuario o país..." />
+          <button class="btn btn-sm" id="full-btn-copy-all-urls">📋 Copiar Todos los Links</button>
+        </div>
+      </div>
+
+      <!-- Barra de progreso para Test Masivo -->
+      <div class="health-bar-container" id="full-speed-progress-bar">
+        <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:var(--text-muted);">
+          <span id="full-speed-progress-text">Midiendo velocidad: 0 / 0</span>
+          <span id="full-speed-progress-stats">0%</span>
+        </div>
+        <div class="health-progress-track">
+          <div class="health-progress-fill" id="full-speed-progress-fill"></div>
+        </div>
+      </div>
+
+      <div class="table-container" style="max-height:640px;">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:40px;">#</th>
+              <th>Servidor / Host</th>
+              <th style="width:220px;">Región / País</th>
+              <th>Usuario</th>
+              <th style="width:110px;">Vencimiento</th>
+              <th style="width:150px;">Ping / Rapidez</th>
+              <th style="width:100px;">Estado</th>
+              <th style="text-align:right; width:220px;">Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="full-lists-table-body">
+            <!-- Filas dinámicas -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
   <!-- MODAL REPRODUCTOR DE PRUEBA -->
   <div class="modal-overlay hidden" id="preview-modal">
     <div class="modal-content">
@@ -625,6 +713,7 @@
       allEntries = parseM3U(text);
       channelHealthMap.clear();
       document.getElementById('total-badge').textContent = `${allEntries.length.toLocaleString()} canales cargados`;
+      updateNavBadges();
       showToast(`✓ ${allEntries.length.toLocaleString()} canales procesados`);
       applyFilter();
     }
@@ -1009,37 +1098,28 @@ Univision`;
       reader.readAsText(file);
     }
 
-    // Gestión de Pestañas A y B
-    const tabBtnSingle = document.getElementById('tab-btn-single');
-    const tabBtnMulti = document.getElementById('tab-btn-multi');
-    const tabPaneSingle = document.getElementById('tab-pane-single');
-    const tabPaneMulti = document.getElementById('tab-pane-multi');
+    // ════════════ NAVEGACIÓN PRINCIPAL (PESTAÑAS GLOBALES) ════════════
+    const navBtnExtractor = document.getElementById('nav-btn-extractor');
+    const navBtnLists = document.getElementById('nav-btn-lists');
+    const viewExtractor = document.getElementById('view-channels-extractor');
+    const viewListsAnalyzer = document.getElementById('view-lists-analyzer');
 
-    tabBtnSingle.addEventListener('click', () => {
-      tabBtnSingle.style.background = 'rgba(0,229,255,0.15)';
-      tabBtnSingle.style.color = 'var(--accent)';
-      tabBtnSingle.style.fontWeight = '700';
+    function switchMainTab(tab) {
+      if (tab === 'extractor') {
+        navBtnExtractor.classList.add('active');
+        navBtnLists.classList.remove('active');
+        viewExtractor.style.display = 'grid';
+        viewListsAnalyzer.style.display = 'none';
+      } else {
+        navBtnLists.classList.add('active');
+        navBtnExtractor.classList.remove('active');
+        viewExtractor.style.display = 'none';
+        viewListsAnalyzer.style.display = 'flex';
+      }
+    }
 
-      tabBtnMulti.style.background = 'transparent';
-      tabBtnMulti.style.color = 'var(--text-muted)';
-      tabBtnMulti.style.fontWeight = '600';
-
-      tabPaneSingle.style.display = 'flex';
-      tabPaneMulti.style.display = 'none';
-    });
-
-    tabBtnMulti.addEventListener('click', () => {
-      tabBtnMulti.style.background = 'rgba(0,229,255,0.15)';
-      tabBtnMulti.style.color = 'var(--accent)';
-      tabBtnMulti.style.fontWeight = '700';
-
-      tabBtnSingle.style.background = 'transparent';
-      tabBtnSingle.style.color = 'var(--text-muted)';
-      tabBtnSingle.style.fontWeight = '600';
-
-      tabPaneSingle.style.display = 'none';
-      tabPaneMulti.style.display = 'flex';
-    });
+    navBtnExtractor.addEventListener('click', () => switchMainTab('extractor'));
+    navBtnLists.addEventListener('click', () => switchMainTab('lists'));
 
     // Descarga robusta con fallbacks CORS transparentes
     async function fetchPlaylistContent(url) {
@@ -1093,7 +1173,7 @@ Univision`;
       throw new Error('No se pudo descargar la lista. El servidor IPTV no respondió o tiene bloqueo geográfico/CORS. Puedes abrir la URL directamente en otra pestaña del navegador para descargar el .m3u y arrastrarlo a la Pestaña A.');
     }
 
-    // Botón URL (Pestaña A)
+    // Botón URL (Vista 1)
     document.getElementById('btn-load-url').addEventListener('click', async () => {
       const url = document.getElementById('url-input').value.trim();
       if (!url) return alert('Introduce una URL M3U válida');
@@ -1106,9 +1186,74 @@ Univision`;
       }
     });
 
-    // ════════════ LÓGICA DE PESTAÑA B: EXTRACCIÓN Y TEST DE LISTAS ════════════
+    // ════════════ VISTA 2: ANALIZADOR MASIVO, REGIÓN & TEST DE RAPIDEZ ════════════
     let extractedLists = [];
     let activeLoadedUrl = '';
+    let fullFilterOnlyOnline = false;
+    let fullSearchQuery = '';
+
+    const geoCache = new Map();
+
+    async function resolveHostGeo(host) {
+      const cleanHost = (host || '').split(':')[0].trim();
+      if (!cleanHost) return { flag: '🌐', country: 'Desconocido', city: '', region: '' };
+      if (geoCache.has(cleanHost)) return geoCache.get(cleanHost);
+
+      try {
+        let ip = cleanHost;
+        // Si no es IP directa, resolver por DNS-over-HTTPS (Google DoH)
+        if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(cleanHost)) {
+          const dnsCtrl = new AbortController();
+          const dnsTimer = setTimeout(() => dnsCtrl.abort(), 4000);
+          const dnsRes = await fetch(`https://dns.google/resolve?name=${encodeURIComponent(cleanHost)}&type=A`, { signal: dnsCtrl.signal });
+          clearTimeout(dnsTimer);
+          const dnsData = await dnsRes.json();
+          if (dnsData.Answer && dnsData.Answer.length > 0) {
+            const aRecord = dnsData.Answer.find(a => a.type === 1);
+            if (aRecord && aRecord.data) ip = aRecord.data;
+          }
+        }
+
+        const geoCtrl = new AbortController();
+        const geoTimer = setTimeout(() => geoCtrl.abort(), 4500);
+        const geoRes = await fetch(`https://ipwho.is/${encodeURIComponent(ip)}`, { signal: geoCtrl.signal });
+        clearTimeout(geoTimer);
+        const geoData = await geoRes.json();
+
+        if (geoData && geoData.success) {
+          const geoInfo = {
+            flag: geoData.flag?.emoji || '🌐',
+            country: geoData.country || 'Desconocido',
+            city: geoData.city || '',
+            region: geoData.region || ''
+          };
+          geoCache.set(cleanHost, geoInfo);
+          return geoInfo;
+        }
+      } catch (err) {
+        console.warn('GeoIP lookup failed for', cleanHost, err);
+      }
+
+      const fallback = { flag: '🌐', country: 'Desconocido', city: '', region: '' };
+      geoCache.set(cleanHost, fallback);
+      return fallback;
+    }
+
+    function updateNavBadges() {
+      const chBadge = document.getElementById('nav-badge-channels');
+      chBadge.textContent = `${allEntries.length.toLocaleString()} cargados`;
+
+      const listsBadge = document.getElementById('nav-badge-lists');
+      const countBadge = document.getElementById('full-lists-count-badge');
+      if (extractedLists.length > 0) {
+        listsBadge.style.display = 'inline-block';
+        listsBadge.textContent = `${extractedLists.length} listas`;
+        countBadge.textContent = `${extractedLists.length} listas detectadas`;
+      } else {
+        listsBadge.style.display = 'none';
+        countBadge.textContent = '0 listas detectadas';
+      }
+    }
 
     function updateActiveBadge(url, customLabel = null) {
       const badge = document.getElementById('active-list-source-badge');
@@ -1135,7 +1280,6 @@ Univision`;
       const results = [];
       const seenUrls = new Set();
 
-      // Extracción por regex de URLs
       const urlRegex = /(https?:\/\/[^\s"'<>\n\r]+)/gi;
       let match;
       const urlsFound = [];
@@ -1168,13 +1312,16 @@ Univision`;
             host,
             username,
             exp: '',
+            flag: '🌐',
+            country: '',
+            city: '',
             latency: null,
             status: 'unknown'
           });
         }
       }
 
-      // Reconstrucción desde bloques con campos separados (Servidor, Usuario, Senha, Expira)
+      // Reconstrucción desde bloques NewScan con datos estructurados
       const blocks = rawText.split(/(?:NewScan|╭━━━━|╰━━━━|═{5,}|-{10,})/i);
       for (const block of blocks) {
         const srvMatch = block.match(/(?:Servidor|Server|Host)\s*[:➤]\s*(https?:\/\/[^\s"'<>]+)/i);
@@ -1198,6 +1345,9 @@ Univision`;
               host,
               username: user,
               exp,
+              flag: '🌐',
+              country: '',
+              city: '',
               latency: null,
               status: 'unknown'
             });
@@ -1211,61 +1361,98 @@ Univision`;
       return results;
     }
 
-    function renderExtractedLists() {
-      const container = document.getElementById('extracted-cards-container');
-      const countLabel = document.getElementById('extracted-count-label');
-      const section = document.getElementById('extracted-lists-section');
+    function renderFullListsTable() {
+      const tbody = document.getElementById('full-lists-table-body');
+      const tableCard = document.getElementById('full-lists-table-card');
 
       if (extractedLists.length === 0) {
-        section.style.display = 'none';
-        container.innerHTML = '';
+        tableCard.style.display = 'none';
+        tbody.innerHTML = '';
+        updateNavBadges();
         return;
       }
 
-      section.style.display = 'flex';
-      countLabel.textContent = `${extractedLists.length} Listas Detectadas`;
+      tableCard.style.display = 'flex';
+      updateNavBadges();
 
-      container.innerHTML = extractedLists.map((item, idx) => {
+      const onlineCount = extractedLists.filter(x => x.status === 'online').length;
+      const offlineCount = extractedLists.filter(x => x.status === 'offline').length;
+      const unknownCount = extractedLists.filter(x => x.status === 'unknown').length;
+
+      document.getElementById('stat-online-badge').textContent = `${onlineCount} Online`;
+      document.getElementById('stat-offline-badge').textContent = `${offlineCount} Caídas`;
+      document.getElementById('stat-unknown-badge').textContent = `${unknownCount} Sin medir`;
+
+      let filtered = extractedLists;
+      if (fullFilterOnlyOnline) {
+        filtered = filtered.filter(x => x.status === 'online');
+      }
+      if (fullSearchQuery) {
+        const q = fullSearchQuery.toLowerCase();
+        filtered = filtered.filter(x => 
+          (x.host || '').toLowerCase().includes(q) ||
+          (x.username || '').toLowerCase().includes(q) ||
+          (x.country || '').toLowerCase().includes(q) ||
+          (x.city || '').toLowerCase().includes(q)
+        );
+      }
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:2.5rem; color:var(--text-muted);">No hay listas que coincidan con la búsqueda.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = filtered.map((item, i) => {
         const isLoaded = (item.url === activeLoadedUrl);
-        let statusBadge = '<span class="status-badge status-unknown">⚪ Sin medir</span>';
+        const originalIndex = extractedLists.indexOf(item);
 
+        let speedBadge = '<span class="status-badge status-unknown">⚪ Sin medir</span>';
         if (item.status === 'testing') {
-          statusBadge = '<span class="status-badge status-testing">⏳ Probando...</span>';
+          speedBadge = '<span class="status-badge status-testing">⏳ Mediendo...</span>';
         } else if (item.status === 'online') {
           if (item.latency < 250) {
-            statusBadge = `<span class="status-badge status-online">🟢 ${item.latency}ms</span>`;
+            speedBadge = `<span class="status-badge status-online">🟢 ${item.latency}ms (Rápido)</span>`;
           } else if (item.latency < 600) {
-            statusBadge = `<span class="status-badge status-warning">🟡 ${item.latency}ms</span>`;
+            speedBadge = `<span class="status-badge status-warning">🟡 ${item.latency}ms (Medio)</span>`;
           } else {
-            statusBadge = `<span class="status-badge status-warning" style="color:#f97316;border-color:#f97316;">🟠 ${item.latency}ms</span>`;
+            speedBadge = `<span class="status-badge status-warning" style="color:#f97316;border-color:#f97316;">🟠 ${item.latency}ms (Lento)</span>`;
           }
         } else if (item.status === 'offline') {
-          statusBadge = '<span class="status-badge status-offline">🔴 Caído</span>';
+          speedBadge = '<span class="status-badge status-offline">🔴 Caído</span>';
+        }
+
+        let geoDisplay = `<span style="font-size:0.75rem; color:var(--text-muted); display:inline-flex; align-items:center; gap:4px;">${item.flag || '🌐'} <strong>${escapeHtml(item.country || 'Sin detectar')}</strong>${item.city ? ` (${escapeHtml(item.city)})` : ''}</span>`;
+        if (item.geoStatus === 'loading') {
+          geoDisplay = '<span class="status-badge status-testing" style="font-size:0.7rem;">🌍 Buscando...</span>';
         }
 
         return `
-          <div class="list-item-card ${isLoaded ? 'active-loaded' : ''}" id="card-list-${idx}">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; gap:4px;">
-              <strong style="color:var(--accent); font-family:'JetBrains Mono'; font-size:0.75rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:180px;" title="${escapeHtml(item.host)}">
+          <tr class="${isLoaded ? 'active-loaded' : ''}">
+            <td style="color:var(--text-muted); font-size:0.75rem;">${i + 1}</td>
+            <td>
+              <span class="url-chip" style="max-width:280px;" title="Clic para copiar URL" onclick="copyExtractedUrl(${originalIndex})">
                 ${escapeHtml(item.host)}
-              </strong>
-              ${statusBadge}
-            </div>
-            <div style="color:var(--text-muted); font-size:0.7rem; margin-bottom:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-              👤 <strong>${escapeHtml(item.username || 'Cuenta')}</strong> ${item.exp ? `• 📅 ${escapeHtml(item.exp)}` : ''}
-            </div>
-            <div style="display:flex; gap:4px;">
-              <button class="btn btn-sm btn-primary" onclick="loadExtractedList(${idx})" style="flex:1; padding:3px 6px; font-size:0.72rem;" title="Cargar los canales de esta lista">
-                📥 ${isLoaded ? 'Activa' : 'Cargar'}
+              </span>
+            </td>
+            <td>${geoDisplay}</td>
+            <td><strong>${escapeHtml(item.username || 'Cuenta')}</strong></td>
+            <td><span style="font-size:0.75rem; color:var(--text-muted);">${escapeHtml(item.exp || '-')}</span></td>
+            <td>${speedBadge}</td>
+            <td>
+              ${item.status === 'online' ? '<span class="status-badge status-online">Online</span>' : item.status === 'offline' ? '<span class="status-badge status-offline">Caído</span>' : '<span class="status-badge status-unknown">Sin probar</span>'}
+            </td>
+            <td style="text-align:right;">
+              <button class="btn btn-sm btn-primary" onclick="loadExtractedListIntoChannels(${originalIndex})" title="Cargar canales en Extractor y ver la tabla">
+                📥 ${isLoaded ? 'Cargada' : 'Cargar en Canales'}
               </button>
-              <button class="btn btn-sm" onclick="pingSingleList(${idx})" style="padding:3px 6px; font-size:0.72rem;" title="Probar latencia del servidor">
+              <button class="btn btn-sm" onclick="pingSingleFullList(${originalIndex})" title="Medir latencia y región">
                 ⚡ Test
               </button>
-              <button class="btn btn-sm" onclick="copyExtractedUrl(${idx})" style="padding:3px 6px; font-size:0.72rem;" title="Copiar enlace">
+              <button class="btn btn-sm" onclick="copyExtractedUrl(${originalIndex})" title="Copiar enlace M3U">
                 📋
               </button>
-            </div>
-          </div>
+            </td>
+          </tr>
         `;
       }).join('');
     }
@@ -1290,18 +1477,30 @@ Univision`;
       }
     }
 
-    window.pingSingleList = async function(idx) {
+    window.pingSingleFullList = async function(idx) {
       const item = extractedLists[idx];
       if (!item) return;
 
       item.status = 'testing';
-      renderExtractedLists();
+      renderFullListsTable();
 
-      const result = await pingServer(item.url);
-      item.latency = result.latency;
-      item.status = result.ok ? 'online' : 'offline';
-      renderExtractedLists();
-      showToast(`${item.host}: ${result.ok ? result.latency + 'ms' : 'Caído'}`);
+      const [speedRes, geoRes] = await Promise.all([
+        pingServer(item.url),
+        item.country ? Promise.resolve(null) : resolveHostGeo(item.host)
+      ]);
+
+      item.latency = speedRes.latency;
+      item.status = speedRes.ok ? 'online' : 'offline';
+
+      if (geoRes) {
+        item.flag = geoRes.flag;
+        item.country = geoRes.country;
+        item.city = geoRes.city;
+        item.region = geoRes.region;
+      }
+
+      renderFullListsTable();
+      showToast(`${item.host}: ${item.status === 'online' ? item.latency + 'ms' : 'Caído'} (${item.country || 'Desconocido'})`);
     };
 
     window.copyExtractedUrl = function(idx) {
@@ -1314,73 +1513,163 @@ Univision`;
       });
     };
 
-    window.loadExtractedList = async function(idx) {
+    window.loadExtractedListIntoChannels = async function(idx) {
       const item = extractedLists[idx];
       if (!item) return;
 
       try {
         activeLoadedUrl = item.url;
-        renderExtractedLists();
+        renderFullListsTable();
         updateActiveBadge(item.url, `${item.host} (${item.username || 'Cuenta'})`);
         const txt = await fetchPlaylistContent(item.url);
         loadM3UText(txt);
-        showToast(`✓ Cargada lista: ${item.host}`);
+        switchMainTab('extractor'); // Cambiar automáticamente a la Pestaña 1
+        showToast(`✓ Lista cargada: ${item.host}. Mostrando canales...`);
       } catch (err) {
         alert(err.message);
       }
     };
 
-    document.getElementById('btn-extract-lists').addEventListener('click', () => {
-      const text = document.getElementById('multi-text-input').value.trim();
+    // Eventos de la Vista 2
+    document.getElementById('full-btn-extract-lists').addEventListener('click', () => {
+      const text = document.getElementById('full-multi-text-input').value.trim();
       if (!text) return alert('Pega texto con enlaces o cuentas primero.');
 
       extractedLists = extractListsFromText(text);
       if (extractedLists.length === 0) {
-        alert('No se encontraron enlaces válidos de IPTV o M3U en el texto pegado.');
-        return;
+        return alert('No se encontraron enlaces válidos de IPTV o M3U en el texto pegado.');
       }
 
-      showToast(`✓ ${extractedLists.length} listas detectadas`);
-      renderExtractedLists();
+      showToast(`✓ ${extractedLists.length} listas detectadas. Ahora puedes medir velocidad o detectar región.`);
+      renderFullListsTable();
     });
 
-    document.getElementById('btn-clear-extracted').addEventListener('click', () => {
+    document.getElementById('full-btn-clear').addEventListener('click', () => {
       extractedLists = [];
-      document.getElementById('multi-text-input').value = '';
-      renderExtractedLists();
-      showToast('Listas extraídas limpiadas');
+      document.getElementById('full-multi-text-input').value = '';
+      renderFullListsTable();
+      showToast('Listas limpiadas');
     });
 
-    // Test de rapidez a todas las listas detectadas (concurrencia 4)
-    document.getElementById('btn-test-all-speed').addEventListener('click', async () => {
+    document.getElementById('full-search-input').addEventListener('input', (e) => {
+      fullSearchQuery = e.target.value.trim();
+      renderFullListsTable();
+    });
+
+    document.getElementById('full-btn-copy-all-urls').addEventListener('click', () => {
+      if (extractedLists.length === 0) return alert('No hay listas para copiar');
+      let toCopy = extractedLists;
+      if (fullFilterOnlyOnline) toCopy = toCopy.filter(x => x.status === 'online');
+      const text = toCopy.map(x => x.url).join('\n');
+      navigator.clipboard.writeText(text).then(() => showToast(`📋 ${toCopy.length} URLs copiadas al portapapeles`));
+    });
+
+    const fullToggleOnlineBtn = document.getElementById('full-btn-toggle-online');
+    fullToggleOnlineBtn.addEventListener('click', () => {
+      fullFilterOnlyOnline = !fullFilterOnlyOnline;
+      if (fullFilterOnlyOnline) {
+        fullToggleOnlineBtn.style.background = '#10b981';
+        fullToggleOnlineBtn.style.color = '#02070d';
+        fullToggleOnlineBtn.textContent = '✓ Solo Online';
+      } else {
+        fullToggleOnlineBtn.style.background = '';
+        fullToggleOnlineBtn.style.color = '';
+        fullToggleOnlineBtn.textContent = '🟢 Solo Online';
+      }
+      renderFullListsTable();
+    });
+
+    // Detectar Regiones a Todas
+    document.getElementById('full-btn-resolve-all-geo').addEventListener('click', async () => {
       if (extractedLists.length === 0) return;
-
-      const btn = document.getElementById('btn-test-all-speed');
+      const btn = document.getElementById('full-btn-resolve-all-geo');
       btn.disabled = true;
-      btn.textContent = '⏳ Probando...';
+      btn.textContent = '🌍 Detectando...';
 
-      extractedLists.forEach(it => { it.status = 'testing'; });
-      renderExtractedLists();
-
-      const CONCURRENCY = 4;
+      const CONCURRENCY = 6;
       let cursor = 0;
       const total = extractedLists.length;
 
-      async function worker() {
+      async function geoWorker() {
         while (cursor < total) {
           const idx = cursor++;
           const item = extractedLists[idx];
-          const result = await pingServer(item.url);
-          item.latency = result.latency;
-          item.status = result.ok ? 'online' : 'offline';
-          renderExtractedLists();
+          if (!item.country) {
+            item.geoStatus = 'loading';
+            renderFullListsTable();
+            const geo = await resolveHostGeo(item.host);
+            item.flag = geo.flag;
+            item.country = geo.country;
+            item.city = geo.city;
+            item.region = geo.region;
+            item.geoStatus = 'done';
+            renderFullListsTable();
+          }
         }
       }
 
-      const workers = Array.from({ length: Math.min(CONCURRENCY, total) }, () => worker());
-      await Promise.all(workers);
+      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, total) }, () => geoWorker()));
+      btn.disabled = false;
+      btn.textContent = '🌍 Detectar Regiones';
+      showToast('✓ Detección de países/regiones finalizada');
+    });
 
-      // Ordenar por rapidez: Online más rápidas primero, luego caídas
+    // Medir Rapidez a Todas (Test Masivo con barra de progreso)
+    document.getElementById('full-btn-test-all-speed').addEventListener('click', async () => {
+      if (extractedLists.length === 0) return;
+
+      const btn = document.getElementById('full-btn-test-all-speed');
+      btn.disabled = true;
+      btn.textContent = '⏳ Probando...';
+
+      const barContainer = document.getElementById('full-speed-progress-bar');
+      const progressText = document.getElementById('full-speed-progress-text');
+      const progressStats = document.getElementById('full-speed-progress-stats');
+      const progressFill = document.getElementById('full-speed-progress-fill');
+      barContainer.classList.add('active');
+
+      extractedLists.forEach(it => { it.status = 'testing'; });
+      renderFullListsTable();
+
+      const total = extractedLists.length;
+      let completed = 0;
+      let cursor = 0;
+      const CONCURRENCY = 6;
+
+      async function speedWorker() {
+        while (cursor < total) {
+          const idx = cursor++;
+          const item = extractedLists[idx];
+
+          const [speedRes, geoRes] = await Promise.all([
+            pingServer(item.url),
+            item.country ? Promise.resolve(null) : resolveHostGeo(item.host)
+          ]);
+
+          item.latency = speedRes.latency;
+          item.status = speedRes.ok ? 'online' : 'offline';
+          if (geoRes) {
+            item.flag = geoRes.flag;
+            item.country = geoRes.country;
+            item.city = geoRes.city;
+            item.region = geoRes.region;
+          }
+
+          completed++;
+          const pct = Math.round((completed / total) * 100);
+          progressFill.style.width = `${pct}%`;
+          progressText.textContent = `Midiendo velocidad: ${completed} / ${total} listas`;
+          progressStats.textContent = `${pct}%`;
+
+          if (completed % 5 === 0 || completed === total) {
+            renderFullListsTable();
+          }
+        }
+      }
+
+      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, total) }, () => speedWorker()));
+
+      // Ordenar: Online más rápidas al principio, luego lentas, luego caídas
       extractedLists.sort((a, b) => {
         if (a.status === 'online' && b.status !== 'online') return -1;
         if (a.status !== 'online' && b.status === 'online') return 1;
@@ -1388,10 +1677,10 @@ Univision`;
         return 0;
       });
 
-      renderExtractedLists();
+      renderFullListsTable();
       btn.disabled = false;
-      btn.textContent = '⚡ Test Rapidez a Todas';
-      showToast('✓ Test finalizado. Listas ordenadas por rapidez.');
+      btn.textContent = '⚡ Medir Rapidez a Todas';
+      showToast('✓ Test completado. Listas ordenadas de más rápida a más lenta.');
     });
 
     // Botón Filtrar
