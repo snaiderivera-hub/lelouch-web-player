@@ -19,6 +19,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -170,6 +174,30 @@ fun MobileHomeScreen(
     }
     DisposableEffect(Unit) {
         onDispose { onPlaybackActiveChanged(false) }
+    }
+
+    // Limpieza de ciclo de vida al salir de la aplicación (ON_STOP)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, isInPictureInPicture) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                // Si la app pasa a segundo plano y no está en modo flotante Picture-in-Picture:
+                if (!isInPictureInPicture) {
+                    searchQuery = "" // Limpia el buscador para no dejarlo filtrando al reingresar
+                    if (isPlayerFullscreen) {
+                        isPlayerFullscreen = false // Sale del reproductor en pantalla completa
+                    }
+                    if (activeStreamUrl != null) {
+                        playerEngine.stop() // Detiene la reproducción en segundo plano
+                        activeStreamUrl = null
+                    }
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
     // FASE 37: historial de la lista activa (se recalcula al cambiar de fuente).
@@ -1688,11 +1716,26 @@ private fun MobileLiveTab(
     }
     var selectedCategoryId by remember(categories) { mutableStateOf("all") }
     val favIds = remember(favoriteChannels) { favoriteChannels.map { it.streamId }.toSet() }
-    val selectedCat = categories.find { it.id == selectedCategoryId }
-    val filtered = when (selectedCategoryId) {
-        "all" -> channels
-        "favs" -> channels.filter { it.streamId in favIds }
-        "events" -> channels.filter { ch ->
+    val selectedCat = remember(categories, selectedCategoryId) { categories.find { it.id == selectedCategoryId } }
+
+    // Pre-indexar canales por categoryId y categoryName en minúsculas para búsquedas O(1)
+    val channelsByCategory = remember(channels) {
+        val byId = mutableMapOf<String, MutableList<LiveStream>>()
+        val byName = mutableMapOf<String, MutableList<LiveStream>>()
+        for (ch in channels) {
+            if (ch.categoryId.isNotBlank()) {
+                byId.getOrPut(ch.categoryId) { mutableListOf() }.add(ch)
+            }
+            if (ch.categoryName.isNotBlank()) {
+                byName.getOrPut(ch.categoryName.trim().lowercase()) { mutableListOf() }.add(ch)
+            }
+        }
+        Pair(byId, byName)
+    }
+
+    // Pre-filtrado memorizado para canales de Guatemala (Eventos)
+    val guatemalaChannels = remember(channels) {
+        channels.filter { ch ->
             val cat = ch.categoryName
             val nm = ch.name
             cat.contains("GUATEMALA", ignoreCase = true) ||
@@ -1704,21 +1747,44 @@ private fun MobileLiveTab(
             cat.contains("[GT]", ignoreCase = true) ||
             nm.contains("[GT]", ignoreCase = true)
         }
-        else -> channels.filter {
-            it.categoryId == selectedCategoryId ||
-            (selectedCat != null && it.categoryName.equals(selectedCat.name, ignoreCase = true))
+    }
+
+    val filtered = remember(channels, selectedCategoryId, favIds, selectedCat, channelsByCategory, guatemalaChannels) {
+        when (selectedCategoryId) {
+            "all" -> channels
+            "favs" -> channels.filter { it.streamId in favIds }
+            "events" -> guatemalaChannels
+            else -> {
+                val fromId = channelsByCategory.first[selectedCategoryId].orEmpty()
+                val targetName = selectedCat?.name?.trim()?.lowercase()
+                val fromName = if (targetName != null) channelsByCategory.second[targetName].orEmpty() else emptyList()
+                if (fromId.isEmpty()) {
+                    fromName
+                } else if (fromName.isEmpty()) {
+                    fromId
+                } else {
+                    (fromId + fromName).distinctBy { it.streamId }
+                }
+            }
         }
     }
 
+    val listState = rememberLazyListState()
+
+    // Al cambiar de categoría, reiniciar el scroll a la primera posición inmediatamente
+    LaunchedEffect(selectedCategoryId) {
+        listState.scrollToItem(0)
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
-        // Barra de categorías
+        // Barra de categorías con clave estable para no recomponer los chips
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             // Chips de categorías normales (Todos, Eventos del Día, y categorías)
             if (categories.isNotEmpty()) {
-                items(categories) { cat ->
+                items(categories, key = { it.id }) { cat ->
                     val isSel = cat.id == selectedCategoryId
                     Box(
                         modifier = Modifier
@@ -1738,11 +1804,12 @@ private fun MobileLiveTab(
             }
         }
         LazyColumn(
+            state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            itemsIndexed(filtered, key = { idx, ch -> "mobile_live_${ch.streamId}_${ch.id}_$idx" }) { _, ch ->
+            items(filtered, key = { "ch_${it.streamId}_${it.name.hashCode()}" }) { ch ->
                 val url = StreamUrlResolver.resolveLive(ch.streamUrl, activeSource, ch.streamId)
                 val isFav = ch.streamId in favIds
                 ChannelListItem(

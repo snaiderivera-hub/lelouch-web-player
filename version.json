@@ -1,7 +1,7 @@
 {
-  "versionName": "1.0.120",
-  "versionCode": 1000120,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.120/LELOUCH-PLUS-v1.0.120.apk",
-  "changelog": "- TV Box: Calibración de zapping estándar TV: Botón ARRIBA avanza al canal siguiente (+1) y Botón ABAJO retrocede al canal anterior (-1).\n- TV Box: Zapping continuo e inmediato con barra de opciones en pantalla sin bloqueo.\n- TV Box: Navegación horizontal con D-Pad Izquierda/Derecha entre Favoritos, Audio y Salir.",
-  "version": "1.0.120"
+  "versionName": "1.0.121",
+  "versionCode": 1000121,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.121/LELOUCH-PLUS-v1.0.121.apk",
+  "changelog": "- Móvil: Limpieza automática de ciclo de vida al salir de la app (ON_STOP): el buscador se resetea para no quedar filtrando y se sale del reproductor para volver limpiamente al Home.\n- Móvil: Optimización O(1) instantánea al cambiar categorías en Canales en Vivo: pre-indexación en memoria, memoización, claves estables en chips y lista, y reset suave del scroll.",
+  "version": "1.0.121"
 }
