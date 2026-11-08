@@ -1276,6 +1276,56 @@ Univision`;
       badge.style.display = 'inline-block';
     }
 
+    function mapTimezoneOrCountry(str) {
+      if (!str) return null;
+      const s = str.trim().toLowerCase();
+      if (s === 'n/a' || s === 'none' || s === 'null') return null;
+      
+      if (s.includes('new_york') || s.includes('nueva york') || s.includes('chicago') || s.includes('los_angeles') || s.includes('denver') || s.includes('phoenix') || s.includes('estados unidos') || s.includes('usa') || s.includes('united states')) {
+        return { flag: '🇺🇸', country: 'Estados Unidos', city: str.trim().replace(/^america\//i, '') };
+      }
+      if (s.includes('london') || s.includes('londres') || s.includes('reino unido') || s.includes('united kingdom') || s.includes('britain')) {
+        return { flag: '🇬🇧', country: 'Reino Unido', city: 'Londres' };
+      }
+      if (s.includes('madrid') || s.includes('espana') || s.includes('españa') || s.includes('spain')) {
+        return { flag: '🇪🇸', country: 'España', city: 'Madrid' };
+      }
+      if (s.includes('mexico') || s.includes('méxico') || s.includes('cancun') || s.includes('monterrey')) {
+        return { flag: '🇲🇽', country: 'México', city: str.trim().replace(/^america\//i, '') };
+      }
+      if (s.includes('bogota') || s.includes('bogotá') || s.includes('colombia')) {
+        return { flag: '🇨🇴', country: 'Colombia', city: 'Bogotá' };
+      }
+      if (s.includes('argentina') || s.includes('buenos_aires') || s.includes('buenos aires')) {
+        return { flag: '🇦🇷', country: 'Argentina', city: 'Buenos Aires' };
+      }
+      if (s.includes('sao_paulo') || s.includes('brasil') || s.includes('brazil')) {
+        return { flag: '🇧🇷', country: 'Brasil', city: 'São Paulo' };
+      }
+      if (s.includes('santiago') || s.includes('chile')) {
+        return { flag: '🇨🇱', country: 'Chile', city: 'Santiago' };
+      }
+      if (s.includes('lima') || s.includes('peru') || s.includes('perú')) {
+        return { flag: '🇵🇪', country: 'Perú', city: 'Lima' };
+      }
+      if (s.includes('paris') || s.includes('parís') || s.includes('france') || s.includes('francia')) {
+        return { flag: '🇫🇷', country: 'Francia', city: 'París' };
+      }
+      if (s.includes('berlin') || s.includes('berlín') || s.includes('germany') || s.includes('alemania')) {
+        return { flag: '🇩🇪', country: 'Alemania', city: 'Berlín' };
+      }
+      if (s.includes('rome') || s.includes('roma') || s.includes('italy') || s.includes('italia')) {
+        return { flag: '🇮🇹', country: 'Italia', city: 'Roma' };
+      }
+      if (s.includes('amsterdam') || s.includes('netherlands') || s.includes('paises bajos')) {
+        return { flag: '🇳🇱', country: 'Países Bajos', city: 'Ámsterdam' };
+      }
+      if (s.includes('toronto') || s.includes('canada') || s.includes('canadá')) {
+        return { flag: '🇨🇦', country: 'Canadá', city: 'Toronto' };
+      }
+      return { flag: '🌐', country: str.trim(), city: '' };
+    }
+
     function extractListsFromText(rawText) {
       const results = [];
       const seenUrls = new Set();
@@ -1334,6 +1384,9 @@ Univision`;
           const user = userMatch[1].trim();
           const pass = passMatch[1].trim();
           const exp = expMatch ? expMatch[1].trim() : '';
+          const tzMatch = block.match(/(?:ZONA\s+TEMPORAL|Timezone|ᴛɪᴍᴇᴢᴏɴᴇ|Fuso|Pa[ií]s)\s*[:➤]\s*([^\r\n]+)/i);
+          const geoFromText = tzMatch ? mapTimezoneOrCountry(tzMatch[1]) : null;
+
           const reconstructedUrl = `${srv}/get.php?username=${encodeURIComponent(user)}&password=${encodeURIComponent(pass)}&type=m3u_plus`;
 
           if (!seenUrls.has(reconstructedUrl)) {
@@ -1345,15 +1398,41 @@ Univision`;
               host,
               username: user,
               exp,
-              flag: '🌐',
-              country: '',
-              city: '',
+              flag: geoFromText ? geoFromText.flag : '🌐',
+              country: geoFromText ? geoFromText.country : '',
+              city: geoFromText ? geoFromText.city : '',
               latency: null,
               status: 'unknown'
             });
           } else {
             const existing = results.find(r => r.url === reconstructedUrl);
-            if (existing && exp) existing.exp = exp;
+            if (existing) {
+              if (exp) existing.exp = exp;
+              if (geoFromText && !existing.country) {
+                existing.flag = geoFromText.flag;
+                existing.country = geoFromText.country;
+                existing.city = geoFromText.city;
+              }
+            }
+          }
+        }
+      }
+
+      // Asociar información de timezone / país si la URL vino directamente en el bloque
+      for (const block of blocks) {
+        const tzMatch = block.match(/(?:ZONA\s+TEMPORAL|Timezone|ᴛɪᴍᴇᴢᴏɴᴇ|Fuso|Pa[ií]s)\s*[:➤]\s*([^\r\n]+)/i);
+        if (tzMatch) {
+          const geoFromText = mapTimezoneOrCountry(tzMatch[1]);
+          if (geoFromText) {
+            for (const r of results) {
+              if (block.includes(r.url) || (r.username && block.includes(r.username))) {
+                if (!r.country || r.country === 'Desconocido') {
+                  r.flag = geoFromText.flag;
+                  r.country = geoFromText.country;
+                  r.city = geoFromText.city;
+                }
+              }
+            }
           }
         }
       }
