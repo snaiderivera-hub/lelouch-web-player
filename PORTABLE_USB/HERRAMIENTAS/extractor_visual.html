@@ -253,7 +253,25 @@
     .status-online { background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); }
     .status-offline { background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); }
     .status-testing { background: rgba(0, 229, 255, 0.15); color: var(--accent); border: 1px solid rgba(0, 229, 255, 0.3); }
+    .status-warning { background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); }
     .status-unknown { background: rgba(255, 255, 255, 0.05); color: var(--text-muted); border: 1px solid rgba(255, 255, 255, 0.1); }
+
+    .list-item-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px;
+      transition: all 0.2s ease;
+    }
+    .list-item-card:hover {
+      border-color: rgba(0, 229, 255, 0.35);
+      background: rgba(0, 229, 255, 0.02);
+    }
+    .list-item-card.active-loaded {
+      border-color: var(--accent);
+      background: rgba(0, 229, 255, 0.08);
+      box-shadow: 0 0 10px rgba(0, 229, 255, 0.25);
+    }
 
     /* PAGINACIÓN */
     .pagination-bar {
@@ -330,20 +348,70 @@
   <div class="main-grid">
     <!-- PANEL IZQUIERDO: CARGA Y FILTROS -->
     <div class="panel-card">
-      <h3 style="font-size:0.95rem; font-family:'Outfit'">1. Cargar Archivo M3U o URL</h3>
-      
-      <div class="drop-zone" id="drop-zone">
-        <div style="font-size:2rem; margin-bottom:0.4rem;">📁</div>
-        <strong style="font-size:0.85rem;">Arrastra aquí tu archivo .m3u</strong>
-        <p style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">o haz clic para examinar</p>
-        <input type="file" id="file-input" accept=".m3u,.m3u8,.txt" style="display:none">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h3 style="font-size:0.95rem; font-family:'Outfit'; margin:0;">1. Cargar Listas</h3>
+        <span id="active-list-source-badge" class="badge-pill" style="font-size:0.7rem; padding:2px 8px; display:none;"></span>
       </div>
 
-      <div>
-        <label style="font-size:0.75rem; color:var(--text-muted); display:block; margin-bottom:4px;">O introduce URL directa del M3U:</label>
+      <!-- SELECTOR DE PESTAÑAS (A / B) -->
+      <div style="display:flex; gap:4px; background:rgba(0,0,0,0.3); padding:4px; border-radius:10px; border:1px solid var(--border);">
+        <button type="button" id="tab-btn-single" style="flex:1; padding:6px 6px; border-radius:7px; border:none; background:rgba(0,229,255,0.15); color:var(--accent); font-weight:700; font-size:0.74rem; cursor:pointer; transition:all 0.2s;">
+          📁 Archivo / URL
+        </button>
+        <button type="button" id="tab-btn-multi" style="flex:1; padding:6px 6px; border-radius:7px; border:none; background:transparent; color:var(--text-muted); font-weight:600; font-size:0.74rem; cursor:pointer; transition:all 0.2s;">
+          📝 Pegar Texto Múltiple
+        </button>
+      </div>
+
+      <!-- PESTAÑA A: ARCHIVO M3U O URL DIRECTA -->
+      <div id="tab-pane-single" style="display:flex; flex-direction:column; gap:0.75rem;">
+        <div class="drop-zone" id="drop-zone">
+          <div style="font-size:1.8rem; margin-bottom:0.3rem;">📁</div>
+          <strong style="font-size:0.85rem;">Arrastra aquí tu archivo .m3u</strong>
+          <p style="font-size:0.73rem; color:var(--text-muted); margin-top:2px;">o haz clic para examinar</p>
+          <input type="file" id="file-input" accept=".m3u,.m3u8,.txt" style="display:none">
+        </div>
+
+        <div>
+          <label style="font-size:0.73rem; color:var(--text-muted); display:block; margin-bottom:4px;">O introduce URL directa del M3U:</label>
+          <div style="display:flex; gap:0.4rem;">
+            <input type="text" id="url-input" class="input-field" placeholder="http://servidor:puerto/get.php?..." />
+            <button class="btn btn-sm" id="btn-load-url">Cargar</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- PESTAÑA B: PEGAR TEXTO CON MÚLTIPLES LISTAS -->
+      <div id="tab-pane-multi" style="display:none; flex-direction:column; gap:0.75rem;">
+        <div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+            <label style="font-size:0.73rem; color:var(--text-muted);">Pega texto con cientos de links o cuentas:</label>
+            <span style="font-size:0.7rem; color:var(--accent);" id="pasted-status-hint">Detección auto</span>
+          </div>
+          <textarea id="multi-text-input" class="input-field" style="min-height:110px; font-size:0.72rem; line-height:1.3;" placeholder="Pega aquí texto con links http://.../get.php?... o bloques NewScan/Telegram..."></textarea>
+        </div>
+
         <div style="display:flex; gap:0.4rem;">
-          <input type="text" id="url-input" class="input-field" placeholder="http://servidor:puerto/get.php?..." />
-          <button class="btn btn-sm" id="btn-load-url">Cargar</button>
+          <button class="btn btn-primary btn-sm" id="btn-extract-lists" style="flex:1; height:34px;">
+            🔍 Extraer y Listar Cuentas
+          </button>
+          <button class="btn btn-sm" id="btn-clear-extracted" title="Limpiar listas extraídas" style="padding:0 10px;">
+            🧹 Limpiar
+          </button>
+        </div>
+
+        <!-- LISTAS DETECTADAS -->
+        <div id="extracted-lists-section" style="display:none; flex-direction:column; gap:0.5rem; border-top:1px solid var(--border); padding-top:0.6rem;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <strong style="font-size:0.75rem; color:var(--accent);" id="extracted-count-label">0 Listas Detectadas</strong>
+            <button class="btn btn-sm btn-success" id="btn-test-all-speed" style="font-size:0.7rem; padding:2px 8px;">
+              ⚡ Test Rapidez a Todas
+            </button>
+          </div>
+          
+          <div id="extracted-cards-container" style="max-height:260px; overflow-y:auto; display:flex; flex-direction:column; gap:6px; padding-right:2px;">
+            <!-- Cards generadas aquí dinámicamente -->
+          </div>
         </div>
       </div>
 
@@ -941,18 +1009,389 @@ Univision`;
       reader.readAsText(file);
     }
 
-    // Botón URL
+    // Gestión de Pestañas A y B
+    const tabBtnSingle = document.getElementById('tab-btn-single');
+    const tabBtnMulti = document.getElementById('tab-btn-multi');
+    const tabPaneSingle = document.getElementById('tab-pane-single');
+    const tabPaneMulti = document.getElementById('tab-pane-multi');
+
+    tabBtnSingle.addEventListener('click', () => {
+      tabBtnSingle.style.background = 'rgba(0,229,255,0.15)';
+      tabBtnSingle.style.color = 'var(--accent)';
+      tabBtnSingle.style.fontWeight = '700';
+
+      tabBtnMulti.style.background = 'transparent';
+      tabBtnMulti.style.color = 'var(--text-muted)';
+      tabBtnMulti.style.fontWeight = '600';
+
+      tabPaneSingle.style.display = 'flex';
+      tabPaneMulti.style.display = 'none';
+    });
+
+    tabBtnMulti.addEventListener('click', () => {
+      tabBtnMulti.style.background = 'rgba(0,229,255,0.15)';
+      tabBtnMulti.style.color = 'var(--accent)';
+      tabBtnMulti.style.fontWeight = '700';
+
+      tabBtnSingle.style.background = 'transparent';
+      tabBtnSingle.style.color = 'var(--text-muted)';
+      tabBtnSingle.style.fontWeight = '600';
+
+      tabPaneSingle.style.display = 'none';
+      tabPaneMulti.style.display = 'flex';
+    });
+
+    // Descarga robusta con fallbacks CORS transparentes
+    async function fetchPlaylistContent(url) {
+      showToast('Descargando lista M3U...');
+      // 1. Intento directo
+      try {
+        const controller = new AbortController();
+        const tId = setTimeout(() => controller.abort(), 6000);
+        const res = await fetch(url, { signal: controller.signal });
+        clearTimeout(tId);
+        if (res.ok) {
+          const txt = await res.text();
+          if (txt && (txt.includes('#EXT') || txt.includes('http'))) return txt;
+        }
+      } catch (e) {
+        console.warn('Fetch directo bloqueado o falló, probando proxy CORS...', e);
+      }
+
+      // 2. Proxy CORS 1 (corsproxy.io)
+      try {
+        showToast('Descargando vía Proxy CORS rápido...');
+        const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(url)}`;
+        const controller = new AbortController();
+        const tId = setTimeout(() => controller.abort(), 8000);
+        const res = await fetch(proxyUrl, { signal: controller.signal });
+        clearTimeout(tId);
+        if (res.ok) {
+          const txt = await res.text();
+          if (txt && (txt.includes('#EXT') || txt.includes('http'))) return txt;
+        }
+      } catch (e) {
+        console.warn('corsproxy falló, probando allorigins...', e);
+      }
+
+      // 3. Proxy CORS 2 (allorigins.win)
+      try {
+        showToast('Descargando vía Proxy de respaldo...');
+        const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+        const controller = new AbortController();
+        const tId = setTimeout(() => controller.abort(), 9000);
+        const res = await fetch(proxyUrl, { signal: controller.signal });
+        clearTimeout(tId);
+        if (res.ok) {
+          const txt = await res.text();
+          if (txt && (txt.includes('#EXT') || txt.includes('http'))) return txt;
+        }
+      } catch (e) {
+        console.warn('Proxy allorigins falló', e);
+      }
+
+      throw new Error('No se pudo descargar la lista. El servidor IPTV no respondió o tiene bloqueo geográfico/CORS. Puedes abrir la URL directamente en otra pestaña del navegador para descargar el .m3u y arrastrarlo a la Pestaña A.');
+    }
+
+    // Botón URL (Pestaña A)
     document.getElementById('btn-load-url').addEventListener('click', async () => {
       const url = document.getElementById('url-input').value.trim();
       if (!url) return alert('Introduce una URL M3U válida');
-      showToast('Descargando archivo M3U desde URL...');
       try {
-        const res = await fetch(url);
-        const txt = await res.text();
+        const txt = await fetchPlaylistContent(url);
         loadM3UText(txt);
+        updateActiveBadge(url);
       } catch (e) {
-        alert('Error al descargar: ' + e.message + '\n\nSi el servidor bloquea CORS, arrastra el archivo .m3u descargado directamente al recuadro de arriba.');
+        alert(e.message);
       }
+    });
+
+    // ════════════ LÓGICA DE PESTAÑA B: EXTRACCIÓN Y TEST DE LISTAS ════════════
+    let extractedLists = [];
+    let activeLoadedUrl = '';
+
+    function updateActiveBadge(url, customLabel = null) {
+      const badge = document.getElementById('active-list-source-badge');
+      if (!url) {
+        badge.style.display = 'none';
+        return;
+      }
+      let label = customLabel;
+      if (!label) {
+        try {
+          const u = new URL(url);
+          const usr = u.searchParams.get('username') || u.searchParams.get('user');
+          label = `${u.host}${usr ? ' (' + usr + ')' : ''}`;
+        } catch(e) {
+          label = url.substring(0, 30);
+        }
+      }
+      badge.textContent = `Activa: ${label}`;
+      badge.title = url;
+      badge.style.display = 'inline-block';
+    }
+
+    function extractListsFromText(rawText) {
+      const results = [];
+      const seenUrls = new Set();
+
+      // Extracción por regex de URLs
+      const urlRegex = /(https?:\/\/[^\s"'<>\n\r]+)/gi;
+      let match;
+      const urlsFound = [];
+      while ((match = urlRegex.exec(rawText)) !== null) {
+        let u = match[1].trim();
+        u = u.replace(/[.,;:)>\]]+$/, '');
+        if (u.includes('get.php') || u.includes('.m3u') || u.includes('.m3u8') || (u.includes(':') && (u.includes('username=') || u.includes('user=')))) {
+          urlsFound.push(u);
+        } else if (u.includes('http://') || u.includes('https://')) {
+          if (/:\d{2,5}/.test(u) || u.includes('.online') || u.includes('.lat') || u.includes('.site') || u.includes('.pro') || u.includes('.live') || u.includes('.xyz') || u.includes('.net') || u.includes('.plus')) {
+            urlsFound.push(u);
+          }
+        }
+      }
+
+      for (const url of urlsFound) {
+        if (!seenUrls.has(url)) {
+          seenUrls.add(url);
+          let host = '';
+          let username = '';
+          try {
+            const parsed = new URL(url);
+            host = parsed.host;
+            username = parsed.searchParams.get('username') || parsed.searchParams.get('user') || '';
+          } catch (e) {
+            host = url.split('/')[2] || 'Servidor';
+          }
+          results.push({
+            url,
+            host,
+            username,
+            exp: '',
+            latency: null,
+            status: 'unknown'
+          });
+        }
+      }
+
+      // Reconstrucción desde bloques con campos separados (Servidor, Usuario, Senha, Expira)
+      const blocks = rawText.split(/(?:NewScan|╭━━━━|╰━━━━|═{5,}|-{10,})/i);
+      for (const block of blocks) {
+        const srvMatch = block.match(/(?:Servidor|Server|Host)\s*[:➤]\s*(https?:\/\/[^\s"'<>]+)/i);
+        const userMatch = block.match(/(?:Usu[aá]rio|User|Username)\s*[:➤]\s*([^\s"'<>\r\n]+)/i);
+        const passMatch = block.match(/(?:Senha|Pass|Password)\s*[:➤]\s*([^\s"'<>\r\n]+)/i);
+        const expMatch = block.match(/(?:Expira\s+em|Expires?|Vence)\s*[:➤]\s*([^\s"'<>\r\n]+)/i);
+
+        if (srvMatch && userMatch && passMatch) {
+          const srv = srvMatch[1].replace(/\/+$/, '');
+          const user = userMatch[1].trim();
+          const pass = passMatch[1].trim();
+          const exp = expMatch ? expMatch[1].trim() : '';
+          const reconstructedUrl = `${srv}/get.php?username=${encodeURIComponent(user)}&password=${encodeURIComponent(pass)}&type=m3u_plus`;
+
+          if (!seenUrls.has(reconstructedUrl)) {
+            seenUrls.add(reconstructedUrl);
+            let host = '';
+            try { host = new URL(srv).host; } catch(e) { host = srv; }
+            results.push({
+              url: reconstructedUrl,
+              host,
+              username: user,
+              exp,
+              latency: null,
+              status: 'unknown'
+            });
+          } else {
+            const existing = results.find(r => r.url === reconstructedUrl);
+            if (existing && exp) existing.exp = exp;
+          }
+        }
+      }
+
+      return results;
+    }
+
+    function renderExtractedLists() {
+      const container = document.getElementById('extracted-cards-container');
+      const countLabel = document.getElementById('extracted-count-label');
+      const section = document.getElementById('extracted-lists-section');
+
+      if (extractedLists.length === 0) {
+        section.style.display = 'none';
+        container.innerHTML = '';
+        return;
+      }
+
+      section.style.display = 'flex';
+      countLabel.textContent = `${extractedLists.length} Listas Detectadas`;
+
+      container.innerHTML = extractedLists.map((item, idx) => {
+        const isLoaded = (item.url === activeLoadedUrl);
+        let statusBadge = '<span class="status-badge status-unknown">⚪ Sin medir</span>';
+
+        if (item.status === 'testing') {
+          statusBadge = '<span class="status-badge status-testing">⏳ Probando...</span>';
+        } else if (item.status === 'online') {
+          if (item.latency < 250) {
+            statusBadge = `<span class="status-badge status-online">🟢 ${item.latency}ms</span>`;
+          } else if (item.latency < 600) {
+            statusBadge = `<span class="status-badge status-warning">🟡 ${item.latency}ms</span>`;
+          } else {
+            statusBadge = `<span class="status-badge status-warning" style="color:#f97316;border-color:#f97316;">🟠 ${item.latency}ms</span>`;
+          }
+        } else if (item.status === 'offline') {
+          statusBadge = '<span class="status-badge status-offline">🔴 Caído</span>';
+        }
+
+        return `
+          <div class="list-item-card ${isLoaded ? 'active-loaded' : ''}" id="card-list-${idx}">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; gap:4px;">
+              <strong style="color:var(--accent); font-family:'JetBrains Mono'; font-size:0.75rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:180px;" title="${escapeHtml(item.host)}">
+                ${escapeHtml(item.host)}
+              </strong>
+              ${statusBadge}
+            </div>
+            <div style="color:var(--text-muted); font-size:0.7rem; margin-bottom:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+              👤 <strong>${escapeHtml(item.username || 'Cuenta')}</strong> ${item.exp ? `• 📅 ${escapeHtml(item.exp)}` : ''}
+            </div>
+            <div style="display:flex; gap:4px;">
+              <button class="btn btn-sm btn-primary" onclick="loadExtractedList(${idx})" style="flex:1; padding:3px 6px; font-size:0.72rem;" title="Cargar los canales de esta lista">
+                📥 ${isLoaded ? 'Activa' : 'Cargar'}
+              </button>
+              <button class="btn btn-sm" onclick="pingSingleList(${idx})" style="padding:3px 6px; font-size:0.72rem;" title="Probar latencia del servidor">
+                ⚡ Test
+              </button>
+              <button class="btn btn-sm" onclick="copyExtractedUrl(${idx})" style="padding:3px 6px; font-size:0.72rem;" title="Copiar enlace">
+                📋
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function pingServer(url, timeoutMs = 3500) {
+      const start = performance.now();
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        await fetch(url, {
+          method: 'GET',
+          mode: 'no-cors',
+          cache: 'no-store',
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        const elapsed = Math.round(performance.now() - start);
+        return { ok: true, latency: elapsed };
+      } catch (err) {
+        const elapsed = Math.round(performance.now() - start);
+        return { ok: false, latency: elapsed };
+      }
+    }
+
+    window.pingSingleList = async function(idx) {
+      const item = extractedLists[idx];
+      if (!item) return;
+
+      item.status = 'testing';
+      renderExtractedLists();
+
+      const result = await pingServer(item.url);
+      item.latency = result.latency;
+      item.status = result.ok ? 'online' : 'offline';
+      renderExtractedLists();
+      showToast(`${item.host}: ${result.ok ? result.latency + 'ms' : 'Caído'}`);
+    };
+
+    window.copyExtractedUrl = function(idx) {
+      const item = extractedLists[idx];
+      if (!item) return;
+      navigator.clipboard.writeText(item.url).then(() => {
+        showToast(`📋 Enlace copiado: ${item.host}`);
+      }).catch(() => {
+        prompt('Copia el enlace:', item.url);
+      });
+    };
+
+    window.loadExtractedList = async function(idx) {
+      const item = extractedLists[idx];
+      if (!item) return;
+
+      try {
+        activeLoadedUrl = item.url;
+        renderExtractedLists();
+        updateActiveBadge(item.url, `${item.host} (${item.username || 'Cuenta'})`);
+        const txt = await fetchPlaylistContent(item.url);
+        loadM3UText(txt);
+        showToast(`✓ Cargada lista: ${item.host}`);
+      } catch (err) {
+        alert(err.message);
+      }
+    };
+
+    document.getElementById('btn-extract-lists').addEventListener('click', () => {
+      const text = document.getElementById('multi-text-input').value.trim();
+      if (!text) return alert('Pega texto con enlaces o cuentas primero.');
+
+      extractedLists = extractListsFromText(text);
+      if (extractedLists.length === 0) {
+        alert('No se encontraron enlaces válidos de IPTV o M3U en el texto pegado.');
+        return;
+      }
+
+      showToast(`✓ ${extractedLists.length} listas detectadas`);
+      renderExtractedLists();
+    });
+
+    document.getElementById('btn-clear-extracted').addEventListener('click', () => {
+      extractedLists = [];
+      document.getElementById('multi-text-input').value = '';
+      renderExtractedLists();
+      showToast('Listas extraídas limpiadas');
+    });
+
+    // Test de rapidez a todas las listas detectadas (concurrencia 4)
+    document.getElementById('btn-test-all-speed').addEventListener('click', async () => {
+      if (extractedLists.length === 0) return;
+
+      const btn = document.getElementById('btn-test-all-speed');
+      btn.disabled = true;
+      btn.textContent = '⏳ Probando...';
+
+      extractedLists.forEach(it => { it.status = 'testing'; });
+      renderExtractedLists();
+
+      const CONCURRENCY = 4;
+      let cursor = 0;
+      const total = extractedLists.length;
+
+      async function worker() {
+        while (cursor < total) {
+          const idx = cursor++;
+          const item = extractedLists[idx];
+          const result = await pingServer(item.url);
+          item.latency = result.latency;
+          item.status = result.ok ? 'online' : 'offline';
+          renderExtractedLists();
+        }
+      }
+
+      const workers = Array.from({ length: Math.min(CONCURRENCY, total) }, () => worker());
+      await Promise.all(workers);
+
+      // Ordenar por rapidez: Online más rápidas primero, luego caídas
+      extractedLists.sort((a, b) => {
+        if (a.status === 'online' && b.status !== 'online') return -1;
+        if (a.status !== 'online' && b.status === 'online') return 1;
+        if (a.status === 'online' && b.status === 'online') return a.latency - b.latency;
+        return 0;
+      });
+
+      renderExtractedLists();
+      btn.disabled = false;
+      btn.textContent = '⚡ Test Rapidez a Todas';
+      showToast('✓ Test finalizado. Listas ordenadas por rapidez.');
     });
 
     // Botón Filtrar
