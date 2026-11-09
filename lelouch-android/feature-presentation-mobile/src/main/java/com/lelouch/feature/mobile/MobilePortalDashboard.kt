@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Mic
@@ -127,46 +128,136 @@ fun MobilePortalDashboard(
         }
     }
 
-    // Mejores películas de la semana (exclusivamente del año en curso)
-    val weeklyMovies = remember(movies, currentYearStr) {
-        val valid = movies.filter { it.streamIcon?.trim().orEmpty().startsWith("http") }
-        val currentYearMovies = valid.filter { isMovieFromYear(it, currentYearStr) }
-        if (currentYearMovies.size >= 3) {
-            currentYearMovies.take(25)
-        } else {
-            val fallback = valid.filter { isMovieFromYear(it, currentYearStr) || isMovieFromYear(it, previousYearStr) }
-            if (fallback.isNotEmpty()) fallback.take(25) else valid.take(25)
-        }
+    // 1. EN VIVO AHORA (Partidos deportivos activos - Captura 3)
+    val sportsKeywords = remember {
+        listOf(
+            "sport", "deporte", "futbol", "fútbol", "liga", "champions", "premier",
+            "laliga", "nba", "mlb", "nfl", "ufc", "box", "f1", "formula 1",
+            "motogp", "espn", "fox sport", "dazn", "tudn", "directv sport",
+            "win sport", "gol", "partido", "event"
+        )
     }
 
-    // Mejores series de la semana (exclusivamente del año en curso)
-    val weeklySeries = remember(seriesList, currentYearStr) {
-        val valid = seriesList.filter { it.cover?.trim().orEmpty().startsWith("http") }
-        val currentYearSeries = valid.filter { isSeriesFromYear(it, currentYearStr) }
-        if (currentYearSeries.size >= 3) {
-            currentYearSeries.take(25)
-        } else {
-            val fallback = valid.filter { isSeriesFromYear(it, currentYearStr) || isSeriesFromYear(it, previousYearStr) }
-            if (fallback.isNotEmpty()) fallback.take(25) else valid.take(25)
-        }
+    val liveMatches = remember(liveChannels) {
+        liveChannels.filter { ch ->
+            val cat = ch.categoryName.lowercase()
+            val name = ch.name.lowercase()
+            val isSportCat = sportsKeywords.any { cat.contains(it) || name.contains(it) }
+            val hasVs = name.contains(" vs ") || name.contains(" v ") || name.contains(" - ")
+            isSportCat || hasVs
+        }.take(20)
     }
 
-    // Sección Anime y Animación solicitada explícitamente por el usuario
-    val animeRailItems = remember(movies, seriesList) {
-        val animeKeywords = listOf("anime", "animaci", "manga", "otaku", "japón", "japon", "dragon ball", "naruto", "one piece", "demon slayer", "shingeki", "ghibli")
-        val animeFromSeries = seriesList.filter { s ->
-            s.cover?.trim().orEmpty().startsWith("http") && animeKeywords.any { kw ->
-                s.name.contains(kw, ignoreCase = true) || (s.categoryName ?: "").contains(kw, ignoreCase = true) || (s.plot ?: "").contains(kw, ignoreCase = true)
-            }
-        }.map { CuratedRailItem(it.name, it.cover, it.rating5based, onClick = { onSeriesClick(it) }) }
+    // 2. RECIÉN AGREGADAS (Últimas películas añadidas - Captura 4)
+    val recentMovies = remember(movies) {
+        movies.filter { it.streamIcon?.trim().orEmpty().startsWith("http") }.take(15)
+    }
 
-        val animeFromMovies = movies.filter { m ->
-            m.streamIcon?.trim().orEmpty().startsWith("http") && animeKeywords.any { kw ->
-                m.name.contains(kw, ignoreCase = true) || m.categoryName.contains(kw, ignoreCase = true) || (m.genre ?: "").contains(kw, ignoreCase = true)
-            }
-        }.map { CuratedRailItem(it.name, it.streamIcon, it.rating, onClick = { onMovieClick(it) }) }
+    // 3. LO MÁS VISTO (Mejor valoradas y destacadas, sin mezclar animación infantil)
+    val mostViewedItems = remember(movies, seriesList) {
+        val nonAnimKeywords = listOf("animaci", "anime", "infantil", "kids", "disney", "cartoon", "caricatura")
+        val highMovies = movies.filter { m ->
+            val cat = m.categoryName.lowercase()
+            val name = m.name.lowercase()
+            val genre = (m.genre ?: "").lowercase()
+            val isNotAnim = nonAnimKeywords.none { cat.contains(it) || name.contains(it) || genre.contains(it) }
+            val r = m.rating ?: 0.0
+            isNotAnim && r >= 6.5 && m.streamIcon?.trim().orEmpty().startsWith("http")
+        }.map { CuratedMediaItem(it.name, it.streamIcon, it.rating, it.year, onClick = { onMovieClick(it) }) }
 
-        (animeFromSeries + animeFromMovies).take(25)
+        val highSeries = seriesList.filter { s ->
+            val cat = (s.categoryName ?: "").lowercase()
+            val name = s.name.lowercase()
+            val isNotAnim = nonAnimKeywords.none { cat.contains(it) || name.contains(it) }
+            val r = s.rating5based?.times(2.0) ?: 0.0
+            isNotAnim && r >= 6.5 && s.cover?.trim().orEmpty().startsWith("http")
+        }.map { CuratedMediaItem(it.name, it.cover, it.rating5based?.times(2.0), it.releaseDate?.take(4), onClick = { onSeriesClick(it) }) }
+
+        (highMovies + highSeries).sortedByDescending { it.rating ?: 0.0 }.take(15)
+    }
+
+    // 4. TERROR Y SUSPENSO (Exclusivo horror/thriller, sin niños ni caricaturas)
+    val terrorItems = remember(movies, seriesList) {
+        val terrorKeywords = listOf("terror", "horror", "miedo", "suspenso", "thriller", "psicologico", "paranormal", "pesadilla", "gore", "fantasma", "demonio", "siniestro", "misterio", "slasher")
+        val excludeKeywords = listOf("animaci", "anime", "infantil", "kids", "disney", "cartoon", "comedia")
+        val horrorMovies = movies.filter { m ->
+            val text = "${m.name} ${m.categoryName} ${m.genre ?: ""} ${m.plot ?: ""}".lowercase()
+            terrorKeywords.any { text.contains(it) } && excludeKeywords.none { text.contains(it) } && m.streamIcon?.trim().orEmpty().startsWith("http")
+        }.map { CuratedMediaItem(it.name, it.streamIcon, it.rating, it.year, onClick = { onMovieClick(it) }) }
+
+        val horrorSeries = seriesList.filter { s ->
+            val text = "${s.name} ${s.categoryName ?: ""} ${s.plot ?: ""}".lowercase()
+            terrorKeywords.any { text.contains(it) } && excludeKeywords.none { text.contains(it) } && s.cover?.trim().orEmpty().startsWith("http")
+        }.map { CuratedMediaItem(it.name, it.cover, it.rating5based?.times(2.0), it.releaseDate?.take(4), onClick = { onSeriesClick(it) }) }
+
+        (horrorMovies + horrorSeries).take(15)
+    }
+
+    // 5. CIENCIA FICCIÓN (Sci-fi, futurista, espacio y fantasía)
+    val sciFiItems = remember(movies, seriesList) {
+        val sciFiKeywords = listOf("ciencia ficci", "sci-fi", "scifi", "futur", "espacio", "galax", "extraterrestre", "alien", "cyber", "robot", "apocalip", "distop", "mutante", "universo", "interestelar", "matrix", "star wars", "star trek", "marte")
+        val excludeKeywords = listOf("animaci", "anime", "infantil", "kids", "disney")
+        val sfMovies = movies.filter { m ->
+            val text = "${m.name} ${m.categoryName} ${m.genre ?: ""} ${m.plot ?: ""}".lowercase()
+            sciFiKeywords.any { text.contains(it) } && excludeKeywords.none { text.contains(it) } && m.streamIcon?.trim().orEmpty().startsWith("http")
+        }.map { CuratedMediaItem(it.name, it.streamIcon, it.rating, it.year, onClick = { onMovieClick(it) }) }
+
+        val sfSeries = seriesList.filter { s ->
+            val text = "${s.name} ${s.categoryName ?: ""} ${s.plot ?: ""}".lowercase()
+            sciFiKeywords.any { text.contains(it) } && excludeKeywords.none { text.contains(it) } && s.cover?.trim().orEmpty().startsWith("http")
+        }.map { CuratedMediaItem(it.name, it.cover, it.rating5based?.times(2.0), it.releaseDate?.take(4), onClick = { onSeriesClick(it) }) }
+
+        (sfMovies + sfSeries).take(15)
+    }
+
+    // 6. BASADO EN HECHOS REALES (Biografías, historia, dramas reales)
+    val realHistoryItems = remember(movies, seriesList) {
+        val realKeywords = listOf("hechos reales", "historia real", "basada en", "biograf", "biopic", "documental", "vida real", "true story", "veridica", "crimen real", "testimonio")
+        val excludeKeywords = listOf("animaci", "anime", "superhero", "marvel", "dc comics", "fantasia", "sci-fi")
+        val realMovies = movies.filter { m ->
+            val text = "${m.name} ${m.categoryName} ${m.genre ?: ""} ${m.plot ?: ""}".lowercase()
+            realKeywords.any { text.contains(it) } && excludeKeywords.none { text.contains(it) } && m.streamIcon?.trim().orEmpty().startsWith("http")
+        }.map { CuratedMediaItem(it.name, it.streamIcon, it.rating, it.year, onClick = { onMovieClick(it) }) }
+
+        val realSeries = seriesList.filter { s ->
+            val text = "${s.name} ${s.categoryName ?: ""} ${s.plot ?: ""}".lowercase()
+            realKeywords.any { text.contains(it) } && excludeKeywords.none { text.contains(it) } && s.cover?.trim().orEmpty().startsWith("http")
+        }.map { CuratedMediaItem(it.name, it.cover, it.rating5based?.times(2.0), it.releaseDate?.take(4), onClick = { onSeriesClick(it) }) }
+
+        (realMovies + realSeries).take(15)
+    }
+
+    // 7. ACCIÓN Y AVENTURA (Explosiones, misiones, combate)
+    val actionItems = remember(movies, seriesList) {
+        val actionKeywords = listOf("acci", "action", "aventura", "adventure", "belic", "guerra", "marcial", "policiac", "espia", "mision", "combate", "venganza", "fast & furious", "john wick")
+        val excludeKeywords = listOf("animaci", "anime", "infantil", "kids", "disney", "terror", "horror")
+        val actMovies = movies.filter { m ->
+            val text = "${m.name} ${m.categoryName} ${m.genre ?: ""} ${m.plot ?: ""}".lowercase()
+            actionKeywords.any { text.contains(it) } && excludeKeywords.none { text.contains(it) } && m.streamIcon?.trim().orEmpty().startsWith("http")
+        }.map { CuratedMediaItem(it.name, it.streamIcon, it.rating, it.year, onClick = { onMovieClick(it) }) }
+
+        val actSeries = seriesList.filter { s ->
+            val text = "${s.name} ${s.categoryName ?: ""} ${s.plot ?: ""}".lowercase()
+            actionKeywords.any { text.contains(it) } && excludeKeywords.none { text.contains(it) } && s.cover?.trim().orEmpty().startsWith("http")
+        }.map { CuratedMediaItem(it.name, it.cover, it.rating5based?.times(2.0), it.releaseDate?.take(4), onClick = { onSeriesClick(it) }) }
+
+        (actMovies + actSeries).take(15)
+    }
+
+    // 8. MUNDO ANIMADO (Animación familiar, caricaturas y anime)
+    val animItems = remember(movies, seriesList) {
+        val animKeywords = listOf("animaci", "animation", "anime", "caricatura", "dibujo", "cartoon", "disney", "pixar", "dreamworks", "manga", "otaku", "dragon ball", "naruto", "one piece", "ghibli", "infantil", "kids", "familia", "pokemon", "sponge", "bob esponja", "demon slayer", "shingeki")
+        val animMovies = movies.filter { m ->
+            val text = "${m.name} ${m.categoryName} ${m.genre ?: ""} ${m.plot ?: ""}".lowercase()
+            animKeywords.any { text.contains(it) } && m.streamIcon?.trim().orEmpty().startsWith("http")
+        }.map { CuratedMediaItem(it.name, it.streamIcon, it.rating, it.year, onClick = { onMovieClick(it) }) }
+
+        val animSeries = seriesList.filter { s ->
+            val text = "${s.name} ${s.categoryName ?: ""} ${s.plot ?: ""}".lowercase()
+            animKeywords.any { text.contains(it) } && s.cover?.trim().orEmpty().startsWith("http")
+        }.map { CuratedMediaItem(it.name, it.cover, it.rating5based?.times(2.0), it.releaseDate?.take(4), onClick = { onSeriesClick(it) }) }
+
+        (animMovies + animSeries).take(15)
     }
 
     Column(
@@ -549,12 +640,67 @@ fun MobilePortalDashboard(
             }
 
             // ══════════════════════════════════════════════════════════════════════
-            // 5. CARRIL HORIZONTAL 1: MEJORES PELÍCULAS DE LA SEMANA (CAPTURA 2)
+            // 1. 🔴 EN VIVO AHORA (PARTIDOS DEPORTIVOS ACTIVOS - CAPTURA 3)
             // ══════════════════════════════════════════════════════════════════════
-            if (weeklyMovies.isNotEmpty()) {
+            if (liveMatches.isNotEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable { onNavigateToLive() }
+                    ) {
+                        Text(
+                            text = "🔴 EN VIVO AHORA",
+                            color = Color(0xFFE50914),
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = "(${liveMatches.size} partidos activos)",
+                            color = BixTextMuted,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    Text(
+                        text = "VER TODOS >",
+                        color = Color(0xFF00E5C9),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable { onNavigateToLive() }
+                    )
+                }
+
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(liveMatches) { channel ->
+                        LiveMatchCard(
+                            channel = channel,
+                            onClick = { onChannelClick(channel.name, channel.streamUrl ?: "") }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+            }
+
+            // ══════════════════════════════════════════════════════════════════════
+            // 2. ▌ RECIÉN AGREGADAS (CAPTURA 4 CON TARJETA + VER MÁS)
+            // ══════════════════════════════════════════════════════════════════════
+            if (recentMovies.isNotEmpty()) {
                 CuratedSectionHeader(
-                    title = "Mejores películas de la semana",
-                    actionText = "VER TODO →",
+                    title = "RECIÉN AGREGADAS",
+                    actionText = "VER MÁS >",
+                    barColor = Color(0xFFFFB800),
                     onActionClick = onNavigateToMovies
                 )
 
@@ -563,11 +709,19 @@ fun MobilePortalDashboard(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    items(weeklyMovies) { movie ->
+                    items(recentMovies) { movie ->
                         CuratedPosterItem(
                             title = movie.name,
                             imageUrl = movie.streamIcon,
+                            rating = movie.rating,
+                            year = movie.year,
                             onClick = { onMovieClick(movie) }
+                        )
+                    }
+                    item {
+                        SeeMorePosterCard(
+                            remainingCount = movies.size,
+                            onClick = onNavigateToMovies
                         )
                     }
                 }
@@ -576,13 +730,14 @@ fun MobilePortalDashboard(
             }
 
             // ══════════════════════════════════════════════════════════════════════
-            // 6. CARRIL HORIZONTAL 2: MEJORES SERIES DE LA SEMANA (CAPTURA 2)
+            // 3. ▌ LO MÁS VISTO
             // ══════════════════════════════════════════════════════════════════════
-            if (weeklySeries.isNotEmpty()) {
+            if (mostViewedItems.isNotEmpty()) {
                 CuratedSectionHeader(
-                    title = "Mejores series de la semana",
-                    actionText = "VER TODO →",
-                    onActionClick = onNavigateToSeries
+                    title = "LO MÁS VISTO",
+                    actionText = "VER MÁS >",
+                    barColor = Color(0xFFFFB800),
+                    onActionClick = onNavigateToMovies
                 )
 
                 LazyRow(
@@ -590,11 +745,19 @@ fun MobilePortalDashboard(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    items(weeklySeries) { series ->
+                    items(mostViewedItems) { item ->
                         CuratedPosterItem(
-                            title = series.name,
-                            imageUrl = series.cover,
-                            onClick = { onSeriesClick(series) }
+                            title = item.title,
+                            imageUrl = item.imageUrl,
+                            rating = item.rating,
+                            year = item.year,
+                            onClick = item.onClick
+                        )
+                    }
+                    item {
+                        SeeMorePosterCard(
+                            remainingCount = movies.size + seriesList.size,
+                            onClick = onNavigateToMovies
                         )
                     }
                 }
@@ -603,12 +766,157 @@ fun MobilePortalDashboard(
             }
 
             // ══════════════════════════════════════════════════════════════════════
-            // 7. CARRIL HORIZONTAL 3: ANIME Y ANIMACIÓN (CAPTURA 2 / PETICIÓN USUARIO)
+            // 4. ▌ TERROR Y SUSPENSO
             // ══════════════════════════════════════════════════════════════════════
-            if (animeRailItems.isNotEmpty()) {
+            if (terrorItems.isNotEmpty()) {
                 CuratedSectionHeader(
-                    title = "Anime y Animación",
-                    actionText = "VER TODO →",
+                    title = "TERROR Y SUSPENSO",
+                    actionText = "VER MÁS >",
+                    barColor = Color(0xFFFF5252),
+                    onActionClick = onNavigateToMovies
+                )
+
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(terrorItems) { item ->
+                        CuratedPosterItem(
+                            title = item.title,
+                            imageUrl = item.imageUrl,
+                            rating = item.rating,
+                            year = item.year,
+                            onClick = item.onClick
+                        )
+                    }
+                    item {
+                        SeeMorePosterCard(
+                            remainingCount = terrorItems.size,
+                            onClick = onNavigateToMovies
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+            }
+
+            // ══════════════════════════════════════════════════════════════════════
+            // 5. ▌ CIENCIA FICCIÓN
+            // ══════════════════════════════════════════════════════════════════════
+            if (sciFiItems.isNotEmpty()) {
+                CuratedSectionHeader(
+                    title = "CIENCIA FICCIÓN",
+                    actionText = "VER MÁS >",
+                    barColor = Color(0xFF00E5C9),
+                    onActionClick = onNavigateToMovies
+                )
+
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(sciFiItems) { item ->
+                        CuratedPosterItem(
+                            title = item.title,
+                            imageUrl = item.imageUrl,
+                            rating = item.rating,
+                            year = item.year,
+                            onClick = item.onClick
+                        )
+                    }
+                    item {
+                        SeeMorePosterCard(
+                            remainingCount = sciFiItems.size,
+                            onClick = onNavigateToMovies
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+            }
+
+            // ══════════════════════════════════════════════════════════════════════
+            // 6. ▌ BASADO EN HECHOS REALES
+            // ══════════════════════════════════════════════════════════════════════
+            if (realHistoryItems.isNotEmpty()) {
+                CuratedSectionHeader(
+                    title = "BASADO EN HECHOS REALES",
+                    actionText = "VER MÁS >",
+                    barColor = Color(0xFFE5A93C),
+                    onActionClick = onNavigateToMovies
+                )
+
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(realHistoryItems) { item ->
+                        CuratedPosterItem(
+                            title = item.title,
+                            imageUrl = item.imageUrl,
+                            rating = item.rating,
+                            year = item.year,
+                            onClick = item.onClick
+                        )
+                    }
+                    item {
+                        SeeMorePosterCard(
+                            remainingCount = realHistoryItems.size,
+                            onClick = onNavigateToMovies
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+            }
+
+            // ══════════════════════════════════════════════════════════════════════
+            // 7. ▌ ACCIÓN Y AVENTURA
+            // ══════════════════════════════════════════════════════════════════════
+            if (actionItems.isNotEmpty()) {
+                CuratedSectionHeader(
+                    title = "ACCIÓN Y AVENTURA",
+                    actionText = "VER MÁS >",
+                    barColor = Color(0xFFFF6D00),
+                    onActionClick = onNavigateToMovies
+                )
+
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(actionItems) { item ->
+                        CuratedPosterItem(
+                            title = item.title,
+                            imageUrl = item.imageUrl,
+                            rating = item.rating,
+                            year = item.year,
+                            onClick = item.onClick
+                        )
+                    }
+                    item {
+                        SeeMorePosterCard(
+                            remainingCount = actionItems.size,
+                            onClick = onNavigateToMovies
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+            }
+
+            // ══════════════════════════════════════════════════════════════════════
+            // 8. ▌ MUNDO ANIMADO
+            // ══════════════════════════════════════════════════════════════════════
+            if (animItems.isNotEmpty()) {
+                CuratedSectionHeader(
+                    title = "MUNDO ANIMADO",
+                    actionText = "VER MÁS >",
+                    barColor = Color(0xFFFF4081),
                     onActionClick = onSeeAllAnime
                 )
 
@@ -617,42 +925,24 @@ fun MobilePortalDashboard(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    items(animeRailItems) { item ->
+                    items(animItems) { item ->
                         CuratedPosterItem(
                             title = item.title,
                             imageUrl = item.imageUrl,
+                            rating = item.rating,
+                            year = item.year,
                             onClick = item.onClick
                         )
                     }
-                }
-
-                Spacer(modifier = Modifier.height(24.dp))
-            }
-
-            // ══════════════════════════════════════════════════════════════════════
-            // 8. CARRIL HORIZONTAL 4: EN VIVO & DEPORTES
-            // ══════════════════════════════════════════════════════════════════════
-            if (liveChannels.isNotEmpty()) {
-                CuratedSectionHeader(
-                    title = "En Vivo & Deportes",
-                    actionText = "VER TODO →",
-                    onActionClick = onNavigateToLive
-                )
-
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    items(liveChannels.take(15)) { channel ->
-                        NativeLiveStreamCard(
-                            channel = channel,
-                            onClick = { onChannelClick(channel.name, channel.streamUrl ?: "") }
+                    item {
+                        SeeMorePosterCard(
+                            remainingCount = animItems.size,
+                            onClick = onSeeAllAnime
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(26.dp))
+                Spacer(modifier = Modifier.height(30.dp))
             }
         }
     }
@@ -902,13 +1192,14 @@ private fun MobileTopTenHeroCarousel(
 }
 
 /**
- * Cabecera limpia de Carril Curado (Captura 2):
- * Título a la izquierda en blanco negrita, "VER TODO →" a la derecha en Cyan (#00E5C9).
+ * Cabecera limpia de Carril Curado (Captura 4):
+ * Barra de color vertical `▌ `, título a la izquierda en blanco negrita, y `VER MÁS >` en Cyan (#00E5C9).
  */
 @Composable
 private fun CuratedSectionHeader(
     title: String,
-    actionText: String,
+    actionText: String = "VER MÁS >",
+    barColor: Color = Color(0xFFFFB800),
     onActionClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -919,17 +1210,35 @@ private fun CuratedSectionHeader(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = title,
-            color = Color.White,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Black,
-            letterSpacing = 0.2.sp
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.clickable(onClick = onActionClick)
+        ) {
+            Text(
+                text = "▌ ",
+                color = barColor,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Black
+            )
+            Text(
+                text = title,
+                color = Color.White,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 0.2.sp
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(
+                text = ">",
+                color = Color.White.copy(alpha = 0.6f),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
         Text(
             text = actionText,
             color = Color(0xFF00E5C9),
-            fontSize = 12.sp,
+            fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.clickable(onClick = onActionClick)
         )
@@ -937,13 +1246,15 @@ private fun CuratedSectionHeader(
 }
 
 /**
- * Tarjeta de Cartel Curado (Captura 2):
- * Imagen de portada vertical con esquinas redondeadas y TÍTULO LIMPIO DEBAJO de la portada.
+ * Tarjeta de Cartel Curado (Captura 4):
+ * Imagen de portada vertical con esquinas redondeadas, título debajo y valoración ★ + Año.
  */
 @Composable
 private fun CuratedPosterItem(
     title: String,
     imageUrl: String?,
+    rating: Double? = null,
+    year: String? = null,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -986,12 +1297,308 @@ private fun CuratedPosterItem(
             color = Color.White,
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            lineHeight = 15.sp
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
+
+        // Línea de Calificación y Año (Captura 4: ★ 6.754 • 2026)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            val r = rating ?: 6.5
+            Text(
+                text = "★ ${"%.1f".format(r)}",
+                color = Color(0xFFFFD700),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold
+            )
+            if (!year.isNullOrBlank()) {
+                Text(text = "•", color = BixTextMuted, fontSize = 10.sp)
+                Text(
+                    text = year,
+                    color = BixTextMuted,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
     }
 }
+
+/**
+ * Tarjeta "+ VER MÁS" al final del carrusel (Captura 4):
+ * Mismo tamaño que CuratedPosterItem (115dp x 168dp), borde sutil, icono + central y conteo de títulos.
+ */
+@Composable
+private fun SeeMorePosterCard(
+    remainingCount: Int,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .width(115.dp)
+            .height(168.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color(0xFF14161F))
+            .border(
+                BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
+                RoundedCornerShape(12.dp)
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(8.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.08f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "Ver Más",
+                    tint = Color.White,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+            Text(
+                text = "VER MÁS",
+                color = Color.White,
+                fontWeight = FontWeight.Black,
+                fontSize = 12.sp,
+                letterSpacing = 0.5.sp
+            )
+            if (remainingCount > 0) {
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    text = "+$remainingCount títulos",
+                    color = Color(0xFFFFB800),
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Tarjeta de Partido Deportivo en Vivo (Captura 3):
+ * Fondo estadio / arena, badge "🔴 EN VIVO" arriba a la izquierda,
+ * escudos de rivales con badge "VS" en el centro, y panel oscuro con título y torneo abajo.
+ */
+@Composable
+private fun LiveMatchCard(
+    channel: LiveStream,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    // Parse "Team A vs Team B" o "Team A - Team B"
+    val vsRegex = Regex("(?i)\\s+(?:vs|v|-)\\s+")
+    val cleanName = channel.name.replace(Regex("(?i)\\[.*?\\]|\\(.*?\\)"), "").trim()
+    val parts = cleanName.split(vsRegex)
+    val hasOpponents = parts.size >= 2 && parts[0].isNotBlank() && parts[1].isNotBlank()
+    val teamA = if (hasOpponents) parts[0].trim().take(18) else ""
+    val teamB = if (hasOpponents) parts[1].trim().take(18) else ""
+
+    Box(
+        modifier = modifier
+            .width(240.dp)
+            .height(138.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color(0xFF0D111A))
+            .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+    ) {
+        // Fondo estadio / césped iluminado
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFF1E3A2F), // Verde césped de estadio
+                            Color(0xFF101C24),
+                            Color(0xFF090D14)
+                        ),
+                        radius = 450f
+                    )
+                )
+        )
+
+        // Reflejo de focos de estadio arriba
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(55.dp)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = 0.08f),
+                            Color.Transparent
+                        )
+                    )
+                )
+        )
+
+        // Arriba Izquierda: Badge 🔴 EN VIVO
+        Box(
+            modifier = Modifier
+                .padding(8.dp)
+                .align(Alignment.TopStart)
+                .clip(RoundedCornerShape(6.dp))
+                .background(Color(0xFFE50914).copy(alpha = 0.95f))
+                .padding(horizontal = 7.dp, vertical = 3.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(Color.White)
+                )
+                Spacer(Modifier.width(5.dp))
+                Text(
+                    text = "EN VIVO",
+                    color = Color.White,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 0.4.sp
+                )
+            }
+        }
+
+        // Centro: Rivales vs Rival o Logo del Partido
+        if (hasOpponents) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(bottom = 26.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                // Escudo Equipo A
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF1B2234))
+                        .border(1.5.dp, Color.White.copy(alpha = 0.3f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = teamA.take(3).uppercase(),
+                        color = Color.White,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 11.sp
+                    )
+                }
+
+                // Insignia Neón VS
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 8.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(
+                            Brush.linearGradient(
+                                listOf(Color(0xFF00E5C9), Color(0xFF0072FF))
+                            )
+                        )
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "VS",
+                        color = Color.Black,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 10.sp
+                    )
+                }
+
+                // Escudo Equipo B
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF1B2234))
+                        .border(1.5.dp, Color.White.copy(alpha = 0.3f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = teamB.take(3).uppercase(),
+                        color = Color.White,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+        } else {
+            // Evento o Canal Deportivo
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(bottom = 26.dp)
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF162030))
+                    .border(1.5.dp, Color(0xFF00E5C9).copy(alpha = 0.5f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                if (!channel.streamIcon.isNullOrBlank()) {
+                    AsyncImage(
+                        model = channel.streamIcon,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize().padding(6.dp),
+                        contentScale = ContentScale.Fit
+                    )
+                } else {
+                    Text("⚽", fontSize = 20.sp)
+                }
+            }
+        }
+
+        // Panel inferior oscuro
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .background(Color(0xFF0B0E17).copy(alpha = 0.94f))
+                .padding(horizontal = 10.dp, vertical = 6.dp)
+        ) {
+            Column {
+                Text(
+                    text = channel.name,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = channel.categoryName.ifBlank { "Deportes en Vivo" },
+                    color = BixTextMuted,
+                    fontSize = 9.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+private data class CuratedMediaItem(
+    val title: String,
+    val imageUrl: String?,
+    val rating: Double?,
+    val year: String?,
+    val onClick: () -> Unit
+)
 
 private data class CuratedRailItem(
     val title: String,

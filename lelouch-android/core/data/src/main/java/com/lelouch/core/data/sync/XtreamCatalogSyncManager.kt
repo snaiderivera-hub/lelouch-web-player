@@ -642,6 +642,10 @@ class XtreamCatalogSyncManager private constructor(
             return Result.success(Unit)
         } catch (e: Exception) {
             cleanupStaging(syncId)
+            if (e is kotlinx.coroutines.CancellationException) {
+                _syncState.value = SyncState.Idle
+                throw e
+            }
             val errorMsg = "Sincronización M3U interrumpida: ${e.message ?: e.javaClass.simpleName}"
             android.util.Log.e("XtreamCatalogSync", errorMsg, e)
             _syncState.value = SyncState.Error(errorMsg)
@@ -855,6 +859,10 @@ class XtreamCatalogSyncManager private constructor(
 
         } catch (e: Exception) {
             cleanupStaging(syncId)
+            if (e is kotlinx.coroutines.CancellationException) {
+                _syncState.value = SyncState.Idle
+                throw e
+            }
             val errorMsg = e.localizedMessage ?: "Error de sincronización con el servidor IPTV"
             _syncState.value = SyncState.Error(errorMsg)
             return Result.failure(e)

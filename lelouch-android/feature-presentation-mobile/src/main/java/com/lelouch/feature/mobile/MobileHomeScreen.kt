@@ -714,13 +714,10 @@ fun MobileHomeScreen(
                         )
                     )
                 }
-                AnimatedContent(
-                    targetState = selectedTab,
-                    transitionSpec = { fadeIn() togetherWith fadeOut() },
-                    modifier = Modifier.fillMaxSize(),
-                    label = "tab_content"
-                ) { tab ->
-                    when (tab) {
+                Box(
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    when (selectedTab) {
                         0 -> MobileHomeTab(
                             liveChannels = cleanLiveChannels, movies = filteredMovies, seriesList = filteredSeriesList,
                             activeSource = activeSource,
