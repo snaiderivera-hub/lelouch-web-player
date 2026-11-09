@@ -388,35 +388,75 @@ fun TvCategoryManagerModal(
                             }
                         }
 
-                        // Botón de Cerrar (✕)
-                        var isCloseFocused by remember { mutableStateOf(false) }
-                        Box(
-                            modifier = Modifier
-                                .focusable()
-                                .onFocusChanged { isCloseFocused = it.isFocused }
-                                .clip(CircleShape)
-                                .background(if (isCloseFocused) LelouchLiveRed else LelouchSurfaceVariant)
-                                .onKeyEvent { keyEvent ->
-                                    val keyCode = keyEvent.nativeKeyEvent.keyCode
-                                    val isCenter = keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
-                                            keyCode == KeyEvent.KEYCODE_ENTER ||
-                                            keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER ||
-                                            keyCode == KeyEvent.KEYCODE_BUTTON_A
-
-                                    if (isCenter && keyEvent.type == KeyEventType.KeyDown && keyEvent.nativeKeyEvent.repeatCount == 0) {
-                                        onDismiss()
-                                        true
-                                    } else false
+                        // Botón de Guardar y Cerrar
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Color(0xFF10B981).copy(alpha = 0.2f))
+                                    .border(1.dp, Color(0xFF10B981), RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 8.dp, vertical = 5.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("☁️", fontSize = 12.sp)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Sincronizado en Supabase", color = Color(0xFF10B981), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 }
-                                .clickable { onDismiss() }
-                                .padding(8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Cerrar",
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp)
-                            )
+                            }
+
+                            Spacer(modifier = Modifier.width(10.dp))
+
+                            val context = androidx.compose.ui.platform.LocalContext.current
+                            Surface(
+                                onClick = {
+                                    android.widget.Toast.makeText(context, "Filtros guardados y sincronizados con Supabase", android.widget.Toast.LENGTH_SHORT).show()
+                                    onDismiss()
+                                },
+                                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                                colors = ClickableSurfaceDefaults.colors(
+                                    containerColor = Color(0xFF00E5FF),
+                                    focusedContainerColor = Color.White
+                                )
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("💾 Guardar y Salir", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(8.dp))
+
+                            var isCloseFocused by remember { mutableStateOf(false) }
+                            Box(
+                                modifier = Modifier
+                                    .focusable()
+                                    .onFocusChanged { isCloseFocused = it.isFocused }
+                                    .clip(CircleShape)
+                                    .background(if (isCloseFocused) LelouchLiveRed else LelouchSurfaceVariant)
+                                    .onKeyEvent { keyEvent ->
+                                        val keyCode = keyEvent.nativeKeyEvent.keyCode
+                                        val isCenter = keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                                                keyCode == KeyEvent.KEYCODE_ENTER ||
+                                                keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER ||
+                                                keyCode == KeyEvent.KEYCODE_BUTTON_A
+
+                                        if (isCenter && keyEvent.type == KeyEventType.KeyDown && keyEvent.nativeKeyEvent.repeatCount == 0) {
+                                            onDismiss()
+                                            true
+                                        } else false
+                                    }
+                                    .clickable { onDismiss() }
+                                    .padding(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Cerrar",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
                     }
 

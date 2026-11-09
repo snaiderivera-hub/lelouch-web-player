@@ -1,7 +1,7 @@
 {
-  "versionName": "1.0.127",
-  "versionCode": 1000127,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.127/LELOUCH-PLUS-v1.0.127.apk",
-  "changelog": "- Sincronización en Supabase de filtros de categorías ocultas por lista independiente (En Vivo, Películas y Series).\n- Port de catálogo curado y secciones temáticas a Android TV Box (TvPortalDashboard).\n- Navegación dedicada con control remoto D-Pad (TvCuratedSectionView) para ver todas las películas y series de cada sección.\n- Ocultamiento de categorías vacías (0 elementos) en Android TV Box.\n- Tarjetas con placeholder estilizado para títulos sin carátula en TV Box.",
-  "version": "1.0.127"
+  "versionName": "1.0.128",
+  "versionCode": 1000128,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.128/LELOUCH-PLUS-v1.0.128.apk",
+  "changelog": "- TV Box: Selector de categorías integrado con control remoto D-Pad dentro de Películas y Series.\n- TV Box: Catálogo completo y carruseles temáticos en Inicio sincronizados y visibles.\n- Supabase: Indicador visual de sincronización y botón explícito 'Guardar y Aplicar' en el gestor de categorías.\n- Persistencia de filtros independiente por lista y cuenta en la nube.",
+  "version": "1.0.128"
 }

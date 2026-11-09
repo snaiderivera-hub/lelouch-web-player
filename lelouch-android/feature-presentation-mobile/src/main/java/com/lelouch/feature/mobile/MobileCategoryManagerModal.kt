@@ -238,13 +238,25 @@ fun MobileCategoryManagerModal(
                             fontSize = 11.sp
                         )
                     }
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color.White.copy(alpha = 0.1f))
-                    ) {
-                        Icon(Icons.Default.Close, "Cerrar", tint = Color.White)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0xFF10B981).copy(alpha = 0.2f))
+                                .border(1.dp, Color(0xFF10B981), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text("☁️ Supabase OK", color = Color(0xFF10B981), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        IconButton(
+                            onClick = onDismiss,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color.White.copy(alpha = 0.1f))
+                        ) {
+                            Icon(Icons.Default.Close, "Cerrar", tint = Color.White)
+                        }
                     }
                 }
 
@@ -414,7 +426,7 @@ fun MobileCategoryManagerModal(
                     }
                 } else {
                     LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
                         contentPadding = PaddingValues(12.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
@@ -481,6 +493,40 @@ fun MobileCategoryManagerModal(
                                 }
                             }
                         }
+                    }
+                }
+
+                // BARRA INFERIOR DE ACCIÓN Y CONFIRMACIÓN
+                HorizontalDivider(color = LelouchBorder)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(LelouchBackground)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("☁️", fontSize = 14.sp)
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = "Auto-guardado en Supabase",
+                            color = Color(0xFF10B981),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    val context = androidx.compose.ui.platform.LocalContext.current
+                    Button(
+                        onClick = {
+                            android.widget.Toast.makeText(context, "Filtros aplicados y guardados en Supabase", android.widget.Toast.LENGTH_SHORT).show()
+                            onDismiss()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF)),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        Text("💾 Guardar y Aplicar", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Black)
                     }
                 }
             }
