@@ -38,6 +38,8 @@ object AppUpdateManager {
             val request = Request.Builder()
                 .url(targetUrl)
                 .header("Accept", "application/json")
+                .header("Cache-Control", "no-cache, no-store, must-revalidate")
+                .header("Pragma", "no-cache")
                 .build()
 
             // Obtener el versionCode actual instalado en el dispositivo
@@ -139,7 +141,13 @@ object AppUpdateManager {
         installedVersionCode: Int = 1
     ): Result<UpdateInfo?> {
         return try {
-            val req = Request.Builder().url(url).build()
+            val cacheBustUrl = if (url.contains("?")) "$url&_t=${System.currentTimeMillis()}" else "$url?_t=${System.currentTimeMillis()}"
+            val req = Request.Builder()
+                .url(cacheBustUrl)
+                .header("Accept", "application/json")
+                .header("Cache-Control", "no-cache, no-store, must-revalidate")
+                .header("Pragma", "no-cache")
+                .build()
             client.newCall(req).execute().use { res ->
                 if (!res.isSuccessful) return Result.success(null)
                 val str = res.body?.string() ?: return Result.success(null)

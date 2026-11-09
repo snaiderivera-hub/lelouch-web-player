@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.isActive
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -298,9 +299,20 @@ fun MobileHomeScreen(
         hiddenPrefs.edit().putBoolean("adult_mode_enabled", enabled).apply()
     }
 
-    // Detector exhaustivo de contenido para adultos (+18)
-    val adultContentRegex = remember {
-        Regex("(?i)\\b(xxx|adult|adultos|\\+18|erotic|forbiden|playboy|venus|penthouse|brazzers|redlight|hustler|babes|porn)\\b")
+    fun isAdultContent(
+        name: String,
+        categoryName: String = "",
+        categoryId: String = "",
+        streamIcon: String? = null,
+        streamUrl: String? = null
+    ): Boolean {
+        return com.lelouch.core.model.AdultContentFilter.isAdult(
+            name = name,
+            categoryName = categoryName,
+            categoryId = categoryId,
+            streamIcon = streamIcon,
+            streamUrl = streamUrl
+        )
     }
 
     // FASE 32: Permitir rotación automática controlada
@@ -331,7 +343,7 @@ fun MobileHomeScreen(
             (stream.streamType.isBlank() || stream.streamType.equals("live", ignoreCase = true)) &&
             !seriesLeakRegex.containsMatchIn(stream.name) &&
             stream.categoryId !in hiddenLiveCategories && stream.categoryName !in hiddenLiveCategories &&
-            (isAdultModeEnabled || (!adultContentRegex.containsMatchIn(stream.name) && !adultContentRegex.containsMatchIn(stream.categoryName)))
+            (isAdultModeEnabled || (!stream.isAdult && !isAdultContent(stream.name, stream.categoryName, stream.categoryId, stream.streamIcon, stream.streamUrl)))
         }.distinctBy { ch -> ch.streamUrl.ifBlank { ch.name } }
     }
 
@@ -442,6 +454,7 @@ fun MobileHomeScreen(
         val combined = (fromDb + fromChannels)
             .filter { it.id != "all" && it.id != "events" && !it.name.equals("todos", ignoreCase = true) }
             .filter { it.id !in hiddenLiveCategories && it.name !in hiddenLiveCategories }
+            .filter { isAdultModeEnabled || !isAdultContent(it.name, it.name, it.id) }
             .distinctBy { it.name.trim().lowercase() }
             .sortedWith(compareByDescending<MobileCategoryItem> { isEventCat(it.name) }.thenBy { it.name })
 
@@ -459,7 +472,7 @@ fun MobileHomeScreen(
         movies.filter {
             it.streamIcon?.trim().orEmpty().startsWith("http") &&
             it.categoryId !in hiddenMovieCategories && it.categoryName !in hiddenMovieCategories &&
-            (isAdultModeEnabled || (!adultContentRegex.containsMatchIn(it.name) && !adultContentRegex.containsMatchIn(it.categoryName)))
+            (isAdultModeEnabled || !isAdultContent(it.name, it.categoryName, it.categoryId))
         }.distinctBy { it.name.trim().lowercase() }
     }
 
@@ -467,7 +480,7 @@ fun MobileHomeScreen(
         val fromDb = vodCategories.map { MobileCategoryItem(id = it.categoryId, name = it.categoryName) }
         val combined = if (fromDb.isNotEmpty()) {
             fromDb.filter { it.id !in hiddenMovieCategories && it.name !in hiddenMovieCategories }
-                .filter { isAdultModeEnabled || (!adultContentRegex.containsMatchIn(it.name) && !adultContentRegex.containsMatchIn(it.id)) }
+                .filter { isAdultModeEnabled || !isAdultContent(it.name, it.name, it.id) }
                 .distinctBy { it.id }.sortedBy { it.name }
         } else {
             filteredMovies.mapNotNull { mov ->
@@ -475,7 +488,7 @@ fun MobileHomeScreen(
                     MobileCategoryItem(id = mov.categoryId, name = mov.categoryName)
                 } else null
             }.filter { it.id !in hiddenMovieCategories && it.name !in hiddenMovieCategories }
-            .filter { isAdultModeEnabled || (!adultContentRegex.containsMatchIn(it.name) && !adultContentRegex.containsMatchIn(it.id)) }
+            .filter { isAdultModeEnabled || !isAdultContent(it.name, it.name, it.id) }
             .distinctBy { it.id }.sortedBy { it.name }
         }
         listOf(MobileCategoryItem(id = "all", name = "Todas")) + combined
@@ -485,7 +498,7 @@ fun MobileHomeScreen(
         seriesList.filter {
             it.cover?.trim().orEmpty().startsWith("http") &&
             it.categoryId !in hiddenSeriesCategories && it.categoryName !in hiddenSeriesCategories &&
-            (isAdultModeEnabled || (!adultContentRegex.containsMatchIn(it.name) && !adultContentRegex.containsMatchIn(it.categoryName)))
+            (isAdultModeEnabled || !isAdultContent(it.name, it.categoryName, it.categoryId))
         }.distinctBy { it.name.trim().lowercase() }
     }
 
@@ -493,7 +506,7 @@ fun MobileHomeScreen(
         val fromDb = seriesCategories.map { MobileCategoryItem(id = it.categoryId, name = it.categoryName) }
         val combined = if (fromDb.isNotEmpty()) {
             fromDb.filter { it.id !in hiddenSeriesCategories && it.name !in hiddenSeriesCategories }
-                .filter { isAdultModeEnabled || (!adultContentRegex.containsMatchIn(it.name) && !adultContentRegex.containsMatchIn(it.id)) }
+                .filter { isAdultModeEnabled || !isAdultContent(it.name, it.name, it.id) }
                 .distinctBy { it.id }.sortedBy { it.name }
         } else {
             filteredSeriesList.mapNotNull { s ->
@@ -501,7 +514,7 @@ fun MobileHomeScreen(
                     MobileCategoryItem(id = s.categoryId, name = s.categoryName)
                 } else null
             }.filter { it.id !in hiddenSeriesCategories && it.name !in hiddenSeriesCategories }
-            .filter { isAdultModeEnabled || (!adultContentRegex.containsMatchIn(it.name) && !adultContentRegex.containsMatchIn(it.id)) }
+            .filter { isAdultModeEnabled || !isAdultContent(it.name, it.name, it.id) }
             .distinctBy { it.id }.sortedBy { it.name }
         }
         listOf(MobileCategoryItem(id = "all", name = "Todas")) + combined
@@ -522,16 +535,42 @@ fun MobileHomeScreen(
     var isAnimeCatalogOpen by remember { mutableStateOf(false) }
     var isAccountSwitcherOpen by remember { mutableStateOf(false) }
 
-    // Comprobación automática silenciosa de nueva versión al iniciar la app
+    // Comprobación automática silenciosa e inmediata de nueva versión (periódica cada 60s y al reanudar)
     val updateContext = LocalContext.current
-    LaunchedEffect(Unit) {
-        kotlinx.coroutines.delay(2500L)
-        try {
-            val result = com.lelouch.core.network.update.AppUpdateManager.checkForUpdates(updateContext)
-            if (result.isSuccess && result.getOrNull() != null) {
-                isUpdateModalOpen = true
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                    try {
+                        val result = com.lelouch.core.network.update.AppUpdateManager.checkForUpdates(updateContext)
+                        if (result.isSuccess && result.getOrNull() != null) {
+                            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                isUpdateModalOpen = true
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
             }
-        } catch (_: Exception) {}
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        var firstCheck = true
+        while (isActive) {
+            kotlinx.coroutines.delay(if (firstCheck) 1500L else 60_000L)
+            firstCheck = false
+            try {
+                val result = com.lelouch.core.network.update.AppUpdateManager.checkForUpdates(updateContext)
+                if (result.isSuccess && result.getOrNull() != null) {
+                    isUpdateModalOpen = true
+                    break
+                }
+            } catch (_: Exception) {}
+        }
     }
 
     // FASE 39: arranque de reproducción.
@@ -1820,10 +1859,13 @@ private fun MobileLiveTab(
     }
 }
 
-// TAB 2: PELICULAS (TODAS JUNTAS EN MOBILE SIN CHIPS DE CATEGORIAS)
+// TAB 2: PELÍCULAS CON CHIPS DE CATEGORÍAS Y FILTRADO O(1)
 @Composable
 private fun MobileMoviesTab(
     movies: List<VodMovie>,
+    categories: List<MobileCategoryItem>,
+    selectedCategoryId: String,
+    onSelectCategory: (String) -> Unit,
     onMovieClick: (VodMovie) -> Unit
 ) {
     if (movies.isEmpty()) {
@@ -1831,23 +1873,70 @@ private fun MobileMoviesTab(
         return
     }
 
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(85.dp),
-        contentPadding = PaddingValues(12.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-        modifier = Modifier.fillMaxSize()
-    ) {
-        itemsIndexed(movies, key = { idx, movie -> "mobile_movie_${movie.streamId}_${movie.id}_$idx" }) { _, movie ->
-            MovieGridCard(movie = movie, onClick = { onMovieClick(movie) })
+    val filteredMovies = remember(selectedCategoryId, movies) {
+        if (selectedCategoryId == "all" || selectedCategoryId.isBlank()) {
+            movies
+        } else {
+            movies.filter {
+                it.categoryId.equals(selectedCategoryId, ignoreCase = true) ||
+                it.categoryName.equals(selectedCategoryId, ignoreCase = true)
+            }
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        if (categories.isNotEmpty()) {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(categories, key = { "cat_mov_${it.id}" }) { cat ->
+                    val isSelected = cat.id == selectedCategoryId
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(if (isSelected) BixOrangeAccent else BixSurfaceCard)
+                            .border(1.dp, if (isSelected) BixOrangeAccent else Color.White.copy(alpha = 0.1f), RoundedCornerShape(20.dp))
+                            .clickable { onSelectCategory(cat.id) }
+                            .padding(horizontal = 14.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = cat.name,
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                        )
+                    }
+                }
+            }
+        }
+
+        if (filteredMovies.isEmpty()) {
+            EmptyState("Sin películas en esta categoría", "Selecciona otra categoría en la barra superior")
+        } else {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(85.dp),
+                contentPadding = PaddingValues(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                itemsIndexed(filteredMovies, key = { idx, movie -> "mobile_movie_${movie.streamId}_${movie.id}_$idx" }) { _, movie ->
+                    MovieGridCard(movie = movie, onClick = { onMovieClick(movie) })
+                }
+            }
         }
     }
 }
 
-// TAB 3: SERIES (TODAS JUNTAS EN MOBILE SIN CHIPS DE CATEGORIAS)
+// TAB 3: SERIES CON CHIPS DE CATEGORÍAS Y FILTRADO O(1)
 @Composable
 private fun MobileSeriesTab(
     seriesList: List<Series>,
+    categories: List<MobileCategoryItem>,
+    selectedCategoryId: String,
+    onSelectCategory: (String) -> Unit,
     onSeriesClick: (Series) -> Unit
 ) {
     if (seriesList.isEmpty()) {
@@ -1855,15 +1944,59 @@ private fun MobileSeriesTab(
         return
     }
 
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(85.dp),
-        contentPadding = PaddingValues(12.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-        modifier = Modifier.fillMaxSize()
-    ) {
-        itemsIndexed(seriesList, key = { idx, s -> "mobile_series_${s.seriesId}_$idx" }) { _, s ->
-            SeriesGridCard(series = s, onClick = { onSeriesClick(s) })
+    val filteredSeries = remember(selectedCategoryId, seriesList) {
+        if (selectedCategoryId == "all" || selectedCategoryId.isBlank()) {
+            seriesList
+        } else {
+            seriesList.filter {
+                it.categoryId.equals(selectedCategoryId, ignoreCase = true) ||
+                it.categoryName.equals(selectedCategoryId, ignoreCase = true)
+            }
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        if (categories.isNotEmpty()) {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(categories, key = { "cat_ser_${it.id}" }) { cat ->
+                    val isSelected = cat.id == selectedCategoryId
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(if (isSelected) BixOrangeAccent else BixSurfaceCard)
+                            .border(1.dp, if (isSelected) BixOrangeAccent else Color.White.copy(alpha = 0.1f), RoundedCornerShape(20.dp))
+                            .clickable { onSelectCategory(cat.id) }
+                            .padding(horizontal = 14.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = cat.name,
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                        )
+                    }
+                }
+            }
+        }
+
+        if (filteredSeries.isEmpty()) {
+            EmptyState("Sin series en esta categoría", "Selecciona otra categoría en la barra superior")
+        } else {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(85.dp),
+                contentPadding = PaddingValues(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                itemsIndexed(filteredSeries, key = { idx, s -> "mobile_series_${s.seriesId}_$idx" }) { _, s ->
+                    SeriesGridCard(series = s, onClick = { onSeriesClick(s) })
+                }
+            }
         }
     }
 }
@@ -1876,9 +2009,23 @@ private fun MobileVodTab(
     onMovieClick: (VodMovie) -> Unit,
     seriesList: List<Series>,
     seriesCategories: List<MobileCategoryItem>,
-    onSeriesClick: (Series) -> Unit
+    onSeriesClick: (Series) -> Unit,
+    initialSubTab: Int = 0,
+    initialCategory: String = "all"
 ) {
-    var subTab by remember { mutableIntStateOf(0) } // 0: Películas, 1: Series
+    var subTab by remember(initialSubTab) { mutableIntStateOf(initialSubTab) } // 0: Películas, 1: Series
+    var selectedMovieCategory by remember(initialCategory) { mutableStateOf(initialCategory) }
+    var selectedSeriesCategory by remember(initialCategory) { mutableStateOf(initialCategory) }
+
+    val currentFilteredMoviesCount = remember(selectedMovieCategory, movies) {
+        if (selectedMovieCategory == "all" || selectedMovieCategory.isBlank()) movies.size
+        else movies.count { it.categoryId.equals(selectedMovieCategory, ignoreCase = true) || it.categoryName.equals(selectedMovieCategory, ignoreCase = true) }
+    }
+
+    val currentFilteredSeriesCount = remember(selectedSeriesCategory, seriesList) {
+        if (selectedSeriesCategory == "all" || selectedSeriesCategory.isBlank()) seriesList.size
+        else seriesList.count { it.categoryId.equals(selectedSeriesCategory, ignoreCase = true) || it.categoryName.equals(selectedSeriesCategory, ignoreCase = true) }
+    }
 
     Column(modifier = Modifier.fillMaxSize().background(BixDarkBackground)) {
         // Selector tipo cápsula Bix Plus
@@ -1903,7 +2050,7 @@ private fun MobileVodTab(
                     Icon(Icons.Default.Movie, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        "Películas (${movies.size})",
+                        "Películas ($currentFilteredMoviesCount)",
                         color = Color.White,
                         fontWeight = if (isMovies) FontWeight.Bold else FontWeight.Medium,
                         fontSize = 13.sp
@@ -1926,7 +2073,7 @@ private fun MobileVodTab(
                     Icon(Icons.Default.Tv, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        "Series (${seriesList.size})",
+                        "Series ($currentFilteredSeriesCount)",
                         color = Color.White,
                         fontWeight = if (isSeries) FontWeight.Bold else FontWeight.Medium,
                         fontSize = 13.sp
@@ -1936,9 +2083,21 @@ private fun MobileVodTab(
         }
 
         if (subTab == 0) {
-            MobileMoviesTab(movies = movies, onMovieClick = onMovieClick)
+            MobileMoviesTab(
+                movies = movies,
+                categories = movieCategories,
+                selectedCategoryId = selectedMovieCategory,
+                onSelectCategory = { selectedMovieCategory = it },
+                onMovieClick = onMovieClick
+            )
         } else {
-            MobileSeriesTab(seriesList = seriesList, onSeriesClick = onSeriesClick)
+            MobileSeriesTab(
+                seriesList = seriesList,
+                categories = seriesCategories,
+                selectedCategoryId = selectedSeriesCategory,
+                onSelectCategory = { selectedSeriesCategory = it },
+                onSeriesClick = onSeriesClick
+            )
         }
     }
 }
@@ -5523,10 +5682,18 @@ private fun SeriesCard(series: Series, onClick: () -> Unit) {
 
 @Composable
 private fun MovieGridCard(movie: VodMovie, onClick: () -> Unit) {
+    val context = LocalContext.current
     Box(modifier = Modifier.fillMaxWidth().aspectRatio(2f/3f).clip(RoundedCornerShape(12.dp))
         .background(LelouchSurface).clickable(onClick = onClick)) {
         if (!movie.streamIcon.isNullOrBlank()) {
-            AsyncImage(model = movie.streamIcon, contentDescription = movie.name,
+            val imageRequest = remember(movie.streamIcon) {
+                coil.request.ImageRequest.Builder(context)
+                    .data(movie.streamIcon)
+                    .size(240, 360)
+                    .crossfade(true)
+                    .build()
+            }
+            AsyncImage(model = imageRequest, contentDescription = movie.name,
                 modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             Box(modifier = Modifier.fillMaxSize().background(
                 Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(0.9f)))))
@@ -5556,10 +5723,18 @@ private fun MovieGridCard(movie: VodMovie, onClick: () -> Unit) {
 
 @Composable
 private fun SeriesGridCard(series: Series, onClick: () -> Unit) {
+    val context = LocalContext.current
     Box(modifier = Modifier.fillMaxWidth().aspectRatio(2f/3f).clip(RoundedCornerShape(12.dp))
         .background(LelouchSurface).clickable(onClick = onClick)) {
         if (!series.cover.isNullOrBlank()) {
-            AsyncImage(model = series.cover, contentDescription = series.name,
+            val imageRequest = remember(series.cover) {
+                coil.request.ImageRequest.Builder(context)
+                    .data(series.cover)
+                    .size(240, 360)
+                    .crossfade(true)
+                    .build()
+            }
+            AsyncImage(model = imageRequest, contentDescription = series.name,
                 modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             Box(modifier = Modifier.fillMaxSize().background(
                 Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(0.9f)))))

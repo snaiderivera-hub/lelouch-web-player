@@ -554,7 +554,7 @@ class XtreamCatalogSyncManager private constructor(
                     categoryId = "$sourceId-${grp.hashCode()}",
                     categoryName = grp,
                     type = "LIVE",
-                    isAdult = grp.contains("adult", ignoreCase = true) || grp.contains("+18"),
+                    isAdult = com.lelouch.core.model.AdultContentFilter.isAdult(grp, grp),
                     sourceId = sourceId
                 )
             })
@@ -565,7 +565,7 @@ class XtreamCatalogSyncManager private constructor(
                     categoryId = "$sourceId-${grp.hashCode()}",
                     categoryName = grp,
                     type = "VOD",
-                    isAdult = grp.contains("adult", ignoreCase = true) || grp.contains("+18"),
+                    isAdult = com.lelouch.core.model.AdultContentFilter.isAdult(grp, grp),
                     sourceId = sourceId
                 )
             })
@@ -576,7 +576,7 @@ class XtreamCatalogSyncManager private constructor(
                     categoryId = "$sourceId-${grp.hashCode()}",
                     categoryName = grp,
                     type = "SERIES",
-                    isAdult = grp.contains("adult", ignoreCase = true) || grp.contains("+18"),
+                    isAdult = com.lelouch.core.model.AdultContentFilter.isAdult(grp, grp),
                     sourceId = sourceId
                 )
             })
@@ -704,7 +704,7 @@ class XtreamCatalogSyncManager private constructor(
                         categoryName = it.categoryName,
                         parentId = it.parentId,
                         type = "LIVE",
-                        isAdult = it.categoryName.contains("adult", ignoreCase = true) || it.categoryName.contains("+18"),
+                        isAdult = com.lelouch.core.model.AdultContentFilter.isAdult(it.categoryName, it.categoryName, it.categoryId),
                         sourceId = sourceId
                     )
                 )
@@ -718,7 +718,7 @@ class XtreamCatalogSyncManager private constructor(
                         categoryName = it.categoryName,
                         parentId = it.parentId,
                         type = "VOD",
-                        isAdult = it.categoryName.contains("adult", ignoreCase = true) || it.categoryName.contains("+18"),
+                        isAdult = com.lelouch.core.model.AdultContentFilter.isAdult(it.categoryName, it.categoryName, it.categoryId),
                         sourceId = sourceId
                     )
                 )
@@ -732,7 +732,7 @@ class XtreamCatalogSyncManager private constructor(
                         categoryName = it.categoryName,
                         parentId = it.parentId,
                         type = "SERIES",
-                        isAdult = it.categoryName.contains("adult", ignoreCase = true) || it.categoryName.contains("+18"),
+                        isAdult = com.lelouch.core.model.AdultContentFilter.isAdult(it.categoryName, it.categoryName, it.categoryId),
                         sourceId = sourceId
                     )
                 )

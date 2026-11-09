@@ -1,7 +1,7 @@
 {
-  "versionName": "1.0.122",
-  "versionCode": 1000122,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.122/LELOUCH-PLUS-v1.0.122.apk",
-  "changelog": "- Móvil: Fluidez instantánea sin lag al cambiar pestañas en la barra inferior (eliminado AnimatedContent pesado).\n- Móvil: Sincronización robusta en segundo plano sin errores al salir o minimizar la app.\n- Móvil Home: Nuevas 8 secciones curadas sin mezcla (Partidos en vivo con estadio y VS, Recién agregadas con tarjeta Ver Más, Lo más visto, Terror y suspenso, Ciencia ficción, Basado en hechos reales, Acción y aventura, Mundo animado).",
-  "version": "1.0.122"
+  "versionName": "1.0.124",
+  "versionCode": 1000124,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.124/LELOUCH-PLUS-v1.0.124.apk",
+  "changelog": "- Bloqueo total y definitivo de contenido adulto (+18 / XXX / Canales X4 / Erotismo) con filtro parental inteligente.\n- Películas y Series: Chips de categorías horizontales con conteo exacto dinámico y filtrado instantáneo O(1).\n- Partidos en vivo: Tarjetas con estadios fotográficos temáticos (Cricket, Béisbol, Boxeo, Fútbol), escudos e insignia neón VS.\n- Actualizaciones inmediatas: Detección en primer plano y comprobación periódica cada 60s sin cerrar la app.\n- Cero lag: Optimización drástica de memoria con Coil para desplazamiento ultra fluido.",
+  "version": "1.0.124"
 }

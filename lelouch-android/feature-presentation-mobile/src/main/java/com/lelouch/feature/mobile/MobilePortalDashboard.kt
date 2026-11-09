@@ -128,66 +128,91 @@ fun MobilePortalDashboard(
         }
     }
 
+    fun isAdultContent(name: String, cat: String, icon: String? = null, url: String? = null): Boolean {
+        return com.lelouch.core.model.AdultContentFilter.isAdult(
+            name = name,
+            categoryName = cat,
+            streamIcon = icon,
+            streamUrl = url
+        )
+    }
+
     // 1. EN VIVO AHORA (Partidos deportivos activos - Captura 3)
     val sportsKeywords = remember {
         listOf(
             "sport", "deporte", "futbol", "fútbol", "liga", "champions", "premier",
             "laliga", "nba", "mlb", "nfl", "ufc", "box", "f1", "formula 1",
             "motogp", "espn", "fox sport", "dazn", "tudn", "directv sport",
-            "win sport", "gol", "partido", "event"
+            "win sport", "gol", "partido", "event", "cricket", "beisbol", "tenis", "tennis"
         )
     }
 
     val liveMatches = remember(liveChannels) {
         liveChannels.filter { ch ->
+            if (ch.isAdult || isAdultContent(ch.name, ch.categoryName)) return@filter false
             val cat = ch.categoryName.lowercase()
             val name = ch.name.lowercase()
             val isSportCat = sportsKeywords.any { cat.contains(it) || name.contains(it) }
-            val hasVs = name.contains(" vs ") || name.contains(" v ") || name.contains(" - ")
+            val hasVs = name.contains(" vs ") || name.contains(" vs. ") || name.contains(" v ")
             isSportCat || hasVs
         }.take(20)
     }
 
-    // 2. RECIÉN AGREGADAS (Últimas películas añadidas - Captura 4)
-    val recentMovies = remember(movies) {
-        movies.filter { it.streamIcon?.trim().orEmpty().startsWith("http") }.take(15)
+    // Palabras clave de animación y anime para aislar en su propio carril
+    val animKeywords = remember {
+        listOf(
+            "animaci", "animation", "anime", "caricatura", "dibujo", "cartoon",
+            "disney", "pixar", "dreamworks", "manga", "otaku", "dragon ball",
+            "naruto", "one piece", "ghibli", "infantil", "kids", "familia",
+            "pokemon", "sponge", "bob esponja", "demon slayer", "shingeki"
+        )
     }
 
-    // 3. LO MÁS VISTO (Mejor valoradas y destacadas, sin mezclar animación infantil)
+    // 2. RECIÉN AGREGADAS (Últimas películas añadidas - Captura 4)
+    // Sin mezclar anime (ej. Dragon Ball GT) ni contenido adulto
+    val recentMovies = remember(movies) {
+        movies.filter { m ->
+            val text = "${m.name} ${m.categoryName} ${m.genre ?: ""}".lowercase()
+            m.streamIcon?.trim().orEmpty().startsWith("http") &&
+            !isAdultContent(m.name, m.categoryName) &&
+            animKeywords.none { text.contains(it) }
+        }.take(15)
+    }
+
+    // 3. LO MÁS VISTO (Mejor valoradas y destacadas, sin mezclar animación infantil ni adultos)
     val mostViewedItems = remember(movies, seriesList) {
-        val nonAnimKeywords = listOf("animaci", "anime", "infantil", "kids", "disney", "cartoon", "caricatura")
         val highMovies = movies.filter { m ->
             val cat = m.categoryName.lowercase()
             val name = m.name.lowercase()
             val genre = (m.genre ?: "").lowercase()
-            val isNotAnim = nonAnimKeywords.none { cat.contains(it) || name.contains(it) || genre.contains(it) }
+            val isNotAnim = animKeywords.none { cat.contains(it) || name.contains(it) || genre.contains(it) }
             val r = m.rating ?: 0.0
-            isNotAnim && r >= 6.5 && m.streamIcon?.trim().orEmpty().startsWith("http")
+            isNotAnim && r >= 6.5 && !isAdultContent(m.name, m.categoryName) && m.streamIcon?.trim().orEmpty().startsWith("http")
         }.map { CuratedMediaItem(it.name, it.streamIcon, it.rating, it.year, onClick = { onMovieClick(it) }) }
 
         val highSeries = seriesList.filter { s ->
             val cat = (s.categoryName ?: "").lowercase()
             val name = s.name.lowercase()
-            val isNotAnim = nonAnimKeywords.none { cat.contains(it) || name.contains(it) }
+            val isNotAnim = animKeywords.none { cat.contains(it) || name.contains(it) }
             val r = s.rating5based?.times(2.0) ?: 0.0
-            isNotAnim && r >= 6.5 && s.cover?.trim().orEmpty().startsWith("http")
+            isNotAnim && r >= 6.5 && !isAdultContent(s.name, s.categoryName ?: "") && s.cover?.trim().orEmpty().startsWith("http")
         }.map { CuratedMediaItem(it.name, it.cover, it.rating5based?.times(2.0), it.releaseDate?.take(4), onClick = { onSeriesClick(it) }) }
 
         (highMovies + highSeries).sortedByDescending { it.rating ?: 0.0 }.take(15)
     }
 
-    // 4. TERROR Y SUSPENSO (Exclusivo horror/thriller, sin niños ni caricaturas)
+    // 4. TERROR Y SUSPENSO (Exclusivo horror/thriller, sin niños ni caricaturas ni adultos)
     val terrorItems = remember(movies, seriesList) {
         val terrorKeywords = listOf("terror", "horror", "miedo", "suspenso", "thriller", "psicologico", "paranormal", "pesadilla", "gore", "fantasma", "demonio", "siniestro", "misterio", "slasher")
         val excludeKeywords = listOf("animaci", "anime", "infantil", "kids", "disney", "cartoon", "comedia")
         val horrorMovies = movies.filter { m ->
             val text = "${m.name} ${m.categoryName} ${m.genre ?: ""} ${m.plot ?: ""}".lowercase()
-            terrorKeywords.any { text.contains(it) } && excludeKeywords.none { text.contains(it) } && m.streamIcon?.trim().orEmpty().startsWith("http")
+            terrorKeywords.any { text.contains(it) } && excludeKeywords.none { text.contains(it) } && !isAdultContent(m.name, m.categoryName) && m.streamIcon?.trim().orEmpty().startsWith("http")
         }.map { CuratedMediaItem(it.name, it.streamIcon, it.rating, it.year, onClick = { onMovieClick(it) }) }
 
         val horrorSeries = seriesList.filter { s ->
             val text = "${s.name} ${s.categoryName ?: ""} ${s.plot ?: ""}".lowercase()
-            terrorKeywords.any { text.contains(it) } && excludeKeywords.none { text.contains(it) } && s.cover?.trim().orEmpty().startsWith("http")
+            terrorKeywords.any { text.contains(it) } && excludeKeywords.none { text.contains(it) } && !isAdultContent(s.name, s.categoryName ?: "") && s.cover?.trim().orEmpty().startsWith("http")
         }.map { CuratedMediaItem(it.name, it.cover, it.rating5based?.times(2.0), it.releaseDate?.take(4), onClick = { onSeriesClick(it) }) }
 
         (horrorMovies + horrorSeries).take(15)
@@ -199,12 +224,12 @@ fun MobilePortalDashboard(
         val excludeKeywords = listOf("animaci", "anime", "infantil", "kids", "disney")
         val sfMovies = movies.filter { m ->
             val text = "${m.name} ${m.categoryName} ${m.genre ?: ""} ${m.plot ?: ""}".lowercase()
-            sciFiKeywords.any { text.contains(it) } && excludeKeywords.none { text.contains(it) } && m.streamIcon?.trim().orEmpty().startsWith("http")
+            sciFiKeywords.any { text.contains(it) } && excludeKeywords.none { text.contains(it) } && !isAdultContent(m.name, m.categoryName) && m.streamIcon?.trim().orEmpty().startsWith("http")
         }.map { CuratedMediaItem(it.name, it.streamIcon, it.rating, it.year, onClick = { onMovieClick(it) }) }
 
         val sfSeries = seriesList.filter { s ->
             val text = "${s.name} ${s.categoryName ?: ""} ${s.plot ?: ""}".lowercase()
-            sciFiKeywords.any { text.contains(it) } && excludeKeywords.none { text.contains(it) } && s.cover?.trim().orEmpty().startsWith("http")
+            sciFiKeywords.any { text.contains(it) } && excludeKeywords.none { text.contains(it) } && !isAdultContent(s.name, s.categoryName ?: "") && s.cover?.trim().orEmpty().startsWith("http")
         }.map { CuratedMediaItem(it.name, it.cover, it.rating5based?.times(2.0), it.releaseDate?.take(4), onClick = { onSeriesClick(it) }) }
 
         (sfMovies + sfSeries).take(15)
@@ -216,12 +241,12 @@ fun MobilePortalDashboard(
         val excludeKeywords = listOf("animaci", "anime", "superhero", "marvel", "dc comics", "fantasia", "sci-fi")
         val realMovies = movies.filter { m ->
             val text = "${m.name} ${m.categoryName} ${m.genre ?: ""} ${m.plot ?: ""}".lowercase()
-            realKeywords.any { text.contains(it) } && excludeKeywords.none { text.contains(it) } && m.streamIcon?.trim().orEmpty().startsWith("http")
+            realKeywords.any { text.contains(it) } && excludeKeywords.none { text.contains(it) } && !isAdultContent(m.name, m.categoryName) && m.streamIcon?.trim().orEmpty().startsWith("http")
         }.map { CuratedMediaItem(it.name, it.streamIcon, it.rating, it.year, onClick = { onMovieClick(it) }) }
 
         val realSeries = seriesList.filter { s ->
             val text = "${s.name} ${s.categoryName ?: ""} ${s.plot ?: ""}".lowercase()
-            realKeywords.any { text.contains(it) } && excludeKeywords.none { text.contains(it) } && s.cover?.trim().orEmpty().startsWith("http")
+            realKeywords.any { text.contains(it) } && excludeKeywords.none { text.contains(it) } && !isAdultContent(s.name, s.categoryName ?: "") && s.cover?.trim().orEmpty().startsWith("http")
         }.map { CuratedMediaItem(it.name, it.cover, it.rating5based?.times(2.0), it.releaseDate?.take(4), onClick = { onSeriesClick(it) }) }
 
         (realMovies + realSeries).take(15)
@@ -233,12 +258,12 @@ fun MobilePortalDashboard(
         val excludeKeywords = listOf("animaci", "anime", "infantil", "kids", "disney", "terror", "horror")
         val actMovies = movies.filter { m ->
             val text = "${m.name} ${m.categoryName} ${m.genre ?: ""} ${m.plot ?: ""}".lowercase()
-            actionKeywords.any { text.contains(it) } && excludeKeywords.none { text.contains(it) } && m.streamIcon?.trim().orEmpty().startsWith("http")
+            actionKeywords.any { text.contains(it) } && excludeKeywords.none { text.contains(it) } && !isAdultContent(m.name, m.categoryName) && m.streamIcon?.trim().orEmpty().startsWith("http")
         }.map { CuratedMediaItem(it.name, it.streamIcon, it.rating, it.year, onClick = { onMovieClick(it) }) }
 
         val actSeries = seriesList.filter { s ->
             val text = "${s.name} ${s.categoryName ?: ""} ${s.plot ?: ""}".lowercase()
-            actionKeywords.any { text.contains(it) } && excludeKeywords.none { text.contains(it) } && s.cover?.trim().orEmpty().startsWith("http")
+            actionKeywords.any { text.contains(it) } && excludeKeywords.none { text.contains(it) } && !isAdultContent(s.name, s.categoryName ?: "") && s.cover?.trim().orEmpty().startsWith("http")
         }.map { CuratedMediaItem(it.name, it.cover, it.rating5based?.times(2.0), it.releaseDate?.take(4), onClick = { onSeriesClick(it) }) }
 
         (actMovies + actSeries).take(15)
@@ -249,12 +274,12 @@ fun MobilePortalDashboard(
         val animKeywords = listOf("animaci", "animation", "anime", "caricatura", "dibujo", "cartoon", "disney", "pixar", "dreamworks", "manga", "otaku", "dragon ball", "naruto", "one piece", "ghibli", "infantil", "kids", "familia", "pokemon", "sponge", "bob esponja", "demon slayer", "shingeki")
         val animMovies = movies.filter { m ->
             val text = "${m.name} ${m.categoryName} ${m.genre ?: ""} ${m.plot ?: ""}".lowercase()
-            animKeywords.any { text.contains(it) } && m.streamIcon?.trim().orEmpty().startsWith("http")
+            animKeywords.any { text.contains(it) } && !isAdultContent(m.name, m.categoryName) && m.streamIcon?.trim().orEmpty().startsWith("http")
         }.map { CuratedMediaItem(it.name, it.streamIcon, it.rating, it.year, onClick = { onMovieClick(it) }) }
 
         val animSeries = seriesList.filter { s ->
             val text = "${s.name} ${s.categoryName ?: ""} ${s.plot ?: ""}".lowercase()
-            animKeywords.any { text.contains(it) } && s.cover?.trim().orEmpty().startsWith("http")
+            animKeywords.any { text.contains(it) } && !isAdultContent(s.name, s.categoryName ?: "") && s.cover?.trim().orEmpty().startsWith("http")
         }.map { CuratedMediaItem(it.name, it.cover, it.rating5based?.times(2.0), it.releaseDate?.take(4), onClick = { onSeriesClick(it) }) }
 
         (animMovies + animSeries).take(15)
@@ -1214,12 +1239,14 @@ private fun CuratedSectionHeader(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.clickable(onClick = onActionClick)
         ) {
-            Text(
-                text = "▌ ",
-                color = barColor,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Black
+            Box(
+                modifier = Modifier
+                    .width(3.5.dp)
+                    .height(18.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(barColor)
             )
+            Spacer(Modifier.width(8.dp))
             Text(
                 text = title,
                 color = Color.White,
@@ -1227,10 +1254,10 @@ private fun CuratedSectionHeader(
                 fontWeight = FontWeight.Black,
                 letterSpacing = 0.2.sp
             )
-            Spacer(Modifier.width(4.dp))
+            Spacer(Modifier.width(5.dp))
             Text(
                 text = ">",
-                color = Color.White.copy(alpha = 0.6f),
+                color = Color.White.copy(alpha = 0.65f),
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -1272,8 +1299,16 @@ private fun CuratedPosterItem(
                 .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
         ) {
             if (!imageUrl.isNullOrBlank()) {
+                val context = LocalContext.current
+                val imageRequest = remember(imageUrl) {
+                    coil.request.ImageRequest.Builder(context)
+                        .data(imageUrl)
+                        .size(240, 360)
+                        .crossfade(true)
+                        .build()
+                }
                 AsyncImage(
-                    model = imageUrl,
+                    model = imageRequest,
                     contentDescription = title,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
@@ -1389,10 +1424,168 @@ private fun SeeMorePosterCard(
     }
 }
 
+private enum class SportTheme {
+    CRICKET, BASEBALL, BOXING, BASKETBALL, DEFAULT
+}
+
+private fun getSportTheme(name: String, categoryName: String): SportTheme {
+    val text = "$name $categoryName".lowercase()
+    return when {
+        text.contains("cricket") || text.contains("pakist") || text.contains("sri lanka") || text.contains("ipl") || text.contains("cric") -> SportTheme.CRICKET
+        text.contains("baseball") || text.contains("béisbol") || text.contains("mlb") || text.contains("fall league") || text.contains("lidom") || text.contains("lmp") -> SportTheme.BASEBALL
+        text.contains("box") || text.contains("ufc") || text.contains("mma") || text.contains("ring") || text.contains("peso ligero") || text.contains("combate") || text.contains("lucha") || text.contains("wwe") -> SportTheme.BOXING
+        text.contains("nba") || text.contains("basket") || text.contains("baloncesto") || text.contains("ncaab") -> SportTheme.BASKETBALL
+        else -> SportTheme.DEFAULT
+    }
+}
+
+@Composable
+private fun SportStadiumBackground(
+    sportTheme: SportTheme,
+    modifier: Modifier = Modifier
+) {
+    when (sportTheme) {
+        SportTheme.CRICKET -> {
+            Box(
+                modifier = modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color(0xFF09141D), Color(0xFF0F2624), Color(0xFF133626))
+                        )
+                    )
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(60.dp)
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color(0xFF8AE0FF).copy(alpha = 0.22f), Color.Transparent)
+                            )
+                        )
+                )
+                Box(
+                    modifier = Modifier
+                        .width(36.dp)
+                        .height(70.dp)
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 24.dp)
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color(0xFF8F7A50).copy(0.35f), Color(0xFFB09865).copy(0.45f))
+                            ),
+                            RoundedCornerShape(4.dp)
+                        )
+                )
+            }
+        }
+        SportTheme.BASEBALL -> {
+            Box(
+                modifier = modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                Color(0xFF5A2A14),
+                                Color(0xFF1F4225),
+                                Color(0xFF0C1710)
+                            ),
+                            radius = 420f
+                        )
+                    )
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(55.dp)
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color(0xFFFFDF9E).copy(alpha = 0.18f), Color.Transparent)
+                            )
+                        )
+                )
+            }
+        }
+        SportTheme.BOXING -> {
+            Box(
+                modifier = modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color(0xFF0A0D14), Color(0xFF151924), Color(0xFF0B0E17))
+                        )
+                    )
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(140.dp)
+                        .align(Alignment.TopCenter)
+                        .background(
+                            Brush.radialGradient(
+                                listOf(Color(0xFF00E5C9).copy(alpha = 0.15f), Color.Transparent)
+                            )
+                        )
+                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.Center)
+                        .padding(bottom = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(modifier = Modifier.fillMaxWidth().height(1.5.dp).background(Color(0xFFE50914).copy(alpha = 0.5f)))
+                    Box(modifier = Modifier.fillMaxWidth().height(1.5.dp).background(Color.White.copy(alpha = 0.4f)))
+                    Box(modifier = Modifier.fillMaxWidth().height(1.5.dp).background(Color(0xFF0072FF).copy(alpha = 0.5f)))
+                }
+            }
+        }
+        SportTheme.BASKETBALL -> {
+            Box(
+                modifier = modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.radialGradient(
+                            listOf(Color(0xFF6B3A17), Color(0xFF381C0B), Color(0xFF120A04)),
+                            radius = 400f
+                        )
+                    )
+            )
+        }
+        else -> {
+            Box(
+                modifier = modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                Color(0xFF174228),
+                                Color(0xFF0D2518),
+                                Color(0xFF08120D)
+                            ),
+                            radius = 420f
+                        )
+                    )
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(55.dp)
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color(0xFF00E5C9).copy(alpha = 0.15f), Color.Transparent)
+                            )
+                        )
+                )
+            }
+        }
+    }
+}
+
 /**
  * Tarjeta de Partido Deportivo en Vivo (Captura 3):
- * Fondo estadio / arena, badge "🔴 EN VIVO" arriba a la izquierda,
- * escudos de rivales con badge "VS" en el centro, y panel oscuro con título y torneo abajo.
+ * Fondo estadio según deporte, badge "🔴 EN VIVO" arriba a la izquierda,
+ * escudos de rivales con insignia "VS" en el centro, y panel oscuro con título y torneo abajo.
  */
 @Composable
 private fun LiveMatchCard(
@@ -1400,13 +1593,16 @@ private fun LiveMatchCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // Parse "Team A vs Team B" o "Team A - Team B"
-    val vsRegex = Regex("(?i)\\s+(?:vs|v|-)\\s+")
+    val vsRegex = Regex("(?i)\\s+(?:vs\\.?|v)\\s+")
     val cleanName = channel.name.replace(Regex("(?i)\\[.*?\\]|\\(.*?\\)"), "").trim()
     val parts = cleanName.split(vsRegex)
     val hasOpponents = parts.size >= 2 && parts[0].isNotBlank() && parts[1].isNotBlank()
     val teamA = if (hasOpponents) parts[0].trim().take(18) else ""
     val teamB = if (hasOpponents) parts[1].trim().take(18) else ""
+
+    val sportTheme = remember(channel.name, channel.categoryName) {
+        getSportTheme(channel.name, channel.categoryName)
+    }
 
     Box(
         modifier = modifier
@@ -1414,39 +1610,11 @@ private fun LiveMatchCard(
             .height(138.dp)
             .clip(RoundedCornerShape(14.dp))
             .background(Color(0xFF0D111A))
-            .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
+            .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(14.dp))
             .clickable(onClick = onClick)
     ) {
-        // Fondo estadio / césped iluminado
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            Color(0xFF1E3A2F), // Verde césped de estadio
-                            Color(0xFF101C24),
-                            Color(0xFF090D14)
-                        ),
-                        radius = 450f
-                    )
-                )
-        )
-
-        // Reflejo de focos de estadio arriba
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(55.dp)
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.White.copy(alpha = 0.08f),
-                            Color.Transparent
-                        )
-                    )
-                )
-        )
+        // Fondo temático de estadio / cancha
+        SportStadiumBackground(sportTheme = sportTheme)
 
         // Arriba Izquierda: Badge 🔴 EN VIVO
         Box(
@@ -1487,10 +1655,10 @@ private fun LiveMatchCard(
                 // Escudo Equipo A
                 Box(
                     modifier = Modifier
-                        .size(42.dp)
+                        .size(44.dp)
                         .clip(CircleShape)
                         .background(Color(0xFF1B2234))
-                        .border(1.5.dp, Color.White.copy(alpha = 0.3f), CircleShape),
+                        .border(1.5.dp, Color.White.copy(alpha = 0.4f), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -1511,7 +1679,8 @@ private fun LiveMatchCard(
                                 listOf(Color(0xFF00E5C9), Color(0xFF0072FF))
                             )
                         )
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                        .border(1.dp, Color.White.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 7.dp, vertical = 2.dp)
                 ) {
                     Text(
                         text = "VS",
@@ -1524,10 +1693,10 @@ private fun LiveMatchCard(
                 // Escudo Equipo B
                 Box(
                     modifier = Modifier
-                        .size(42.dp)
+                        .size(44.dp)
                         .clip(CircleShape)
                         .background(Color(0xFF1B2234))
-                        .border(1.5.dp, Color.White.copy(alpha = 0.3f), CircleShape),
+                        .border(1.5.dp, Color.White.copy(alpha = 0.4f), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -1573,7 +1742,7 @@ private fun LiveMatchCard(
         ) {
             Column {
                 Text(
-                    text = channel.name,
+                    text = cleanName,
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
                     fontSize = 11.sp,

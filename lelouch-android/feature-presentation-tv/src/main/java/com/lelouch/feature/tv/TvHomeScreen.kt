@@ -71,6 +71,7 @@ import com.lelouch.core.model.Series
 import com.lelouch.core.model.SourceConfig
 import com.lelouch.core.model.Episode
 import com.lelouch.core.model.VodMovie
+import com.lelouch.core.model.AdultContentFilter
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import com.lelouch.core.network.StreamUrlResolver
@@ -482,10 +483,7 @@ fun TvHomeScreen(
     val liveCategoryItemModels = remember(liveCategories) {
         if (liveCategories.isNotEmpty()) {
             liveCategories.map { cat ->
-                val isAdult = cat.isAdult ||
-                        cat.categoryName.contains("+18", ignoreCase = true) ||
-                        cat.categoryName.contains("XXX", ignoreCase = true) ||
-                        cat.categoryName.contains("adult", ignoreCase = true)
+                val isAdult = cat.isAdult || AdultContentFilter.isAdult(cat.categoryName, cat.categoryName, cat.categoryId)
                 CategoryItemUiModel(
                     id = cat.categoryId,
                     name = cat.categoryName,
@@ -502,10 +500,7 @@ fun TvHomeScreen(
     val movieCategoryItemModels = remember(vodCategories) {
         if (vodCategories.isNotEmpty()) {
             vodCategories.map { cat ->
-                val isAdult = cat.isAdult ||
-                        cat.categoryName.contains("+18", ignoreCase = true) ||
-                        cat.categoryName.contains("XXX", ignoreCase = true) ||
-                        cat.categoryName.contains("adult", ignoreCase = true)
+                val isAdult = cat.isAdult || AdultContentFilter.isAdult(cat.categoryName, cat.categoryName, cat.categoryId)
                 CategoryItemUiModel(
                     id = cat.categoryId,
                     name = cat.categoryName,
@@ -521,10 +516,7 @@ fun TvHomeScreen(
     val seriesCategoryItemModels = remember(seriesCategories) {
         if (seriesCategories.isNotEmpty()) {
             seriesCategories.map { cat ->
-                val isAdult = cat.isAdult ||
-                        cat.categoryName.contains("+18", ignoreCase = true) ||
-                        cat.categoryName.contains("XXX", ignoreCase = true) ||
-                        cat.categoryName.contains("adult", ignoreCase = true)
+                val isAdult = cat.isAdult || AdultContentFilter.isAdult(cat.categoryName, cat.categoryName, cat.categoryId)
                 CategoryItemUiModel(
                     id = cat.categoryId,
                     name = cat.categoryName,

@@ -1138,7 +1138,23 @@ Univision`;
         console.warn('Fetch directo bloqueado o falló, probando proxy...', e);
       }
 
-      // 2. Proxy codetabs (gratuito y funcional)
+      // 2. Proxy corsproxy.io (altamente veloz y compatible con archivos M3U pesados)
+      try {
+        showToast('Descargando vía Proxy ultra-rápido (corsproxy)...');
+        const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(url)}`;
+        const controller = new AbortController();
+        const tId = setTimeout(() => controller.abort(), 12000);
+        const res = await fetch(proxyUrl, { signal: controller.signal });
+        clearTimeout(tId);
+        if (res.ok) {
+          const txt = await res.text();
+          if (txt && (txt.includes('#EXT') || txt.includes('http'))) return txt;
+        }
+      } catch (e) {
+        console.warn('Proxy corsproxy falló...', e);
+      }
+
+      // 3. Proxy codetabs (gratuito y funcional)
       try {
         showToast('Descargando vía Proxy (codetabs)...');
         const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`;
@@ -1154,19 +1170,17 @@ Univision`;
         console.warn('Proxy codetabs falló...', e);
       }
 
-      // 3. Proxy allorigins get API
+      // 4. Proxy allorigins get API
       try {
         showToast('Descargando vía Proxy de respaldo (allorigins)...');
-        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+        const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
         const controller = new AbortController();
         const tId = setTimeout(() => controller.abort(), 12000);
         const res = await fetch(proxyUrl, { signal: controller.signal });
         clearTimeout(tId);
         if (res.ok) {
-          const data = await res.json();
-          if (data && data.contents && (data.contents.includes('#EXT') || data.contents.includes('http'))) {
-            return data.contents;
-          }
+          const txt = await res.text();
+          if (txt && (txt.includes('#EXT') || txt.includes('http'))) return txt;
         }
       } catch (e) {
         console.warn('Proxy allorigins falló', e);

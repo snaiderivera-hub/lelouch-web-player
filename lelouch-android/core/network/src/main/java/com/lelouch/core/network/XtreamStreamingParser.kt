@@ -151,7 +151,11 @@ object XtreamStreamingParser {
         
         if (streamId == 0 || name.isBlank()) return null
         
-        val isAdultContent = name.contains("+18", ignoreCase = true) || name.contains("XXX", ignoreCase = true)
+        val isAdultContent = com.lelouch.core.model.AdultContentFilter.isAdult(
+            name = name,
+            categoryId = categoryId,
+            streamIcon = streamIcon
+        )
 
         return ChannelEntity(
             id = "${sourceId}_live_$streamId",
