@@ -56,6 +56,276 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
 /**
+ * FASE 35/36: Tipos de sección curada para navegación dedicada (patrón TopicNavKey de Google).
+ */
+enum class CuratedSectionType(
+    val title: String,
+    val barColorHex: Long,
+    val isMoviesOnly: Boolean = false
+) {
+    RECENT("RECIÉN AGREGADAS", 0xFF00E5C9, isMoviesOnly = true),
+    TOP_RATED("MEJOR VALORADAS", 0xFFFFB800),
+    HORROR("TERROR Y SUSPENSO", 0xFFFF5252),
+    SCIFI("CIENCIA FICCIÓN", 0xFF00E5C9),
+    TRUE_EVENTS("BASADO EN HECHOS REALES", 0xFFE5A93C),
+    ACTION("ACCIÓN Y AVENTURA", 0xFFFF6D00),
+    ANIMATION("MUNDO ANIMADO", 0xFFFF4081)
+}
+
+/**
+ * FASE 35: Modelos de datos para el feed curado y desacoplado del Portal Dashboard.
+ * Permite calcular las secciones en segundo plano (Dispatchers.Default) sin bloquear el Main Thread
+ * y conservarlas instantáneamente al navegar entre pestañas.
+ */
+data class CuratedMediaItem(
+    val title: String,
+    val imageUrl: String?,
+    val rating: Double?,
+    val year: String?,
+    val movie: VodMovie? = null,
+    val series: Series? = null
+)
+
+data class PortalFeedData(
+    val sportsCount: Int = 0,
+    val topTenMovies: List<VodMovie> = emptyList(),
+    val liveMatches: List<LiveStream> = emptyList(),
+    val recentMovies: List<VodMovie> = emptyList(),
+    val mostViewedItems: List<CuratedMediaItem> = emptyList(),
+    val terrorItems: List<CuratedMediaItem> = emptyList(),
+    val sciFiItems: List<CuratedMediaItem> = emptyList(),
+    val realHistoryItems: List<CuratedMediaItem> = emptyList(),
+    val actionItems: List<CuratedMediaItem> = emptyList(),
+    val animItems: List<CuratedMediaItem> = emptyList()
+)
+
+object PortalFeedCalculator {
+
+    fun isAnimation(name: String, category: String, genre: String?): Boolean {
+        val g = (genre ?: "").lowercase()
+        val c = category.lowercase()
+        val n = name.lowercase()
+        return g.contains("animaci") || g.contains("animation") || g.contains("anime") || g.contains("manga") ||
+               c.contains("animaci") || c.contains("anime") || c.contains("caricatura") || c.contains("cartoon") ||
+               n.contains("anime") || n.contains("dragon ball") || n.contains("naruto") || n.contains("one piece") || n.contains("demon slayer")
+    }
+
+    private val terrorKeywords = listOf("terror", "horror", "miedo", "suspenso", "thriller", "psicologico", "paranormal", "pesadilla", "gore", "fantasma", "demonio", "siniestro", "misterio", "slasher")
+    private val terrorExcludes = listOf("animaci", "anime", "infantil", "kids", "disney", "cartoon", "comedia")
+    fun isTerror(name: String, cat: String, genre: String?, plot: String?): Boolean {
+        val g = (genre ?: "").lowercase()
+        val c = cat.lowercase()
+        val p = (plot ?: "").lowercase()
+        val n = name.lowercase()
+        val hasGenreMatch = terrorKeywords.any { g.contains(it) || c.contains(it) }
+        val hasPlotMatch = g.isBlank() && terrorKeywords.any { p.contains(it) || n.contains(it) }
+        val isExcluded = terrorExcludes.any { g.contains(it) || c.contains(it) }
+        return (hasGenreMatch || hasPlotMatch) && !isExcluded
+    }
+
+    private val sciFiKeywords = listOf("ciencia ficci", "sci-fi", "scifi", "espacio", "galax", "extraterrestre", "alien", "cyber", "robot", "apocalip", "distop", "mutante", "universo", "interestelar", "matrix", "star wars", "star trek", "marte")
+    private val sciFiExcludes = listOf("animaci", "anime", "infantil", "kids", "disney")
+    fun isSciFi(name: String, cat: String, genre: String?, plot: String?): Boolean {
+        val g = (genre ?: "").lowercase()
+        val c = cat.lowercase()
+        val p = (plot ?: "").lowercase()
+        val n = name.lowercase()
+        val hasGenreMatch = sciFiKeywords.any { g.contains(it) || c.contains(it) }
+        val hasPlotMatch = g.isBlank() && sciFiKeywords.any { p.contains(it) || n.contains(it) }
+        val isExcluded = sciFiExcludes.any { g.contains(it) || c.contains(it) }
+        return (hasGenreMatch || hasPlotMatch) && !isExcluded
+    }
+
+    private val realKeywords = listOf("hechos reales", "historia real", "true story", "biograf", "biopic", "documental", "vida real", "veridica", "crimen real", "testimonio")
+    private val realExcludes = listOf("novela", "libro", "comic", "superhero", "marvel", "dc comics", "fantasia", "sci-fi", "animaci", "anime")
+    fun isRealHistory(name: String, cat: String, genre: String?, plot: String?): Boolean {
+        val g = (genre ?: "").lowercase()
+        val c = cat.lowercase()
+        val p = (plot ?: "").lowercase()
+        val n = name.lowercase()
+        val hasExactMatch = realKeywords.any { n.contains(it) || g.contains(it) || c.contains(it) } ||
+                            p.contains("basada en hechos reales") || p.contains("basado en hechos reales") ||
+                            p.contains("basada en la historia real") || p.contains("basado en la historia real")
+        val isExcluded = realExcludes.any { g.contains(it) || c.contains(it) } || p.contains("basada en la novela") || p.contains("basado en el libro")
+        return hasExactMatch && !isExcluded
+    }
+
+    private val actionKeywords = listOf("acci", "action", "aventura", "adventure", "belic", "guerra", "marcial", "policiac", "espia", "mision", "combate", "venganza", "fast & furious", "john wick")
+    private val actionExcludes = listOf("animaci", "anime", "infantil", "kids", "disney", "terror", "horror")
+    fun isAction(name: String, cat: String, genre: String?, plot: String?): Boolean {
+        val g = (genre ?: "").lowercase()
+        val c = cat.lowercase()
+        val p = (plot ?: "").lowercase()
+        val n = name.lowercase()
+        val hasGenreMatch = actionKeywords.any { g.contains(it) || c.contains(it) }
+        val hasPlotMatch = g.isBlank() && actionKeywords.any { p.contains(it) || n.contains(it) }
+        val isExcluded = actionExcludes.any { g.contains(it) || c.contains(it) }
+        return (hasGenreMatch || hasPlotMatch) && !isExcluded
+    }
+
+    fun calculate(
+        liveChannels: List<LiveStream>,
+        movies: List<VodMovie>,
+        seriesList: List<Series>
+    ): PortalFeedData {
+        val sportsKeywords = listOf(
+            "sport", "deporte", "futbol", "fútbol", "liga", "champions", "premier",
+            "laliga", "nba", "mlb", "nfl", "ufc", "box", "f1", "formula 1",
+            "motogp", "espn", "fox sport", "dazn", "tudn", "directv sport",
+            "win sport", "gol", "partido", "event", "cricket", "beisbol", "tenis", "tennis"
+        )
+        val sportsCount = liveChannels.count { ch ->
+            val cat = ch.categoryName.lowercase()
+            val name = ch.name.lowercase()
+            sportsKeywords.any { cat.contains(it) || name.contains(it) }
+        }
+
+        val liveMatches = liveChannels.asSequence().filter { ch ->
+            if (ch.isAdult || com.lelouch.core.model.AdultContentFilter.isAdult(name = ch.name, categoryName = ch.categoryName, streamIcon = ch.streamIcon, streamUrl = ch.streamUrl)) return@filter false
+            val cat = ch.categoryName.lowercase()
+            val name = ch.name.lowercase()
+            val isSportCat = sportsKeywords.any { cat.contains(it) || name.contains(it) }
+            val hasVs = name.contains(" vs ") || name.contains(" vs. ") || name.contains(" v ")
+            isSportCat || hasVs
+        }.take(20).toList()
+
+        val currentYear = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
+        val currentYearStr = currentYear.toString()
+        val previousYearStr = (currentYear - 1).toString()
+
+        fun isMovieFromYear(movie: VodMovie, year: String): Boolean {
+            return movie.year?.contains(year) == true ||
+                   movie.added?.startsWith(year) == true ||
+                   movie.name.contains(year)
+        }
+
+        val yearMovies = movies.asSequence().filter { m ->
+            (isMovieFromYear(m, currentYearStr) || isMovieFromYear(m, previousYearStr)) &&
+            !com.lelouch.core.model.AdultContentFilter.isAdult(name = m.name, categoryName = m.categoryName, categoryId = m.categoryId, streamIcon = m.streamIcon, streamUrl = m.streamUrl)
+        }.sortedByDescending { it.rating ?: 0.0 }.take(10).toList()
+
+        val topTenMovies = if (yearMovies.isNotEmpty()) yearMovies else movies.take(10)
+
+        // 1. RECIÉN AGREGADAS: Ordenadas por fecha de añadido (added) desc, excluyendo anime y adultos
+        val recentMovies = movies.asSequence().filter { m ->
+            !isAnimation(m.name, m.categoryName, m.genre) &&
+            !com.lelouch.core.model.AdultContentFilter.isAdult(name = m.name, categoryName = m.categoryName, categoryId = m.categoryId, streamIcon = m.streamIcon, streamUrl = m.streamUrl)
+        }.sortedWith(
+            compareByDescending<VodMovie> { m -> m.added?.toLongOrNull() ?: 0L }.thenByDescending { it.streamId }
+        ).take(15).toList()
+
+        // 2. MEJOR VALORADAS: Películas y series con rating >= 6.5 ordenadas globalmente por nota, balanceadas
+        val highMovies = movies.asSequence().filter { m ->
+            !isAnimation(m.name, m.categoryName, m.genre) &&
+            (m.rating ?: 0.0) >= 6.5 &&
+            !com.lelouch.core.model.AdultContentFilter.isAdult(name = m.name, categoryName = m.categoryName, categoryId = m.categoryId, streamIcon = m.streamIcon, streamUrl = m.streamUrl)
+        }.map {
+            CuratedMediaItem(
+                title = it.name,
+                imageUrl = it.streamIcon,
+                rating = it.rating,
+                year = it.year,
+                movie = it
+            )
+        }.toList().sortedByDescending { it.rating ?: 0.0 }
+
+        val highSeries = seriesList.asSequence().filter { s ->
+            !isAnimation(s.name, s.categoryName, s.genre) &&
+            ((s.rating5based?.times(2.0)) ?: (s.rating ?: 0.0)) >= 6.5 &&
+            !com.lelouch.core.model.AdultContentFilter.isAdult(name = s.name, categoryName = s.categoryName, categoryId = s.categoryId, streamIcon = s.cover)
+        }.map {
+            CuratedMediaItem(
+                title = it.name,
+                imageUrl = it.cover,
+                rating = it.rating5based?.times(2.0) ?: (it.rating ?: 0.0),
+                year = it.releaseDate?.take(4),
+                series = it
+            )
+        }.toList().sortedByDescending { it.rating ?: 0.0 }
+
+        val mostViewedItems = (highMovies.take(8) + highSeries.take(7)).sortedByDescending { it.rating ?: 0.0 }
+
+        // 3. TERROR Y SUSPENSO: Prioridad de género oficial
+        val terrorMovies = movies.asSequence().filter { m ->
+            isTerror(m.name, m.categoryName, m.genre, m.plot) &&
+            !com.lelouch.core.model.AdultContentFilter.isAdult(name = m.name, categoryName = m.categoryName, categoryId = m.categoryId, streamIcon = m.streamIcon, streamUrl = m.streamUrl)
+        }.take(10).map { CuratedMediaItem(it.name, it.streamIcon, it.rating, it.year, movie = it) }.toList()
+
+        val terrorSeries = seriesList.asSequence().filter { s ->
+            isTerror(s.name, s.categoryName, s.genre, s.plot) &&
+            !com.lelouch.core.model.AdultContentFilter.isAdult(name = s.name, categoryName = s.categoryName, categoryId = s.categoryId, streamIcon = s.cover)
+        }.take(10).map { CuratedMediaItem(it.name, it.cover, it.rating5based?.times(2.0) ?: it.rating, it.releaseDate?.take(4), series = it) }.toList()
+
+        val terrorItems = (terrorMovies.take(8) + terrorSeries.take(7)).take(15)
+
+        // 4. CIENCIA FICCIÓN: Prioridad de género oficial
+        val sfMovies = movies.asSequence().filter { m ->
+            isSciFi(m.name, m.categoryName, m.genre, m.plot) &&
+            !com.lelouch.core.model.AdultContentFilter.isAdult(name = m.name, categoryName = m.categoryName, categoryId = m.categoryId, streamIcon = m.streamIcon, streamUrl = m.streamUrl)
+        }.take(10).map { CuratedMediaItem(it.name, it.streamIcon, it.rating, it.year, movie = it) }.toList()
+
+        val sfSeries = seriesList.asSequence().filter { s ->
+            isSciFi(s.name, s.categoryName, s.genre, s.plot) &&
+            !com.lelouch.core.model.AdultContentFilter.isAdult(name = s.name, categoryName = s.categoryName, categoryId = s.categoryId, streamIcon = s.cover)
+        }.take(10).map { CuratedMediaItem(it.name, it.cover, it.rating5based?.times(2.0) ?: it.rating, it.releaseDate?.take(4), series = it) }.toList()
+
+        val sciFiItems = (sfMovies.take(8) + sfSeries.take(7)).take(15)
+
+        // 5. BASADO EN HECHOS REALES: Términos reales excluyendo novelas/libros
+        val realMovies = movies.asSequence().filter { m ->
+            isRealHistory(m.name, m.categoryName, m.genre, m.plot) &&
+            !com.lelouch.core.model.AdultContentFilter.isAdult(name = m.name, categoryName = m.categoryName, categoryId = m.categoryId, streamIcon = m.streamIcon, streamUrl = m.streamUrl)
+        }.take(10).map { CuratedMediaItem(it.name, it.streamIcon, it.rating, it.year, movie = it) }.toList()
+
+        val realSeries = seriesList.asSequence().filter { s ->
+            isRealHistory(s.name, s.categoryName, s.genre, s.plot) &&
+            !com.lelouch.core.model.AdultContentFilter.isAdult(name = s.name, categoryName = s.categoryName, categoryId = s.categoryId, streamIcon = s.cover)
+        }.take(10).map { CuratedMediaItem(it.name, it.cover, it.rating5based?.times(2.0) ?: it.rating, it.releaseDate?.take(4), series = it) }.toList()
+
+        val realHistoryItems = (realMovies.take(8) + realSeries.take(7)).take(15)
+
+        // 6. ACCIÓN Y AVENTURA: Prioridad de género oficial
+        val actMovies = movies.asSequence().filter { m ->
+            isAction(m.name, m.categoryName, m.genre, m.plot) &&
+            !com.lelouch.core.model.AdultContentFilter.isAdult(name = m.name, categoryName = m.categoryName, categoryId = m.categoryId, streamIcon = m.streamIcon, streamUrl = m.streamUrl)
+        }.take(10).map { CuratedMediaItem(it.name, it.streamIcon, it.rating, it.year, movie = it) }.toList()
+
+        val actSeries = seriesList.asSequence().filter { s ->
+            isAction(s.name, s.categoryName, s.genre, s.plot) &&
+            !com.lelouch.core.model.AdultContentFilter.isAdult(name = s.name, categoryName = s.categoryName, categoryId = s.categoryId, streamIcon = s.cover)
+        }.take(10).map { CuratedMediaItem(it.name, it.cover, it.rating5based?.times(2.0) ?: it.rating, it.releaseDate?.take(4), series = it) }.toList()
+
+        val actionItems = (actMovies.take(8) + actSeries.take(7)).take(15)
+
+        // 7. MUNDO ANIMADO: Exclusivo género de animación / anime
+        val animMovies = movies.asSequence().filter { m ->
+            isAnimation(m.name, m.categoryName, m.genre) &&
+            !com.lelouch.core.model.AdultContentFilter.isAdult(name = m.name, categoryName = m.categoryName, categoryId = m.categoryId, streamIcon = m.streamIcon, streamUrl = m.streamUrl)
+        }.take(10).map { CuratedMediaItem(it.name, it.streamIcon, it.rating, it.year, movie = it) }.toList()
+
+        val animSeries = seriesList.asSequence().filter { s ->
+            isAnimation(s.name, s.categoryName, s.genre) &&
+            !com.lelouch.core.model.AdultContentFilter.isAdult(name = s.name, categoryName = s.categoryName, categoryId = s.categoryId, streamIcon = s.cover)
+        }.take(10).map { CuratedMediaItem(it.name, it.cover, it.rating5based?.times(2.0) ?: it.rating, it.releaseDate?.take(4), series = it) }.toList()
+
+        val animItems = (animMovies.take(8) + animSeries.take(7)).take(15)
+
+        return PortalFeedData(
+            sportsCount = sportsCount,
+            topTenMovies = topTenMovies,
+            liveMatches = liveMatches,
+            recentMovies = recentMovies,
+            mostViewedItems = mostViewedItems,
+            terrorItems = terrorItems,
+            sciFiItems = sciFiItems,
+            realHistoryItems = realHistoryItems,
+            actionItems = actionItems,
+            animItems = animItems
+        )
+    }
+}
+
+/**
  * Feed de Inicio Móvil Fiel a las Capturas de Referencia:
  * 1. Cabecera superior con Logo LELOUCH PLUS y acceso directo a TV En Vivo.
  * 2. Barra de búsqueda integrada tipo píldora ovalada.
@@ -92,198 +362,26 @@ fun MobilePortalDashboard(
     searchQuery: String = "",
     onSearchChange: (String) -> Unit = {},
     onSeeAllAnime: () -> Unit = {},
+    onOpenSection: (CuratedSectionType) -> Unit = {},
     modifier: Modifier = Modifier,
     liveChannels: List<LiveStream> = emptyList(),
     movies: List<VodMovie> = emptyList(),
     seriesList: List<Series> = emptyList(),
+    portalFeedData: PortalFeedData? = null,
     onChannelClick: (String, String) -> Unit = { _, _ -> },
     onMovieClick: (VodMovie) -> Unit = {},
     onSeriesClick: (Series) -> Unit = {}
 ) {
-    val currentYear = remember { java.util.Calendar.getInstance().get(java.util.Calendar.YEAR) }
-    val currentYearStr = remember(currentYear) { currentYear.toString() }
-    val previousYearStr = remember(currentYear) { (currentYear - 1).toString() }
-
-    // Helper defensivo para comprobar si un contenido pertenece al año en curso
-    fun isMovieFromYear(movie: VodMovie, year: String): Boolean {
-        return movie.year?.contains(year) == true ||
-               movie.added?.startsWith(year) == true ||
-               movie.name.contains(year)
-    }
-
-    fun isSeriesFromYear(series: Series, year: String): Boolean {
-        return series.releaseDate?.startsWith(year) == true ||
-               series.name.contains(year)
-    }
-
-    // Top 10 películas más recientes / destacadas exclusivamente del año en curso con imagen válida
-    val topTenMovies = remember(movies, currentYearStr) {
-        val valid = movies.filter { it.streamIcon?.trim().orEmpty().startsWith("http") }
-        val currentYearMovies = valid.filter { isMovieFromYear(it, currentYearStr) }
-        if (currentYearMovies.size >= 3) {
-            currentYearMovies.take(10)
-        } else {
-            val fallback = valid.filter { isMovieFromYear(it, currentYearStr) || isMovieFromYear(it, previousYearStr) }
-            if (fallback.isNotEmpty()) fallback.take(10) else valid.take(10)
-        }
-    }
-
-    fun isAdultContent(name: String, cat: String, icon: String? = null, url: String? = null): Boolean {
-        return com.lelouch.core.model.AdultContentFilter.isAdult(
-            name = name,
-            categoryName = cat,
-            streamIcon = icon,
-            streamUrl = url
-        )
-    }
-
-    // 1. EN VIVO AHORA (Partidos deportivos activos - Captura 3)
-    val sportsKeywords = remember {
-        listOf(
-            "sport", "deporte", "futbol", "fútbol", "liga", "champions", "premier",
-            "laliga", "nba", "mlb", "nfl", "ufc", "box", "f1", "formula 1",
-            "motogp", "espn", "fox sport", "dazn", "tudn", "directv sport",
-            "win sport", "gol", "partido", "event", "cricket", "beisbol", "tenis", "tennis"
-        )
-    }
-
-    val liveMatches = remember(liveChannels) {
-        liveChannels.filter { ch ->
-            if (ch.isAdult || isAdultContent(ch.name, ch.categoryName)) return@filter false
-            val cat = ch.categoryName.lowercase()
-            val name = ch.name.lowercase()
-            val isSportCat = sportsKeywords.any { cat.contains(it) || name.contains(it) }
-            val hasVs = name.contains(" vs ") || name.contains(" vs. ") || name.contains(" v ")
-            isSportCat || hasVs
-        }.take(20)
-    }
-
-    // Palabras clave de animación y anime para aislar en su propio carril
-    val animKeywords = remember {
-        listOf(
-            "animaci", "animation", "anime", "caricatura", "dibujo", "cartoon",
-            "disney", "pixar", "dreamworks", "manga", "otaku", "dragon ball",
-            "naruto", "one piece", "ghibli", "infantil", "kids", "familia",
-            "pokemon", "sponge", "bob esponja", "demon slayer", "shingeki"
-        )
-    }
-
-    // 2. RECIÉN AGREGADAS (Últimas películas añadidas - Captura 4)
-    // Sin mezclar anime (ej. Dragon Ball GT) ni contenido adulto
-    val recentMovies = remember(movies) {
-        movies.filter { m ->
-            val text = "${m.name} ${m.categoryName} ${m.genre ?: ""}".lowercase()
-            m.streamIcon?.trim().orEmpty().startsWith("http") &&
-            !isAdultContent(m.name, m.categoryName) &&
-            animKeywords.none { text.contains(it) }
-        }.take(15)
-    }
-
-    // 3. LO MÁS VISTO (Mejor valoradas y destacadas, sin mezclar animación infantil ni adultos)
-    val mostViewedItems = remember(movies, seriesList) {
-        val highMovies = movies.filter { m ->
-            val cat = m.categoryName.lowercase()
-            val name = m.name.lowercase()
-            val genre = (m.genre ?: "").lowercase()
-            val isNotAnim = animKeywords.none { cat.contains(it) || name.contains(it) || genre.contains(it) }
-            val r = m.rating ?: 0.0
-            isNotAnim && r >= 6.5 && !isAdultContent(m.name, m.categoryName) && m.streamIcon?.trim().orEmpty().startsWith("http")
-        }.map { CuratedMediaItem(it.name, it.streamIcon, it.rating, it.year, onClick = { onMovieClick(it) }) }
-
-        val highSeries = seriesList.filter { s ->
-            val cat = (s.categoryName ?: "").lowercase()
-            val name = s.name.lowercase()
-            val isNotAnim = animKeywords.none { cat.contains(it) || name.contains(it) }
-            val r = s.rating5based?.times(2.0) ?: 0.0
-            isNotAnim && r >= 6.5 && !isAdultContent(s.name, s.categoryName ?: "") && s.cover?.trim().orEmpty().startsWith("http")
-        }.map { CuratedMediaItem(it.name, it.cover, it.rating5based?.times(2.0), it.releaseDate?.take(4), onClick = { onSeriesClick(it) }) }
-
-        (highMovies + highSeries).sortedByDescending { it.rating ?: 0.0 }.take(15)
-    }
-
-    // 4. TERROR Y SUSPENSO (Exclusivo horror/thriller, sin niños ni caricaturas ni adultos)
-    val terrorItems = remember(movies, seriesList) {
-        val terrorKeywords = listOf("terror", "horror", "miedo", "suspenso", "thriller", "psicologico", "paranormal", "pesadilla", "gore", "fantasma", "demonio", "siniestro", "misterio", "slasher")
-        val excludeKeywords = listOf("animaci", "anime", "infantil", "kids", "disney", "cartoon", "comedia")
-        val horrorMovies = movies.filter { m ->
-            val text = "${m.name} ${m.categoryName} ${m.genre ?: ""} ${m.plot ?: ""}".lowercase()
-            terrorKeywords.any { text.contains(it) } && excludeKeywords.none { text.contains(it) } && !isAdultContent(m.name, m.categoryName) && m.streamIcon?.trim().orEmpty().startsWith("http")
-        }.map { CuratedMediaItem(it.name, it.streamIcon, it.rating, it.year, onClick = { onMovieClick(it) }) }
-
-        val horrorSeries = seriesList.filter { s ->
-            val text = "${s.name} ${s.categoryName ?: ""} ${s.plot ?: ""}".lowercase()
-            terrorKeywords.any { text.contains(it) } && excludeKeywords.none { text.contains(it) } && !isAdultContent(s.name, s.categoryName ?: "") && s.cover?.trim().orEmpty().startsWith("http")
-        }.map { CuratedMediaItem(it.name, it.cover, it.rating5based?.times(2.0), it.releaseDate?.take(4), onClick = { onSeriesClick(it) }) }
-
-        (horrorMovies + horrorSeries).take(15)
-    }
-
-    // 5. CIENCIA FICCIÓN (Sci-fi, futurista, espacio y fantasía)
-    val sciFiItems = remember(movies, seriesList) {
-        val sciFiKeywords = listOf("ciencia ficci", "sci-fi", "scifi", "futur", "espacio", "galax", "extraterrestre", "alien", "cyber", "robot", "apocalip", "distop", "mutante", "universo", "interestelar", "matrix", "star wars", "star trek", "marte")
-        val excludeKeywords = listOf("animaci", "anime", "infantil", "kids", "disney")
-        val sfMovies = movies.filter { m ->
-            val text = "${m.name} ${m.categoryName} ${m.genre ?: ""} ${m.plot ?: ""}".lowercase()
-            sciFiKeywords.any { text.contains(it) } && excludeKeywords.none { text.contains(it) } && !isAdultContent(m.name, m.categoryName) && m.streamIcon?.trim().orEmpty().startsWith("http")
-        }.map { CuratedMediaItem(it.name, it.streamIcon, it.rating, it.year, onClick = { onMovieClick(it) }) }
-
-        val sfSeries = seriesList.filter { s ->
-            val text = "${s.name} ${s.categoryName ?: ""} ${s.plot ?: ""}".lowercase()
-            sciFiKeywords.any { text.contains(it) } && excludeKeywords.none { text.contains(it) } && !isAdultContent(s.name, s.categoryName ?: "") && s.cover?.trim().orEmpty().startsWith("http")
-        }.map { CuratedMediaItem(it.name, it.cover, it.rating5based?.times(2.0), it.releaseDate?.take(4), onClick = { onSeriesClick(it) }) }
-
-        (sfMovies + sfSeries).take(15)
-    }
-
-    // 6. BASADO EN HECHOS REALES (Biografías, historia, dramas reales)
-    val realHistoryItems = remember(movies, seriesList) {
-        val realKeywords = listOf("hechos reales", "historia real", "basada en", "biograf", "biopic", "documental", "vida real", "true story", "veridica", "crimen real", "testimonio")
-        val excludeKeywords = listOf("animaci", "anime", "superhero", "marvel", "dc comics", "fantasia", "sci-fi")
-        val realMovies = movies.filter { m ->
-            val text = "${m.name} ${m.categoryName} ${m.genre ?: ""} ${m.plot ?: ""}".lowercase()
-            realKeywords.any { text.contains(it) } && excludeKeywords.none { text.contains(it) } && !isAdultContent(m.name, m.categoryName) && m.streamIcon?.trim().orEmpty().startsWith("http")
-        }.map { CuratedMediaItem(it.name, it.streamIcon, it.rating, it.year, onClick = { onMovieClick(it) }) }
-
-        val realSeries = seriesList.filter { s ->
-            val text = "${s.name} ${s.categoryName ?: ""} ${s.plot ?: ""}".lowercase()
-            realKeywords.any { text.contains(it) } && excludeKeywords.none { text.contains(it) } && !isAdultContent(s.name, s.categoryName ?: "") && s.cover?.trim().orEmpty().startsWith("http")
-        }.map { CuratedMediaItem(it.name, it.cover, it.rating5based?.times(2.0), it.releaseDate?.take(4), onClick = { onSeriesClick(it) }) }
-
-        (realMovies + realSeries).take(15)
-    }
-
-    // 7. ACCIÓN Y AVENTURA (Explosiones, misiones, combate)
-    val actionItems = remember(movies, seriesList) {
-        val actionKeywords = listOf("acci", "action", "aventura", "adventure", "belic", "guerra", "marcial", "policiac", "espia", "mision", "combate", "venganza", "fast & furious", "john wick")
-        val excludeKeywords = listOf("animaci", "anime", "infantil", "kids", "disney", "terror", "horror")
-        val actMovies = movies.filter { m ->
-            val text = "${m.name} ${m.categoryName} ${m.genre ?: ""} ${m.plot ?: ""}".lowercase()
-            actionKeywords.any { text.contains(it) } && excludeKeywords.none { text.contains(it) } && !isAdultContent(m.name, m.categoryName) && m.streamIcon?.trim().orEmpty().startsWith("http")
-        }.map { CuratedMediaItem(it.name, it.streamIcon, it.rating, it.year, onClick = { onMovieClick(it) }) }
-
-        val actSeries = seriesList.filter { s ->
-            val text = "${s.name} ${s.categoryName ?: ""} ${s.plot ?: ""}".lowercase()
-            actionKeywords.any { text.contains(it) } && excludeKeywords.none { text.contains(it) } && !isAdultContent(s.name, s.categoryName ?: "") && s.cover?.trim().orEmpty().startsWith("http")
-        }.map { CuratedMediaItem(it.name, it.cover, it.rating5based?.times(2.0), it.releaseDate?.take(4), onClick = { onSeriesClick(it) }) }
-
-        (actMovies + actSeries).take(15)
-    }
-
-    // 8. MUNDO ANIMADO (Animación familiar, caricaturas y anime)
-    val animItems = remember(movies, seriesList) {
-        val animKeywords = listOf("animaci", "animation", "anime", "caricatura", "dibujo", "cartoon", "disney", "pixar", "dreamworks", "manga", "otaku", "dragon ball", "naruto", "one piece", "ghibli", "infantil", "kids", "familia", "pokemon", "sponge", "bob esponja", "demon slayer", "shingeki")
-        val animMovies = movies.filter { m ->
-            val text = "${m.name} ${m.categoryName} ${m.genre ?: ""} ${m.plot ?: ""}".lowercase()
-            animKeywords.any { text.contains(it) } && !isAdultContent(m.name, m.categoryName) && m.streamIcon?.trim().orEmpty().startsWith("http")
-        }.map { CuratedMediaItem(it.name, it.streamIcon, it.rating, it.year, onClick = { onMovieClick(it) }) }
-
-        val animSeries = seriesList.filter { s ->
-            val text = "${s.name} ${s.categoryName ?: ""} ${s.plot ?: ""}".lowercase()
-            animKeywords.any { text.contains(it) } && !isAdultContent(s.name, s.categoryName ?: "") && s.cover?.trim().orEmpty().startsWith("http")
-        }.map { CuratedMediaItem(it.name, it.cover, it.rating5based?.times(2.0), it.releaseDate?.take(4), onClick = { onSeriesClick(it) }) }
-
-        (animMovies + animSeries).take(15)
-    }
+    // FASE 35: Consumo directo de feed precalculado en segundo plano (0ms bloqueo en Main Thread)
+    val topTenMovies = portalFeedData?.topTenMovies ?: emptyList()
+    val liveMatches = portalFeedData?.liveMatches ?: emptyList()
+    val recentMovies = portalFeedData?.recentMovies ?: emptyList()
+    val mostViewedItems = portalFeedData?.mostViewedItems ?: emptyList()
+    val terrorItems = portalFeedData?.terrorItems ?: emptyList()
+    val sciFiItems = portalFeedData?.sciFiItems ?: emptyList()
+    val realHistoryItems = portalFeedData?.realHistoryItems ?: emptyList()
+    val actionItems = portalFeedData?.actionItems ?: emptyList()
+    val animItems = portalFeedData?.animItems ?: emptyList()
 
     Column(
         modifier = modifier
@@ -518,13 +616,13 @@ fun MobilePortalDashboard(
         if (searchQuery.isNotBlank()) {
             val q = searchQuery.trim()
             val matchingChannels = remember(liveChannels, q) {
-                liveChannels.filter { it.name.contains(q, ignoreCase = true) || it.categoryName.contains(q, ignoreCase = true) }.take(25)
+                liveChannels.asSequence().filter { it.name.contains(q, ignoreCase = true) || it.categoryName.contains(q, ignoreCase = true) }.take(25).toList()
             }
             val matchingMovies = remember(movies, q) {
-                movies.filter { it.name.contains(q, ignoreCase = true) || it.categoryName.contains(q, ignoreCase = true) }.take(25)
+                movies.asSequence().filter { it.name.contains(q, ignoreCase = true) || it.categoryName.contains(q, ignoreCase = true) }.take(25).toList()
             }
             val matchingSeries = remember(seriesList, q) {
-                seriesList.filter { it.name.contains(q, ignoreCase = true) || it.categoryName.contains(q, ignoreCase = true) }.take(25)
+                seriesList.asSequence().filter { it.name.contains(q, ignoreCase = true) || it.categoryName.contains(q, ignoreCase = true) }.take(25).toList()
             }
             val totalResults = matchingChannels.size + matchingMovies.size + matchingSeries.size
 
@@ -725,8 +823,8 @@ fun MobilePortalDashboard(
                 CuratedSectionHeader(
                     title = "RECIÉN AGREGADAS",
                     actionText = "VER MÁS >",
-                    barColor = Color(0xFFFFB800),
-                    onActionClick = onNavigateToMovies
+                    barColor = Color(0xFF00E5C9),
+                    onActionClick = { onOpenSection(CuratedSectionType.RECENT) }
                 )
 
                 LazyRow(
@@ -745,8 +843,8 @@ fun MobilePortalDashboard(
                     }
                     item {
                         SeeMorePosterCard(
-                            remainingCount = movies.size,
-                            onClick = onNavigateToMovies
+                            remainingCount = recentMovies.size,
+                            onClick = { onOpenSection(CuratedSectionType.RECENT) }
                         )
                     }
                 }
@@ -755,14 +853,14 @@ fun MobilePortalDashboard(
             }
 
             // ══════════════════════════════════════════════════════════════════════
-            // 3. ▌ LO MÁS VISTO
+            // 3. ▌ MEJOR VALORADAS
             // ══════════════════════════════════════════════════════════════════════
             if (mostViewedItems.isNotEmpty()) {
                 CuratedSectionHeader(
-                    title = "LO MÁS VISTO",
+                    title = "MEJOR VALORADAS",
                     actionText = "VER MÁS >",
                     barColor = Color(0xFFFFB800),
-                    onActionClick = onNavigateToMovies
+                    onActionClick = { onOpenSection(CuratedSectionType.TOP_RATED) }
                 )
 
                 LazyRow(
@@ -776,13 +874,16 @@ fun MobilePortalDashboard(
                             imageUrl = item.imageUrl,
                             rating = item.rating,
                             year = item.year,
-                            onClick = item.onClick
+                            onClick = {
+                                item.movie?.let(onMovieClick)
+                                item.series?.let(onSeriesClick)
+                            }
                         )
                     }
                     item {
                         SeeMorePosterCard(
-                            remainingCount = movies.size + seriesList.size,
-                            onClick = onNavigateToMovies
+                            remainingCount = mostViewedItems.size,
+                            onClick = { onOpenSection(CuratedSectionType.TOP_RATED) }
                         )
                     }
                 }
@@ -798,7 +899,7 @@ fun MobilePortalDashboard(
                     title = "TERROR Y SUSPENSO",
                     actionText = "VER MÁS >",
                     barColor = Color(0xFFFF5252),
-                    onActionClick = onNavigateToMovies
+                    onActionClick = { onOpenSection(CuratedSectionType.HORROR) }
                 )
 
                 LazyRow(
@@ -812,13 +913,16 @@ fun MobilePortalDashboard(
                             imageUrl = item.imageUrl,
                             rating = item.rating,
                             year = item.year,
-                            onClick = item.onClick
+                            onClick = {
+                                item.movie?.let(onMovieClick)
+                                item.series?.let(onSeriesClick)
+                            }
                         )
                     }
                     item {
                         SeeMorePosterCard(
                             remainingCount = terrorItems.size,
-                            onClick = onNavigateToMovies
+                            onClick = { onOpenSection(CuratedSectionType.HORROR) }
                         )
                     }
                 }
@@ -834,7 +938,7 @@ fun MobilePortalDashboard(
                     title = "CIENCIA FICCIÓN",
                     actionText = "VER MÁS >",
                     barColor = Color(0xFF00E5C9),
-                    onActionClick = onNavigateToMovies
+                    onActionClick = { onOpenSection(CuratedSectionType.SCIFI) }
                 )
 
                 LazyRow(
@@ -848,13 +952,16 @@ fun MobilePortalDashboard(
                             imageUrl = item.imageUrl,
                             rating = item.rating,
                             year = item.year,
-                            onClick = item.onClick
+                            onClick = {
+                                item.movie?.let(onMovieClick)
+                                item.series?.let(onSeriesClick)
+                            }
                         )
                     }
                     item {
                         SeeMorePosterCard(
                             remainingCount = sciFiItems.size,
-                            onClick = onNavigateToMovies
+                            onClick = { onOpenSection(CuratedSectionType.SCIFI) }
                         )
                     }
                 }
@@ -870,7 +977,7 @@ fun MobilePortalDashboard(
                     title = "BASADO EN HECHOS REALES",
                     actionText = "VER MÁS >",
                     barColor = Color(0xFFE5A93C),
-                    onActionClick = onNavigateToMovies
+                    onActionClick = { onOpenSection(CuratedSectionType.TRUE_EVENTS) }
                 )
 
                 LazyRow(
@@ -884,13 +991,16 @@ fun MobilePortalDashboard(
                             imageUrl = item.imageUrl,
                             rating = item.rating,
                             year = item.year,
-                            onClick = item.onClick
+                            onClick = {
+                                item.movie?.let(onMovieClick)
+                                item.series?.let(onSeriesClick)
+                            }
                         )
                     }
                     item {
                         SeeMorePosterCard(
                             remainingCount = realHistoryItems.size,
-                            onClick = onNavigateToMovies
+                            onClick = { onOpenSection(CuratedSectionType.TRUE_EVENTS) }
                         )
                     }
                 }
@@ -906,7 +1016,7 @@ fun MobilePortalDashboard(
                     title = "ACCIÓN Y AVENTURA",
                     actionText = "VER MÁS >",
                     barColor = Color(0xFFFF6D00),
-                    onActionClick = onNavigateToMovies
+                    onActionClick = { onOpenSection(CuratedSectionType.ACTION) }
                 )
 
                 LazyRow(
@@ -920,13 +1030,16 @@ fun MobilePortalDashboard(
                             imageUrl = item.imageUrl,
                             rating = item.rating,
                             year = item.year,
-                            onClick = item.onClick
+                            onClick = {
+                                item.movie?.let(onMovieClick)
+                                item.series?.let(onSeriesClick)
+                            }
                         )
                     }
                     item {
                         SeeMorePosterCard(
                             remainingCount = actionItems.size,
-                            onClick = onNavigateToMovies
+                            onClick = { onOpenSection(CuratedSectionType.ACTION) }
                         )
                     }
                 }
@@ -942,7 +1055,7 @@ fun MobilePortalDashboard(
                     title = "MUNDO ANIMADO",
                     actionText = "VER MÁS >",
                     barColor = Color(0xFFFF4081),
-                    onActionClick = onSeeAllAnime
+                    onActionClick = { onOpenSection(CuratedSectionType.ANIMATION) }
                 )
 
                 LazyRow(
@@ -956,13 +1069,16 @@ fun MobilePortalDashboard(
                             imageUrl = item.imageUrl,
                             rating = item.rating,
                             year = item.year,
-                            onClick = item.onClick
+                            onClick = {
+                                item.movie?.let(onMovieClick)
+                                item.series?.let(onSeriesClick)
+                            }
                         )
                     }
                     item {
                         SeeMorePosterCard(
                             remainingCount = animItems.size,
-                            onClick = onSeeAllAnime
+                            onClick = { onOpenSection(CuratedSectionType.ANIMATION) }
                         )
                     }
                 }
@@ -1060,7 +1176,7 @@ private fun MobileTopTenHeroCarousel(
                     .padding(horizontal = 10.dp, vertical = 4.dp)
             ) {
                 Text(
-                    text = "TOP 10 • $formattedIndex",
+                    text = "DESTACADAS 2026 • $formattedIndex",
                     color = Color.Black,
                     fontWeight = FontWeight.Black,
                     fontSize = 11.sp,
@@ -1275,9 +1391,10 @@ private fun CuratedSectionHeader(
 /**
  * Tarjeta de Cartel Curado (Captura 4):
  * Imagen de portada vertical con esquinas redondeadas, título debajo y valoración ★ + Año.
+ * Soporta carteles de reemplazo elegantes para títulos sin portada HTTP válida.
  */
 @Composable
-private fun CuratedPosterItem(
+internal fun CuratedPosterItem(
     title: String,
     imageUrl: String?,
     rating: Double? = null,
@@ -1295,10 +1412,15 @@ private fun CuratedPosterItem(
                 .fillMaxWidth()
                 .height(168.dp)
                 .clip(RoundedCornerShape(12.dp))
-                .background(Color(0xFF14161F))
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(Color(0xFF1E2230), Color(0xFF0F111A))
+                    )
+                )
                 .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
         ) {
-            if (!imageUrl.isNullOrBlank()) {
+            val hasValidHttp = imageUrl?.trim().orEmpty().startsWith("http")
+            if (hasValidHttp) {
                 val context = LocalContext.current
                 val imageRequest = remember(imageUrl) {
                     coil.request.ImageRequest.Builder(context)
@@ -1314,12 +1436,30 @@ private fun CuratedPosterItem(
                     contentScale = ContentScale.Crop
                 )
             } else {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                // Cartel estilizado de reemplazo con icono y título
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Movie,
+                        contentDescription = null,
+                        tint = Color(0xFF00E5C9).copy(alpha = 0.85f),
+                        modifier = Modifier.size(28.dp)
+                    )
+                    Spacer(Modifier.height(6.dp))
                     Text(
-                        text = title.take(2).uppercase(),
-                        color = Color(0xFF00E5C9),
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold
+                        text = title,
+                        color = Color.White.copy(alpha = 0.9f),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                        lineHeight = 14.sp
                     )
                 }
             }
@@ -1760,21 +1900,6 @@ private fun LiveMatchCard(
         }
     }
 }
-
-private data class CuratedMediaItem(
-    val title: String,
-    val imageUrl: String?,
-    val rating: Double?,
-    val year: String?,
-    val onClick: () -> Unit
-)
-
-private data class CuratedRailItem(
-    val title: String,
-    val imageUrl: String?,
-    val rating: Double?,
-    val onClick: () -> Unit
-)
 
 @Composable
 private fun BixExplorePill(

@@ -1,7 +1,7 @@
 {
-  "versionName": "1.0.124",
-  "versionCode": 1000124,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.124/LELOUCH-PLUS-v1.0.124.apk",
-  "changelog": "- Bloqueo total y definitivo de contenido adulto (+18 / XXX / Canales X4 / Erotismo) con filtro parental inteligente.\n- Películas y Series: Chips de categorías horizontales con conteo exacto dinámico y filtrado instantáneo O(1).\n- Partidos en vivo: Tarjetas con estadios fotográficos temáticos (Cricket, Béisbol, Boxeo, Fútbol), escudos e insignia neón VS.\n- Actualizaciones inmediatas: Detección en primer plano y comprobación periódica cada 60s sin cerrar la app.\n- Cero lag: Optimización drástica de memoria con Coil para desplazamiento ultra fluido.",
-  "version": "1.0.124"
+  "versionName": "1.0.126",
+  "versionCode": 1000126,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.126/LELOUCH-PLUS-v1.0.126.apk",
+  "changelog": "- Clasificación estricta de secciones: Priorización de géneros oficiales sobre sinopsis.\n- Navegación curada dedicada: Al pulsar 'Ver más' se abre únicamente el contenido de esa sección.\n- Ocultamiento de categorías vacías (0 elementos) para optimizar el espacio.\n- Conservación de títulos sin portada con pósteres estilizados de reemplazo.",
+  "version": "1.0.126"
 }

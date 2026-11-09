@@ -338,13 +338,144 @@ fun MobileHomeScreen(
 
     // FASE 33: Regex defensivo para filtrar episodios de series en pantalla de canales en vivo
     val seriesLeakRegex = remember { Regex("(?i)\\b(s\\d{1,2}|t\\d{1,2}|cap\\.?\\s*\\d+|ep\\.?\\s*\\d+)\\b") }
-    val cleanLiveChannels = remember(liveChannels, hiddenLiveCategories, isAdultModeEnabled) {
-        liveChannels.filter { stream ->
-            (stream.streamType.isBlank() || stream.streamType.equals("live", ignoreCase = true)) &&
-            !seriesLeakRegex.containsMatchIn(stream.name) &&
-            stream.categoryId !in hiddenLiveCategories && stream.categoryName !in hiddenLiveCategories &&
-            (isAdultModeEnabled || (!stream.isAdult && !isAdultContent(stream.name, stream.categoryName, stream.categoryId, stream.streamIcon, stream.streamUrl)))
-        }.distinctBy { ch -> ch.streamUrl.ifBlank { ch.name } }
+
+    // FASE 35: Estados de catálogo desacoplados, calculados en segundo plano (Dispatchers.Default)
+    // y preservados entre pestañas mediante remember(activeSource?.id). Al cambiar de cuenta se descartan al instante.
+    var cleanLiveChannels by remember(activeSource?.id) { mutableStateOf<List<LiveStream>>(emptyList()) }
+    var filteredMovies by remember(activeSource?.id) { mutableStateOf<List<VodMovie>>(emptyList()) }
+    var filteredSeriesList by remember(activeSource?.id) { mutableStateOf<List<Series>>(emptyList()) }
+    var liveCategoryList by remember(activeSource?.id) { mutableStateOf<List<MobileCategoryItem>>(emptyList()) }
+    var movieCategoryList by remember(activeSource?.id) { mutableStateOf<List<MobileCategoryItem>>(emptyList()) }
+    var seriesCategoryList by remember(activeSource?.id) { mutableStateOf<List<MobileCategoryItem>>(emptyList()) }
+    var portalFeedData by remember(activeSource?.id) { mutableStateOf<PortalFeedData?>(null) }
+
+    LaunchedEffect(
+        activeSource?.id,
+        liveChannels,
+        movies,
+        seriesList,
+        liveCategories,
+        vodCategories,
+        seriesCategories,
+        hiddenLiveCategories,
+        hiddenMovieCategories,
+        hiddenSeriesCategories,
+        isAdultModeEnabled
+    ) {
+        if (activeSource == null) {
+            cleanLiveChannels = emptyList()
+            filteredMovies = emptyList()
+            filteredSeriesList = emptyList()
+            liveCategoryList = emptyList()
+            movieCategoryList = emptyList()
+            seriesCategoryList = emptyList()
+            portalFeedData = null
+            return@LaunchedEffect
+        }
+
+        withContext(Dispatchers.Default) {
+            val cleanLive = liveChannels.filter { stream ->
+                (stream.streamType.isBlank() || stream.streamType.equals("live", ignoreCase = true)) &&
+                !seriesLeakRegex.containsMatchIn(stream.name) &&
+                stream.categoryId !in hiddenLiveCategories && stream.categoryName !in hiddenLiveCategories &&
+                (isAdultModeEnabled || (!stream.isAdult && !isAdultContent(stream.name, stream.categoryName, stream.categoryId, stream.streamIcon, stream.streamUrl)))
+            }.distinctBy { ch -> ch.streamUrl.ifBlank { ch.name } }
+
+            val cleanMovies = movies.filter {
+                it.categoryId !in hiddenMovieCategories && it.categoryName !in hiddenMovieCategories &&
+                (isAdultModeEnabled || !isAdultContent(it.name, it.categoryName, it.categoryId))
+            }.distinctBy { it.name.trim().lowercase() }
+
+            val cleanSeries = seriesList.filter {
+                it.categoryId !in hiddenSeriesCategories && it.categoryName !in hiddenSeriesCategories &&
+                (isAdultModeEnabled || !isAdultContent(it.name, it.categoryName, it.categoryId))
+            }.distinctBy { it.name.trim().lowercase() }
+
+            val fromLiveDb = liveCategories.map { MobileCategoryItem(id = it.categoryId, name = it.categoryName) }
+            val fromLiveChannels = cleanLive.mapNotNull { ch ->
+                if (ch.categoryName.isNotBlank() && ch.categoryId.isNotBlank()) {
+                    MobileCategoryItem(id = ch.categoryId, name = ch.categoryName)
+                } else null
+            }
+            val isEventCat = { name: String ->
+                name.contains("GUATEMALA", ignoreCase = true) ||
+                name.contains("GT |", ignoreCase = true) ||
+                name.contains("GT:", ignoreCase = true) ||
+                name.contains("[GT]", ignoreCase = true)
+            }
+            val liveCatIdsWithChannels = cleanLive.map { it.categoryId }.toSet()
+            val liveCatNamesWithChannels = cleanLive.map { it.categoryName.trim().lowercase() }.toSet()
+
+            val combinedLive = (fromLiveDb + fromLiveChannels)
+                .filter { it.id != "all" && it.id != "events" && !it.name.equals("todos", ignoreCase = true) }
+                .filter { it.id !in hiddenLiveCategories && it.name !in hiddenLiveCategories }
+                .filter { isAdultModeEnabled || !isAdultContent(it.name, it.name, it.id) }
+                .filter { it.id in liveCatIdsWithChannels || it.name.trim().lowercase() in liveCatNamesWithChannels }
+                .distinctBy { it.name.trim().lowercase() }
+                .sortedWith(compareByDescending<MobileCategoryItem> { isEventCat(it.name) }.thenBy { it.name })
+
+            val hasEvents = cleanLive.any { isEventCat(it.categoryName) || isEventCat(it.name) }
+            val resLiveCat = mutableListOf<MobileCategoryItem>()
+            resLiveCat.add(MobileCategoryItem(id = "all", name = "Todos"))
+            if (hasEvents) {
+                resLiveCat.add(MobileCategoryItem(id = "events", name = "🇬🇹 Canales Guatemala (Eventos)"))
+            }
+            resLiveCat.addAll(combinedLive)
+
+            val movieCatIdsWithMovies = cleanMovies.map { it.categoryId }.toSet()
+            val movieCatNamesWithMovies = cleanMovies.map { it.categoryName.trim().lowercase() }.toSet()
+
+            val fromMovieDb = vodCategories.map { MobileCategoryItem(id = it.categoryId, name = it.categoryName) }
+            val combinedMovie = if (fromMovieDb.isNotEmpty()) {
+                fromMovieDb.filter { it.id !in hiddenMovieCategories && it.name !in hiddenMovieCategories }
+                    .filter { isAdultModeEnabled || !isAdultContent(it.name, it.name, it.id) }
+                    .filter { it.id in movieCatIdsWithMovies || it.name.trim().lowercase() in movieCatNamesWithMovies }
+                    .distinctBy { it.id }.sortedBy { it.name }
+            } else {
+                cleanMovies.mapNotNull { mov ->
+                    if (mov.categoryName.isNotBlank() && mov.categoryId.isNotBlank()) {
+                        MobileCategoryItem(id = mov.categoryId, name = mov.categoryName)
+                    } else null
+                }.filter { it.id !in hiddenMovieCategories && it.name !in hiddenMovieCategories }
+                .filter { isAdultModeEnabled || !isAdultContent(it.name, it.name, it.id) }
+                .distinctBy { it.id }.sortedBy { it.name }
+            }
+            val resMovieCat = listOf(MobileCategoryItem(id = "all", name = "Todas")) + combinedMovie
+
+            val seriesCatIdsWithSeries = cleanSeries.map { it.categoryId }.toSet()
+            val seriesCatNamesWithSeries = cleanSeries.map { it.categoryName.trim().lowercase() }.toSet()
+
+            val fromSeriesDb = seriesCategories.map { MobileCategoryItem(id = it.categoryId, name = it.categoryName) }
+            val combinedSeries = if (fromSeriesDb.isNotEmpty()) {
+                fromSeriesDb.filter { it.id !in hiddenSeriesCategories && it.name !in hiddenSeriesCategories }
+                    .filter { isAdultModeEnabled || !isAdultContent(it.name, it.name, it.id) }
+                    .filter { it.id in seriesCatIdsWithSeries || it.name.trim().lowercase() in seriesCatNamesWithSeries }
+                    .distinctBy { it.id }.sortedBy { it.name }
+            } else {
+                cleanSeries.mapNotNull { s ->
+                    if (s.categoryName.isNotBlank() && s.categoryId.isNotBlank()) {
+                        MobileCategoryItem(id = s.categoryId, name = s.categoryName)
+                    } else null
+                }.filter { it.id !in hiddenSeriesCategories && it.name !in hiddenSeriesCategories }
+                .filter { isAdultModeEnabled || !isAdultContent(it.name, it.name, it.id) }
+                .distinctBy { it.id }.sortedBy { it.name }
+            }
+            val resSeriesCat = listOf(MobileCategoryItem(id = "all", name = "Todas")) + combinedSeries
+
+            val feed = PortalFeedCalculator.calculate(
+                liveChannels = cleanLive,
+                movies = cleanMovies,
+                seriesList = cleanSeries
+            )
+
+            cleanLiveChannels = cleanLive
+            filteredMovies = cleanMovies
+            filteredSeriesList = cleanSeries
+            liveCategoryList = resLiveCat
+            movieCategoryList = resMovieCat
+            seriesCategoryList = resSeriesCat
+            portalFeedData = feed
+        }
     }
 
     val playbackState by playerEngine.playbackState.collectAsState()
@@ -438,88 +569,6 @@ fun MobileHomeScreen(
         }
     }
 
-    val liveCategoryList = remember(liveCategories, cleanLiveChannels, hiddenLiveCategories) {
-        val fromDb = liveCategories.map { MobileCategoryItem(id = it.categoryId, name = it.categoryName) }
-        val fromChannels = cleanLiveChannels.mapNotNull { ch ->
-            if (ch.categoryName.isNotBlank() && ch.categoryId.isNotBlank()) {
-                MobileCategoryItem(id = ch.categoryId, name = ch.categoryName)
-            } else null
-        }
-        val isEventCat = { name: String ->
-            name.contains("GUATEMALA", ignoreCase = true) ||
-            name.contains("GT |", ignoreCase = true) ||
-            name.contains("GT:", ignoreCase = true) ||
-            name.contains("[GT]", ignoreCase = true)
-        }
-        val combined = (fromDb + fromChannels)
-            .filter { it.id != "all" && it.id != "events" && !it.name.equals("todos", ignoreCase = true) }
-            .filter { it.id !in hiddenLiveCategories && it.name !in hiddenLiveCategories }
-            .filter { isAdultModeEnabled || !isAdultContent(it.name, it.name, it.id) }
-            .distinctBy { it.name.trim().lowercase() }
-            .sortedWith(compareByDescending<MobileCategoryItem> { isEventCat(it.name) }.thenBy { it.name })
-
-        val hasEvents = cleanLiveChannels.any { isEventCat(it.categoryName) || isEventCat(it.name) }
-        val result = mutableListOf<MobileCategoryItem>()
-        result.add(MobileCategoryItem(id = "all", name = "Todos"))
-        if (hasEvents) {
-            result.add(MobileCategoryItem(id = "events", name = "🇬🇹 Canales Guatemala (Eventos)"))
-        }
-        result.addAll(combined)
-        result
-    }
-
-    val filteredMovies = remember(movies, hiddenMovieCategories, isAdultModeEnabled) {
-        movies.filter {
-            it.streamIcon?.trim().orEmpty().startsWith("http") &&
-            it.categoryId !in hiddenMovieCategories && it.categoryName !in hiddenMovieCategories &&
-            (isAdultModeEnabled || !isAdultContent(it.name, it.categoryName, it.categoryId))
-        }.distinctBy { it.name.trim().lowercase() }
-    }
-
-    val movieCategoryList = remember(vodCategories, filteredMovies, hiddenMovieCategories, isAdultModeEnabled) {
-        val fromDb = vodCategories.map { MobileCategoryItem(id = it.categoryId, name = it.categoryName) }
-        val combined = if (fromDb.isNotEmpty()) {
-            fromDb.filter { it.id !in hiddenMovieCategories && it.name !in hiddenMovieCategories }
-                .filter { isAdultModeEnabled || !isAdultContent(it.name, it.name, it.id) }
-                .distinctBy { it.id }.sortedBy { it.name }
-        } else {
-            filteredMovies.mapNotNull { mov ->
-                if (mov.categoryName.isNotBlank() && mov.categoryId.isNotBlank()) {
-                    MobileCategoryItem(id = mov.categoryId, name = mov.categoryName)
-                } else null
-            }.filter { it.id !in hiddenMovieCategories && it.name !in hiddenMovieCategories }
-            .filter { isAdultModeEnabled || !isAdultContent(it.name, it.name, it.id) }
-            .distinctBy { it.id }.sortedBy { it.name }
-        }
-        listOf(MobileCategoryItem(id = "all", name = "Todas")) + combined
-    }
-
-    val filteredSeriesList = remember(seriesList, hiddenSeriesCategories, isAdultModeEnabled) {
-        seriesList.filter {
-            it.cover?.trim().orEmpty().startsWith("http") &&
-            it.categoryId !in hiddenSeriesCategories && it.categoryName !in hiddenSeriesCategories &&
-            (isAdultModeEnabled || !isAdultContent(it.name, it.categoryName, it.categoryId))
-        }.distinctBy { it.name.trim().lowercase() }
-    }
-
-    val seriesCategoryList = remember(seriesCategories, filteredSeriesList, hiddenSeriesCategories, isAdultModeEnabled) {
-        val fromDb = seriesCategories.map { MobileCategoryItem(id = it.categoryId, name = it.categoryName) }
-        val combined = if (fromDb.isNotEmpty()) {
-            fromDb.filter { it.id !in hiddenSeriesCategories && it.name !in hiddenSeriesCategories }
-                .filter { isAdultModeEnabled || !isAdultContent(it.name, it.name, it.id) }
-                .distinctBy { it.id }.sortedBy { it.name }
-        } else {
-            filteredSeriesList.mapNotNull { s ->
-                if (s.categoryName.isNotBlank() && s.categoryId.isNotBlank()) {
-                    MobileCategoryItem(id = s.categoryId, name = s.categoryName)
-                } else null
-            }.filter { it.id !in hiddenSeriesCategories && it.name !in hiddenSeriesCategories }
-            .filter { isAdultModeEnabled || !isAdultContent(it.name, it.name, it.id) }
-            .distinctBy { it.id }.sortedBy { it.name }
-        }
-        listOf(MobileCategoryItem(id = "all", name = "Todas")) + combined
-    }
-
     var newServerUrl by remember { mutableStateOf("") }
     var newUsername by remember { mutableStateOf("") }
     var newPassword by remember { mutableStateOf("") }
@@ -532,7 +581,7 @@ fun MobileHomeScreen(
     var isDnsSelectorOpen by remember { mutableStateOf(false) }
     var isDownloadsDialogOpen by remember { mutableStateOf(false) }
     var diagnosticsTargetSource by remember { mutableStateOf<SourceConfig?>(null) }
-    var isAnimeCatalogOpen by remember { mutableStateOf(false) }
+    var activeCuratedSection by remember(activeSource?.id) { mutableStateOf<CuratedSectionType?>(null) }
     var isAccountSwitcherOpen by remember { mutableStateOf(false) }
 
     // Comprobación automática silenciosa e inmediata de nueva versión (periódica cada 60s y al reanudar)
@@ -653,9 +702,9 @@ fun MobileHomeScreen(
         )
     }
 
-    // BackHandler para anime, película y serie seleccionadas en vista completa
-    BackHandler(enabled = isAnimeCatalogOpen && selectedMovie == null && selectedSeries == null && !isPlayerFullscreen) {
-        isAnimeCatalogOpen = false
+    // BackHandler para sección curada, película y serie seleccionadas en vista completa
+    BackHandler(enabled = activeCuratedSection != null && selectedMovie == null && selectedSeries == null && !isPlayerFullscreen) {
+        activeCuratedSection = null
     }
     BackHandler(enabled = selectedMovie != null && !isPlayerFullscreen) {
         selectedMovie = null
@@ -758,7 +807,10 @@ fun MobileHomeScreen(
                 ) {
                     when (selectedTab) {
                         0 -> MobileHomeTab(
-                            liveChannels = cleanLiveChannels, movies = filteredMovies, seriesList = filteredSeriesList,
+                            liveChannels = cleanLiveChannels,
+                            movies = filteredMovies,
+                            seriesList = filteredSeriesList,
+                            portalFeedData = portalFeedData,
                             activeSource = activeSource,
                             onChannelClick = { ch, url -> activeChannelName = ch; activeContentMeta = ActiveContentMeta(ch, type = ContentType.LIVE); startPlayback(url, true) },
                             onMovieClick = { selectedMovie = it },
@@ -771,7 +823,8 @@ fun MobileHomeScreen(
                             onOpenAccountSwitcher = { isAccountSwitcherOpen = true },
                             searchQuery = searchQuery,
                             onSearchChange = { searchQuery = it },
-                            onSeeAllAnime = { isAnimeCatalogOpen = true }
+                            onSeeAllAnime = { activeCuratedSection = CuratedSectionType.ANIMATION },
+                            onOpenCuratedSection = { activeCuratedSection = it }
                         )
                         1 -> MobileVodTab(
                             movies = if (searchQuery.isBlank()) filteredMovies
@@ -916,14 +969,15 @@ fun MobileHomeScreen(
             )
         }
 
-        // VISTA EXCLUSIVA DE CATÁLOGO ANIME (CUANDO SE PRESIONA "VER TODO" EN ANIME Y ANIMACIÓN)
-        if (isAnimeCatalogOpen && selectedMovie == null && selectedSeries == null && !isPlayerFullscreen) {
-            MobileAnimeCatalogView(
+        // VISTA EXCLUSIVA DE SECCIÓN CURADA (RECIÉN AGREGADAS, MEJOR VALORADAS, GÉNEROS, ANIME)
+        if (activeCuratedSection != null && selectedMovie == null && selectedSeries == null && !isPlayerFullscreen) {
+            MobileCuratedSectionView(
+                section = activeCuratedSection!!,
                 movies = filteredMovies,
                 seriesList = filteredSeriesList,
                 onMovieClick = { selectedMovie = it },
                 onSeriesClick = { selectedSeries = it },
-                onBack = { isAnimeCatalogOpen = false }
+                onBack = { activeCuratedSection = null }
             )
         }
 
@@ -1657,27 +1711,27 @@ private fun MobileBottomNavBar(selectedTab: Int, onTabChange: (Int) -> Unit) {
 // TAB 0: INICIO (PORTAL DASHBOARD FASE 32)
 @Composable
 private fun MobileHomeTab(
-    liveChannels: List<LiveStream>, movies: List<VodMovie>, seriesList: List<Series>,
+    liveChannels: List<LiveStream>,
+    movies: List<VodMovie>,
+    seriesList: List<Series>,
+    portalFeedData: PortalFeedData?,
     activeSource: SourceConfig?,
-    onChannelClick: (String, String) -> Unit, onMovieClick: (VodMovie) -> Unit,
-    onSeriesClick: (Series) -> Unit, onSeeAllLive: () -> Unit,
-    onSeeAllMovies: () -> Unit, onSeeAllSeries: () -> Unit,
+    onChannelClick: (String, String) -> Unit,
+    onMovieClick: (VodMovie) -> Unit,
+    onSeriesClick: (Series) -> Unit,
+    onSeeAllLive: () -> Unit,
+    onSeeAllMovies: () -> Unit,
+    onSeeAllSeries: () -> Unit,
     onReloadCatalog: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     onOpenAccountSwitcher: () -> Unit = onOpenSettings,
     searchQuery: String = "",
     onSearchChange: (String) -> Unit = {},
-    onSeeAllAnime: () -> Unit = {}
+    onSeeAllAnime: () -> Unit = {},
+    onOpenCuratedSection: (CuratedSectionType) -> Unit = {}
 ) {
     val context = LocalContext.current
-    val sportsCount = remember(liveChannels) {
-        liveChannels.count { ch ->
-            val cat = ch.categoryName.lowercase()
-            val name = ch.name.lowercase()
-            cat.contains("deporte") || cat.contains("sport") || cat.contains("espn") || cat.contains("fox sport") || cat.contains("dazn") ||
-            name.contains("espn") || name.contains("fox sport") || name.contains("tudn") || name.contains("dazn")
-        }
-    }
+    val sportsCount = portalFeedData?.sportsCount ?: 0
 
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         item {
@@ -1699,10 +1753,12 @@ private fun MobileHomeTab(
                 onOpenAccountSwitcher = onOpenAccountSwitcher,
                 searchQuery = searchQuery,
                 onSearchChange = onSearchChange,
-                onSeeAllAnime = onSeeAllAnime,
+                onSeeAllAnime = { onOpenCuratedSection(CuratedSectionType.ANIMATION) },
+                onOpenSection = onOpenCuratedSection,
                 liveChannels = liveChannels,
                 movies = movies,
                 seriesList = seriesList,
+                portalFeedData = portalFeedData,
                 onChannelClick = onChannelClick,
                 onMovieClick = onMovieClick,
                 onSeriesClick = onSeriesClick,
@@ -3737,38 +3793,73 @@ private fun AttributionCard(
     }
 }
 
-private sealed class MobileAnimeItem {
-    data class MovieItem(val movie: VodMovie) : MobileAnimeItem()
-    data class SeriesItem(val series: Series) : MobileAnimeItem()
+private sealed class MobileCuratedItem {
+    data class MovieItem(val movie: VodMovie) : MobileCuratedItem()
+    data class SeriesItem(val series: Series) : MobileCuratedItem()
 }
 
 @Composable
-private fun MobileAnimeCatalogView(
+private fun MobileCuratedSectionView(
+    section: CuratedSectionType,
     movies: List<VodMovie>,
     seriesList: List<Series>,
     onMovieClick: (VodMovie) -> Unit,
     onSeriesClick: (Series) -> Unit,
     onBack: () -> Unit
 ) {
-    val animeKeywords = remember {
-        listOf("anime", "animaci", "manga", "otaku", "japón", "japon", "dragon ball", "naruto", "one piece", "demon slayer", "shingeki", "ghibli", "pokemon", "pokémon", "jujutsu", "bleach", "crunchyroll")
-    }
-
-    val animeSeries = remember(seriesList) {
-        seriesList.filter { s ->
-            animeKeywords.any { kw ->
-                s.name.contains(kw, ignoreCase = true) ||
-                (s.categoryName ?: "").contains(kw, ignoreCase = true) ||
-                (s.plot ?: "").contains(kw, ignoreCase = true)
+    val matchingMovies = remember(section, movies) {
+        when (section) {
+            CuratedSectionType.RECENT -> {
+                movies.filter { !PortalFeedCalculator.isAnimation(it.name, it.categoryName, it.genre) }
+                    .sortedByDescending { it.added ?: "" }
+            }
+            CuratedSectionType.TOP_RATED -> {
+                movies.filter { (it.rating ?: 0.0) >= 6.5 }
+                    .sortedByDescending { it.rating ?: 0.0 }
+            }
+            CuratedSectionType.HORROR -> {
+                movies.filter { PortalFeedCalculator.isTerror(it.name, it.categoryName, it.genre, it.plot) }
+            }
+            CuratedSectionType.SCIFI -> {
+                movies.filter { PortalFeedCalculator.isSciFi(it.name, it.categoryName, it.genre, it.plot) }
+            }
+            CuratedSectionType.TRUE_EVENTS -> {
+                movies.filter { PortalFeedCalculator.isRealHistory(it.name, it.categoryName, it.genre, it.plot) }
+            }
+            CuratedSectionType.ACTION -> {
+                movies.filter { PortalFeedCalculator.isAction(it.name, it.categoryName, it.genre, it.plot) }
+            }
+            CuratedSectionType.ANIMATION -> {
+                movies.filter { PortalFeedCalculator.isAnimation(it.name, it.categoryName, it.genre) }
             }
         }
     }
 
-    val animeMovies = remember(movies) {
-        movies.filter { m ->
-            animeKeywords.any { kw ->
-                m.name.contains(kw, ignoreCase = true) ||
-                (m.categoryName ?: "").contains(kw, ignoreCase = true)
+    val matchingSeries = remember(section, seriesList) {
+        if (section.isMoviesOnly) {
+            emptyList<Series>()
+        } else {
+            when (section) {
+                CuratedSectionType.RECENT -> emptyList()
+                CuratedSectionType.TOP_RATED -> {
+                    seriesList.filter { (it.rating5based?.times(2.0) ?: (it.rating ?: 0.0)) >= 6.5 }
+                        .sortedByDescending { it.rating5based?.times(2.0) ?: (it.rating ?: 0.0) }
+                }
+                CuratedSectionType.HORROR -> {
+                    seriesList.filter { PortalFeedCalculator.isTerror(it.name, it.categoryName ?: "", it.genre, it.plot) }
+                }
+                CuratedSectionType.SCIFI -> {
+                    seriesList.filter { PortalFeedCalculator.isSciFi(it.name, it.categoryName ?: "", it.genre, it.plot) }
+                }
+                CuratedSectionType.TRUE_EVENTS -> {
+                    seriesList.filter { PortalFeedCalculator.isRealHistory(it.name, it.categoryName ?: "", it.genre, it.plot) }
+                }
+                CuratedSectionType.ACTION -> {
+                    seriesList.filter { PortalFeedCalculator.isAction(it.name, it.categoryName ?: "", it.genre, it.plot) }
+                }
+                CuratedSectionType.ANIMATION -> {
+                    seriesList.filter { PortalFeedCalculator.isAnimation(it.name, it.categoryName ?: "", it.genre) }
+                }
             }
         }
     }
@@ -3776,31 +3867,46 @@ private fun MobileAnimeCatalogView(
     var selectedFilter by remember { mutableIntStateOf(0) } // 0: Todo, 1: Series, 2: Películas
     var searchQuery by remember { mutableStateOf("") }
 
-    val filteredSeries = remember(animeSeries, searchQuery) {
-        if (searchQuery.isBlank()) animeSeries
-        else animeSeries.filter { it.name.contains(searchQuery, ignoreCase = true) }
+    val filteredSeries = remember(matchingSeries, searchQuery) {
+        if (searchQuery.isBlank()) matchingSeries
+        else matchingSeries.filter { it.name.contains(searchQuery, ignoreCase = true) }
     }
 
-    val filteredMovies = remember(animeMovies, searchQuery) {
-        if (searchQuery.isBlank()) animeMovies
-        else animeMovies.filter { it.name.contains(searchQuery, ignoreCase = true) }
+    val filteredMovies = remember(matchingMovies, searchQuery) {
+        if (searchQuery.isBlank()) matchingMovies
+        else matchingMovies.filter { it.name.contains(searchQuery, ignoreCase = true) }
     }
 
-    val displayItems: List<MobileAnimeItem> = remember(selectedFilter, filteredSeries, filteredMovies) {
-        when (selectedFilter) {
-            1 -> filteredSeries.map { MobileAnimeItem.SeriesItem(it) }
-            2 -> filteredMovies.map { MobileAnimeItem.MovieItem(it) }
-            else -> {
-                (filteredSeries.map { MobileAnimeItem.SeriesItem(it) } + filteredMovies.map { MobileAnimeItem.MovieItem(it) })
-                    .sortedBy {
-                        when (it) {
-                            is MobileAnimeItem.MovieItem -> it.movie.name
-                            is MobileAnimeItem.SeriesItem -> it.series.name
+    val displayItems: List<MobileCuratedItem> = remember(selectedFilter, filteredSeries, filteredMovies, section) {
+        if (section.isMoviesOnly) {
+            filteredMovies.map { MobileCuratedItem.MovieItem(it) }
+        } else {
+            when (selectedFilter) {
+                1 -> filteredSeries.map { MobileCuratedItem.SeriesItem(it) }
+                2 -> filteredMovies.map { MobileCuratedItem.MovieItem(it) }
+                else -> {
+                    val combined = filteredSeries.map { MobileCuratedItem.SeriesItem(it) } +
+                                   filteredMovies.map { MobileCuratedItem.MovieItem(it) }
+                    when (section) {
+                        CuratedSectionType.TOP_RATED -> combined.sortedByDescending {
+                            when (it) {
+                                is MobileCuratedItem.MovieItem -> it.movie.rating ?: 0.0
+                                is MobileCuratedItem.SeriesItem -> it.series.rating5based?.times(2.0) ?: (it.series.rating ?: 0.0)
+                            }
+                        }
+                        else -> combined.sortedBy {
+                            when (it) {
+                                is MobileCuratedItem.MovieItem -> it.movie.name
+                                is MobileCuratedItem.SeriesItem -> it.series.name
+                            }
                         }
                     }
+                }
             }
         }
     }
+
+    val accentColor = remember(section) { Color(section.barColorHex) }
 
     Box(
         modifier = Modifier
@@ -3808,7 +3914,7 @@ private fun MobileAnimeCatalogView(
             .background(BixDarkBackground)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Cabecera superior
+            // Cabecera superior estilo Google TopicNav
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -3825,20 +3931,27 @@ private fun MobileAnimeCatalogView(
                 Spacer(Modifier.width(4.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Anime y Animación",
+                        text = section.title,
                         color = Color.White,
                         fontWeight = FontWeight.Black,
-                        fontSize = 18.sp
+                        fontSize = 17.sp
                     )
+                    val countSubtitle = if (section.isMoviesOnly || matchingSeries.isEmpty()) {
+                        "${matchingMovies.size} películas disponibles"
+                    } else if (matchingMovies.isEmpty()) {
+                        "${matchingSeries.size} series disponibles"
+                    } else {
+                        "${matchingSeries.size} series • ${matchingMovies.size} películas"
+                    }
                     Text(
-                        text = "${animeSeries.size} series • ${animeMovies.size} películas de anime",
-                        color = LelouchCyanAccent,
+                        text = countSubtitle,
+                        color = accentColor,
                         fontSize = 11.sp
                     )
                 }
             }
 
-            // Barra de búsqueda dentro de la sección anime
+            // Barra de búsqueda dentro de la sección
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -3854,12 +3967,12 @@ private fun MobileAnimeCatalogView(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
                         textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
-                        cursorBrush = SolidColor(LelouchCyanAccent),
+                        cursorBrush = SolidColor(accentColor),
                         singleLine = true,
                         modifier = Modifier.weight(1f),
                         decorationBox = { innerTextField ->
                             if (searchQuery.isEmpty()) {
-                                Text("Buscar en anime...", color = BixTextMuted, fontSize = 13.sp)
+                                Text("Buscar en ${section.title.lowercase()}...", color = BixTextMuted, fontSize = 13.sp)
                             }
                             innerTextField()
                         }
@@ -3872,42 +3985,49 @@ private fun MobileAnimeCatalogView(
                 }
             }
 
-            // Pestañas filtro: Todo, Series, Películas
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                listOf(
-                    "Todo (${filteredSeries.size + filteredMovies.size})" to 0,
-                    "Series (${filteredSeries.size})" to 1,
-                    "Películas (${filteredMovies.size})" to 2
-                ).forEach { (label, idx) ->
-                    val isSelected = selectedFilter == idx
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(if (isSelected) LelouchCyanAccent else Color.White.copy(alpha = 0.08f))
-                            .clickable { selectedFilter = idx }
-                            .padding(horizontal = 14.dp, vertical = 6.dp)
-                    ) {
-                        Text(
-                            text = label,
-                            color = if (isSelected) Color.Black else Color.White,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            fontSize = 12.sp
-                        )
+            // Pestañas filtro (si hay películas y series a la vez)
+            if (!section.isMoviesOnly && matchingSeries.isNotEmpty() && matchingMovies.isNotEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf(
+                        "Todo (${filteredSeries.size + filteredMovies.size})" to 0,
+                        "Series (${filteredSeries.size})" to 1,
+                        "Películas (${filteredMovies.size})" to 2
+                    ).forEach { (label, idx) ->
+                        val isSelected = selectedFilter == idx
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(if (isSelected) accentColor else Color.White.copy(alpha = 0.08f))
+                                .clickable { selectedFilter = idx }
+                                .padding(horizontal = 14.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = label,
+                                color = if (isSelected) Color.Black else Color.White,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                fontSize = 12.sp
+                            )
+                        }
                     }
                 }
             }
 
-            // Cuadrícula exclusiva de anime
+            // Cuadrícula de títulos curados
             if (displayItems.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("No se encontraron animes", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                        Text("Prueba con otro término de búsqueda", color = BixTextMuted, fontSize = 12.sp)
+                        Text("No se encontraron títulos", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Text(
+                            if (searchQuery.isNotBlank()) "Prueba con otro término de búsqueda"
+                            else "No hay contenido disponible en esta sección",
+                            color = BixTextMuted,
+                            fontSize = 12.sp
+                        )
                     }
                 }
             } else {
@@ -3920,13 +4040,13 @@ private fun MobileAnimeCatalogView(
                 ) {
                     items(displayItems, key = { item ->
                         when (item) {
-                            is MobileAnimeItem.MovieItem -> "anime_m_${item.movie.streamId}_${item.movie.id}"
-                            is MobileAnimeItem.SeriesItem -> "anime_s_${item.series.seriesId}_${item.series.name}"
+                            is MobileCuratedItem.MovieItem -> "curated_m_${item.movie.streamId}_${item.movie.id}"
+                            is MobileCuratedItem.SeriesItem -> "curated_s_${item.series.seriesId}_${item.series.name}"
                         }
                     }) { item ->
                         when (item) {
-                            is MobileAnimeItem.MovieItem -> MovieGridCard(movie = item.movie, onClick = { onMovieClick(item.movie) })
-                            is MobileAnimeItem.SeriesItem -> SeriesGridCard(series = item.series, onClick = { onSeriesClick(item.series) })
+                            is MobileCuratedItem.MovieItem -> MovieGridCard(movie = item.movie, onClick = { onMovieClick(item.movie) })
+                            is MobileCuratedItem.SeriesItem -> SeriesGridCard(series = item.series, onClick = { onSeriesClick(item.series) })
                         }
                     }
                 }
