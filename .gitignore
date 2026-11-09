@@ -15,6 +15,7 @@ _backup_*/
 backups/
 *.zip
 *.rar
+*.7z
 *.log
 RESPALDOS_Y_DATOS/
 *.apk

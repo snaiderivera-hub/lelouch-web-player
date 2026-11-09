@@ -20,7 +20,7 @@ import kotlinx.serialization.json.Json
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "lelouch_user_prefs")
 
 class UserPreferencesDataSource private constructor(
-    private val context: Context?,
+    val context: Context?,
     private val customDataStore: DataStore<Preferences>?
 ) {
     constructor(context: Context) : this(context = context, customDataStore = null)

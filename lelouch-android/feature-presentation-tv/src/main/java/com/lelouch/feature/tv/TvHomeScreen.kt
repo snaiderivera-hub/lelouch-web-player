@@ -66,15 +66,19 @@ import com.lelouch.core.designsystem.*
 import com.lelouch.core.model.Category
 import com.lelouch.core.model.ContentType
 import com.lelouch.core.model.ContinueWatchingItem
+import com.lelouch.core.model.CuratedSectionType
+import com.lelouch.core.model.Episode
 import com.lelouch.core.model.LiveStream
+import com.lelouch.core.model.PortalFeedCalculator
+import com.lelouch.core.model.PortalFeedData
 import com.lelouch.core.model.Series
 import com.lelouch.core.model.SourceConfig
-import com.lelouch.core.model.Episode
 import com.lelouch.core.model.VodMovie
 import com.lelouch.core.model.AdultContentFilter
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import com.lelouch.core.network.StreamUrlResolver
+import com.lelouch.core.network.sync.CategoryFilterSyncManager
 import com.lelouch.core.network.diagnostics.IptvDiagnostics
 import com.lelouch.core.network.dns.LelouchDnsManager
 import com.lelouch.core.player.LelouchVideoPlayer
@@ -249,46 +253,88 @@ fun TvHomeScreen(
             }
         } catch (_: Exception) {}
     }
+    val coroutineScope = rememberCoroutineScope()
     val hiddenPrefs = remember { context.getSharedPreferences("iptv_hidden_categories", android.content.Context.MODE_PRIVATE) }
-    val currentSourceKey = activeSource?.id.orEmpty().ifBlank { "default" }
-    var hiddenLiveCategories by remember {
-        mutableStateOf(hiddenPrefs.getStringSet("${currentSourceKey}_live", emptySet())?.toSet() ?: emptySet())
-    }
-    var hiddenMovieCategories by remember {
-        mutableStateOf(hiddenPrefs.getStringSet("${currentSourceKey}_movies", emptySet())?.toSet() ?: emptySet())
-    }
-    var hiddenSeriesCategories by remember {
-        mutableStateOf(hiddenPrefs.getStringSet("${currentSourceKey}_series", emptySet())?.toSet() ?: emptySet())
-    }
-
-    LaunchedEffect(activeSource?.id) {
-        val src = activeSource?.id.orEmpty().ifBlank { "default" }
-        hiddenLiveCategories = hiddenPrefs.getStringSet("${src}_live", emptySet())?.toSet() ?: emptySet()
-        hiddenMovieCategories = hiddenPrefs.getStringSet("${src}_movies", emptySet())?.toSet() ?: emptySet()
-        hiddenSeriesCategories = hiddenPrefs.getStringSet("${src}_series", emptySet())?.toSet() ?: emptySet()
-    }
-
-    fun saveHiddenLive(newSet: Set<String>) {
-        hiddenLiveCategories = newSet
-        val src = activeSource?.id.orEmpty().ifBlank { "default" }
-        hiddenPrefs.edit().putStringSet("${src}_live", newSet).apply()
-    }
-    fun saveHiddenMovies(newSet: Set<String>) {
-        hiddenMovieCategories = newSet
-        val src = activeSource?.id.orEmpty().ifBlank { "default" }
-        hiddenPrefs.edit().putStringSet("${src}_movies", newSet).apply()
-    }
-    fun saveHiddenSeries(newSet: Set<String>) {
-        hiddenSeriesCategories = newSet
-        val src = activeSource?.id.orEmpty().ifBlank { "default" }
-        hiddenPrefs.edit().putStringSet("${src}_series", newSet).apply()
-    }
     var isAdultModeEnabled by remember {
         mutableStateOf(hiddenPrefs.getBoolean("adult_mode_enabled", false))
     }
     fun toggleAdultMode(enabled: Boolean) {
         isAdultModeEnabled = enabled
         hiddenPrefs.edit().putBoolean("adult_mode_enabled", enabled).apply()
+    }
+
+    val currentSourceKey = activeSource?.id.orEmpty().ifBlank { "default" }
+    var hiddenLiveCategories by remember {
+        mutableStateOf<Set<String>>(CategoryFilterSyncManager.loadFilters(context, currentSourceKey).live)
+    }
+    var hiddenMovieCategories by remember {
+        mutableStateOf<Set<String>>(CategoryFilterSyncManager.loadFilters(context, currentSourceKey).movies)
+    }
+    var hiddenSeriesCategories by remember {
+        mutableStateOf<Set<String>>(CategoryFilterSyncManager.loadFilters(context, currentSourceKey).series)
+    }
+
+    LaunchedEffect(activeSource?.id) {
+        val src = activeSource?.id.orEmpty().ifBlank { "default" }
+        val loaded = CategoryFilterSyncManager.loadFilters(context, src)
+        hiddenLiveCategories = loaded.live
+        hiddenMovieCategories = loaded.movies
+        hiddenSeriesCategories = loaded.series
+    }
+
+    fun saveHiddenLive(newSet: Set<String>) {
+        hiddenLiveCategories = newSet
+        CategoryFilterSyncManager.persistAndSyncFilters(
+            context = context,
+            source = activeSource,
+            live = newSet,
+            coroutineScope = coroutineScope
+        )
+    }
+    fun saveHiddenMovies(newSet: Set<String>) {
+        hiddenMovieCategories = newSet
+        CategoryFilterSyncManager.persistAndSyncFilters(
+            context = context,
+            source = activeSource,
+            movies = newSet,
+            coroutineScope = coroutineScope
+        )
+    }
+    fun saveHiddenSeries(newSet: Set<String>) {
+        hiddenSeriesCategories = newSet
+        CategoryFilterSyncManager.persistAndSyncFilters(
+            context = context,
+            source = activeSource,
+            series = newSet,
+            coroutineScope = coroutineScope
+        )
+    }
+
+    var portalFeedData by remember(activeSource?.id) { mutableStateOf<PortalFeedData?>(null) }
+    var activeCuratedSection by remember(activeSource?.id) { mutableStateOf<CuratedSectionType?>(null) }
+
+    LaunchedEffect(
+        activeSource?.id,
+        liveChannels,
+        movies,
+        seriesList,
+        hiddenLiveCategories,
+        hiddenMovieCategories,
+        hiddenSeriesCategories,
+        isAdultModeEnabled
+    ) {
+        if (activeSource == null) {
+            portalFeedData = null
+            return@LaunchedEffect
+        }
+        withContext(Dispatchers.Default) {
+            val feed = PortalFeedCalculator.calculate(
+                liveChannels = liveChannels.filter { it.categoryId !in hiddenLiveCategories && it.categoryName !in hiddenLiveCategories },
+                movies = movies.filter { it.categoryId !in hiddenMovieCategories && it.categoryName !in hiddenMovieCategories },
+                seriesList = seriesList.filter { it.categoryId !in hiddenSeriesCategories && it.categoryName !in hiddenSeriesCategories }
+            )
+            portalFeedData = feed
+        }
     }
 
     // (Eliminados los canales y películas hardcoded de demostración para usar exclusivamente Paging3)
@@ -347,7 +393,6 @@ fun TvHomeScreen(
     val liveGridState = rememberLazyGridState()
     val moviesGridState = rememberLazyGridState()
     val seriesGridState = rememberLazyGridState()
-    val coroutineScope = rememberCoroutineScope()
 
     // Test de cuenta/lista/red. El reporte se conserva al cambiar de pestaña para poder
     // comparar sin repetir la descarga de la lista.
@@ -534,6 +579,7 @@ fun TvHomeScreen(
         val visibleCats = liveCategoryItemModels
             .filter { it.id !in hiddenLiveCategories && it.name !in hiddenLiveCategories }
             .filter { isAdultModeEnabled || !it.isAdult }
+            .filter { it.itemCount > 0 }
             .map { CategoryUiItem(id = it.id, name = it.name) }
         val guatemalaCat = visibleCats.firstOrNull {
             it.name.contains("GUATEMALA", ignoreCase = true) || it.name.contains("GT", ignoreCase = true)
@@ -626,6 +672,7 @@ fun TvHomeScreen(
         val visibleCats = movieCategoryItemModels
             .filter { it.id !in hiddenMovieCategories && it.name !in hiddenMovieCategories }
             .filter { isAdultModeEnabled || !it.isAdult }
+            .filter { it.itemCount > 0 }
             .map { CategoryUiItem(id = it.id, name = it.name) }
         listOf(CategoryUiItem(id = "all", name = "Todas")) + visibleCats
     }
@@ -706,6 +753,7 @@ fun TvHomeScreen(
         val visibleCats = seriesCategoryItemModels
             .filter { it.id !in hiddenSeriesCategories && it.name !in hiddenSeriesCategories }
             .filter { isAdultModeEnabled || !it.isAdult }
+            .filter { it.itemCount > 0 }
             .map { CategoryUiItem(id = it.id, name = it.name) }
         listOf(CategoryUiItem(id = "all", name = "Todas")) + visibleCats
     }
@@ -1123,6 +1171,42 @@ fun TvHomeScreen(
         )
     }
 
+    fun openSeriesEntityDetails(series: Series) {
+        focusedSeriesId = series.id
+        activeDetailMedia = MediaDetailUiModel(
+            id = series.seriesId,
+            title = series.name,
+            posterUrl = series.cover,
+            backdropUrl = series.backdropPath ?: series.cover,
+            rating = (series.rating5based?.times(2.0)) ?: (series.rating ?: 0.0),
+            year = series.releaseDate?.take(4),
+            synopsis = series.plot ?: "Serie completa en catálogo de streaming.",
+            genre = series.genre,
+            director = series.director,
+            cast = series.cast,
+            isSeries = true,
+            isFavorite = false,
+            seasons = (1..(series.seasonsCount.takeIf { it > 0 } ?: 3)).toList(),
+            episodes = emptyList()
+        )
+
+        if (onFetchSeriesDetails != null) {
+            coroutineScope.launch {
+                try {
+                    val (seasons, episodes) = onFetchSeriesDetails(series.seriesId)
+                    if (activeDetailMedia?.id == series.seriesId) {
+                        activeDetailMedia = activeDetailMedia?.copy(
+                            seasons = if (seasons.isNotEmpty()) seasons else listOf(1),
+                            episodes = episodes
+                        )
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("TvHomeScreen", "Error cargando episodios de serie: ${e.message}")
+                }
+            }
+        }
+    }
+
     fun openSeriesDetails(series: SeriesUiModel) {
         focusedSeriesId = series.id
         focusedHeroSeriesModel = series
@@ -1250,8 +1334,9 @@ fun TvHomeScreen(
     }
 
     // Manejo de tecla BACK: regresa a Inicio de forma segura en vez de salir de la app
-    BackHandler(enabled = isTracksPanelVisible || isFullscreen || isHudVisible || selectedTopTab != 1 || channelSearchQuery.isNotEmpty() || movieSearchQuery.isNotEmpty()) {
+    BackHandler(enabled = activeCuratedSection != null || isTracksPanelVisible || isFullscreen || isHudVisible || selectedTopTab != 1 || channelSearchQuery.isNotEmpty() || movieSearchQuery.isNotEmpty()) {
         when {
+            activeCuratedSection != null -> activeCuratedSection = null
             isTracksPanelVisible -> isTracksPanelVisible = false
             isHudVisible -> isHudVisible = false
             isFullscreen -> isFullscreen = false
@@ -1680,60 +1765,76 @@ fun TvHomeScreen(
                                         if (catCount > 0) catCount else visibleSeriesList.size
                                     }
 
-                                    TvPortalDashboard(
-                                        activeSource = activeSource,
-                                        sidebarRequester = sidebarRequesters[1],
-                                        firstItemRequester = contentFocusRequester,
-                                        liveChannelsCount = totalLiveChannelsCount,
-                                        moviesCount = totalMoviesCount,
-                                        seriesCount = totalSeriesCount,
-                                        sportsCount = sportsCount,
-                                        onNavigateToLive = { selectedTopTab = 2 },
-                                        onNavigateToMovies = { selectedTopTab = 3 },
-                                        onNavigateToSeries = { selectedTopTab = 4 },
-                                        onNavigateToSports = {
-                                            val sportsCat = channelCategoryList.firstOrNull {
-                                                it.name.contains("deporte", ignoreCase = true) || it.name.contains("sport", ignoreCase = true)
-                                            }
-                                            if (sportsCat != null) selectedChannelCategoryId = sportsCat.id
-                                            selectedTopTab = 2
-                                        },
-                                        onDownloadM3U = {
-                                            android.widget.Toast.makeText(context, "Lista M3U lista para exportar", android.widget.Toast.LENGTH_SHORT).show()
-                                        },
-                                        onReloadCatalog = { onForceSync() },
-                                        onOpenSettings = { selectedTopTab = 7 },
-                                        onOpenDiagnostics = { selectedTopTab = 7 },
-                                        onOpenAccountSwitcher = { isAccountSwitcherVisible = true },
-                                        onOpenCategoryFilter = { isCategoryManagerVisible = true },
-                                        onNavigateToSearch = {
-                                            isVoiceSearchRequested = false
-                                            isSearchModalVisible = true
-                                        },
-                                        onNavigateToFavorites = { selectedTopTab = 5 },
-                                        visibleChannels = visibleChannels,
-                                        visibleMovies = visibleMovies,
-                                        visibleSeriesList = visibleSeriesList,
-                                        onChannelClick = { ch ->
-                                            val userT0 = android.os.SystemClock.elapsedRealtime()
-                                            focusedChannelId = ch.id
-                                            focusedChannel = ch
-                                            activePlaybackChannels = visibleChannels
-                                            activePlaybackChannelIndex = visibleChannels.indexOfFirst { it.id == ch.id }.coerceAtLeast(0)
-                                            isPlayingLive = true
-                                            playerEngine.playStream(ch.streamUrl, isLive = true, userT0 = userT0)
-                                            isFullscreen = true
-                                        },
-                                        onMovieClick = { movie ->
-                                            openMovieDetails(movie)
-                                        },
-                                        onSeriesClick = { series ->
-                                            openSeriesDetails(series)
-                                        },
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(bottom = 24.dp)
-                                    )
+                                    if (activeCuratedSection != null) {
+                                        TvCuratedSectionView(
+                                            section = activeCuratedSection!!,
+                                            movies = movies.filter { it.categoryId !in hiddenMovieCategories && it.categoryName !in hiddenMovieCategories },
+                                            seriesList = seriesList.filter { it.categoryId !in hiddenSeriesCategories && it.categoryName !in hiddenSeriesCategories },
+                                            onMovieClick = { movie -> openVodMovieDetails(movie) },
+                                            onSeriesClick = { series -> openSeriesEntityDetails(series) },
+                                            onBack = { activeCuratedSection = null },
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    } else {
+                                        TvPortalDashboard(
+                                            activeSource = activeSource,
+                                            sidebarRequester = sidebarRequesters[1],
+                                            firstItemRequester = contentFocusRequester,
+                                            liveChannelsCount = totalLiveChannelsCount,
+                                            moviesCount = totalMoviesCount,
+                                            seriesCount = totalSeriesCount,
+                                            sportsCount = sportsCount,
+                                            onNavigateToLive = { selectedTopTab = 2 },
+                                            onNavigateToMovies = { selectedTopTab = 3 },
+                                            onNavigateToSeries = { selectedTopTab = 4 },
+                                            onNavigateToSports = {
+                                                val sportsCat = channelCategoryList.firstOrNull {
+                                                    it.name.contains("deporte", ignoreCase = true) || it.name.contains("sport", ignoreCase = true)
+                                                }
+                                                if (sportsCat != null) selectedChannelCategoryId = sportsCat.id
+                                                selectedTopTab = 2
+                                            },
+                                            onDownloadM3U = {
+                                                android.widget.Toast.makeText(context, "Lista M3U lista para exportar", android.widget.Toast.LENGTH_SHORT).show()
+                                            },
+                                            onReloadCatalog = { onForceSync() },
+                                            onOpenSettings = { selectedTopTab = 7 },
+                                            onOpenDiagnostics = { selectedTopTab = 7 },
+                                            onOpenAccountSwitcher = { isAccountSwitcherVisible = true },
+                                            onOpenCategoryFilter = { isCategoryManagerVisible = true },
+                                            onNavigateToSearch = {
+                                                isVoiceSearchRequested = false
+                                                isSearchModalVisible = true
+                                            },
+                                            onNavigateToFavorites = { selectedTopTab = 5 },
+                                            visibleChannels = visibleChannels,
+                                            visibleMovies = visibleMovies,
+                                            visibleSeriesList = visibleSeriesList,
+                                            portalFeedData = portalFeedData,
+                                            onOpenCuratedSection = { activeCuratedSection = it },
+                                            onVodMovieClick = { movie -> openVodMovieDetails(movie) },
+                                            onSeriesEntityClick = { series -> openSeriesEntityDetails(series) },
+                                            onChannelClick = { ch ->
+                                                val userT0 = android.os.SystemClock.elapsedRealtime()
+                                                focusedChannelId = ch.id
+                                                focusedChannel = ch
+                                                activePlaybackChannels = visibleChannels
+                                                activePlaybackChannelIndex = visibleChannels.indexOfFirst { it.id == ch.id }.coerceAtLeast(0)
+                                                isPlayingLive = true
+                                                playerEngine.playStream(ch.streamUrl, isLive = true, userT0 = userT0)
+                                                isFullscreen = true
+                                            },
+                                            onMovieClick = { movie ->
+                                                openMovieDetails(movie)
+                                            },
+                                            onSeriesClick = { series ->
+                                                openSeriesDetails(series)
+                                            },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(bottom = 24.dp)
+                                        )
+                                    }
                                 }
                             }
                         }

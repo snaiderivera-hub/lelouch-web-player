@@ -6,6 +6,7 @@ import com.lelouch.core.domain.repository.AuthRepository
 import com.lelouch.core.model.SourceConfig
 import com.lelouch.core.model.SourceType
 import com.lelouch.core.network.NetworkClient
+import com.lelouch.core.network.sync.CategoryFilterSyncManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -302,6 +303,15 @@ class AuthRepositoryImpl(
                         val maxConsCloud = try { obj["max_connections"]?.jsonPrimitive?.content?.toIntOrNull() } catch (_: Exception) { null } ?: 1
                         val activeConsCloud = try { obj["active_connections"]?.jsonPrimitive?.content?.toIntOrNull() } catch (_: Exception) { null } ?: 0
 
+                        val hiddenCatObj = try { obj["hidden_categories"]?.jsonObject } catch (_: Exception) { null }
+                        if (hiddenCatObj != null && preferencesDataSource.context != null) {
+                            CategoryFilterSyncManager.saveCloudFiltersLocally(
+                                preferencesDataSource.context!!,
+                                id,
+                                hiddenCatObj
+                            )
+                        }
+
                         if (finalServerUrl.isNotBlank()) {
                             cloudSources.add(
                                 SourceConfig(
@@ -378,6 +388,18 @@ class AuthRepositoryImpl(
             val localMatch = localByKey[key]
             val resolvedPass = if (src.password.isNotBlank()) src.password else (localMatch?.password ?: "")
             val resolvedId = localMatch?.id ?: src.id
+            if (resolvedId != src.id && preferencesDataSource.context != null) {
+                val cloudFilters = CategoryFilterSyncManager.loadFilters(preferencesDataSource.context!!, src.id)
+                if (cloudFilters.live.isNotEmpty() || cloudFilters.movies.isNotEmpty() || cloudFilters.series.isNotEmpty()) {
+                    CategoryFilterSyncManager.saveLocalFilters(
+                        context = preferencesDataSource.context!!,
+                        sourceId = resolvedId,
+                        live = cloudFilters.live,
+                        movies = cloudFilters.movies,
+                        series = cloudFilters.series
+                    )
+                }
+            }
             val resolvedExpire = if (!src.expireDate.isNullOrBlank() && src.expireDate != "null") {
                 src.expireDate
             } else {

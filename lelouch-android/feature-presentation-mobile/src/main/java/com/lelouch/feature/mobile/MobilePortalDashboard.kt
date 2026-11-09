@@ -48,7 +48,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.lelouch.core.designsystem.*
+import com.lelouch.core.model.CuratedMediaItem
+import com.lelouch.core.model.CuratedSectionType
 import com.lelouch.core.model.LiveStream
+import com.lelouch.core.model.PortalFeedCalculator
+import com.lelouch.core.model.PortalFeedData
 import com.lelouch.core.model.Series
 import com.lelouch.core.model.SourceConfig
 import com.lelouch.core.model.VodMovie

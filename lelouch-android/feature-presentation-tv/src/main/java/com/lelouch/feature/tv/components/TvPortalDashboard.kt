@@ -40,7 +40,12 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import androidx.compose.ui.platform.LocalContext
 import com.lelouch.core.designsystem.*
+import com.lelouch.core.model.CuratedMediaItem
+import com.lelouch.core.model.CuratedSectionType
+import com.lelouch.core.model.PortalFeedData
+import com.lelouch.core.model.Series
 import com.lelouch.core.model.SourceConfig
+import com.lelouch.core.model.VodMovie
 import com.lelouch.feature.tv.ChannelUiModel
 import com.lelouch.feature.tv.MovieUiModel
 import com.lelouch.feature.tv.SeriesUiModel
@@ -81,7 +86,11 @@ fun TvPortalDashboard(
     visibleSeriesList: List<SeriesUiModel> = emptyList(),
     onChannelClick: ((ChannelUiModel) -> Unit)? = null,
     onMovieClick: ((MovieUiModel) -> Unit)? = null,
-    onSeriesClick: ((SeriesUiModel) -> Unit)? = null
+    onSeriesClick: ((SeriesUiModel) -> Unit)? = null,
+    portalFeedData: PortalFeedData? = null,
+    onOpenCuratedSection: ((CuratedSectionType) -> Unit)? = null,
+    onVodMovieClick: ((VodMovie) -> Unit)? = null,
+    onSeriesEntityClick: ((Series) -> Unit)? = null
 ) {
     val homeChannels = remember(visibleChannels) { visibleChannels.take(15) }
     val homeMovies = remember(visibleMovies) { visibleMovies.take(15) }
@@ -446,6 +455,7 @@ fun TvPortalDashboard(
             TvSwimlaneHeader(
                 title = "🔴 CANALES EN VIVO & DEPORTES",
                 actionText = "Ver todos [>]",
+                barColor = Color(0xFFFF5252),
                 onActionClick = onNavigateToLive
             )
 
@@ -466,13 +476,14 @@ fun TvPortalDashboard(
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        // 4. CARRUSEL HORIZONTAL TV: PELÍCULAS DE ESTRENO
+        // 4. CARRUSEL HORIZONTAL TV: PARTIDOS & EVENTOS EN VIVO
         // ══════════════════════════════════════════════════════════════════════
-        if (visibleMovies.isNotEmpty()) {
+        if (portalFeedData?.liveMatches?.isNotEmpty() == true) {
             TvSwimlaneHeader(
-                title = "🎬 PELÍCULAS RECOMENDADAS",
-                actionText = "Ver todas [>]",
-                onActionClick = onNavigateToMovies
+                title = "🔥 PARTIDOS & EVENTOS EN VIVO",
+                actionText = "Ver todos [>]",
+                barColor = Color(0xFFFF5252),
+                onActionClick = onNavigateToSports
             )
 
             LazyRow(
@@ -480,10 +491,30 @@ fun TvPortalDashboard(
                 contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                items(homeMovies, key = { "tv_dash_mov_" + it.id + "_" + it.streamId }) { movie ->
-                    TvPosterMovieCard(
-                        movie = movie,
-                        onClick = { onMovieClick?.invoke(movie) ?: onNavigateToMovies() }
+                items(portalFeedData.liveMatches, key = { "tv_match_${it.streamId}" }) { stream ->
+                    TvStreamCard(
+                        channel = ChannelUiModel(
+                            id = stream.id,
+                            streamId = stream.streamId,
+                            name = stream.name,
+                            num = stream.num,
+                            categoryName = stream.categoryName,
+                            streamIcon = stream.streamIcon,
+                            streamUrl = stream.streamUrl
+                        ),
+                        onClick = {
+                            onChannelClick?.invoke(
+                                ChannelUiModel(
+                                    id = stream.id,
+                                    streamId = stream.streamId,
+                                    name = stream.name,
+                                    num = stream.num,
+                                    categoryName = stream.categoryName,
+                                    streamIcon = stream.streamIcon,
+                                    streamUrl = stream.streamUrl
+                                )
+                            ) ?: onNavigateToSports()
+                        }
                     )
                 }
             }
@@ -492,13 +523,14 @@ fun TvPortalDashboard(
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        // 5. CARRUSEL HORIZONTAL TV: SERIES POPULARES
+        // 5. CARRUSEL HORIZONTAL TV: DESTACADAS 2026
         // ══════════════════════════════════════════════════════════════════════
-        if (visibleSeriesList.isNotEmpty()) {
+        if (portalFeedData?.topTenMovies?.isNotEmpty() == true) {
             TvSwimlaneHeader(
-                title = "🎞️ SERIES POPULARES",
+                title = "⚡ DESTACADAS 2026",
                 actionText = "Ver todas [>]",
-                onActionClick = onNavigateToSeries
+                barColor = Color(0xFF00E5C9),
+                onActionClick = onNavigateToMovies
             )
 
             LazyRow(
@@ -506,15 +538,281 @@ fun TvPortalDashboard(
                 contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                items(homeSeries, key = { "tv_dash_ser_" + it.id + "_" + it.seriesId }) { series ->
-                    TvPosterSeriesCard(
-                        series = series,
-                        onClick = { onSeriesClick?.invoke(series) ?: onNavigateToSeries() }
+                items(portalFeedData.topTenMovies, key = { "tv_topten_${it.streamId}" }) { movie ->
+                    TvPosterMovieCard(
+                        movie = MovieUiModel(
+                            id = movie.id,
+                            streamId = movie.streamId,
+                            name = movie.name,
+                            categoryName = movie.categoryName.orEmpty(),
+                            streamIcon = movie.streamIcon,
+                            rating = movie.rating ?: 0.0,
+                            year = movie.year
+                        ),
+                        onClick = { onVodMovieClick?.invoke(movie) ?: onNavigateToMovies() }
                     )
                 }
             }
 
             Spacer(modifier = Modifier.height(22.dp))
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // 6. CARRUSEL HORIZONTAL TV: MEJOR VALORADAS
+        // ══════════════════════════════════════════════════════════════════════
+        if (portalFeedData?.mostViewedItems?.isNotEmpty() == true) {
+            TvSwimlaneHeader(
+                title = "⭐ MEJOR VALORADAS",
+                actionText = "VER MÁS >",
+                barColor = Color(0xFFFFB800),
+                onActionClick = { onOpenCuratedSection?.invoke(CuratedSectionType.TOP_RATED) ?: onNavigateToMovies() }
+            )
+
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(portalFeedData.mostViewedItems, key = { "tv_toprated_${it.title}_${it.movie?.streamId}_${it.series?.seriesId}" }) { item ->
+                    TvCuratedItemCard(
+                        item = item,
+                        onClick = {
+                            item.movie?.let { onVodMovieClick?.invoke(it) } ?: item.series?.let { onSeriesEntityClick?.invoke(it) }
+                        }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(22.dp))
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // 7. CARRUSEL HORIZONTAL TV: RECIÉN AGREGADAS
+        // ══════════════════════════════════════════════════════════════════════
+        if (portalFeedData?.recentMovies?.isNotEmpty() == true) {
+            TvSwimlaneHeader(
+                title = "✨ RECIÉN AGREGADAS",
+                actionText = "VER MÁS >",
+                barColor = Color(0xFF00E5C9),
+                onActionClick = { onOpenCuratedSection?.invoke(CuratedSectionType.RECENT) ?: onNavigateToMovies() }
+            )
+
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(portalFeedData.recentMovies, key = { "tv_recent_${it.streamId}" }) { movie ->
+                    TvPosterMovieCard(
+                        movie = MovieUiModel(
+                            id = movie.id,
+                            streamId = movie.streamId,
+                            name = movie.name,
+                            categoryName = movie.categoryName.orEmpty(),
+                            streamIcon = movie.streamIcon,
+                            rating = movie.rating ?: 0.0,
+                            year = movie.year
+                        ),
+                        onClick = { onVodMovieClick?.invoke(movie) ?: onNavigateToMovies() }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(22.dp))
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // 8. CARRUSEL HORIZONTAL TV: TERROR Y SUSPENSO
+        // ══════════════════════════════════════════════════════════════════════
+        if (portalFeedData?.terrorItems?.isNotEmpty() == true) {
+            TvSwimlaneHeader(
+                title = "🩸 TERROR Y SUSPENSO",
+                actionText = "VER MÁS >",
+                barColor = Color(0xFFFF5252),
+                onActionClick = { onOpenCuratedSection?.invoke(CuratedSectionType.HORROR) ?: onNavigateToMovies() }
+            )
+
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(portalFeedData.terrorItems, key = { "tv_terror_${it.title}_${it.movie?.streamId}_${it.series?.seriesId}" }) { item ->
+                    TvCuratedItemCard(
+                        item = item,
+                        onClick = {
+                            item.movie?.let { onVodMovieClick?.invoke(it) } ?: item.series?.let { onSeriesEntityClick?.invoke(it) }
+                        }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(22.dp))
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // 9. CARRUSEL HORIZONTAL TV: CIENCIA FICCIÓN
+        // ══════════════════════════════════════════════════════════════════════
+        if (portalFeedData?.sciFiItems?.isNotEmpty() == true) {
+            TvSwimlaneHeader(
+                title = "🚀 CIENCIA FICCIÓN",
+                actionText = "VER MÁS >",
+                barColor = Color(0xFF00E5C9),
+                onActionClick = { onOpenCuratedSection?.invoke(CuratedSectionType.SCIFI) ?: onNavigateToMovies() }
+            )
+
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(portalFeedData.sciFiItems, key = { "tv_scifi_${it.title}_${it.movie?.streamId}_${it.series?.seriesId}" }) { item ->
+                    TvCuratedItemCard(
+                        item = item,
+                        onClick = {
+                            item.movie?.let { onVodMovieClick?.invoke(it) } ?: item.series?.let { onSeriesEntityClick?.invoke(it) }
+                        }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(22.dp))
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // 10. CARRUSEL HORIZONTAL TV: BASADO EN HECHOS REALES
+        // ══════════════════════════════════════════════════════════════════════
+        if (portalFeedData?.realHistoryItems?.isNotEmpty() == true) {
+            TvSwimlaneHeader(
+                title = "📜 BASADO EN HECHOS REALES",
+                actionText = "VER MÁS >",
+                barColor = Color(0xFFE5A93C),
+                onActionClick = { onOpenCuratedSection?.invoke(CuratedSectionType.TRUE_EVENTS) ?: onNavigateToMovies() }
+            )
+
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(portalFeedData.realHistoryItems, key = { "tv_real_${it.title}_${it.movie?.streamId}_${it.series?.seriesId}" }) { item ->
+                    TvCuratedItemCard(
+                        item = item,
+                        onClick = {
+                            item.movie?.let { onVodMovieClick?.invoke(it) } ?: item.series?.let { onSeriesEntityClick?.invoke(it) }
+                        }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(22.dp))
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // 11. CARRUSEL HORIZONTAL TV: ACCIÓN Y AVENTURA
+        // ══════════════════════════════════════════════════════════════════════
+        if (portalFeedData?.actionItems?.isNotEmpty() == true) {
+            TvSwimlaneHeader(
+                title = "💥 ACCIÓN Y AVENTURA",
+                actionText = "VER MÁS >",
+                barColor = Color(0xFFFF6D00),
+                onActionClick = { onOpenCuratedSection?.invoke(CuratedSectionType.ACTION) ?: onNavigateToMovies() }
+            )
+
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(portalFeedData.actionItems, key = { "tv_action_${it.title}_${it.movie?.streamId}_${it.series?.seriesId}" }) { item ->
+                    TvCuratedItemCard(
+                        item = item,
+                        onClick = {
+                            item.movie?.let { onVodMovieClick?.invoke(it) } ?: item.series?.let { onSeriesEntityClick?.invoke(it) }
+                        }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(22.dp))
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // 12. CARRUSEL HORIZONTAL TV: MUNDO ANIMADO
+        // ══════════════════════════════════════════════════════════════════════
+        if (portalFeedData?.animItems?.isNotEmpty() == true) {
+            TvSwimlaneHeader(
+                title = "✨ MUNDO ANIMADO",
+                actionText = "VER MÁS >",
+                barColor = Color(0xFFFF4081),
+                onActionClick = { onOpenCuratedSection?.invoke(CuratedSectionType.ANIMATION) ?: onNavigateToMovies() }
+            )
+
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(portalFeedData.animItems, key = { "tv_anim_${it.title}_${it.movie?.streamId}_${it.series?.seriesId}" }) { item ->
+                    TvCuratedItemCard(
+                        item = item,
+                        onClick = {
+                            item.movie?.let { onVodMovieClick?.invoke(it) } ?: item.series?.let { onSeriesEntityClick?.invoke(it) }
+                        }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(22.dp))
+        }
+
+        // Fallbacks si portalFeedData todavía no cargó
+        if (portalFeedData == null) {
+            if (visibleMovies.isNotEmpty()) {
+                TvSwimlaneHeader(
+                    title = "🎬 PELÍCULAS RECOMENDADAS",
+                    actionText = "Ver todas [>]",
+                    onActionClick = onNavigateToMovies
+                )
+
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(homeMovies, key = { "tv_dash_mov_" + it.id + "_" + it.streamId }) { movie ->
+                        TvPosterMovieCard(
+                            movie = movie,
+                            onClick = { onMovieClick?.invoke(movie) ?: onNavigateToMovies() }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(22.dp))
+            }
+
+            if (visibleSeriesList.isNotEmpty()) {
+                TvSwimlaneHeader(
+                    title = "🎞️ SERIES POPULARES",
+                    actionText = "Ver todas [>]",
+                    onActionClick = onNavigateToSeries
+                )
+
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(homeSeries, key = { "tv_dash_ser_" + it.id + "_" + it.seriesId }) { series ->
+                        TvPosterSeriesCard(
+                            series = series,
+                            onClick = { onSeriesClick?.invoke(series) ?: onNavigateToSeries() }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(22.dp))
+            }
         }
 
     }
@@ -803,10 +1101,12 @@ private fun TvCategoryPill(
     }
 }
 
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun TvSwimlaneHeader(
     title: String,
-    actionText: String,
+    actionText: String = "VER MÁS >",
+    barColor: Color = LelouchCyanAccent,
     onActionClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -817,19 +1117,49 @@ private fun TvSwimlaneHeader(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = title,
-            color = Color.White,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Black,
-            letterSpacing = 0.5.sp
-        )
-        Text(
-            text = actionText,
-            color = LelouchCyanAccent,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .height(18.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(barColor)
+            )
+            Text(
+                text = title,
+                color = Color.White,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 0.5.sp
+            )
+        }
+        var isActionFocused by remember { mutableStateOf(false) }
+        Surface(
+            onClick = onActionClick,
+            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+            colors = ClickableSurfaceDefaults.colors(
+                containerColor = Color.Transparent,
+                focusedContainerColor = barColor.copy(alpha = 0.25f)
+            ),
+            border = ClickableSurfaceDefaults.border(
+                border = Border(BorderStroke(1.dp, Color.Transparent)),
+                focusedBorder = Border(BorderStroke(1.5.dp, barColor))
+            )
+        ) {
+            Text(
+                text = actionText,
+                color = if (isActionFocused) Color.White else barColor,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .onFocusChanged { isActionFocused = it.isFocused }
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            )
+        }
     }
 }
 
@@ -927,6 +1257,143 @@ private fun TvStreamCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvCuratedItemCard(
+    item: CuratedMediaItem,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier
+            .width(120.dp)
+            .height(180.dp),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color(0xFF0B131E)
+        ),
+        border = ClickableSurfaceDefaults.border(
+            border = Border(BorderStroke(1.dp, Color(0xFF1E293B))),
+            focusedBorder = Border(BorderStroke(2.dp, LelouchCyanAccent))
+        )
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            if (!item.imageUrl.isNullOrBlank()) {
+                val context = LocalContext.current
+                AsyncImage(
+                    model = remember(item.imageUrl) {
+                        ImageRequest.Builder(context)
+                            .data(item.imageUrl)
+                            .crossfade(false)
+                            .size(240, 360)
+                            .build()
+                    },
+                    contentDescription = item.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.9f))
+                            )
+                        )
+                )
+            } else {
+                Box(
+                    modifier = Modifier.fillMaxSize().background(LelouchSurfaceVariant),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(6.dp)
+                    ) {
+                        Text(
+                            text = if (item.series != null) "🎞️" else "🎬",
+                            fontSize = 24.sp
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = item.title.take(12),
+                            color = LelouchCyanAccent,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            }
+
+            val r = item.rating ?: 0.0
+            if (r > 0.0) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color.Black.copy(alpha = 0.8f))
+                        .border(0.5.dp, Color(0xFFFFB800).copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "★ %.1f".format(r),
+                        color = Color(0xFFFFD700),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            if (item.series != null) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(6.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color(0xFF38BDF8).copy(alpha = 0.9f))
+                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "SERIE",
+                        color = Color.Black,
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(8.dp)
+            ) {
+                Text(
+                    text = item.title,
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                val itemYear = item.year
+                if (!itemYear.isNullOrBlank()) {
+                    Text(
+                        text = itemYear,
+                        color = Color.White.copy(alpha = 0.6f),
+                        fontSize = 9.sp
+                    )
+                }
             }
         }
     }

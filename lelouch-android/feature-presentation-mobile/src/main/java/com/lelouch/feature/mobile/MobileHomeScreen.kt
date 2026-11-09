@@ -57,7 +57,10 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.lelouch.core.designsystem.*
 import com.lelouch.core.model.Category
+import com.lelouch.core.model.CuratedSectionType
 import com.lelouch.core.model.LiveStream
+import com.lelouch.core.model.PortalFeedCalculator
+import com.lelouch.core.model.PortalFeedData
 import com.lelouch.core.model.VodMovie
 import com.lelouch.core.model.Series
 import com.lelouch.core.model.Episode
@@ -70,6 +73,7 @@ import com.lelouch.core.model.ContentType
 import com.lelouch.core.model.ContinueWatchingItem
 import com.lelouch.core.domain.repository.PlaybackHistoryRepository
 import com.lelouch.core.network.StreamUrlResolver
+import com.lelouch.core.network.sync.CategoryFilterSyncManager
 import com.lelouch.core.network.diagnostics.IptvDiagnostics
 import com.lelouch.core.network.dns.LelouchDnsManager
 import com.lelouch.core.player.LelouchVideoPlayer
@@ -266,31 +270,50 @@ fun MobileHomeScreen(
     val hiddenPrefs = remember { context.getSharedPreferences("iptv_hidden_categories", android.content.Context.MODE_PRIVATE) }
     
     val currentSourceKey = activeSource?.id.orEmpty().ifBlank { "default" }
-    var hiddenLiveCategories by remember { mutableStateOf(hiddenPrefs.getStringSet("${currentSourceKey}_live", emptySet())?.toSet() ?: emptySet()) }
-    var hiddenMovieCategories by remember { mutableStateOf(hiddenPrefs.getStringSet("${currentSourceKey}_movies", emptySet())?.toSet() ?: emptySet()) }
-    var hiddenSeriesCategories by remember { mutableStateOf(hiddenPrefs.getStringSet("${currentSourceKey}_series", emptySet())?.toSet() ?: emptySet()) }
+    var hiddenLiveCategories by remember {
+        mutableStateOf<Set<String>>(CategoryFilterSyncManager.loadFilters(context, currentSourceKey).live)
+    }
+    var hiddenMovieCategories by remember {
+        mutableStateOf<Set<String>>(CategoryFilterSyncManager.loadFilters(context, currentSourceKey).movies)
+    }
+    var hiddenSeriesCategories by remember {
+        mutableStateOf<Set<String>>(CategoryFilterSyncManager.loadFilters(context, currentSourceKey).series)
+    }
 
     LaunchedEffect(activeSource?.id) {
         val src = activeSource?.id.orEmpty().ifBlank { "default" }
-        hiddenLiveCategories = hiddenPrefs.getStringSet("${src}_live", emptySet())?.toSet() ?: emptySet()
-        hiddenMovieCategories = hiddenPrefs.getStringSet("${src}_movies", emptySet())?.toSet() ?: emptySet()
-        hiddenSeriesCategories = hiddenPrefs.getStringSet("${src}_series", emptySet())?.toSet() ?: emptySet()
+        val loaded = CategoryFilterSyncManager.loadFilters(context, src)
+        hiddenLiveCategories = loaded.live
+        hiddenMovieCategories = loaded.movies
+        hiddenSeriesCategories = loaded.series
     }
 
     fun saveHiddenLive(newSet: Set<String>) {
         hiddenLiveCategories = newSet
-        val src = activeSource?.id.orEmpty().ifBlank { "default" }
-        hiddenPrefs.edit().putStringSet("${src}_live", newSet).apply()
+        CategoryFilterSyncManager.persistAndSyncFilters(
+            context = context,
+            source = activeSource,
+            live = newSet,
+            coroutineScope = uiScope
+        )
     }
     fun saveHiddenMovies(newSet: Set<String>) {
         hiddenMovieCategories = newSet
-        val src = activeSource?.id.orEmpty().ifBlank { "default" }
-        hiddenPrefs.edit().putStringSet("${src}_movies", newSet).apply()
+        CategoryFilterSyncManager.persistAndSyncFilters(
+            context = context,
+            source = activeSource,
+            movies = newSet,
+            coroutineScope = uiScope
+        )
     }
     fun saveHiddenSeries(newSet: Set<String>) {
         hiddenSeriesCategories = newSet
-        val src = activeSource?.id.orEmpty().ifBlank { "default" }
-        hiddenPrefs.edit().putStringSet("${src}_series", newSet).apply()
+        CategoryFilterSyncManager.persistAndSyncFilters(
+            context = context,
+            source = activeSource,
+            series = newSet,
+            coroutineScope = uiScope
+        )
     }
 
     var isAdultModeEnabled by remember { mutableStateOf(hiddenPrefs.getBoolean("adult_mode_enabled", false)) }

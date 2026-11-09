@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS public.playlists (
     movies_count INTEGER DEFAULT 0,
     series_count INTEGER DEFAULT 0,
     expires_at TIMESTAMPTZ,
+    hidden_categories JSONB DEFAULT '{"live":[], "movies":[], "series":[]}'::jsonb,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );

@@ -1,7 +1,7 @@
 {
-  "versionName": "1.0.126",
-  "versionCode": 1000126,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.126/LELOUCH-PLUS-v1.0.126.apk",
-  "changelog": "- Clasificación estricta de secciones: Priorización de géneros oficiales sobre sinopsis.\n- Navegación curada dedicada: Al pulsar 'Ver más' se abre únicamente el contenido de esa sección.\n- Ocultamiento de categorías vacías (0 elementos) para optimizar el espacio.\n- Conservación de títulos sin portada con pósteres estilizados de reemplazo.",
-  "version": "1.0.126"
+  "versionName": "1.0.127",
+  "versionCode": 1000127,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.127/LELOUCH-PLUS-v1.0.127.apk",
+  "changelog": "- Sincronización en Supabase de filtros de categorías ocultas por lista independiente (En Vivo, Películas y Series).\n- Port de catálogo curado y secciones temáticas a Android TV Box (TvPortalDashboard).\n- Navegación dedicada con control remoto D-Pad (TvCuratedSectionView) para ver todas las películas y series de cada sección.\n- Ocultamiento de categorías vacías (0 elementos) en Android TV Box.\n- Tarjetas con placeholder estilizado para títulos sin carátula en TV Box.",
+  "version": "1.0.127"
 }
