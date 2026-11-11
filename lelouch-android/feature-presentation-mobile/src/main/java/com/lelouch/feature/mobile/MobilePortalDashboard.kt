@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.lelouch.core.designsystem.*
+import com.lelouch.core.model.ContinueWatchingItem
 import com.lelouch.core.model.CuratedMediaItem
 import com.lelouch.core.model.CuratedSectionType
 import com.lelouch.core.model.LiveStream
@@ -374,7 +375,10 @@ fun MobilePortalDashboard(
     portalFeedData: PortalFeedData? = null,
     onChannelClick: (String, String) -> Unit = { _, _ -> },
     onMovieClick: (VodMovie) -> Unit = {},
-    onSeriesClick: (Series) -> Unit = {}
+    onSeriesClick: (Series) -> Unit = {},
+    continueWatchingItems: List<ContinueWatchingItem> = emptyList(),
+    onResumeContinueWatching: (ContinueWatchingItem) -> Unit = {},
+    onRemoveContinueWatching: (ContinueWatchingItem) -> Unit = {}
 ) {
     // FASE 35: Consumo directo de feed precalculado en segundo plano (0ms bloqueo en Main Thread)
     val topTenMovies = portalFeedData?.topTenMovies ?: emptyList()
@@ -767,6 +771,18 @@ fun MobilePortalDashboard(
             }
 
             // ══════════════════════════════════════════════════════════════════════
+            // 🕘 CONTINUAR VIENDO (HISTORIAL DE REPRODUCCIÓN EN MÓVIL)
+            // ══════════════════════════════════════════════════════════════════════
+            if (continueWatchingItems.isNotEmpty()) {
+                MobileContinueWatchingRail(
+                    items = continueWatchingItems,
+                    onResume = onResumeContinueWatching,
+                    onRemove = onRemoveContinueWatching
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+            }
+
+            // ══════════════════════════════════════════════════════════════════════
             // 1. 🔴 EN VIVO AHORA (PARTIDOS DEPORTIVOS ACTIVOS - CAPTURA 3)
             // ══════════════════════════════════════════════════════════════════════
             if (liveMatches.isNotEmpty()) {
@@ -1096,6 +1112,168 @@ fun MobilePortalDashboard(
 // ─────────────────────────────────────────────────────────────────────────────
 // COMPOSABLES VISUALES NATIVOS 1:1 CON LAS CAPTURAS DE REFERENCIA
 // ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun MobileContinueWatchingRail(
+    items: List<ContinueWatchingItem>,
+    onResume: (ContinueWatchingItem) -> Unit,
+    onRemove: (ContinueWatchingItem) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "🕘 CONTINUAR VIENDO",
+                    color = Color(0xFF00E5C9),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Black
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = "(${items.size})",
+                    color = BixTextMuted,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            items(items, key = { it.contentId }) { item ->
+                MobileContinueWatchingCard(
+                    item = item,
+                    onResume = { onResume(item) },
+                    onRemove = { onRemove(item) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MobileContinueWatchingCard(
+    item: ContinueWatchingItem,
+    onResume: () -> Unit,
+    onRemove: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .width(160.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color(0xFF14161F))
+            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
+            .clickable { onResume() }
+    ) {
+        Column {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(95.dp)
+                    .background(Color(0xFF0A0C10))
+            ) {
+                if (!item.posterUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = item.posterUrl,
+                        contentDescription = item.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+
+                // Botón central translúcido de Play
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.65f))
+                        .border(1.dp, Color(0xFF00E5C9), CircleShape)
+                        .align(Alignment.Center),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.PlayArrow,
+                        contentDescription = "Reanudar",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                // Botón quitar en esquina superior derecha
+                IconButton(
+                    onClick = onRemove,
+                    modifier = Modifier
+                        .size(28.dp)
+                        .align(Alignment.TopEnd)
+                        .padding(4.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = "Quitar",
+                        tint = Color.White.copy(alpha = 0.85f),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+
+                // Barra de progreso horizontal inferior
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .height(3.dp)
+                        .background(Color.White.copy(alpha = 0.2f))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(item.fraction.coerceIn(0f, 1f))
+                            .height(3.dp)
+                            .background(Color(0xFF00E5C9))
+                    )
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    text = item.title,
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                val sub = listOfNotNull(
+                    item.episodeLabel,
+                    item.remainingLabel.takeIf { it.isNotBlank() }
+                ).joinToString(" • ")
+                if (sub.isNotBlank()) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = sub,
+                        color = Color(0xFF2DD4BF),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+    }
+}
 
 /**
  * Hero Carousel del TOP 10 (Captura 1):

@@ -735,6 +735,7 @@ class LelouchPlayerEngine(
 
         val isHls = url.contains(".m3u8", ignoreCase = true) || url.contains("output=m3u8", ignoreCase = true)
         val isMp4 = url.contains(".mp4", ignoreCase = true)
+        val isMkv = url.contains(".mkv", ignoreCase = true) || url.contains(".webm", ignoreCase = true)
 
         val liveConfig = if (isCurrentStreamLive) {
             MediaItem.LiveConfiguration.Builder()
@@ -754,6 +755,7 @@ class LelouchPlayerEngine(
                 when {
                     isHls -> setMimeType(MimeTypes.APPLICATION_M3U8)
                     isMp4 -> setMimeType(MimeTypes.APPLICATION_MP4)
+                    isMkv -> setMimeType(MimeTypes.VIDEO_MATROSKA)
                 }
             }
             .build()

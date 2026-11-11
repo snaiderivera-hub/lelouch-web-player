@@ -73,6 +73,9 @@ import com.lelouch.core.model.ContentType
 import com.lelouch.core.model.ContinueWatchingItem
 import com.lelouch.core.domain.repository.PlaybackHistoryRepository
 import com.lelouch.core.network.StreamUrlResolver
+import com.lelouch.core.network.download.LelouchDownloadService
+import com.lelouch.core.network.download.DownloadStatus
+import com.lelouch.core.network.download.DownloadTask
 import com.lelouch.core.network.sync.CategoryFilterSyncManager
 import com.lelouch.core.network.diagnostics.IptvDiagnostics
 import com.lelouch.core.network.dns.LelouchDnsManager
@@ -847,7 +850,24 @@ fun MobileHomeScreen(
                             searchQuery = searchQuery,
                             onSearchChange = { searchQuery = it },
                             onSeeAllAnime = { activeCuratedSection = CuratedSectionType.ANIMATION },
-                            onOpenCuratedSection = { activeCuratedSection = it }
+                            onOpenCuratedSection = { activeCuratedSection = it },
+                            continueWatchingItems = historyItems,
+                            onResumeContinueWatching = { item ->
+                                activeChannelName = item.title
+                                activeContentMeta = ActiveContentMeta(
+                                    title = item.title,
+                                    posterUrl = item.posterUrl,
+                                    type = item.contentType,
+                                    seasonNumber = item.seasonNumber,
+                                    episodeNumber = item.episodeNumber
+                                )
+                                startPlayback(item.contentId, false)
+                            },
+                            onRemoveContinueWatching = { item ->
+                                uiScope.launch {
+                                    playbackHistory?.remove(item.contentId, item.sourceId)
+                                }
+                            }
                         )
                         1 -> MobileVodTab(
                             movies = if (searchQuery.isBlank()) filteredMovies
@@ -954,8 +974,22 @@ fun MobileHomeScreen(
                 movie = selectedMovie!!,
                 activeSource = activeSource,
                 isFavorite = isMovieFav,
+                historyItems = historyItems,
                 onToggleFavorite = { onToggleFavoriteMovie(selectedMovie!!.streamId, !isMovieFav) },
                 onPlay = { url ->
+                    playerEngine.stop()
+                    activeChannelName = selectedMovie!!.name
+                    activeContentMeta = ActiveContentMeta(
+                        title = selectedMovie!!.name,
+                        posterUrl = selectedMovie!!.streamIcon,
+                        type = ContentType.VOD
+                    )
+                    startPlayback(url, false)
+                },
+                onRestart = { url ->
+                    uiScope.launch {
+                        playbackHistory?.remove(url, activeSource?.id.orEmpty())
+                    }
                     playerEngine.stop()
                     activeChannelName = selectedMovie!!.name
                     activeContentMeta = ActiveContentMeta(
@@ -1751,7 +1785,10 @@ private fun MobileHomeTab(
     searchQuery: String = "",
     onSearchChange: (String) -> Unit = {},
     onSeeAllAnime: () -> Unit = {},
-    onOpenCuratedSection: (CuratedSectionType) -> Unit = {}
+    onOpenCuratedSection: (CuratedSectionType) -> Unit = {},
+    continueWatchingItems: List<ContinueWatchingItem> = emptyList(),
+    onResumeContinueWatching: (ContinueWatchingItem) -> Unit = {},
+    onRemoveContinueWatching: (ContinueWatchingItem) -> Unit = {}
 ) {
     val context = LocalContext.current
     val sportsCount = portalFeedData?.sportsCount ?: 0
@@ -1785,6 +1822,9 @@ private fun MobileHomeTab(
                 onChannelClick = onChannelClick,
                 onMovieClick = onMovieClick,
                 onSeriesClick = onSeriesClick,
+                continueWatchingItems = continueWatchingItems,
+                onResumeContinueWatching = onResumeContinueWatching,
+                onRemoveContinueWatching = onRemoveContinueWatching,
                 modifier = Modifier.padding(bottom = 8.dp)
             )
         }
@@ -4649,8 +4689,10 @@ private fun MobileMovieDetailView(
     movie: VodMovie,
     activeSource: SourceConfig?,
     isFavorite: Boolean = false,
+    historyItems: List<ContinueWatchingItem> = emptyList(),
     onToggleFavorite: () -> Unit = {},
     onPlay: (String) -> Unit,
+    onRestart: (String) -> Unit = {},
     onBack: () -> Unit
 ) {
     BackHandler(onBack = onBack)
@@ -4668,6 +4710,10 @@ private fun MobileMovieDetailView(
             kind = StreamUrlResolver.Kind.VOD,
             extension = movieState.containerExtension.ifBlank { "mp4" }
         )
+    }
+
+    val currentHistory = remember(historyItems, streamUrl, movieState.name) {
+        historyItems.firstOrNull { it.contentId == streamUrl || it.title.equals(movieState.name, ignoreCase = true) }
     }
 
     // Enriquecimiento automático con TMDB si falta sinopsis o backdrop
@@ -4951,26 +4997,77 @@ private fun MobileMovieDetailView(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Button(
-                    onClick = { onPlay(streamUrl) },
-                    colors = ButtonDefaults.buttonColors(containerColor = LelouchLiveRed),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.weight(1f).height(46.dp),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
-                ) {
-                    Icon(
-                        Icons.Default.PlayArrow,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = "REPRODUCIR PELÍCULA",
-                        color = Color.White,
-                        fontWeight = FontWeight.Black,
-                        fontSize = 13.sp
-                    )
+                val hasProgress = currentHistory != null && currentHistory.positionMs > 15_000L
+                if (hasProgress) {
+                    Button(
+                        onClick = { onPlay(streamUrl) },
+                        colors = ButtonDefaults.buttonColors(containerColor = LelouchCyanAccent),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1f).height(46.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            tint = Color.Black,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        val label = currentHistory?.remainingLabel?.ifBlank { null } ?: "REANUDAR"
+                        Text(
+                            text = "▶ $label",
+                            color = Color.Black,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = { onRestart(streamUrl) },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.35f)),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.height(46.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Refresh,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = "DESDE INICIO",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp
+                        )
+                    }
+                } else {
+                    Button(
+                        onClick = { onPlay(streamUrl) },
+                        colors = ButtonDefaults.buttonColors(containerColor = LelouchLiveRed),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1f).height(46.dp),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = "REPRODUCIR PELÍCULA",
+                            color = Color.White,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 13.sp
+                        )
+                    }
                 }
 
                 // Botón Favoritos (Corazón)
@@ -4996,32 +5093,23 @@ private fun MobileMovieDetailView(
                     )
                 }
 
-                // Botón Descargar
+                // Botón Descargar (Foreground Service con HTTP Range)
                 IconButton(
                     onClick = {
                         try {
-                            val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as? android.app.DownloadManager
-                            if (dm != null && streamUrl.isNotBlank()) {
+                            if (streamUrl.isNotBlank()) {
                                 val cleanName = movieState.name.replace(Regex("[^a-zA-Z0-9.-]"), "_")
-                                val ext = if (movieState.containerExtension.isNotBlank()) movieState.containerExtension else "mp4"
+                                val ext = if (movieState.containerExtension.isNotBlank()) movieState.containerExtension.trimStart('.') else "mp4"
                                 val fileName = "LelouchPlus_${cleanName}.${ext}"
-                                val request = android.app.DownloadManager.Request(android.net.Uri.parse(streamUrl))
-                                    .addRequestHeader("User-Agent", "IPTVSmartersPlayer")
-                                    .addRequestHeader("Accept", "*/*")
-                                    .setTitle("Lelouch Plus: ${movieState.name}")
-                                    .setDescription("Guardando en /Download/$fileName")
-                                    .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                                    .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, fileName)
-                                    .setAllowedOverMetered(true)
-                                    .setAllowedOverRoaming(true)
-                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-                                    request.setRequiresCharging(false)
-                                    request.setRequiresDeviceIdle(false)
-                                }
-                                dm.enqueue(request)
+                                LelouchDownloadService.startDownload(
+                                    context = context,
+                                    url = streamUrl,
+                                    title = movieState.name,
+                                    fileName = fileName
+                                )
                                 android.widget.Toast.makeText(
                                     context,
-                                    "📥 Descargando en /Download/$fileName",
+                                    "📥 Descargando en segundo plano: ${movieState.name}",
                                     android.widget.Toast.LENGTH_LONG
                                 ).show()
                             }
@@ -5035,8 +5123,8 @@ private fun MobileMovieDetailView(
                         .background(BixSurfaceCard)
                 ) {
                     Icon(
-                        Icons.Default.Download,
-                        contentDescription = "Descargar Película",
+                        imageVector = Icons.Default.Download,
+                        contentDescription = "Descargar",
                         tint = Color(0xFF4CAF50),
                         modifier = Modifier.size(22.dp)
                     )
@@ -5574,28 +5662,19 @@ private fun MobileSeriesDetailView(
                                         IconButton(
                                             onClick = {
                                                 try {
-                                                    val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as? android.app.DownloadManager
-                                                    if (dm != null && streamUrl.isNotBlank()) {
+                                                    if (streamUrl.isNotBlank()) {
                                                         val cleanName = "${series.name}_$epFullTitle".replace(Regex("[^a-zA-Z0-9.-]"), "_")
-                                                        val ext = if (ep.containerExtension.isNotBlank()) ep.containerExtension else "mp4"
+                                                        val ext = if (ep.containerExtension.isNotBlank()) ep.containerExtension.trimStart('.') else "mp4"
                                                         val fileName = "LelouchPlus_${cleanName}.${ext}"
-                                                        val request = android.app.DownloadManager.Request(android.net.Uri.parse(streamUrl))
-                                                            .addRequestHeader("User-Agent", "IPTVSmartersPlayer")
-                                                            .addRequestHeader("Accept", "*/*")
-                                                            .setTitle("Lelouch Plus: ${series.name} - $epFullTitle")
-                                                            .setDescription("Guardando en /Download/$fileName")
-                                                            .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                                                            .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, fileName)
-                                                            .setAllowedOverMetered(true)
-                                                            .setAllowedOverRoaming(true)
-                                                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-                                                            request.setRequiresCharging(false)
-                                                            request.setRequiresDeviceIdle(false)
-                                                        }
-                                                        dm.enqueue(request)
+                                                        LelouchDownloadService.startDownload(
+                                                            context = context,
+                                                            url = streamUrl,
+                                                            title = "${series.name} - $epFullTitle",
+                                                            fileName = fileName
+                                                        )
                                                         android.widget.Toast.makeText(
                                                             context,
-                                                            "📥 Descargando en /Download/$fileName",
+                                                            "📥 Descargando en segundo plano: ${series.name} - $epFullTitle",
                                                             android.widget.Toast.LENGTH_LONG
                                                         ).show()
                                                     }
@@ -6368,7 +6447,9 @@ private data class DownloadedMediaEntry(
     val playUri: String?,
     val isCompleted: Boolean,
     val sourceUri: String? = null,
-    val canResume: Boolean = false
+    val canResume: Boolean = false,
+    val isServiceTask: Boolean = false,
+    val isDownloading: Boolean = false
 )
 
 /**
@@ -6387,6 +6468,36 @@ private fun MobileDownloadsDialog(
         val list = mutableListOf<DownloadedMediaEntry>()
         val seenPaths = mutableSetOf<String>()
         try {
+            // 1. Tareas de LelouchDownloadService (primer plano con HTTP Range)
+            val serviceTasks = LelouchDownloadService.tasksState.value.values
+            for (task in serviceTasks) {
+                val finalFile = java.io.File(task.destinationPath)
+                val isComplete = task.status == DownloadStatus.COMPLETED || (finalFile.exists() && finalFile.length() > 0L)
+                val playableUri = if (isComplete && finalFile.exists()) android.net.Uri.fromFile(finalFile).toString() else null
+                val currentPath = if (isComplete) task.destinationPath else task.partPath
+
+                seenPaths.add(task.destinationPath)
+                seenPaths.add(task.partPath)
+
+                list.add(
+                    DownloadedMediaEntry(
+                        id = task.id,
+                        title = task.title,
+                        statusLabel = task.statusLabel,
+                        progressPercent = task.progressPercent,
+                        sizeMb = task.sizeMbFormatted,
+                        filePath = currentPath,
+                        playUri = playableUri,
+                        isCompleted = isComplete,
+                        sourceUri = task.url,
+                        canResume = task.status == DownloadStatus.PAUSED || task.status == DownloadStatus.ERROR,
+                        isServiceTask = true,
+                        isDownloading = task.status == DownloadStatus.DOWNLOADING
+                    )
+                )
+            }
+
+            // 2. Tareas anteriores de DownloadManager del sistema
             val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as? android.app.DownloadManager
             if (dm != null) {
                 val query = android.app.DownloadManager.Query()
@@ -6427,35 +6538,39 @@ private fun MobileDownloadsDialog(
 
                         val decodedPath = localUri?.removePrefix("file://")?.let { android.net.Uri.decode(it) }
                             ?: "/storage/emulated/0/Download/$title"
-                        seenPaths.add(decodedPath)
+                        if (decodedPath !in seenPaths) {
+                            seenPaths.add(decodedPath)
 
-                        val playableUri = if (status == android.app.DownloadManager.STATUS_SUCCESSFUL) {
-                            dm.getUriForDownloadedFile(id)?.toString() ?: localUri
-                        } else null
+                            val playableUri = if (status == android.app.DownloadManager.STATUS_SUCCESSFUL) {
+                                dm.getUriForDownloadedFile(id)?.toString() ?: localUri
+                            } else null
 
-                        list.add(
-                            DownloadedMediaEntry(
-                                id = id,
-                                title = title.removePrefix("Lelouch Plus: "),
-                                statusLabel = statusText,
-                                progressPercent = progress,
-                                sizeMb = mb,
-                                filePath = decodedPath,
-                                playUri = playableUri,
-                                isCompleted = status == android.app.DownloadManager.STATUS_SUCCESSFUL,
-                                sourceUri = sourceUri,
-                                canResume = canResume
+                            list.add(
+                                DownloadedMediaEntry(
+                                    id = id,
+                                    title = title.removePrefix("Lelouch Plus: "),
+                                    statusLabel = statusText,
+                                    progressPercent = progress,
+                                    sizeMb = mb,
+                                    filePath = decodedPath,
+                                    playUri = playableUri,
+                                    isCompleted = status == android.app.DownloadManager.STATUS_SUCCESSFUL,
+                                    sourceUri = sourceUri,
+                                    canResume = canResume,
+                                    isServiceTask = false
+                                )
                             )
-                        )
+                        }
                     }
                 }
             }
 
-            // También escanear archivos físicos en /storage/emulated/0/Download por si el historial de DownloadManager se limpió
+            // 3. También escanear archivos físicos en /storage/emulated/0/Download por si el historial se limpió
             val publicDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
             publicDir?.listFiles()?.filter { f ->
                 f.isFile && (f.name.startsWith("LelouchPlus_", ignoreCase = true) ||
-                        f.extension.lowercase() in setOf("mp4", "mkv", "avi", "ts"))
+                        f.extension.lowercase() in setOf("mp4", "mkv", "avi", "ts")) &&
+                        !f.name.endsWith(".part", ignoreCase = true)
             }?.sortedByDescending { it.lastModified() }?.forEach { file ->
                 if (file.absolutePath !in seenPaths) {
                     list.add(
@@ -6467,7 +6582,8 @@ private fun MobileDownloadsDialog(
                             sizeMb = "%.1f MB".format(file.length() / (1024.0 * 1024.0)),
                             filePath = file.absolutePath,
                             playUri = android.net.Uri.fromFile(file).toString(),
-                            isCompleted = true
+                            isCompleted = true,
+                            isServiceTask = false
                         )
                     )
                 }
@@ -6476,10 +6592,16 @@ private fun MobileDownloadsDialog(
         return list
     }
 
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            LelouchDownloadService.loadPersistedTasks(context)
+        }
+    }
+
     LaunchedEffect(refreshTrigger) {
         while (true) {
             downloads = withContext(Dispatchers.IO) { loadDownloads() }
-            kotlinx.coroutines.delay(2000L)
+            kotlinx.coroutines.delay(1000L)
         }
     }
 
@@ -6594,52 +6716,75 @@ private fun MobileDownloadsDialog(
                                         horizontalArrangement = Arrangement.End,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        if (item.id > 0) {
+                                        if (item.isServiceTask) {
+                                            if (item.isDownloading) {
+                                                Button(
+                                                    onClick = {
+                                                        LelouchDownloadService.pauseDownload(context, item.id)
+                                                        refreshTrigger++
+                                                    },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFBBF24)),
+                                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                    shape = RoundedCornerShape(8.dp)
+                                                ) {
+                                                    Text("⏸️ Pausar", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                                }
+                                                Spacer(Modifier.width(8.dp))
+                                            } else if (item.canResume) {
+                                                Button(
+                                                    onClick = {
+                                                        LelouchDownloadService.resumeDownload(context, item.id)
+                                                        refreshTrigger++
+                                                        android.widget.Toast.makeText(context, "Reanudando: ${item.title}", android.widget.Toast.LENGTH_SHORT).show()
+                                                    },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5C9)),
+                                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                    shape = RoundedCornerShape(8.dp)
+                                                ) {
+                                                    Text("▶ Reanudar", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                                }
+                                                Spacer(Modifier.width(8.dp))
+                                            }
+
                                             TextButton(
                                                 onClick = {
-                                                    try {
-                                                        val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as? android.app.DownloadManager
-                                                        dm?.remove(item.id)
-                                                        refreshTrigger++
-                                                    } catch (_: Exception) {}
+                                                    LelouchDownloadService.cancelDownload(context, item.id, deleteFile = true)
+                                                    refreshTrigger++
                                                 }
                                             ) {
                                                 Text("🗑️ Quitar", color = LelouchLiveRed, fontSize = 11.sp)
                                             }
-                                        }
-                                        if (item.canResume && !item.sourceUri.isNullOrBlank()) {
-                                            Spacer(Modifier.width(8.dp))
-                                            Button(
-                                                onClick = {
-                                                    try {
-                                                        val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as? android.app.DownloadManager
-                                                        dm?.remove(item.id)
-                                                        val fileName = java.io.File(item.filePath).name.ifBlank { "LelouchPlus_${System.currentTimeMillis()}.mp4" }
-                                                        val request = android.app.DownloadManager.Request(android.net.Uri.parse(item.sourceUri))
-                                                            .addRequestHeader("User-Agent", "IPTVSmartersPlayer")
-                                                            .addRequestHeader("Accept", "*/*")
-                                                            .setTitle("Lelouch Plus: ${item.title}")
-                                                            .setDescription("Guardando en /Download/$fileName")
-                                                            .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                                                            .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, fileName)
-                                                            .setAllowedOverMetered(true)
-                                                            .setAllowedOverRoaming(true)
-                                                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-                                                            request.setRequiresCharging(false)
-                                                            request.setRequiresDeviceIdle(false)
-                                                        }
-                                                        dm?.enqueue(request)
-                                                        refreshTrigger++
-                                                        android.widget.Toast.makeText(context, "Reanudando descarga: ${item.title}", android.widget.Toast.LENGTH_SHORT).show()
-                                                    } catch (e: Exception) {
-                                                        android.widget.Toast.makeText(context, "Error al reanudar: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            if (item.id > 0) {
+                                                TextButton(
+                                                    onClick = {
+                                                        try {
+                                                            val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as? android.app.DownloadManager
+                                                            dm?.remove(item.id)
+                                                            val f = java.io.File(item.filePath)
+                                                            if (f.exists()) f.delete()
+                                                            refreshTrigger++
+                                                        } catch (_: Exception) {}
                                                     }
-                                                },
-                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5C9)),
-                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                                shape = RoundedCornerShape(8.dp)
-                                            ) {
-                                                Text("▶ Reanudar", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                                ) {
+                                                    Text("🗑️ Quitar", color = LelouchLiveRed, fontSize = 11.sp)
+                                                }
+                                            }
+                                            if (item.canResume && !item.sourceUri.isNullOrBlank()) {
+                                                Spacer(Modifier.width(8.dp))
+                                                Button(
+                                                    onClick = {
+                                                        val fileName = java.io.File(item.filePath).name.ifBlank { "LelouchPlus_${System.currentTimeMillis()}.mp4" }
+                                                        LelouchDownloadService.startDownload(context, item.sourceUri, item.title, fileName)
+                                                        refreshTrigger++
+                                                        android.widget.Toast.makeText(context, "Reanudando descarga con Lelouch Service: ${item.title}", android.widget.Toast.LENGTH_SHORT).show()
+                                                    },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5C9)),
+                                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                    shape = RoundedCornerShape(8.dp)
+                                                ) {
+                                                    Text("▶ Reanudar", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                                }
                                             }
                                         }
                                         if (item.isCompleted && !item.playUri.isNullOrBlank()) {

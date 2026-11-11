@@ -147,8 +147,9 @@ class SeriesRepositoryImpl(
                             val epId = item.optInt("id", item.optInt("stream_id", item.optInt("episode_id", item.optString("id").toIntOrNull() ?: item.optString("stream_id").toIntOrNull() ?: 0)))
                             val epNum = item.optInt("episode_num", item.optInt("episodeNumber", item.optString("episode_num").toIntOrNull() ?: (i + 1)))
                             val rawTitle = item.optString("title").ifBlank { item.optString("name").ifBlank { "Episodio $epNum" } }
-                            val ext = item.optString("container_extension", "mp4").ifBlank { "mp4" }
                             val infoObj = item.optJSONObject("info")
+                            val rawExt = item.optString("container_extension").ifBlank { infoObj?.optString("container_extension").orEmpty() }
+                            val ext = rawExt.trimStart('.').ifBlank { "mp4" }
                             val plot = infoObj?.optString("plot")?.ifBlank { null } ?: item.optString("plot").ifBlank { "Capítulo $epNum de la temporada $seasonNum." }
                             val durationSecs = infoObj?.optInt("duration_secs", 0)?.takeIf { it > 0 } ?: item.optInt("duration_secs", 0)
                             val coverUrl = infoObj?.optString("movie_image")?.ifBlank { null } ?: item.optString("movie_image").ifBlank { null }
@@ -184,8 +185,9 @@ class SeriesRepositoryImpl(
                     val epId = item.optInt("id", item.optInt("stream_id", item.optInt("episode_id", item.optString("id").toIntOrNull() ?: item.optString("stream_id").toIntOrNull() ?: 0)))
                     val epNum = item.optInt("episode_num", item.optInt("episodeNumber", item.optString("episode_num").toIntOrNull() ?: (i + 1)))
                     val rawTitle = item.optString("title").ifBlank { item.optString("name").ifBlank { "Episodio $epNum" } }
-                    val ext = item.optString("container_extension", "mp4").ifBlank { "mp4" }
                     val infoObj = item.optJSONObject("info")
+                    val rawExt = item.optString("container_extension").ifBlank { infoObj?.optString("container_extension").orEmpty() }
+                    val ext = rawExt.trimStart('.').ifBlank { "mp4" }
                     val plot = infoObj?.optString("plot")?.ifBlank { null } ?: item.optString("plot").ifBlank { "Capítulo $epNum de la temporada $seasonNum." }
                     val durationSecs = infoObj?.optInt("duration_secs", 0)?.takeIf { it > 0 } ?: item.optInt("duration_secs", 0)
                     val coverUrl = infoObj?.optString("movie_image")?.ifBlank { null } ?: item.optString("movie_image").ifBlank { null }
