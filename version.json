@@ -1,7 +1,7 @@
 {
-  "versionName": "1.0.130",
-  "versionCode": 1000130,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.130/LELOUCH-PLUS-v1.0.130.apk",
-  "changelog": "- Mobile: Nuevo reproductor de video moderno con controles circulares centrales (Retroceder 10s, Anillo dorado Play/Pausa, Adelantar 10s).\n- Mobile: Cabecera con insignias estilizadas SERVIDOR y calidad HD.\n- Mobile: Visualización de versión y compilación de la app en Ajustes con botón de búsqueda de actualizaciones.\n- Mobile: Soporte para subir e importar archivos M3U (.m3u / .m3u8) directamente desde el almacenamiento del teléfono.\n- Terminal: Agente de código Ollama (qwen2.5-coder:7b) configurado con comandos directos.",
-  "version": "1.0.130"
+  "versionName": "1.0.131",
+  "versionCode": 1000131,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.131/LELOUCH-PLUS-v1.0.131.apk",
+  "changelog": "- Mobile: Reproductor de video moderno Supergirl con controles circulares centrales (Retroceder 10s, Anillo dorado Play/Pausa/Buffering, Adelantar 10s).\n- Mobile: Cabecera con insignias SERVIDOR y calidad HD/FHD.\n- Mobile: Tarjeta informativa de versión y actualizaciones en Ajustes.\n- Rendimiento: Código simplificado bajo filosofía Ponytail y sincronización Xtream optimizada.\n- Terminal: Agente de código Ollama (coder / qwen2.5-coder) configurado nativamente.",
+  "version": "1.0.131"
 }

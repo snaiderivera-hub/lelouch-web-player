@@ -2,11 +2,7 @@ package com.lelouch.feature.mobile
 
 import android.app.Activity
 import android.content.pm.ActivityInfo
-import android.net.Uri
-import android.provider.OpenableColumns
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -2534,46 +2530,6 @@ private fun MobileSettingsTab(
     val prefs = remember { context.getSharedPreferences("lelouch_mobile_settings", android.content.Context.MODE_PRIVATE) }
     var currentLanguage by remember { mutableStateOf(prefs.getString("app_language", "es") ?: "es") }
 
-    val scope = rememberCoroutineScope()
-    var isImportingFile by remember { mutableStateOf(false) }
-    val m3uPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            isImportingFile = true
-            scope.launch(Dispatchers.IO) {
-                try {
-                    var fileName = "lista_${System.currentTimeMillis()}.m3u"
-                    context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-                        val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                        if (nameIndex != -1 && cursor.moveToFirst()) {
-                            val name = cursor.getString(nameIndex)
-                            if (!name.isNullOrBlank()) fileName = name
-                        }
-                    }
-                    val playlistsDir = java.io.File(context.filesDir, "playlists").apply { mkdirs() }
-                    val destFile = java.io.File(playlistsDir, fileName)
-                    context.contentResolver.openInputStream(uri)?.use { input ->
-                        destFile.outputStream().use { output ->
-                            input.copyTo(output)
-                        }
-                    }
-                    val cleanTitle = fileName.substringBeforeLast(".").ifBlank { "Lista M3U Local" }
-                    withContext(Dispatchers.Main) {
-                        isImportingFile = false
-                        onAddSourceSmart("file://${destFile.absolutePath}", cleanTitle)
-                        android.widget.Toast.makeText(context, "✅ Lista M3U importada: $cleanTitle", android.widget.Toast.LENGTH_LONG).show()
-                    }
-                } catch (e: Exception) {
-                    withContext(Dispatchers.Main) {
-                        isImportingFile = false
-                        android.widget.Toast.makeText(context, "❌ Error al cargar archivo: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-        }
-    }
-
     val langLabel = when (currentLanguage) {
         "es" -> "Español (América Latina / España)"
         "en" -> "English"
@@ -3738,43 +3694,6 @@ private fun MobileSettingsTab(
                             fontSize = 13.sp
                         )
                     }
-
-                    HorizontalDivider(
-                        color = Color.White.copy(0.12f),
-                        modifier = Modifier.padding(vertical = 4.dp)
-                    )
-
-                    OutlinedButton(
-                        onClick = { m3uPickerLauncher.launch("*/*") },
-                        enabled = !isImportingFile,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(44.dp),
-                        shape = RoundedCornerShape(8.dp),
-                        border = BorderStroke(1.dp, LelouchCyanAccent.copy(alpha = 0.8f)),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = LelouchCyanAccent
-                        )
-                    ) {
-                        if (isImportingFile) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                color = LelouchCyanAccent,
-                                strokeWidth = 2.dp
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text("Importando archivo M3U...", fontSize = 13.sp)
-                        } else {
-                            Icon(Icons.Default.UploadFile, contentDescription = null, tint = LelouchCyanAccent, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                "📁 Cargar Archivo M3U (.m3u / .m3u8)",
-                                color = LelouchCyanAccent,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp
-                            )
-                        }
-                    }
                 }
             }
         }
@@ -3807,7 +3726,7 @@ private fun MobileSettingsTab(
                             )
                             Spacer(Modifier.height(2.dp))
                             Text(
-                                "Versión 1.0.130 (Compilación 1000130)",
+                                "Versión 1.0.131 (Compilación 1000131)",
                                 color = LelouchCyanAccent,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp
