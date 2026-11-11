@@ -27,6 +27,19 @@ object SmartUrlParser {
             throw IllegalArgumentException("La URL no puede estar vacía.")
         }
 
+        if (trimmed.startsWith("file://", ignoreCase = true) || trimmed.startsWith("content://", ignoreCase = true) || trimmed.startsWith("/")) {
+            val rawName = customName?.takeIf { it.isNotBlank() }
+                ?: trimmed.substringAfterLast('/').substringBeforeLast('.').ifBlank { "Lista Local M3U" }
+            return ParsedSmartUrl(
+                serverUrl = trimmed,
+                username = "",
+                password = "",
+                type = SourceType.M3U,
+                suggestedName = rawName,
+                token = null
+            )
+        }
+
         val urlClean = if (!trimmed.startsWith("http://", ignoreCase = true) && !trimmed.startsWith("https://", ignoreCase = true)) {
             "http://$trimmed"
         } else {

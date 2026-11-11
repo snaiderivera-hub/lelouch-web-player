@@ -2,7 +2,11 @@ package com.lelouch.feature.mobile
 
 import android.app.Activity
 import android.content.pm.ActivityInfo
+import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -1159,14 +1163,61 @@ fun MobileHomeScreen(
                             Icon(Icons.Default.ArrowBack, contentDescription = "Regresar", tint = Color.White)
                         }
                         Spacer(Modifier.width(14.dp))
-                        Text(
-                            text = activeChannelName,
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = activeChannelName,
+                                color = Color.White,
+                                fontWeight = FontWeight.Black,
+                                fontSize = 17.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (!isLivePlayback) {
+                                Spacer(Modifier.height(3.dp))
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    // Pill Dorada Neón SERVIDOR
+                                    val serverLabel = activeSource?.name?.uppercase()?.takeIf { it.isNotBlank() } ?: "SERVIDOR 1"
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .border(1.dp, Color(0xFFFFC107), RoundedCornerShape(6.dp))
+                                            .background(Color(0xFFFFC107).copy(alpha = 0.15f))
+                                            .padding(horizontal = 7.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = serverLabel,
+                                            color = Color(0xFFFFC107),
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Black
+                                        )
+                                    }
+                                    // Pill Calidad HD / FHD / 4K
+                                    val videoTrack by playerEngine.videoTrackInfo.collectAsState()
+                                    val qualityText = when {
+                                        videoTrack.height >= 2160 -> "4K"
+                                        videoTrack.height >= 1080 -> "FHD"
+                                        videoTrack.height >= 720 -> "HD"
+                                        else -> "HD"
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(Color.White.copy(alpha = 0.2f))
+                                            .padding(horizontal = 7.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = qualityText,
+                                            color = Color.White,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1290,6 +1341,103 @@ fun MobileHomeScreen(
                         }
                     }
 
+                    // Controles Centrales Flotantes Grandes (Supergirl Style: -10s, Anillo Dorado Neón Play/Pausa/Buffering, +10s)
+                    AnimatedVisibility(
+                        visible = isOverlayVisible,
+                        enter = fadeIn(),
+                        exit = fadeOut(),
+                        modifier = Modifier.align(Alignment.Center)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(28.dp)
+                        ) {
+                            // Botón Circular Retroceso 10s
+                            Box(
+                                modifier = Modifier
+                                    .size(64.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Black.copy(alpha = 0.58f))
+                                    .border(1.dp, Color.White.copy(alpha = 0.22f), CircleShape)
+                                    .clickable { playerEngine.seekBy(-10000L) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        Icons.Default.FastRewind,
+                                        contentDescription = "Retroceder 10s",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                    Text(
+                                        text = "10",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            // Botón Central Circular con Anillo Dorado Neón
+                            Box(
+                                modifier = Modifier
+                                    .size(82.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Black.copy(alpha = 0.65f))
+                                    .border(3.5.dp, Color(0xFFFFC107), CircleShape)
+                                    .clickable { playerEngine.togglePlayPause() },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (playbackState is PlaybackState.Buffering) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(46.dp),
+                                        color = Color(0xFFFFC107),
+                                        strokeWidth = 3.5.dp
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                        contentDescription = "Play/Pausa",
+                                        tint = Color(0xFFFFC107),
+                                        modifier = Modifier.size(44.dp)
+                                    )
+                                }
+                            }
+
+                            // Botón Circular Avance 10s
+                            Box(
+                                modifier = Modifier
+                                    .size(64.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Black.copy(alpha = 0.58f))
+                                    .border(1.dp, Color.White.copy(alpha = 0.22f), CircleShape)
+                                    .clickable { playerEngine.seekBy(10000L) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        Icons.Default.FastForward,
+                                        contentDescription = "Adelantar 10s",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                    Text(
+                                        text = "10",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     AnimatedVisibility(
                         visible = isOverlayVisible,
                         enter = fadeIn() + slideInVertically { it / 2 },
@@ -1330,8 +1478,8 @@ fun MobileHomeScreen(
                                     .weight(1f)
                                     .padding(horizontal = 10.dp),
                                 colors = SliderDefaults.colors(
-                                    thumbColor = LelouchCyanAccent,
-                                    activeTrackColor = LelouchCyanAccent,
+                                    thumbColor = Color(0xFFFFC107),
+                                    activeTrackColor = Color(0xFFFFC107),
                                     inactiveTrackColor = Color.White.copy(0.3f)
                                 )
                             )
@@ -1343,52 +1491,18 @@ fun MobileHomeScreen(
                             )
                         }
 
-                        // Botones de transporte: -10s, Play/Pausa, +10s, Velocidad
+                        // Fila de controles secundarios (Velocidad)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.Center,
+                            horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Retroceso 10 segundos
-                            IconButton(
-                                onClick = { playerEngine.seekBy(-10000L) },
-                                modifier = Modifier
-                                    .size(46.dp)
-                                    .background(Color.White.copy(0.15f), CircleShape)
-                            ) {
-                                Icon(Icons.Default.FastRewind, contentDescription = "Retroceder 10s", tint = Color.White)
-                            }
-
-                            Spacer(Modifier.width(20.dp))
-
-                            // Play / Pausa
-                            IconButton(
-                                onClick = { playerEngine.togglePlayPause() },
-                                modifier = Modifier
-                                    .size(54.dp)
-                                    .background(LelouchCyanAccent, CircleShape)
-                            ) {
-                                Icon(
-                                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                    contentDescription = "Play/Pausa",
-                                    tint = Color.Black,
-                                    modifier = Modifier.size(30.dp)
-                                )
-                            }
-
-                            Spacer(Modifier.width(20.dp))
-
-                            // Avance 10 segundos
-                            IconButton(
-                                onClick = { playerEngine.seekBy(10000L) },
-                                modifier = Modifier
-                                    .size(46.dp)
-                                    .background(Color.White.copy(0.15f), CircleShape)
-                            ) {
-                                Icon(Icons.Default.FastForward, contentDescription = "Adelantar 10s", tint = Color.White)
-                            }
-
-                            Spacer(Modifier.width(24.dp))
+                            Text(
+                                text = if (isPlaying) "Reproduciendo" else "En pausa",
+                                color = Color.White.copy(0.6f),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium
+                            )
 
                             // Selector de velocidad
                             Box(
@@ -1408,7 +1522,7 @@ fun MobileHomeScreen(
                             ) {
                                 Text(
                                     text = "${currentPlaybackSpeed}x",
-                                    color = LelouchCyanAccent,
+                                    color = Color(0xFFFFC107),
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp
                                 )
@@ -2419,6 +2533,46 @@ private fun MobileSettingsTab(
 
     val prefs = remember { context.getSharedPreferences("lelouch_mobile_settings", android.content.Context.MODE_PRIVATE) }
     var currentLanguage by remember { mutableStateOf(prefs.getString("app_language", "es") ?: "es") }
+
+    val scope = rememberCoroutineScope()
+    var isImportingFile by remember { mutableStateOf(false) }
+    val m3uPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            isImportingFile = true
+            scope.launch(Dispatchers.IO) {
+                try {
+                    var fileName = "lista_${System.currentTimeMillis()}.m3u"
+                    context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                        val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        if (nameIndex != -1 && cursor.moveToFirst()) {
+                            val name = cursor.getString(nameIndex)
+                            if (!name.isNullOrBlank()) fileName = name
+                        }
+                    }
+                    val playlistsDir = java.io.File(context.filesDir, "playlists").apply { mkdirs() }
+                    val destFile = java.io.File(playlistsDir, fileName)
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        destFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    val cleanTitle = fileName.substringBeforeLast(".").ifBlank { "Lista M3U Local" }
+                    withContext(Dispatchers.Main) {
+                        isImportingFile = false
+                        onAddSourceSmart("file://${destFile.absolutePath}", cleanTitle)
+                        android.widget.Toast.makeText(context, "✅ Lista M3U importada: $cleanTitle", android.widget.Toast.LENGTH_LONG).show()
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        isImportingFile = false
+                        android.widget.Toast.makeText(context, "❌ Error al cargar archivo: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+    }
 
     val langLabel = when (currentLanguage) {
         "es" -> "Español (América Latina / España)"
@@ -3582,6 +3736,123 @@ private fun MobileSettingsTab(
                             color = if (smartUrl.isNotBlank()) Color.Black else LelouchTextSecondary,
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp
+                        )
+                    }
+
+                    HorizontalDivider(
+                        color = Color.White.copy(0.12f),
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    )
+
+                    OutlinedButton(
+                        onClick = { m3uPickerLauncher.launch("*/*") },
+                        enabled = !isImportingFile,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(1.dp, LelouchCyanAccent.copy(alpha = 0.8f)),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = LelouchCyanAccent
+                        )
+                    ) {
+                        if (isImportingFile) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                color = LelouchCyanAccent,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("Importando archivo M3U...", fontSize = 13.sp)
+                        } else {
+                            Icon(Icons.Default.UploadFile, contentDescription = null, tint = LelouchCyanAccent, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "📁 Cargar Archivo M3U (.m3u / .m3u8)",
+                                color = LelouchCyanAccent,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // TARJETA DE VERSIÓN Y ACTUALIZACIONES
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = LelouchSurface),
+                border = BorderStroke(1.dp, Color.White.copy(0.12f))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                "ℹ️ Lelouch Plus",
+                                color = LelouchTextPrimary,
+                                fontWeight = FontWeight.Black,
+                                fontSize = 16.sp
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                "Versión 1.0.130 (Compilación 1000130)",
+                                color = LelouchCyanAccent,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0xFF00E5C9).copy(alpha = 0.15f))
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                "PRODUCCIÓN",
+                                color = LelouchCyanAccent,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+                    }
+
+                    Text(
+                        "Reproductor IPTV/OTT de alto rendimiento optimizado para Android 15 y Android TV. Sin límites de conexiones simultáneas.",
+                        color = LelouchTextSecondary,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp
+                    )
+
+                    Button(
+                        onClick = onOpenUpdate,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(42.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.White.copy(alpha = 0.12f),
+                            contentColor = Color.White
+                        )
+                    ) {
+                        Icon(Icons.Default.SystemUpdate, contentDescription = null, tint = LelouchCyanAccent, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "🔄 Buscar Actualizaciones",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = Color.White
                         )
                     }
                 }

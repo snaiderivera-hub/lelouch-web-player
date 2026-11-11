@@ -415,19 +415,20 @@ class XtreamCatalogSyncManager private constructor(
 
             if (totalInStaging == 0 && (serverUrl.startsWith("http") || isLocalFile(serverUrl))) {
                 try {
-                    val m3uReq = Request.Builder()
-                        .url(serverUrl)
-                        .header("Accept-Encoding", "gzip, deflate")
-                        .build()
-                    val m3uRes = httpClient.newCall(m3uReq).execute()
-                    if (m3uRes.isSuccessful) {
-                        val inputStream = if (isLocalFile(serverUrl)) {
-                            java.io.File(serverUrl.removePrefix("file://")).inputStream()
-                        } else {
-                            m3uRes.body?.byteStream()
-                        }
+                    val inputStream: java.io.InputStream? = if (isLocalFile(serverUrl)) {
+                        val cleanPath = serverUrl.removePrefix("file://")
+                        val file = java.io.File(cleanPath)
+                        if (file.exists()) file.inputStream() else null
+                    } else {
+                        val m3uReq = Request.Builder()
+                            .url(serverUrl)
+                            .header("Accept-Encoding", "gzip, deflate")
+                            .build()
+                        val m3uRes = httpClient.newCall(m3uReq).execute()
+                        if (m3uRes.isSuccessful) m3uRes.body?.byteStream() else null
+                    }
 
-                        if (inputStream != null) {
+                    if (inputStream != null) {
                             val bufferedReader = java.io.BufferedReader(java.io.InputStreamReader(inputStream, Charsets.UTF_8), 65536)
                             var count = 0
                             var currentName = "Canal"
@@ -539,7 +540,6 @@ class XtreamCatalogSyncManager private constructor(
                             database.catalogStagingDao().insertSeriesStaging(seriesStagingBatch)
                             seriesStagingBatch.clear()
                         }
-                    }
                 } catch (e: Exception) {
                     strategyErrors.add("M3U directo: ${e.message ?: e.javaClass.simpleName}")
                 }
