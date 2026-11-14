@@ -144,11 +144,12 @@ class LelouchPlayerEngine(
 
     private val streamingOkHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
+            .dns(com.lelouch.core.network.dns.LelouchDnsManager)
             .retryOnConnectionFailure(true)
             .pingInterval(10, TimeUnit.SECONDS)
             .connectTimeout(config.connectTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
             .readTimeout(config.readTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
-            .connectionPool(ConnectionPool(0, 5, TimeUnit.MINUTES))
+            .connectionPool(ConnectionPool(5, 2, TimeUnit.MINUTES))
             .followRedirects(true)
             .followSslRedirects(true)
             .build()
@@ -191,10 +192,22 @@ class LelouchPlayerEngine(
     }
 
     private val renderersFactory by lazy {
+        val decoderMode = com.lelouch.core.network.dns.LelouchDnsManager.getVideoDecoderMode()
         DefaultRenderersFactory(context).apply {
             setEnableDecoderFallback(true)
-            if (config.enableHardwareAcceleration) {
-                setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+            when (decoderMode) {
+                com.lelouch.core.network.dns.LelouchDnsManager.VideoDecoderMode.SW_ONLY -> {
+                    setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+                }
+                com.lelouch.core.network.dns.LelouchDnsManager.VideoDecoderMode.HW_ONLY -> {
+                    setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
+                }
+                com.lelouch.core.network.dns.LelouchDnsManager.VideoDecoderMode.HW_PLUS -> {
+                    setExtensionRendererMode(
+                        if (config.enableHardwareAcceleration) DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
+                        else DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF
+                    )
+                }
             }
         }
     }
@@ -429,15 +442,15 @@ class LelouchPlayerEngine(
             val isMultiBitrateHls = _currentUrl.value?.contains(".m3u8", ignoreCase = true) == true ||
                                     _currentUrl.value?.contains("output=m3u8", ignoreCase = true) == true
 
-            // FASE 1 (2.5 segundos de buffering):
+            // FASE 1 (3.5 segundos de buffering):
             // Reducir la calidad de video al bitrate intermedio (720p/480p) para salvar la transmisión sin cortar.
             // NOTA: Solo aplicar reducción de bitrate (ABR) en streams HLS multi-bitrate (.m3u8).
-            delay(2_500L)
+            delay(3_500L)
             if (!isActive || !isCurrentStreamLive) return@launch
 
             if (isMultiBitrateHls) {
                 playbackTracker.onWatchdogEvent(watchdogAttemptId, WatchdogEventType.WATCHDOG_BITRATE_REDUCTION, "Bitrate -> 1.5Mbps")
-                android.util.Log.w("LelouchPlayer", "Buffer en riesgo (>2.5s). Reduciendo calidad de video (ABR) para evitar corte...")
+                android.util.Log.w("LelouchPlayer", "Buffer en riesgo (>3.5s). Reduciendo calidad de video (ABR) para evitar corte...")
                 try {
                     trackSelector.setParameters(
                         trackSelector.parameters.buildUpon()
@@ -447,16 +460,15 @@ class LelouchPlayerEngine(
                 } catch (_: Exception) {}
             }
 
-            // FASE 2 (4.5 segundos continuos en buffering en vivo):
-            // Si el buffer no se recuperó en 4.5s (en vivo), no dejar al usuario esperando 12 segundos;
-            // auto-reconectar de inmediato el socket hacia el servidor IPTV.
-            delay(2_000L)
+            // FASE 2 (10 segundos continuos en buffering en vivo):
+            // Tolerancia ampliada para túneles VPN y rellenado de buffer sin abortar cargas al 80%.
+            delay(6_500L)
             if (!isActive || !isCurrentStreamLive) return@launch
 
             if (autoRetryAttemptsLeft > 0) {
                 autoRetryAttemptsLeft--
                 playbackTracker.onWatchdogEvent(watchdogAttemptId, WatchdogEventType.WATCHDOG_RETRY, "Buffering timeout auto-recover")
-                recoverLiveStream("Buffer agotado durante >4.5s")
+                recoverLiveStream("Buffer agotado durante >10s")
             }
         }
     }
@@ -808,9 +820,10 @@ class LelouchPlayerEngine(
 
                 // DETECCIÓN DE CONGELAMIENTO EN VIVO (STALL WATCHDOG):
                 // En canales en vivo, mientras el usuario tenga playWhenReady = true:
-                // 1. Si los fotogramas de video no avanzan (decodificador de chip trabado en TV Box)
-                // 2. Si la posición de tiempo/audio no avanza
-                // 3. Si el reproductor está en STATE_READY pero isPlaying es false por más de 3.5s
+                // Evaluar únicamente si los fotogramas reales del decodificador dejaron de avanzar (isFrameStalled)
+                // o si ExoPlayer quedó detenido en STATE_READY (isNotPlayingStalled) durante 8s consecutivos.
+                // NOTA: No usar currentPosition en HLS (.m3u8) porque la ventana deslizante desplaza la posición
+                // relativa aunque el video se esté renderizando a 30/60 fps sin congelamiento.
                 if (isCurrentStreamLive && 
                     exoPlayer.playWhenReady &&
                     !isRecoveringLive
@@ -819,20 +832,18 @@ class LelouchPlayerEngine(
                         (renderedFrames - lastRenderedFrames) == 0
                     } else false
 
-                    val isPositionStalled = lastTrackedPositionMs >= 0L && kotlin.math.abs(currentPos - lastTrackedPositionMs) < 150L
                     val isNotPlayingStalled = !exoPlayer.isPlaying && exoPlayer.playbackState == Player.STATE_READY
 
-                    if (isFrameStalled || isPositionStalled || isNotPlayingStalled) {
+                    if (isFrameStalled || isNotPlayingStalled) {
                         silentStallCounter++
-                        if (silentStallCounter >= 4) { // 4 segundos consecutivos sin avance
+                        if (silentStallCounter >= 8) { // 8 segundos consecutivos sin renderizar fotogramas reales
                             silentStallCounter = 0
                             lastTrackedPositionMs = -1L
                             lastRenderedFrames = -1
                             recoverLiveStream(
                                 when {
-                                    isFrameStalled -> "Video congelado (0 frames renderizados en 4s, decodificador bloqueado)"
-                                    isNotPlayingStalled -> "ExoPlayer detenido en STATE_READY (isPlaying=false por 4s)"
-                                    else -> "Transmisión congelada (posición estancada por 4s)"
+                                    isFrameStalled -> "Video congelado (0 frames renderizados en 8s, decodificador bloqueado)"
+                                    else -> "ExoPlayer detenido en STATE_READY (isPlaying=false por 8s)"
                                 }
                             )
                         }

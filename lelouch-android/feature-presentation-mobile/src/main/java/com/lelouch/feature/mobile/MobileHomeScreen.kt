@@ -3726,7 +3726,7 @@ private fun MobileSettingsTab(
                             )
                             Spacer(Modifier.height(2.dp))
                             Text(
-                                "Versión 1.0.131 (Compilación 1000131)",
+                                "Versión 1.0.132 (Compilación 1000132)",
                                 color = LelouchCyanAccent,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp

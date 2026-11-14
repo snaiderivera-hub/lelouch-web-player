@@ -32,12 +32,13 @@ object LelouchDnsManager : Dns {
         val id: String,
         val title: String,
         val primaryIp: String,
-        val secondaryIp: String
+        val secondaryIp: String,
+        val dohUrl: String
     ) {
-        CLOUDFLARE("cloudflare", "Cloudflare", "1.1.1.1", "1.0.0.1"),
-        GOOGLE("google", "Google", "8.8.8.8", "8.8.4.4"),
-        CONTROL_D("controld", "Control D Uncensored", "76.76.2.5", "76.76.10.5"),
-        ADGUARD("adguard", "AdGuard sans filtre", "94.140.14.140", "94.140.14.141")
+        CLOUDFLARE("cloudflare", "Cloudflare (DoH 443)", "1.1.1.1", "1.0.0.1", "https://1.1.1.1/dns-query"),
+        GOOGLE("google", "Google (DoH 443)", "8.8.8.8", "8.8.4.4", "https://8.8.8.8/dns-query"),
+        CONTROL_D("controld", "Control D Uncensored", "76.76.2.5", "76.76.10.5", "https://76.76.2.5/p0"),
+        ADGUARD("adguard", "AdGuard sans filtre", "94.140.14.140", "94.140.14.141", "https://94.140.14.140/dns-query")
     }
 
     data class DnsBenchmarkResult(
@@ -142,7 +143,9 @@ object LelouchDnsManager : Dns {
 
         if (enabledState) {
             val provider = selectedProviderState
-            val resolved = queryUdpDns(provider.primaryIp, cleanHost, 1_500)
+            // 1. Priorizar DNS-over-HTTPS (DoH RFC 8484 por puerto TCP 443 TLS) para evadir bloqueo/hijacking de ISP en puerto 53
+            val resolved = queryDohDns(provider.dohUrl, cleanHost, 2_000)
+                ?: queryUdpDns(provider.primaryIp, cleanHost, 1_500)
                 ?: queryUdpDns(provider.secondaryIp, cleanHost, 1_500)
             if (!resolved.isNullOrEmpty()) {
                 ramCache[cleanHost] = CachedEntry(resolved, now + CACHE_TTL_MS)
@@ -193,6 +196,37 @@ object LelouchDnsManager : Dns {
         val addresses = queryUdpDns(dnsServerIp, domain, 1_800)
         if (addresses.isNullOrEmpty()) return null
         return ((System.nanoTime() - start) / 1_000_000L).coerceAtLeast(1L)
+    }
+
+    /**
+     * Consulta DNS-over-HTTPS (RFC 8484 wireformat sobre puerto 443 TLS) usando IP directa
+     * para evitar bloqueos de puerto 53 (DNS Hijacking / DPI) del proveedor de internet (ISP).
+     */
+    private fun queryDohDns(dohUrl: String, domain: String, timeoutMs: Int): List<InetAddress>? {
+        return try {
+            val txId = Random.nextInt(1, 0xFFFF)
+            val queryBytes = buildDnsQueryPacket(txId, domain)
+            val conn = (java.net.URL(dohUrl).openConnection() as javax.net.ssl.HttpsURLConnection).apply {
+                requestMethod = "POST"
+                connectTimeout = timeoutMs
+                readTimeout = timeoutMs
+                doOutput = true
+                setRequestProperty("Content-Type", "application/dns-message")
+                setRequestProperty("Accept", "application/dns-message")
+                hostnameVerifier = javax.net.ssl.HostnameVerifier { _, _ -> true }
+            }
+            try {
+                conn.outputStream.use { it.write(queryBytes) }
+                if (conn.responseCode == 200) {
+                    val responseBytes = conn.inputStream.use { it.readBytes() }
+                    parseDnsARecords(domain, responseBytes, responseBytes.size, txId).takeIf { it.isNotEmpty() }
+                } else null
+            } finally {
+                conn.disconnect()
+            }
+        } catch (_: Exception) {
+            null
+        }
     }
 
     private fun queryUdpDns(dnsServerIp: String, domain: String, timeoutMs: Int): List<InetAddress>? {

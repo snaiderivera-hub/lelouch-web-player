@@ -1,7 +1,7 @@
 {
-  "versionName": "1.0.131",
-  "versionCode": 1000131,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.131/LELOUCH-PLUS-v1.0.131.apk",
-  "changelog": "- Mobile: Reproductor de video moderno Supergirl con controles circulares centrales (Retroceder 10s, Anillo dorado Play/Pausa/Buffering, Adelantar 10s).\n- Mobile: Cabecera con insignias SERVIDOR y calidad HD/FHD.\n- Mobile: Tarjeta informativa de versión y actualizaciones en Ajustes.\n- Rendimiento: Código simplificado bajo filosofía Ponytail y sincronización Xtream optimizada.\n- Terminal: Agente de código Ollama (coder / qwen2.5-coder) configurado nativamente.",
-  "version": "1.0.131"
+  "versionName": "1.0.132",
+  "versionCode": 1000132,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.132/LELOUCH-PLUS-v1.0.132.apk",
+  "changelog": "- TV Box y Mobile: Eliminación de falsos positivos en Watchdog de canales en vivo HLS (fin de los reinicios cada 4s).\n- Red y Anti-Throttling: DNS-over-HTTPS (DoH RFC 8484 por puerto 443 TLS) integrado en el motor de video y catálogo.\n- Estabilidad HLS y VPN: ConnectionPool Keep-Alive persistente para segmentos .ts, colchón minBufferMs de 15s en RAM y tolerancia de latencia para túneles VPN.\n- Hardware: Integración efectiva del selector de decodificador (HW+ / HW / SW) en ExoPlayer.",
+  "version": "1.0.132"
 }
