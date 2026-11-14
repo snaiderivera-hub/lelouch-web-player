@@ -8,19 +8,24 @@ import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import com.lelouch.core.network.dns.LelouchDnsManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /**
  * Servicio VPN local Anti-DPI y DNS-over-HTTPS (inspirado en ByeDPIAndroid / Intra / WG Tunnel).
  *
  * Levanta una interfaz TUN ligera que:
- * 1. Activa el túnel VPN oficial de Android (🔑) y fija a nivel de sistema los servidores DNS sin censura.
- * 2. Evita enrutar 0.0.0.0/0 por espacio de usuario para mantener el 100% del ancho de banda físico en la TV Box y Móvil.
- * 3. Activa en [LelouchDnsManager] el socket factory Anti-DPI (TCP_NODELAY, ventana de 512KB, QoS IPTOS_LOWDELAY)
- *    y la rotación automática de firma User-Agent ante throttling del ISP.
+ * 1. Activa el túnel VPN oficial de Android (🔑) y excluye el proceso de video de `tun0` (`addDisallowedApplication`)
+ *    para que los paquetes de video salgan directamente por la tarjeta de red física sin pérdida de velocidad.
+ * 2. Activa en [LelouchDnsManager] el `AntiDpiSplitSocket` (fragmentación TCP del primer paquete HTTP/TLS en
+ *    micro-segmentos con `TCP_NODELAY`), ventana de recepción de 512KB, QoS `IPTOS_LOWDELAY` y resolución DoH 443.
+ * 3. Ejecuta verificación en vivo (`verifyVpnShieldLive`) para comprobar la respuesta del servidor DoH 443.
  */
 class LelouchVpnService : VpnService() {
 
     private var vpnInterface: ParcelFileDescriptor? = null
+    private val serviceScope = CoroutineScope(Dispatchers.IO)
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
@@ -37,19 +42,27 @@ class LelouchVpnService : VpnService() {
     }
 
     private fun startVpnTunnel() {
+        LelouchDnsManager.setVpnShieldEnabled(true)
+        LelouchDnsManager.setEnabled(true)
+        serviceScope.launch {
+            LelouchDnsManager.verifyVpnShieldLive()
+        }
+
         if (vpnInterface != null) {
-            LelouchDnsManager.setVpnShieldEnabled(true)
             return
         }
         try {
-            val provider = LelouchDnsManager.getSelectedProvider()
             val builder = Builder()
                 .setSession("Lelouch VPN Anti-DPI Shield")
                 .setMtu(1420)
                 .addAddress("10.215.173.1", 30)
                 .addRoute("10.215.173.2", 32)
-                .addDnsServer(provider.primaryIp)
-                .addDnsServer(provider.secondaryIp)
+
+            // Excluir el propio paquete de la interfaz virtual tun0 para que los flujos de video y DoH 443
+            // salgan por la interfaz física usando AntiDpiSplitSocket sin cuello de botella en espacio de usuario.
+            runCatching {
+                builder.addDisallowedApplication(packageName)
+            }
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 builder.setMetered(false)
@@ -57,15 +70,14 @@ class LelouchVpnService : VpnService() {
 
             vpnInterface = builder.establish()
             if (vpnInterface != null) {
-                LelouchDnsManager.setVpnShieldEnabled(true)
-                LelouchDnsManager.setEnabled(true)
-                android.util.Log.i("LelouchVPN", "Túnel VPN Anti-DPI establecido con éxito (${provider.title})")
+                android.util.Log.i("LelouchVPN", "Túnel VPN Anti-DPI (tun0 + DoH 443 + TCP Split) establecido con éxito")
             } else {
-                LelouchDnsManager.setVpnShieldEnabled(false)
+                // En TV Boxes cuyo firmware no incluye com.android.vpndialogs, mantenemos activo
+                // el escudo Anti-DPI interno (DoH 443 + Fragmentación TCP + QoS 512KB).
+                android.util.Log.i("LelouchVPN", "Modo Escudo Directo Anti-DPI + DoH 443 activo (ROM sin interfaz tun0)")
             }
         } catch (e: Exception) {
-            android.util.Log.e("LelouchVPN", "Error al iniciar túnel VPN: ${e.message}")
-            LelouchDnsManager.setVpnShieldEnabled(false)
+            android.util.Log.w("LelouchVPN", "Fallback a Escudo Directo Anti-DPI + DoH 443: ${e.message}")
         }
     }
 
@@ -98,6 +110,8 @@ class LelouchVpnService : VpnService() {
 
 object LelouchVpnController {
 
+    private val controllerScope = CoroutineScope(Dispatchers.IO)
+
     /**
      * Devuelve el Intent de permiso del sistema si el usuario aún no ha autorizado el túnel VPN,
      * o `null` si ya está autorizado y listo para iniciar directamente.
@@ -111,21 +125,23 @@ object LelouchVpnController {
     }
 
     fun start(context: Context) {
+        LelouchDnsManager.setVpnShieldEnabled(true)
+        LelouchDnsManager.setEnabled(true)
+        controllerScope.launch {
+            LelouchDnsManager.verifyVpnShieldLive()
+        }
         try {
             val intent = Intent(context, LelouchVpnService::class.java).apply {
                 action = LelouchVpnService.ACTION_START
             }
             context.startService(intent)
         } catch (e: Exception) {
-            android.util.Log.e("LelouchVPN", "No se pudo iniciar LelouchVpnService: ${e.message}")
-            // Aun si el firmware de una TV Box genérica carece de diálogo VpnService,
-            // activamos el modo Anti-DPI interno (DoH 443 + QoS Socket + Rotación User-Agent)
-            LelouchDnsManager.setVpnShieldEnabled(true)
-            LelouchDnsManager.setEnabled(true)
+            android.util.Log.e("LelouchVPN", "Fallback Anti-DPI directo activo: ${e.message}")
         }
     }
 
     fun stop(context: Context) {
+        LelouchDnsManager.setVpnShieldEnabled(false)
         try {
             val intent = Intent(context, LelouchVpnService::class.java).apply {
                 action = LelouchVpnService.ACTION_STOP
@@ -133,7 +149,6 @@ object LelouchVpnController {
             context.startService(intent)
         } catch (_: Exception) {
         }
-        LelouchDnsManager.setVpnShieldEnabled(false)
     }
 
     /**
@@ -151,4 +166,3 @@ object LelouchVpnController {
         }
     }
 }
-

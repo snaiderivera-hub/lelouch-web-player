@@ -4959,19 +4959,22 @@ private fun TvDnsSelectorModal(
                         }
                     }
 
-                    Text(
-                        text = "El video sigue directo; solo las consultas DNS pasan por LELOUCH.",
-                        color = Color(0xFF64748B),
-                        fontSize = 12.sp
-                    )
-
                     val modalContext = LocalContext.current
                     val isVpnShieldActive by LelouchDnsManager.vpnShieldFlow.collectAsState()
+                    val vpnVerificationStatus by LelouchDnsManager.vpnVerificationFlow.collectAsState()
                     val modalVpnLauncher = rememberLauncherForActivityResult(
                         contract = ActivityResultContracts.StartActivityForResult()
                     ) {
                         LelouchVpnController.start(modalContext)
                     }
+
+                    Text(
+                        text = if (isVpnShieldActive) vpnVerificationStatus
+                        else "El video sigue directo; solo las consultas DNS (DoH 443) y el Anti-DPI pasan por LELOUCH.",
+                        color = if (isVpnShieldActive) Color(0xFF10B981) else Color(0xFF64748B),
+                        fontSize = 12.sp,
+                        fontWeight = if (isVpnShieldActive) FontWeight.Bold else FontWeight.Normal
+                    )
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),

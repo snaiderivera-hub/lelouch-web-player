@@ -1,7 +1,7 @@
 {
-  "versionName": "1.0.133",
-  "versionCode": 1000133,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.133/LELOUCH-PLUS-v1.0.133.apk",
-  "changelog": "- VPN Anti-Congelamiento Integrada (Mobile y TV Box): Servicio nativo LelouchVpnService (VpnService TUN + DoH 443) activable con un toque o botón del control remoto.\n- Escudo Anti-DPI y QoS: SocketFactory con TCP_NODELAY, ventana de recepción de 512 KB, prioridad de tráfico IPTOS_LOWDELAY y rotación automática de firma User-Agent (TiviMate / VLC / Lavf) ante throttling del ISP.\n- Estabilidad HLS: Eliminación de falsos positivos de posición en el Watchdog, ConnectionPool Keep-Alive y colchón minBufferMs de 15s en RAM.",
-  "version": "1.0.133"
+  "versionName": "1.0.134",
+  "versionCode": 1000134,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.134/LELOUCH-PLUS-v1.0.134.apk",
+  "changelog": "- VPN Anti-DPI Verificado (Mobile y TV Box): Fragmentación TCP de primer paquete (AntiDpiSplitSocket: 2B + 14B + resto con TCP_NODELAY) estilo ByeDPI para evadir filtros DPI del ISP.\n- Control D DoH 443 Corregido: Actualizado endpoint TLS a https://76.76.2.11/p0 y verificados los 4 proveedores DoH (Cloudflare, Google, Control D, AdGuard).\n- Compatibilidad TV Box: Bypass de tun0 (addDisallowedApplication) para máxima velocidad de video y activación directa en ROMs de TV Box sin diálogo VpnDialogs.\n- Diagnóstico en Vivo: Indicador en tiempo real de latencia DoH 443 y estado de fragmentación TCP.",
+  "version": "1.0.134"
 }

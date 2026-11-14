@@ -2974,10 +2974,13 @@ private fun MobileSettingsTab(
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     val mobileContext = LocalContext.current
                     val isVpnShieldActive by LelouchDnsManager.vpnShieldFlow.collectAsState()
+                    val vpnVerificationStatus by LelouchDnsManager.vpnVerificationFlow.collectAsState()
                     val mobileVpnLauncher = rememberLauncherForActivityResult(
                         contract = ActivityResultContracts.StartActivityForResult()
-                    ) {
-                        LelouchVpnController.start(mobileContext)
+                    ) { result ->
+                        if (result.resultCode == Activity.RESULT_OK) {
+                            LelouchVpnController.start(mobileContext)
+                        }
                     }
 
                     // Item 0: Escudo VPN Anti-Congelamiento (Túnel Anti-DPI + DoH 443)
@@ -3038,7 +3041,7 @@ private fun MobileSettingsTab(
                                 }
                             }
                             Text(
-                                text = if (isVpnShieldActive) "Túnel Anti-DPI + DoH 443 + Ventana TCP 512KB activos"
+                                text = if (isVpnShieldActive) vpnVerificationStatus
                                 else "Toca para activar túnel local contra bloqueo y throttling de ISP",
                                 color = if (isVpnShieldActive) Color(0xFF10B981) else BixTextMuted,
                                 fontSize = 11.sp
@@ -3825,7 +3828,7 @@ private fun MobileSettingsTab(
                             )
                             Spacer(Modifier.height(2.dp))
                             Text(
-                                "Versión 1.0.133 (Compilación 1000133)",
+                                "Versión 1.0.134 (Compilación 1000134)",
                                 color = LelouchCyanAccent,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp
