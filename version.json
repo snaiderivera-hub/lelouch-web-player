@@ -1,7 +1,7 @@
 {
-  "versionName": "1.0.134",
-  "versionCode": 1000134,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.134/LELOUCH-PLUS-v1.0.134.apk",
-  "changelog": "- VPN Anti-DPI Verificado (Mobile y TV Box): Fragmentación TCP de primer paquete (AntiDpiSplitSocket: 2B + 14B + resto con TCP_NODELAY) estilo ByeDPI para evadir filtros DPI del ISP.\n- Control D DoH 443 Corregido: Actualizado endpoint TLS a https://76.76.2.11/p0 y verificados los 4 proveedores DoH (Cloudflare, Google, Control D, AdGuard).\n- Compatibilidad TV Box: Bypass de tun0 (addDisallowedApplication) para máxima velocidad de video y activación directa en ROMs de TV Box sin diálogo VpnDialogs.\n- Diagnóstico en Vivo: Indicador en tiempo real de latencia DoH 443 y estado de fragmentación TCP.",
-  "version": "1.0.134"
+  "versionName": "1.0.135",
+  "versionCode": 1000135,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.135/LELOUCH-PLUS-v1.0.135.apk",
+  "changelog": "- Reorganización de Ajustes por Sub-Pestañas (TV Box y Mobile): Barra de 4 categorías (📋 Listas y Cuentas, 🛡️ Reproducción y VPN, 🩺 Diagnóstico, ⚙️ General y Sistema) estilo OwnTV/StreamVault sin omitir ninguna función.\n- Acceso Inmediato a Listas IPTV: Tus cuentas y listas guardadas aparecen en primer lugar al abrir Ajustes sin necesidad de hacer scroll.\n- Panel Dedicado de VPN Anti-DPI y Diagnóstico en Vivo.",
+  "version": "1.0.135"
 }

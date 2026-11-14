@@ -2539,6 +2539,7 @@ private fun MobileSettingsTab(
         "pt" -> "Português"
         else -> "Seguir sistema"
     }
+    var selectedSettingsTab by remember { mutableStateOf(0) }
 
     LazyColumn(
         modifier = Modifier
@@ -2547,36 +2548,87 @@ private fun MobileSettingsTab(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // CABECERA: TÍTULO "Configuración"
+        // CABECERA: TÍTULO "Configuración" + BARRA DE 4 SUB-PESTAÑAS (0% OMISIONES)
         item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 4.dp, bottom = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Configuración",
-                    color = Color.White,
-                    fontWeight = FontWeight.Black,
-                    fontSize = 26.sp,
-                    letterSpacing = (-0.5).sp
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "Configuración",
+                            color = Color.White,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 26.sp,
+                            letterSpacing = (-0.5).sp
+                        )
+                        Text(
+                            text = "Organizado por categorías • Todas tus funciones intactas",
+                            color = BixTextMuted,
+                            fontSize = 11.sp
+                        )
+                    }
+                    IconButton(onClick = onForceSync) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Sincronizar",
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+
+                val mobileSettingsTabs = listOf(
+                    "📋 Listas (${allSources.size})",
+                    "🛡️ VPN y Motor",
+                    "🩺 Diagnóstico",
+                    "⚙️ General"
                 )
-                IconButton(onClick = onForceSync) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = "Sincronizar",
-                        tint = Color.White,
-                        modifier = Modifier.size(24.dp)
-                    )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    mobileSettingsTabs.forEachIndexed { idx, tabTitle ->
+                        val isSelected = selectedSettingsTab == idx
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(
+                                    if (isSelected) LelouchCyanAccent.copy(alpha = 0.2f)
+                                    else Color(0xFF14151C)
+                                )
+                                .border(
+                                    1.dp,
+                                    if (isSelected) LelouchCyanAccent else Color.White.copy(alpha = 0.1f),
+                                    RoundedCornerShape(10.dp)
+                                )
+                                .clickable { selectedSettingsTab = idx }
+                                .padding(vertical = 10.dp, horizontal = 4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = tabTitle,
+                                color = if (isSelected) LelouchCyanAccent else Color.White.copy(alpha = 0.8f),
+                                fontWeight = FontWeight.Black,
+                                fontSize = 11.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
                 }
             }
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        // SECCIÓN 1: GENERAL (ESTILO CAPTURA 3)
+        // SUB-PESTAÑA 3: ⚙️ GENERAL Y ALMACENAMIENTO
         // ══════════════════════════════════════════════════════════════════════
+        if (selectedSettingsTab == 3) {
         item {
             Text(
                 text = "GENERAL",
@@ -2949,10 +3001,12 @@ private fun MobileSettingsTab(
                 }
             }
         }
+        } // Fin Sub-Pestaña 3 (General y Almacenamiento)
 
         // ══════════════════════════════════════════════════════════════════════
-        // SECCIÓN 3: REPRODUCCIÓN Y MOTOR LELOUCH
+        // SUB-PESTAÑA 1: 🛡️ REPRODUCCIÓN Y MOTOR LELOUCH (VPN + DNS + CODECS)
         // ══════════════════════════════════════════════════════════════════════
+        if (selectedSettingsTab == 1) {
         item {
             Text(
                 text = "REPRODUCCIÓN Y MOTOR LELOUCH",
@@ -3321,10 +3375,86 @@ private fun MobileSettingsTab(
                 }
             }
         }
+        } // Fin Sub-Pestaña 1 (VPN y Motor)
 
         // ══════════════════════════════════════════════════════════════════════
-        // SECCIÓN 4: CUENTAS IPTV Y NUBE
+        // SUB-PESTAÑA 2: 🩺 DIAGNÓSTICO DE RED Y SERVIDOR EN VIVO
         // ══════════════════════════════════════════════════════════════════════
+        if (selectedSettingsTab == 2) {
+            item {
+                val isVpnActive by LelouchDnsManager.vpnShieldFlow.collectAsState()
+                val vpnStatusText by LelouchDnsManager.vpnVerificationFlow.collectAsState()
+                Text(
+                    text = "DIAGNÓSTICO DE RED, TÚNEL VPN Y SERVIDOR IPTV",
+                    color = Color(0xFFEF4444),
+                    fontWeight = FontWeight.Black,
+                    fontSize = 12.sp,
+                    letterSpacing = 1.2.sp,
+                    modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 2.dp)
+                )
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color(0xFF14151C))
+                        .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(16.dp))
+                        .padding(16.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(
+                            text = "📡 Cuenta Activa: ${activeSource?.name ?: "Ninguna"}",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp
+                        )
+                        Text(
+                            text = "🌐 Servidor: ${activeSource?.serverUrl ?: "—"}  •  Usuario: ${activeSource?.username ?: "—"}",
+                            color = BixTextMuted,
+                            fontSize = 12.sp
+                        )
+                        Text(
+                            text = "🛡️ Escudo VPN Anti-DPI: ${if (isVpnActive) "ACTIVO ($vpnStatusText)" else "INACTIVO"}",
+                            color = if (isVpnActive) Color(0xFF10B981) else BixTextMuted,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                        Text(
+                            text = "🔒 Resolver DNS DoH 443: ${if (dnsEnabled) "${dnsProvider.title} (${dnsProvider.primaryIp}) • Caché: ${LelouchDnsManager.cachedIpCount()} IPs" else "DNS del Sistema"}",
+                            color = Color(0xFF2DD4BF),
+                            fontSize = 12.sp
+                        )
+
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+
+                        Button(
+                            onClick = { onOpenDiagnostics(activeSource) },
+                            modifier = Modifier.fillMaxWidth().height(44.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.MedicalServices, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("🩺 Ejecutar Test Completo de Lista y Red", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+
+                        OutlinedButton(
+                            onClick = onRefreshAccountsStatus,
+                            modifier = Modifier.fillMaxWidth().height(42.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2DD4BF))
+                        ) {
+                            Text("🔄 Verificar Fechas y Ocupación de Todas las Cuentas", color = Color(0xFF2DD4BF), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // SUB-PESTAÑA 0: 📋 CUENTAS IPTV, NUBE Y LISTAS REGISTRADAS
+        // ══════════════════════════════════════════════════════════════════════
+        if (selectedSettingsTab == 0) {
         item {
             Text(
                 text = "CUENTAS IPTV Y NUBE",
@@ -3799,8 +3929,10 @@ private fun MobileSettingsTab(
                 }
             }
         }
+        } // Fin Sub-Pestaña 0 (Listas y Cuentas)
 
-        // TARJETA DE VERSIÓN Y ACTUALIZACIONES
+        // TARJETA DE VERSIÓN Y ACTUALIZACIONES (Visible en General)
+        if (selectedSettingsTab == 3) {
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -3828,7 +3960,7 @@ private fun MobileSettingsTab(
                             )
                             Spacer(Modifier.height(2.dp))
                             Text(
-                                "Versión 1.0.134 (Compilación 1000134)",
+                                "Versión 1.0.135 (Compilación 1000135)",
                                 color = LelouchCyanAccent,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp
@@ -3878,6 +4010,7 @@ private fun MobileSettingsTab(
                     }
                 }
             }
+        }
         }
     }
 

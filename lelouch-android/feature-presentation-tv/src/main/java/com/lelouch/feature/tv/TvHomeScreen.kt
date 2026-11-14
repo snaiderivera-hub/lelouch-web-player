@@ -2805,226 +2805,167 @@ fun TvHomeScreen(
                         }
 
                         7 -> {
-                            // ⚙️ PANEL ADMINISTRADOR & AJUSTES (ESTILO BIX PLUS / PORTAL DASHBOARD)
+                            // ⚙️ PANEL ADMINISTRADOR & AJUSTES ORGANIZADO POR SUB-PESTAÑAS (0% OMISIONES)
+                            var selectedSettingsSubTab by remember { mutableStateOf(0) }
+                            val tvContext = LocalContext.current
+                            val isVpnShieldActive by LelouchDnsManager.vpnShieldFlow.collectAsState()
+                            val vpnVerificationStatus by LelouchDnsManager.vpnVerificationFlow.collectAsState()
+                            val tvVpnPermissionLauncher = rememberLauncherForActivityResult(
+                                contract = ActivityResultContracts.StartActivityForResult()
+                            ) {
+                                LelouchVpnController.start(tvContext)
+                            }
+
                             TvLazyColumn(
                                 modifier = Modifier.fillMaxSize(),
                                 contentPadding = PaddingValues(start = 32.dp, end = 48.dp, top = 20.dp, bottom = 48.dp)
                             ) {
-                                    item {
-                                        // 0. CABECERA: ICONO CIRCULAR + LELOUCH OPCIONES EN LETRAS
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                item {
+                                    // 0. CABECERA: ICONO CIRCULAR + LELOUCH OPCIONES + BOTÓN VOLVER
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(42.dp)
+                                                    .clip(CircleShape)
+                                                    .background(
+                                                        Brush.linearGradient(
+                                                            listOf(Color(0xFFFF6B00), Color(0xFFD9480F))
+                                                        )
+                                                    )
+                                                    .border(1.5.dp, Color.White.copy(alpha = 0.35f), CircleShape),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = "L",
+                                                    color = Color.White,
+                                                    fontWeight = FontWeight.Black,
+                                                    fontSize = 22.sp
+                                                )
+                                            }
+
+                                            Spacer(modifier = Modifier.width(14.dp))
+
+                                            Column {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Text(
+                                                        text = "LELOUCH",
+                                                        color = Color.White,
+                                                        fontSize = 22.sp,
+                                                        fontWeight = FontWeight.Black,
+                                                        letterSpacing = 1.sp
+                                                    )
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text(
+                                                        text = "OPCIONES & AJUSTES",
+                                                        color = Color(0xFFFF6B00),
+                                                        fontSize = 22.sp,
+                                                        fontWeight = FontWeight.Black,
+                                                        letterSpacing = 1.sp
+                                                    )
+                                                }
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Text(
+                                                    text = "Navega por categorías con tu control remoto para gestionar listas, VPN, diagnóstico y sistema.",
+                                                    color = Color.White.copy(alpha = 0.65f),
+                                                    fontSize = 13.sp
+                                                )
+                                            }
+                                        }
+
+                                        ActionButton(
+                                            icon = Icons.Default.ArrowBack,
+                                            label = "Volver al Inicio",
+                                            onClick = { selectedTopTab = 1 }
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(18.dp))
+
+                                    // BARRA DE 4 SUB-PESTAÑAS DE AJUSTES (ESTILO OWNTV / STREAMVAULT)
+                                    val settingsTabs = listOf(
+                                        "📋 Listas y Cuentas (${allSources.size})",
+                                        "🛡️ Reproducción y VPN",
+                                        "🩺 Diagnóstico y Red",
+                                        "⚙️ General y Sistema"
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        settingsTabs.forEachIndexed { idx, tabTitle ->
+                                            val isSelected = selectedSettingsSubTab == idx
+                                            Surface(
+                                                onClick = { selectedSettingsSubTab = idx },
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .then(
+                                                        if (idx == 0) {
+                                                            Modifier
+                                                                .focusRequester(contentFocusRequester)
+                                                                .focusProperties { left = sidebarRequesters[7] }
+                                                        } else Modifier
+                                                    ),
+                                                shape = ClickableSurfaceDefaults.shape(
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    focusedShape = RoundedCornerShape(12.dp)
+                                                ),
+                                                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
+                                                colors = ClickableSurfaceDefaults.colors(
+                                                    containerColor = if (isSelected) Color(0xFFFF6B00).copy(alpha = 0.22f) else Color(0xFF14161F),
+                                                    focusedContainerColor = Color(0xFFFF6B00),
+                                                    pressedContainerColor = Color(0xFFFF6B00)
+                                                ),
+                                                border = ClickableSurfaceDefaults.border(
+                                                    border = Border(
+                                                        androidx.compose.foundation.BorderStroke(
+                                                            if (isSelected) 2.dp else 1.dp,
+                                                            if (isSelected) Color(0xFFFF6B00) else Color.White.copy(alpha = 0.12f)
+                                                        )
+                                                    ),
+                                                    focusedBorder = Border(
+                                                        androidx.compose.foundation.BorderStroke(2.5.dp, Color.White)
+                                                    )
+                                                )
+                                            ) {
                                                 Box(
                                                     modifier = Modifier
-                                                        .size(42.dp)
-                                                        .clip(CircleShape)
-                                                        .background(
-                                                            Brush.linearGradient(
-                                                                listOf(Color(0xFFFF6B00), Color(0xFFD9480F))
-                                                            )
-                                                        )
-                                                        .border(1.5.dp, Color.White.copy(alpha = 0.35f), CircleShape),
+                                                        .fillMaxWidth()
+                                                        .padding(vertical = 12.dp, horizontal = 10.dp),
                                                     contentAlignment = Alignment.Center
                                                 ) {
                                                     Text(
-                                                        text = "L",
+                                                        text = tabTitle,
                                                         color = Color.White,
                                                         fontWeight = FontWeight.Black,
-                                                        fontSize = 22.sp
-                                                    )
-                                                }
-
-                                                Spacer(modifier = Modifier.width(14.dp))
-
-                                                Column {
-                                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                                        Text(
-                                                            text = "LELOUCH",
-                                                            color = Color.White,
-                                                            fontSize = 22.sp,
-                                                            fontWeight = FontWeight.Black,
-                                                            letterSpacing = 1.sp
-                                                        )
-                                                        Spacer(modifier = Modifier.width(6.dp))
-                                                        Text(
-                                                            text = "OPCIONES & AJUSTES",
-                                                            color = Color(0xFFFF6B00),
-                                                            fontSize = 22.sp,
-                                                            fontWeight = FontWeight.Black,
-                                                            letterSpacing = 1.sp
-                                                        )
-                                                    }
-                                                    Spacer(modifier = Modifier.height(2.dp))
-                                                    Text(
-                                                        text = "Gestiona tus listas IPTV, modo adultos, sincronización y diagnóstico de red.",
-                                                        color = Color.White.copy(alpha = 0.65f),
-                                                        fontSize = 13.sp
+                                                        fontSize = 13.sp,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
                                                     )
                                                 }
                                             }
                                         }
+                                    }
 
-                                        Spacer(modifier = Modifier.height(20.dp))
+                                    Spacer(modifier = Modifier.height(20.dp))
+                                }
 
-                                        // 1. SECCIÓN: GENERAL
+                                // ══════════════════════════════════════════════════════════════════════
+                                // SUB-PESTAÑA 0: 📋 LISTAS Y CUENTAS IPTV
+                                // ══════════════════════════════════════════════════════════════════════
+                                if (selectedSettingsSubTab == 0) {
+                                    item {
                                         Text(
-                                            text = "1. GENERAL",
+                                            text = "ACCIONES DE CUENTAS IPTV Y NUBE",
                                             color = Color(0xFFEF4444),
                                             fontWeight = FontWeight.Black,
                                             fontSize = 12.sp,
                                             letterSpacing = 1.2.sp,
-                                            modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 8.dp)
-                                        )
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                        ) {
-                                            ActionButton(
-                                                icon = Icons.Default.ArrowBack,
-                                                label = "Volver al Inicio",
-                                                modifier = Modifier
-                                                    .focusRequester(contentFocusRequester)
-                                                    .focusProperties { left = sidebarRequesters[7] },
-                                                onClick = { selectedTopTab = 1 }
-                                            )
-                                            ActionButton(
-                                                icon = if (isAdultModeEnabled) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                                label = if (isAdultModeEnabled) "Modo +18: ON" else "Modo +18: OFF",
-                                                onClick = { toggleAdultMode(!isAdultModeEnabled) }
-                                            )
-                                            ActionButton(
-                                                icon = Icons.Default.FilterList,
-                                                label = "Filtrar Categorías",
-                                                onClick = { isCategoryManagerVisible = true }
-                                            )
-                                            ActionButton(
-                                                icon = Icons.Default.Refresh,
-                                                label = "Actualizaciones",
-                                                onClick = { isUpdateModalVisible = true }
-                                            )
-                                        }
-
-                                        Spacer(modifier = Modifier.height(20.dp))
-
-                                        // 2. SECCIÓN: DESCARGAS Y ALMACENAMIENTO
-                                        Text(
-                                            text = "2. DESCARGAS Y ALMACENAMIENTO",
-                                            color = Color(0xFFEF4444),
-                                            fontWeight = FontWeight.Black,
-                                            fontSize = 12.sp,
-                                            letterSpacing = 1.2.sp,
-                                            modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 8.dp)
-                                        )
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                        ) {
-                                            ActionButton(
-                                                icon = Icons.Default.DeleteSweep,
-                                                label = "Limpiar Caché Local",
-                                                onClick = {
-                                                    android.widget.Toast.makeText(context, "🧹 Caché local de TV liberada correctamente", android.widget.Toast.LENGTH_SHORT).show()
-                                                }
-                                            )
-                                        }
-
-                                        Spacer(modifier = Modifier.height(20.dp))
-
-                                        // 3. SECCIÓN: REPRODUCCIÓN Y MOTOR LELOUCH
-                                        Text(
-                                            text = "3. REPRODUCCIÓN Y MOTOR LELOUCH",
-                                            color = Color(0xFFEF4444),
-                                            fontWeight = FontWeight.Black,
-                                            fontSize = 12.sp,
-                                            letterSpacing = 1.2.sp,
-                                            modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 8.dp)
-                                        )
-                                        val tvContext = LocalContext.current
-                                        val isVpnShieldActive by LelouchDnsManager.vpnShieldFlow.collectAsState()
-                                        val tvVpnPermissionLauncher = rememberLauncherForActivityResult(
-                                            contract = ActivityResultContracts.StartActivityForResult()
-                                        ) {
-                                            LelouchVpnController.start(tvContext)
-                                        }
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                        ) {
-                                            ActionButton(
-                                                icon = Icons.Default.Security,
-                                                label = if (isVpnShieldActive) "VPN Anti-DPI: ACTIVA" else "Activar VPN Anti-DPI",
-                                                onClick = {
-                                                    if (isVpnShieldActive) {
-                                                        LelouchVpnController.stop(tvContext)
-                                                    } else {
-                                                        val prep = LelouchVpnController.prepare(tvContext)
-                                                        if (prep != null) {
-                                                            runCatching { tvVpnPermissionLauncher.launch(prep) }
-                                                                .onFailure { LelouchVpnController.start(tvContext) }
-                                                        } else {
-                                                            LelouchVpnController.start(tvContext)
-                                                        }
-                                                    }
-                                                }
-                                            )
-                                            val dnsLabel = if (LelouchDnsManager.isEnabled()) {
-                                                "DNS: ${LelouchDnsManager.getSelectedProvider().title} (ACTIVO)"
-                                            } else {
-                                                "Selector DNS (Inactivo)"
-                                            }
-                                            ActionButton(
-                                                icon = Icons.Default.Dns,
-                                                label = dnsLabel,
-                                                onClick = { isTvDnsModalVisible = true }
-                                            )
-                                            ActionButton(
-                                                icon = Icons.Default.Memory,
-                                                label = "Video: ${when (tvVideoDecoderMode) {
-                                                    LelouchDnsManager.VideoDecoderMode.HW_PLUS -> "HW+ (DirectSurface)"
-                                                    LelouchDnsManager.VideoDecoderMode.HW_ONLY -> "HW (Estándar)"
-                                                    LelouchDnsManager.VideoDecoderMode.SW_ONLY -> "SW (Software CPU)"
-                                                }}",
-                                                onClick = {
-                                                    val modes = LelouchDnsManager.VideoDecoderMode.entries
-                                                    val next = modes[(modes.indexOf(tvVideoDecoderMode) + 1) % modes.size]
-                                                    tvVideoDecoderMode = next
-                                                    LelouchDnsManager.setVideoDecoderMode(next)
-                                                }
-                                            )
-                                            ActionButton(
-                                                icon = Icons.Default.GraphicEq,
-                                                label = "Audio: ${when (tvAudioEngineMode) {
-                                                    LelouchDnsManager.AudioEngineMode.OPENSL_ES -> "OpenSL ES (16-bit)"
-                                                    LelouchDnsManager.AudioEngineMode.AUDIOTRACK -> "AudioTrack"
-                                                }}",
-                                                onClick = {
-                                                    val modes = LelouchDnsManager.AudioEngineMode.entries
-                                                    val next = modes[(modes.indexOf(tvAudioEngineMode) + 1) % modes.size]
-                                                    tvAudioEngineMode = next
-                                                    LelouchDnsManager.setAudioEngineMode(next)
-                                                }
-                                            )
-                                            ActionButton(
-                                                icon = Icons.Default.VerifiedUser,
-                                                label = "Verificar Ocupación",
-                                                onClick = onRefreshAccountsStatus
-                                            )
-                                        }
-
-                                        Spacer(modifier = Modifier.height(20.dp))
-
-                                        // 4. SECCIÓN: CUENTAS IPTV Y NUBE
-                                        Text(
-                                            text = "4. CUENTAS IPTV Y NUBE",
-                                            color = Color(0xFFEF4444),
-                                            fontWeight = FontWeight.Black,
-                                            fontSize = 12.sp,
-                                            letterSpacing = 1.2.sp,
-                                            modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 8.dp)
+                                            modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
                                         )
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),
@@ -3033,6 +2974,7 @@ fun TvHomeScreen(
                                             ActionButton(
                                                 icon = Icons.Default.Add,
                                                 label = "Gestionar Cuentas",
+                                                modifier = Modifier.focusProperties { left = sidebarRequesters[7] },
                                                 onClick = { isAdminModalVisible = true }
                                             )
                                             ActionButton(
@@ -3046,68 +2988,25 @@ fun TvHomeScreen(
                                                 onClick = onForceSync
                                             )
                                             ActionButton(
-                                                icon = Icons.Default.Logout,
-                                                label = "Cerrar Sesión",
-                                                isDanger = true,
-                                                onClick = onLogout
+                                                icon = Icons.Default.VerifiedUser,
+                                                label = "Verificar Ocupación",
+                                                onClick = onRefreshAccountsStatus
+                                            )
+                                            ActionButton(
+                                                icon = Icons.Default.FilterList,
+                                                label = "Filtrar Categorías",
+                                                onClick = { isCategoryManagerVisible = true }
                                             )
                                         }
 
-                                        Spacer(modifier = Modifier.height(24.dp))
-
-                                        // 5. SECCIÓN: DIAGNÓSTICO Y ESTADO DE RED
-                                        Text(
-                                            text = "5. DIAGNÓSTICO Y ESTADO DE RED",
-                                            color = Color(0xFFEF4444),
-                                            fontWeight = FontWeight.Black,
-                                            fontSize = 12.sp,
-                                            letterSpacing = 1.2.sp,
-                                            modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 8.dp)
-                                        )
-
-                                        // 🩺 DIAGNÓSTICO DE REPRODUCCIÓN (Mantenido intacto)
-                                        TvDiagnosticsSection(
-                                            activeSource = activeSource,
-                                            liveCount = liveChannels.size,
-                                            movieCount = movies.size,
-                                            seriesCount = seriesCategories.sumOf { it.itemCount }.takeIf { it > 0 } ?: seriesList.size,
-                                            blankUrlCount = liveChannels.count { it.streamUrl.isBlank() },
-                                            resolvedUrl = focusedChannel?.let { ch ->
-                                                StreamUrlResolver.resolveLive(ch.streamUrl, activeSource, ch.streamId)
-                                            },
-                                            focusedChannelName = focusedChannel?.name,
-                                            playbackState = playbackState,
-                                            syncStateText = syncStateText,
-                                            diagnosticInfo = diagnosticInfo,
-                                            diagnosticsReport = diagnosticsReport,
-                                            diagnosticsRunning = diagnosticsRunning,
-                                            diagnosticsProgress = diagnosticsProgress,
-                                            diagnosticsError = diagnosticsError,
-                                            onRunDiagnostics = if (onRunDiagnostics != null) ::runDiagnosticsNow else null
-                                        )
-
-                                        // 🎯 GESTIÓN DE CATEGORÍAS VISIBLES (Mantenido intacto)
-                                        TvCategoryVisibilitySection(
-                                            liveTotal = liveCategoryItemModels.size,
-                                            liveHiddenCount = liveCategoryItemModels.count { hiddenLiveCategories.contains(it.name) || hiddenLiveCategories.contains(it.id) },
-                                            moviesTotal = movieCategoryItemModels.size,
-                                            moviesHiddenCount = movieCategoryItemModels.count { hiddenMovieCategories.contains(it.name) || hiddenMovieCategories.contains(it.id) },
-                                            seriesTotal = seriesCategoryItemModels.size,
-                                            seriesHiddenCount = seriesCategoryItemModels.count { hiddenSeriesCategories.contains(it.name) || hiddenSeriesCategories.contains(it.id) },
-                                            onOpenManager = { scope ->
-                                                categoryManagerInitialScope = scope
-                                                isCategoryManagerVisible = true
-                                            }
-                                        )
-
-                                        Spacer(modifier = Modifier.height(28.dp))
+                                        Spacer(modifier = Modifier.height(20.dp))
                                         Text(
                                             text = "📋 LISTAS IPTV DISPONIBLES (${allSources.size}):",
                                             color = Color.White,
                                             fontSize = 16.sp,
                                             fontWeight = FontWeight.Bold
                                         )
-                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Spacer(modifier = Modifier.height(10.dp))
                                     }
 
                                     itemsIndexed(allSources) { _, source ->
@@ -3129,7 +3028,7 @@ fun TvHomeScreen(
                                                 shape = RoundedCornerShape(14.dp),
                                                 focusedShape = RoundedCornerShape(14.dp)
                                             ),
-                                            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
+                                            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
                                             colors = ClickableSurfaceDefaults.colors(
                                                 containerColor = if (isActive) Color(0xFF161F2E) else Color(0xFF14161F),
                                                 focusedContainerColor = Color(0xFF1E2638),
@@ -3221,7 +3120,7 @@ fun TvHomeScreen(
                                                     Spacer(modifier = Modifier.height(5.dp))
                                                     Text(
                                                         text = "Servidor: ${source.serverUrl}  •  Usuario: ${source.username}",
-                                                        color = if (isCardFocused) Color(0xFFE2E8F0) else Color.White.copy(alpha = 0.55f),
+                                                        color = if (isCardFocused) Color.White else Color.White.copy(alpha = 0.55f),
                                                         fontSize = 13.sp
                                                     )
                                                 }
@@ -3248,8 +3147,265 @@ fun TvHomeScreen(
                                             }
                                         }
                                     }
+
+                                    item {
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        // 🎯 GESTIÓN DE CATEGORÍAS VISIBLES
+                                        TvCategoryVisibilitySection(
+                                            liveTotal = liveCategoryItemModels.size,
+                                            liveHiddenCount = liveCategoryItemModels.count { hiddenLiveCategories.contains(it.name) || hiddenLiveCategories.contains(it.id) },
+                                            moviesTotal = movieCategoryItemModels.size,
+                                            moviesHiddenCount = movieCategoryItemModels.count { hiddenMovieCategories.contains(it.name) || hiddenMovieCategories.contains(it.id) },
+                                            seriesTotal = seriesCategoryItemModels.size,
+                                            seriesHiddenCount = seriesCategoryItemModels.count { hiddenSeriesCategories.contains(it.name) || hiddenSeriesCategories.contains(it.id) },
+                                            onOpenManager = { scope ->
+                                                categoryManagerInitialScope = scope
+                                                isCategoryManagerVisible = true
+                                            }
+                                        )
+                                    }
+                                }
+
+                                // ══════════════════════════════════════════════════════════════════════
+                                // SUB-PESTAÑA 1: 🛡️ REPRODUCCIÓN Y VPN ANTI-CONGELAMIENTO
+                                // ══════════════════════════════════════════════════════════════════════
+                                if (selectedSettingsSubTab == 1) {
+                                    item {
+                                        Text(
+                                            text = "MOTOR LELOUCH & ESCUDO VPN ANTI-CONGELAMIENTO",
+                                            color = Color(0xFFEF4444),
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = 12.sp,
+                                            letterSpacing = 1.2.sp,
+                                            modifier = Modifier.padding(start = 4.dp, bottom = 10.dp)
+                                        )
+
+                                        // Tarjeta de estado en vivo del Escudo VPN Anti-DPI + DoH 443
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(14.dp))
+                                                .background(if (isVpnShieldActive) Color(0xFF064E3B).copy(alpha = 0.45f) else Color(0xFF14161F))
+                                                .border(
+                                                    1.5.dp,
+                                                    if (isVpnShieldActive) Color(0xFF10B981) else Color.White.copy(alpha = 0.1f),
+                                                    RoundedCornerShape(14.dp)
+                                                )
+                                                .padding(18.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Text(
+                                                            text = "🛡️ Túnel VPN Anti-DPI + DNS sobre HTTPS (Puerto 443)",
+                                                            color = Color.White,
+                                                            fontWeight = FontWeight.Black,
+                                                            fontSize = 16.sp
+                                                        )
+                                                        Spacer(modifier = Modifier.width(10.dp))
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .clip(RoundedCornerShape(6.dp))
+                                                                .background(if (isVpnShieldActive) Color(0xFF10B981) else Color.White.copy(alpha = 0.12f))
+                                                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                                                        ) {
+                                                            Text(
+                                                                text = if (isVpnShieldActive) "ACTIVA 🔑" else "INACTIVA",
+                                                                color = Color.White,
+                                                                fontSize = 10.sp,
+                                                                fontWeight = FontWeight.Black
+                                                            )
+                                                        }
+                                                    }
+                                                    Spacer(modifier = Modifier.height(6.dp))
+                                                    Text(
+                                                        text = if (isVpnShieldActive) vpnVerificationStatus
+                                                        else "Fragmenta el primer paquete TCP (2B+14B) y cifra las consultas DNS por HTTPS 443 para evitar que tu proveedor de internet congele los canales.",
+                                                        color = if (isVpnShieldActive) Color(0xFF34D399) else Color.White.copy(alpha = 0.7f),
+                                                        fontSize = 13.sp
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.height(16.dp))
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                            ActionButton(
+                                                icon = Icons.Default.Security,
+                                                label = if (isVpnShieldActive) "VPN Anti-DPI: ACTIVA" else "Activar VPN Anti-DPI",
+                                                modifier = Modifier.focusProperties { left = sidebarRequesters[7] },
+                                                onClick = {
+                                                    if (isVpnShieldActive) {
+                                                        LelouchVpnController.stop(tvContext)
+                                                    } else {
+                                                        val prep = LelouchVpnController.prepare(tvContext)
+                                                        if (prep != null) {
+                                                            runCatching { tvVpnPermissionLauncher.launch(prep) }
+                                                                .onFailure { LelouchVpnController.start(tvContext) }
+                                                        } else {
+                                                            LelouchVpnController.start(tvContext)
+                                                        }
+                                                    }
+                                                }
+                                            )
+                                            val dnsLabel = if (LelouchDnsManager.isEnabled()) {
+                                                "DNS: ${LelouchDnsManager.getSelectedProvider().title} (ACTIVO)"
+                                            } else {
+                                                "Selector DNS (Inactivo)"
+                                            }
+                                            ActionButton(
+                                                icon = Icons.Default.Dns,
+                                                label = dnsLabel,
+                                                onClick = { isTvDnsModalVisible = true }
+                                            )
+                                            ActionButton(
+                                                icon = Icons.Default.Memory,
+                                                label = "Video: ${when (tvVideoDecoderMode) {
+                                                    LelouchDnsManager.VideoDecoderMode.HW_PLUS -> "HW+ (DirectSurface)"
+                                                    LelouchDnsManager.VideoDecoderMode.HW_ONLY -> "HW (Estándar)"
+                                                    LelouchDnsManager.VideoDecoderMode.SW_ONLY -> "SW (Software CPU)"
+                                                }}",
+                                                onClick = {
+                                                    val modes = LelouchDnsManager.VideoDecoderMode.entries
+                                                    val next = modes[(modes.indexOf(tvVideoDecoderMode) + 1) % modes.size]
+                                                    tvVideoDecoderMode = next
+                                                    LelouchDnsManager.setVideoDecoderMode(next)
+                                                }
+                                            )
+                                            ActionButton(
+                                                icon = Icons.Default.GraphicEq,
+                                                label = "Audio: ${when (tvAudioEngineMode) {
+                                                    LelouchDnsManager.AudioEngineMode.OPENSL_ES -> "OpenSL ES (16-bit)"
+                                                    LelouchDnsManager.AudioEngineMode.AUDIOTRACK -> "AudioTrack"
+                                                }}",
+                                                onClick = {
+                                                    val modes = LelouchDnsManager.AudioEngineMode.entries
+                                                    val next = modes[(modes.indexOf(tvAudioEngineMode) + 1) % modes.size]
+                                                    tvAudioEngineMode = next
+                                                    LelouchDnsManager.setAudioEngineMode(next)
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+
+                                // ══════════════════════════════════════════════════════════════════════
+                                // SUB-PESTAÑA 2: 🩺 DIAGNÓSTICO Y ESTADO DE RED
+                                // ══════════════════════════════════════════════════════════════════════
+                                if (selectedSettingsSubTab == 2) {
+                                    item {
+                                        Text(
+                                            text = "DIAGNÓSTICO DE REPRODUCCIÓN Y ESTADO DE RED",
+                                            color = Color(0xFFEF4444),
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = 12.sp,
+                                            letterSpacing = 1.2.sp,
+                                            modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
+                                        )
+
+                                        TvDiagnosticsSection(
+                                            activeSource = activeSource,
+                                            liveCount = liveChannels.size,
+                                            movieCount = movies.size,
+                                            seriesCount = seriesCategories.sumOf { it.itemCount }.takeIf { it > 0 } ?: seriesList.size,
+                                            blankUrlCount = liveChannels.count { it.streamUrl.isBlank() },
+                                            resolvedUrl = focusedChannel?.let { ch ->
+                                                StreamUrlResolver.resolveLive(ch.streamUrl, activeSource, ch.streamId)
+                                            },
+                                            focusedChannelName = focusedChannel?.name,
+                                            playbackState = playbackState,
+                                            syncStateText = syncStateText,
+                                            diagnosticInfo = diagnosticInfo,
+                                            diagnosticsReport = diagnosticsReport,
+                                            diagnosticsRunning = diagnosticsRunning,
+                                            diagnosticsProgress = diagnosticsProgress,
+                                            diagnosticsError = diagnosticsError,
+                                            onRunDiagnostics = if (onRunDiagnostics != null) ::runDiagnosticsNow else null
+                                        )
+                                    }
+                                }
+
+                                // ══════════════════════════════════════════════════════════════════════
+                                // SUB-PESTAÑA 3: ⚙️ GENERAL, ALMACENAMIENTO Y SISTEMA
+                                // ══════════════════════════════════════════════════════════════════════
+                                if (selectedSettingsSubTab == 3) {
+                                    item {
+                                        Text(
+                                            text = "1. OPCIONES GENERALES",
+                                            color = Color(0xFFEF4444),
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = 12.sp,
+                                            letterSpacing = 1.2.sp,
+                                            modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
+                                        )
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                            ActionButton(
+                                                icon = Icons.Default.ArrowBack,
+                                                label = "Volver al Inicio",
+                                                modifier = Modifier.focusProperties { left = sidebarRequesters[7] },
+                                                onClick = { selectedTopTab = 1 }
+                                            )
+                                            ActionButton(
+                                                icon = if (isAdultModeEnabled) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                                label = if (isAdultModeEnabled) "Modo +18: ON" else "Modo +18: OFF",
+                                                onClick = { toggleAdultMode(!isAdultModeEnabled) }
+                                            )
+                                            ActionButton(
+                                                icon = Icons.Default.FilterList,
+                                                label = "Filtrar Categorías",
+                                                onClick = { isCategoryManagerVisible = true }
+                                            )
+                                            ActionButton(
+                                                icon = Icons.Default.Refresh,
+                                                label = "Actualizaciones",
+                                                onClick = { isUpdateModalVisible = true }
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.height(22.dp))
+
+                                        Text(
+                                            text = "2. ALMACENAMIENTO Y SESIÓN",
+                                            color = Color(0xFFEF4444),
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = 12.sp,
+                                            letterSpacing = 1.2.sp,
+                                            modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
+                                        )
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                            ActionButton(
+                                                icon = Icons.Default.DeleteSweep,
+                                                label = "Limpiar Caché Local",
+                                                modifier = Modifier.focusProperties { left = sidebarRequesters[7] },
+                                                onClick = {
+                                                    android.widget.Toast.makeText(context, "🧹 Caché local de TV liberada correctamente", android.widget.Toast.LENGTH_SHORT).show()
+                                                }
+                                            )
+                                            ActionButton(
+                                                icon = Icons.Default.Logout,
+                                                label = "Cerrar Sesión",
+                                                isDanger = true,
+                                                onClick = onLogout
+                                            )
+                                        }
+                                    }
                                 }
                             }
+                        }
                         }
                     }
                 }
