@@ -5,6 +5,9 @@ import android.content.SharedPreferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import okhttp3.Dns
 import java.io.ByteArrayOutputStream
@@ -12,7 +15,9 @@ import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.net.Socket
 import java.util.concurrent.ConcurrentHashMap
+import javax.net.SocketFactory
 import kotlin.random.Random
 
 /**
@@ -26,7 +31,15 @@ object LelouchDnsManager : Dns {
     private const val KEY_DNS_PROVIDER = "dns_provider_id"
     private const val KEY_VIDEO_DECODER = "video_decoder_mode"
     private const val KEY_AUDIO_ENGINE = "audio_engine_mode"
+    private const val KEY_VPN_SHIELD_ENABLED = "vpn_shield_enabled"
     private const val CACHE_TTL_MS = 30 * 60 * 1000L // 30 minutos en RAM
+
+    private val ANTI_DPI_USER_AGENTS = listOf(
+        "IPTVSmartersPlayer",
+        "TiviMate/4.7.0 (Android TV)",
+        "VLC/3.0.20 LibVLC/3.0.20",
+        "Lavf/60.3.100"
+    )
 
     enum class DnsProvider(
         val id: String,
@@ -80,6 +93,42 @@ object LelouchDnsManager : Dns {
     @Volatile
     private var audioEngineModeState: AudioEngineMode = AudioEngineMode.OPENSL_ES
 
+    @Volatile
+    private var vpnShieldEnabledState: Boolean = false
+    private val _vpnShieldFlow = MutableStateFlow(false)
+    val vpnShieldFlow: StateFlow<Boolean> = _vpnShieldFlow.asStateFlow()
+
+    @Volatile
+    private var activeUserAgentIndex: Int = 0
+
+    /**
+     * SocketFactory Anti-DPI y QoS para TV Box y Mobile (inspirado en ByeDPI / FongMi/TV):
+     * - TCP_NODELAY: desactiva el algoritmo Nagle para evitar pausas en handshakes HLS/TLS.
+     * - SO_RCVBUF = 512 KB: amplía la ventana de recepción TCP del kernel para absorber ráfagas MPEG-TS.
+     * - IPTOS_LOWDELAY (0x10): marca DSCP de baja latencia hacia el router doméstico.
+     */
+    val antiDpiSocketFactory: SocketFactory = object : SocketFactory() {
+        private val delegate = getDefault()
+        private fun configure(s: Socket): Socket {
+            runCatching {
+                s.tcpNoDelay = true
+                s.keepAlive = true
+                s.receiveBufferSize = 512 * 1024
+                if (vpnShieldEnabledState) {
+                    s.trafficClass = 0x10 // IPTOS_LOWDELAY
+                }
+            }
+            return s
+        }
+        override fun createSocket(): Socket = configure(delegate.createSocket())
+        override fun createSocket(host: String?, port: Int): Socket = configure(delegate.createSocket(host, port))
+        override fun createSocket(host: String?, port: Int, localHost: InetAddress?, localPort: Int): Socket =
+            configure(delegate.createSocket(host, port, localHost, localPort))
+        override fun createSocket(host: InetAddress?, port: Int): Socket = configure(delegate.createSocket(host, port))
+        override fun createSocket(address: InetAddress?, port: Int, localAddress: InetAddress?, localPort: Int): Socket =
+            configure(delegate.createSocket(address, port, localAddress, localPort))
+    }
+
     fun init(context: Context) {
         val sp = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs = sp
@@ -92,6 +141,30 @@ object LelouchDnsManager : Dns {
 
         val savedAudio = sp.getString(KEY_AUDIO_ENGINE, AudioEngineMode.OPENSL_ES.id)
         audioEngineModeState = AudioEngineMode.entries.firstOrNull { it.id == savedAudio } ?: AudioEngineMode.OPENSL_ES
+
+        vpnShieldEnabledState = sp.getBoolean(KEY_VPN_SHIELD_ENABLED, false)
+        _vpnShieldFlow.value = vpnShieldEnabledState
+        if (vpnShieldEnabledState && com.lelouch.core.network.vpn.LelouchVpnController.prepare(context) == null) {
+            com.lelouch.core.network.vpn.LelouchVpnController.start(context)
+        }
+    }
+
+    fun isVpnShieldEnabled(): Boolean = vpnShieldEnabledState
+
+    fun setVpnShieldEnabled(enabled: Boolean) {
+        vpnShieldEnabledState = enabled
+        _vpnShieldFlow.value = enabled
+        prefs?.edit()?.putBoolean(KEY_VPN_SHIELD_ENABLED, enabled)?.apply()
+    }
+
+    fun resolveActiveUserAgent(defaultUserAgent: String = "IPTVSmartersPlayer"): String {
+        if (!vpnShieldEnabledState) return defaultUserAgent
+        return ANTI_DPI_USER_AGENTS.getOrElse(activeUserAgentIndex % ANTI_DPI_USER_AGENTS.size) { defaultUserAgent }
+    }
+
+    fun rotateUserAgentOnStall(): String {
+        activeUserAgentIndex = (activeUserAgentIndex + 1) % ANTI_DPI_USER_AGENTS.size
+        return ANTI_DPI_USER_AGENTS[activeUserAgentIndex]
     }
 
     fun isEnabled(): Boolean = enabledState

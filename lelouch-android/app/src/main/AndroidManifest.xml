@@ -93,6 +93,16 @@
             android:name="com.lelouch.core.network.download.LelouchDownloadService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <!-- Lelouch Anti-DPI & DoH Local VPN Shield Service -->
+        <service
+            android:name="com.lelouch.core.network.vpn.LelouchVpnService"
+            android:exported="false"
+            android:permission="android.permission.BIND_VPN_SERVICE">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+        </service>
     </application>
 
 </manifest>

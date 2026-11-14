@@ -1,7 +1,7 @@
 {
-  "versionName": "1.0.132",
-  "versionCode": 1000132,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.132/LELOUCH-PLUS-v1.0.132.apk",
-  "changelog": "- TV Box y Mobile: Eliminación de falsos positivos en Watchdog de canales en vivo HLS (fin de los reinicios cada 4s).\n- Red y Anti-Throttling: DNS-over-HTTPS (DoH RFC 8484 por puerto 443 TLS) integrado en el motor de video y catálogo.\n- Estabilidad HLS y VPN: ConnectionPool Keep-Alive persistente para segmentos .ts, colchón minBufferMs de 15s en RAM y tolerancia de latencia para túneles VPN.\n- Hardware: Integración efectiva del selector de decodificador (HW+ / HW / SW) en ExoPlayer.",
-  "version": "1.0.132"
+  "versionName": "1.0.133",
+  "versionCode": 1000133,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.133/LELOUCH-PLUS-v1.0.133.apk",
+  "changelog": "- VPN Anti-Congelamiento Integrada (Mobile y TV Box): Servicio nativo LelouchVpnService (VpnService TUN + DoH 443) activable con un toque o botón del control remoto.\n- Escudo Anti-DPI y QoS: SocketFactory con TCP_NODELAY, ventana de recepción de 512 KB, prioridad de tráfico IPTOS_LOWDELAY y rotación automática de firma User-Agent (TiviMate / VLC / Lavf) ante throttling del ISP.\n- Estabilidad HLS: Eliminación de falsos positivos de posición en el Watchdog, ConnectionPool Keep-Alive y colchón minBufferMs de 15s en RAM.",
+  "version": "1.0.133"
 }

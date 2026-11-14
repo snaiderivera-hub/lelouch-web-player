@@ -81,6 +81,10 @@ import com.lelouch.core.network.StreamUrlResolver
 import com.lelouch.core.network.sync.CategoryFilterSyncManager
 import com.lelouch.core.network.diagnostics.IptvDiagnostics
 import com.lelouch.core.network.dns.LelouchDnsManager
+import com.lelouch.core.network.vpn.LelouchVpnController
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
 import com.lelouch.core.player.LelouchVideoPlayer
 import com.lelouch.core.player.PlaybackState
 import com.lelouch.core.player.PlayerDiagnosticInfo
@@ -2939,10 +2943,34 @@ fun TvHomeScreen(
                                             letterSpacing = 1.2.sp,
                                             modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 8.dp)
                                         )
+                                        val tvContext = LocalContext.current
+                                        val isVpnShieldActive by LelouchDnsManager.vpnShieldFlow.collectAsState()
+                                        val tvVpnPermissionLauncher = rememberLauncherForActivityResult(
+                                            contract = ActivityResultContracts.StartActivityForResult()
+                                        ) {
+                                            LelouchVpnController.start(tvContext)
+                                        }
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                                         ) {
+                                            ActionButton(
+                                                icon = Icons.Default.Security,
+                                                label = if (isVpnShieldActive) "VPN Anti-DPI: ACTIVA" else "Activar VPN Anti-DPI",
+                                                onClick = {
+                                                    if (isVpnShieldActive) {
+                                                        LelouchVpnController.stop(tvContext)
+                                                    } else {
+                                                        val prep = LelouchVpnController.prepare(tvContext)
+                                                        if (prep != null) {
+                                                            runCatching { tvVpnPermissionLauncher.launch(prep) }
+                                                                .onFailure { LelouchVpnController.start(tvContext) }
+                                                        } else {
+                                                            LelouchVpnController.start(tvContext)
+                                                        }
+                                                    }
+                                                }
+                                            )
                                             val dnsLabel = if (LelouchDnsManager.isEnabled()) {
                                                 "DNS: ${LelouchDnsManager.getSelectedProvider().title} (ACTIVO)"
                                             } else {
@@ -4937,10 +4965,35 @@ private fun TvDnsSelectorModal(
                         fontSize = 12.sp
                     )
 
+                    val modalContext = LocalContext.current
+                    val isVpnShieldActive by LelouchDnsManager.vpnShieldFlow.collectAsState()
+                    val modalVpnLauncher = rememberLauncherForActivityResult(
+                        contract = ActivityResultContracts.StartActivityForResult()
+                    ) {
+                        LelouchVpnController.start(modalContext)
+                    }
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
+                        ActionButton(
+                            icon = Icons.Default.Security,
+                            label = if (isVpnShieldActive) "DESACTIVAR VPN" else "ACTIVAR VPN ANTI-DPI",
+                            onClick = {
+                                if (isVpnShieldActive) {
+                                    LelouchVpnController.stop(modalContext)
+                                } else {
+                                    val prep = LelouchVpnController.prepare(modalContext)
+                                    if (prep != null) {
+                                        runCatching { modalVpnLauncher.launch(prep) }
+                                            .onFailure { LelouchVpnController.start(modalContext) }
+                                    } else {
+                                        LelouchVpnController.start(modalContext)
+                                    }
+                                }
+                            }
+                        )
                         ActionButton(
                             icon = Icons.Default.Refresh,
                             label = if (isTesting) "PROBANDO..." else "VOLVER A PROBAR",

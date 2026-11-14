@@ -79,6 +79,9 @@ import com.lelouch.core.network.download.DownloadTask
 import com.lelouch.core.network.sync.CategoryFilterSyncManager
 import com.lelouch.core.network.diagnostics.IptvDiagnostics
 import com.lelouch.core.network.dns.LelouchDnsManager
+import com.lelouch.core.network.vpn.LelouchVpnController
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import com.lelouch.core.player.LelouchVideoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import com.lelouch.core.player.PlayerGestureLayer
@@ -2969,6 +2972,102 @@ private fun MobileSettingsTab(
                     .padding(14.dp)
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    val mobileContext = LocalContext.current
+                    val isVpnShieldActive by LelouchDnsManager.vpnShieldFlow.collectAsState()
+                    val mobileVpnLauncher = rememberLauncherForActivityResult(
+                        contract = ActivityResultContracts.StartActivityForResult()
+                    ) {
+                        LelouchVpnController.start(mobileContext)
+                    }
+
+                    // Item 0: Escudo VPN Anti-Congelamiento (Túnel Anti-DPI + DoH 443)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                if (isVpnShieldActive) {
+                                    LelouchVpnController.stop(mobileContext)
+                                } else {
+                                    val prep = LelouchVpnController.prepare(mobileContext)
+                                    if (prep != null) {
+                                        runCatching { mobileVpnLauncher.launch(prep) }
+                                            .onFailure { LelouchVpnController.start(mobileContext) }
+                                    } else {
+                                        LelouchVpnController.start(mobileContext)
+                                    }
+                                }
+                            },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFF10B981).copy(alpha = 0.2f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Security,
+                                contentDescription = null,
+                                tint = Color(0xFF10B981),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "VPN Anti-Congelamiento (Anti-DPI)",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(if (isVpnShieldActive) Color(0xFF10B981).copy(0.25f) else Color.White.copy(0.1f))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = if (isVpnShieldActive) "ACTIVA 🔑" else "INACTIVA",
+                                        color = if (isVpnShieldActive) Color(0xFF10B981) else BixTextMuted,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Black
+                                    )
+                                }
+                            }
+                            Text(
+                                text = if (isVpnShieldActive) "Túnel Anti-DPI + DoH 443 + Ventana TCP 512KB activos"
+                                else "Toca para activar túnel local contra bloqueo y throttling de ISP",
+                                color = if (isVpnShieldActive) Color(0xFF10B981) else BixTextMuted,
+                                fontSize = 11.sp
+                            )
+                        }
+                        Switch(
+                            checked = isVpnShieldActive,
+                            onCheckedChange = { wantActive ->
+                                if (!wantActive) {
+                                    LelouchVpnController.stop(mobileContext)
+                                } else {
+                                    val prep = LelouchVpnController.prepare(mobileContext)
+                                    if (prep != null) {
+                                        runCatching { mobileVpnLauncher.launch(prep) }
+                                            .onFailure { LelouchVpnController.start(mobileContext) }
+                                    } else {
+                                        LelouchVpnController.start(mobileContext)
+                                    }
+                                }
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = Color(0xFF10B981)
+                            )
+                        )
+                    }
+
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+
                     // Item 1: Selector DNS Inteligente
                     Row(
                         modifier = Modifier
@@ -3726,7 +3825,7 @@ private fun MobileSettingsTab(
                             )
                             Spacer(Modifier.height(2.dp))
                             Text(
-                                "Versión 1.0.132 (Compilación 1000132)",
+                                "Versión 1.0.133 (Compilación 1000133)",
                                 color = LelouchCyanAccent,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp

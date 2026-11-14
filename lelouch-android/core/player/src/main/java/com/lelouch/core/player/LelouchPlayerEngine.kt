@@ -145,6 +145,14 @@ class LelouchPlayerEngine(
     private val streamingOkHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .dns(com.lelouch.core.network.dns.LelouchDnsManager)
+            .socketFactory(com.lelouch.core.network.dns.LelouchDnsManager.antiDpiSocketFactory)
+            .addInterceptor { chain ->
+                val ua = com.lelouch.core.network.dns.LelouchDnsManager.resolveActiveUserAgent(config.userAgent)
+                val req = chain.request().newBuilder()
+                    .header("User-Agent", ua)
+                    .build()
+                chain.proceed(req)
+            }
             .retryOnConnectionFailure(true)
             .pingInterval(10, TimeUnit.SECONDS)
             .connectTimeout(config.connectTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
@@ -405,6 +413,10 @@ class LelouchPlayerEngine(
         lastFreezeRecoveryTimestampMs = now
         lastRecoveryReasonString = reason
 
+        if (com.lelouch.core.network.dns.LelouchDnsManager.isVpnShieldEnabled()) {
+            val rotatedUa = com.lelouch.core.network.dns.LelouchDnsManager.rotateUserAgentOnStall()
+            android.util.Log.i("LelouchDiag", "[ANTI_DPI_ROTATE] Firma User-Agent rotada a: $rotatedUa")
+        }
         android.util.Log.e("LelouchDiag", "[LIVE_HARD_RECOVER] Causa: $reason. Ejecutando reinicio completo de hardware y socket...")
         _playbackState.value = PlaybackState.Buffering
 
