@@ -155,9 +155,14 @@ fun LelouchVideoPlayer(
         // ── FASE 33 & 34: Overlay de estado — error visible / fuera de línea + loader discreto ──
         when (val state = playbackState) {
             is PlaybackState.Error -> ErrorOverlay(
-                message = if (!isLive && state.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS)
-                    "🎬 El servidor del proveedor rechazó la película (límite de conexiones / Error 429).\nCierra otros dispositivos con la misma cuenta, espera unos segundos y pulsa Reintentar."
-                else state.errorMessage,
+                message = if (!isLive && state.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS) {
+                    when (state.httpStatusCode) {
+                        401, 403 -> "🎬 El servidor de películas y series de tu proveedor rechazó esta cuenta (HTTP ${state.httpStatusCode}).\nEl en vivo sí funciona. Contacta a tu proveedor."
+                        404 -> "🎬 Contenido no encontrado en el servidor del proveedor (Error 404)."
+                        429 -> "🎬 Límite de conexiones alcanzado (Error 429).\nCierra otros dispositivos con la misma cuenta, espera unos segundos y pulsa Reintentar."
+                        else -> "🎬 El servidor del proveedor rechazó la reproducción${state.httpStatusCode?.let { " (HTTP $it)" } ?: ""}.\nPulsa Reintentar o prueba con otro título."
+                    }
+                } else state.errorMessage,
                 errorCode = state.errorCode,
                 canRetry = state.canRetry,
                 onRetry = { playerEngine.retry() },

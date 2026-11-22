@@ -55,4 +55,13 @@ class UrlSanitizerTest {
         assertEquals("— (vacía)", UrlSanitizer.sanitizeUrl(""))
         assertEquals("— (vacía)", UrlSanitizer.sanitizeUrl("   "))
     }
+
+    @Test
+    fun `sanitizeUrl redacts base64 redirect tokens and query secrets`() {
+        val raw = "http://45.148.146.227:8080/series/superman/secret1234/171319.mkv?token=HURcWERb/abc+123==&auth=xyz987"
+        val sanitized = UrlSanitizer.sanitizeUrl(raw)
+        assertEquals("http://45.148.146.227:8080/series/***/***/171319.mkv?token=***&auth=***", sanitized)
+        assertFalse(sanitized.contains("HURcWERb"))
+        assertFalse(sanitized.contains("xyz987"))
+    }
 }

@@ -17,7 +17,8 @@ sealed interface PlaybackState {
     data class Error(
         val errorMessage: String,
         val errorCode: Int = -1,
-        val canRetry: Boolean = true
+        val canRetry: Boolean = true,
+        val httpStatusCode: Int? = null
     ) : PlaybackState
 }
 

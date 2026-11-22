@@ -220,8 +220,9 @@ class PlaybackTrackerTest {
 
         assertFalse(attempt.sanitizedUrl.contains("agent007"))
         assertFalse(attempt.sanitizedUrl.contains("supersecret"))
+        assertFalse(attempt.sanitizedUrl.contains("1234567890abcdef"))
         assertTrue(attempt.sanitizedUrl.contains("/live/***/***/channel99.ts"))
-        assertTrue(attempt.sanitizedUrl.contains("token=1234…"))
+        assertTrue(attempt.sanitizedUrl.contains("token=***"))
     }
 
     @Test

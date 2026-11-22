@@ -47,6 +47,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
@@ -57,6 +58,7 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.lelouch.core.designsystem.*
 import com.lelouch.core.model.Category
+import com.lelouch.core.model.CatalogDownloadProgress
 import com.lelouch.core.model.CuratedSectionType
 import com.lelouch.core.model.LiveStream
 import com.lelouch.core.model.PortalFeedCalculator
@@ -133,6 +135,8 @@ fun MobileHomeScreen(
     onRunDiagnostics: (suspend (SourceConfig, suspend (String) -> Unit) -> IptvDiagnostics.Report)? = null,
     syncStatusText: String = "",
     syncIsError: Boolean = false,
+    downloadConsole: CatalogDownloadProgress = CatalogDownloadProgress(),
+    isAddingSource: Boolean = false,
     onLogout: () -> Unit = {},
     onFetchSeriesDetails: (suspend (seriesId: Int) -> Pair<List<Int>, List<Episode>>)? = null,
     playbackHistory: PlaybackHistoryRepository? = null,
@@ -918,6 +922,7 @@ fun MobileHomeScreen(
                                 diagnosticsTargetSource = src ?: activeSource ?: allSources.firstOrNull()
                             },
                             syncStatusText = syncStatusText, syncIsError = syncIsError,
+                            downloadConsole = downloadConsole, isAddingSource = isAddingSource,
                             onOpenUpdate = { isUpdateModalOpen = true },
                             onNavigateToFavorites = { selectedTab = 3 },
                             onOpenHistory = { isHistoryVisible = true },
@@ -1380,23 +1385,20 @@ fun MobileHomeScreen(
                                 }
                             }
 
-                            // Botón Central Circular con Anillo Dorado Neón
-                            Box(
-                                modifier = Modifier
-                                    .size(82.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.Black.copy(alpha = 0.65f))
-                                    .border(3.5.dp, Color(0xFFFFC107), CircleShape)
-                                    .clickable { playerEngine.togglePlayPause() },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (playbackState is PlaybackState.Buffering) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(46.dp),
-                                        color = Color(0xFFFFC107),
-                                        strokeWidth = 3.5.dp
-                                    )
-                                } else {
+                            // Evitar doble spinner circular en VOD/Series: durante Buffering, LelouchVideoPlayer
+                            // ya muestra LelouchCyberpunkLoader en el centro; conservamos el hueco de 82.dp.
+                            if (playbackState is PlaybackState.Buffering) {
+                                Spacer(Modifier.size(82.dp))
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .size(82.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.Black.copy(alpha = 0.65f))
+                                        .border(3.5.dp, Color(0xFFFFC107), CircleShape)
+                                        .clickable { playerEngine.togglePlayPause() },
+                                    contentAlignment = Alignment.Center
+                                ) {
                                     Icon(
                                         imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                         contentDescription = "Play/Pausa",
@@ -2504,6 +2506,8 @@ private fun MobileSettingsTab(
     onOpenDownloads: () -> Unit = {},
     onOpenDiagnostics: (SourceConfig?) -> Unit = {},
     syncStatusText: String = "", syncIsError: Boolean = false,
+    downloadConsole: CatalogDownloadProgress = CatalogDownloadProgress(),
+    isAddingSource: Boolean = false,
     onOpenUpdate: () -> Unit,
     onNavigateToFavorites: () -> Unit = {},
     onOpenHistory: () -> Unit = {},
@@ -3839,7 +3843,13 @@ private fun MobileSettingsTab(
         item {
             var smartUrl by remember { mutableStateOf("") }
             var smartName by remember { mutableStateOf("") }
-            var isSubmitting by remember { mutableStateOf(false) }
+
+            LaunchedEffect(downloadConsole.isCompleted, downloadConsole.isError, isAddingSource) {
+                if (downloadConsole.isCompleted && !downloadConsole.isError && !isAddingSource) {
+                    smartUrl = ""
+                    smartName = ""
+                }
+            }
 
             Box(
                 modifier = Modifier
@@ -3868,6 +3878,7 @@ private fun MobileSettingsTab(
                     OutlinedTextField(
                         value = smartUrl,
                         onValueChange = { smartUrl = it },
+                        enabled = !isAddingSource,
                         modifier = Modifier.fillMaxWidth(),
                         placeholder = { Text("Pega enlace M3U / Xtream completo...", fontSize = 12.sp, color = LelouchTextSecondary) },
                         colors = OutlinedTextFieldDefaults.colors(
@@ -3885,6 +3896,7 @@ private fun MobileSettingsTab(
                     OutlinedTextField(
                         value = smartName,
                         onValueChange = { smartName = it },
+                        enabled = !isAddingSource,
                         modifier = Modifier.fillMaxWidth(),
                         placeholder = { Text("Nombre de la cuenta (opcional)", fontSize = 12.sp, color = LelouchTextSecondary) },
                         colors = OutlinedTextFieldDefaults.colors(
@@ -3901,15 +3913,11 @@ private fun MobileSettingsTab(
 
                     Button(
                         onClick = {
-                            if (smartUrl.isNotBlank()) {
-                                isSubmitting = true
+                            if (smartUrl.isNotBlank() && !isAddingSource) {
                                 onAddSourceSmart(smartUrl, smartName)
-                                smartUrl = ""
-                                smartName = ""
-                                isSubmitting = false
                             }
                         },
-                        enabled = smartUrl.isNotBlank() && !isSubmitting,
+                        enabled = smartUrl.isNotBlank() && !isAddingSource,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(44.dp),
@@ -3919,12 +3927,98 @@ private fun MobileSettingsTab(
                         ),
                         shape = RoundedCornerShape(8.dp)
                     ) {
-                        Text(
-                            "⚡ Conectar y Guardar Lista",
-                            color = if (smartUrl.isNotBlank()) Color.Black else LelouchTextSecondary,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
-                        )
+                        if (isAddingSource) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                color = LelouchCyanAccent,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "Conectando (${downloadConsole.percent}%)...",
+                                color = LelouchTextPrimary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                        } else {
+                            Text(
+                                "⚡ Conectar y Guardar Lista",
+                                color = if (smartUrl.isNotBlank()) Color.Black else LelouchTextSecondary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+
+                    // Consola de Descarga en Vivo estilo Web Player (barra naranja + bitácora por pasos)
+                    if (downloadConsole.isActive || downloadConsole.logs.isNotEmpty()) {
+                        val accentColor = when {
+                            downloadConsole.isError -> Color(0xFFEF4444)
+                            downloadConsole.isCompleted -> Color(0xFF22C55E)
+                            else -> Color(0xFFFF5722)
+                        }
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFF0B0E14))
+                                .border(1.dp, accentColor.copy(alpha = 0.65f), RoundedCornerShape(10.dp))
+                                .padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = downloadConsole.currentStep.ifBlank { "Procesando..." },
+                                    color = if (downloadConsole.isError) Color(0xFFFCA5A5) else Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f).padding(end = 8.dp)
+                                )
+                                Text(
+                                    text = "${downloadConsole.percent}%",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 12.sp
+                                )
+                            }
+
+                            LinearProgressIndicator(
+                                progress = { (downloadConsole.percent / 100f).coerceIn(0f, 1f) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp)),
+                                color = accentColor,
+                                trackColor = Color(0xFF232833)
+                            )
+
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(3.dp)
+                            ) {
+                                downloadConsole.logs.forEachIndexed { idx, logLine ->
+                                    val isLast = idx == downloadConsole.logs.lastIndex
+                                    val lineColor = when {
+                                        logLine.startsWith("[Error]") -> Color(0xFFF87171)
+                                        logLine.contains("✓") -> Color(0xFF4ADE80)
+                                        isLast -> Color(0xFFE5E7EB)
+                                        else -> Color(0xFF9CA3AF)
+                                    }
+                                    Text(
+                                        text = logLine,
+                                        color = lineColor,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 11.sp,
+                                        lineHeight = 15.sp
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -5611,6 +5705,8 @@ private fun MobileSeriesDetailView(
 
     var episodes by remember { mutableStateOf<List<Episode>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
+    var loadError by remember { mutableStateOf<String?>(null) }
+    var retryTrigger by remember { mutableIntStateOf(0) }
     var selectedSeason by remember { mutableStateOf<Int?>(null) }
     var selectedDetailTab by remember { mutableStateOf("temporadas") } // "resumen", "temporadas", "detalles"
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
@@ -5621,8 +5717,9 @@ private fun MobileSeriesDetailView(
         if (list.isEmpty()) listOf(1) else list
     }
 
-    LaunchedEffect(series.seriesId) {
+    LaunchedEffect(series.seriesId, retryTrigger) {
         isLoading = true
+        loadError = null
         try {
             if (onFetchSeriesDetails != null) {
                 val (seasonList, epList) = onFetchSeriesDetails(series.seriesId)
@@ -5632,8 +5729,11 @@ private fun MobileSeriesDetailView(
             } else {
                 episodes = emptyList()
             }
-        } catch (_: Exception) {
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
             episodes = emptyList()
+            loadError = e.localizedMessage ?: "No se pudieron cargar las temporadas desde el servidor"
         } finally {
             isLoading = false
         }
@@ -5919,22 +6019,39 @@ private fun MobileSeriesDetailView(
                         ) {
                             CircularProgressIndicator(color = LelouchLiveRed, modifier = Modifier.size(36.dp))
                         }
-                    } else if (episodes.isEmpty()) {
-                        Box(
+                    } else if (loadError != null || episodes.isEmpty()) {
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(24.dp)
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(LelouchSurface)
-                                .border(1.dp, LelouchBorder, RoundedCornerShape(10.dp))
+                                .border(
+                                    1.dp,
+                                    if (loadError != null) Color(0xFFEF4444).copy(alpha = 0.6f) else LelouchBorder,
+                                    RoundedCornerShape(10.dp)
+                                )
                                 .padding(20.dp),
-                            contentAlignment = Alignment.Center
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Text(
-                                "No se encontraron episodios disponibles",
-                                color = LelouchTextSecondary,
+                                text = loadError ?: "No se encontraron episodios disponibles para esta serie.",
+                                color = if (loadError != null) Color(0xFFFCA5A5) else LelouchTextSecondary,
                                 fontSize = 13.sp
                             )
+                            Button(
+                                onClick = { retryTrigger++ },
+                                colors = ButtonDefaults.buttonColors(containerColor = LelouchLiveRed),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text(
+                                    text = "Reintentar",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                            }
                         }
                     } else {
                         LazyColumn(

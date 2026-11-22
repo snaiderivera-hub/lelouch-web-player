@@ -1,7 +1,7 @@
 {
-  "versionName": "1.0.139",
-  "versionCode": 1000139,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.139/app-debug.apk",
-  "changelog": "- SQLite WAL Forzado: Eliminados bloqueos de 8-9s al escribir VOD mientras la UI o pre-caché leen Room.\n- M3U Gzip + .use {}: Corregida descompresión automática y cierre seguro de respuestas HTTP.\n- TTL Real + Hash SHA-256: Live 24h y VOD/Series 3 días; omite swaps masivos cuando el contenido no cambió.\n- Semáforo Global (Semaphore(1)) + Pre-caché Diferido + Circuit Breaker de Hosts Muertos + Retry con Backoff.\n- Seguridad: URLs completamente sanitizadas en logs.",
-  "version": "1.0.139"
+  "versionName": "1.0.140",
+  "versionCode": 1000140,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.140/app-debug.apk",
+  "changelog": "- Falla rápida y mensaje honesto en VOD/Series: 403/404 fallan de inmediato y 401 hace máximo 1 reintento, distinguiendo 401/403, 404 y 429 en el reproductor.\n- Series reales: Dispatchers.IO en getSeriesDetailAndEpisodes, eliminados episodios falsos y agregado botón Reintentar en detalle de serie.\n- Móvil UI: Eliminado el doble spinner circular superpuesto en el reproductor VOD/Series.\n- Consola de descarga en vivo (estilo Web Player): Barra naranja con bitácora por pasos al agregar enlace y bloqueo de botón hasta terminar.\n- Seguridad: Enmascarado completo de ?token=... y parámetros sensibles de query string en logs.",
+  "version": "1.0.140"
 }

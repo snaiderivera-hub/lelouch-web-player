@@ -12,6 +12,7 @@ import com.lelouch.core.database.entity.MovieEntity
 import com.lelouch.core.database.entity.MovieStagingEntity
 import com.lelouch.core.database.entity.SeriesEntity
 import com.lelouch.core.database.entity.SeriesStagingEntity
+import com.lelouch.core.model.CatalogDownloadProgress
 import com.lelouch.core.model.SourceConfig
 import com.lelouch.core.network.NetworkClient
 import com.lelouch.core.network.StreamUrlResolver
@@ -117,6 +118,88 @@ class XtreamCatalogSyncManager private constructor(
 
     private val _syncState = MutableStateFlow<SyncState>(SyncState.Idle)
     val syncState: StateFlow<SyncState> = _syncState.asStateFlow()
+
+    private val _downloadConsole = MutableStateFlow(CatalogDownloadProgress())
+    val downloadConsole: StateFlow<CatalogDownloadProgress> = _downloadConsole.asStateFlow()
+
+    private fun sanitizeConsoleText(raw: String): String {
+        return raw.replace(Regex("https?://\\S+")) { m -> UrlSanitizer.sanitizeUrl(m.value) }
+    }
+
+    fun beginDownloadConsole(step: String = "Analizando URL...", percent: Int = 5) {
+        val cleanStep = sanitizeConsoleText(step)
+        val clamped = percent.coerceIn(0, 100)
+        _downloadConsole.value = CatalogDownloadProgress(
+            isActive = true,
+            percent = clamped,
+            currentStep = cleanStep,
+            logs = listOf("[$clamped%] $cleanStep"),
+            isError = false,
+            isCompleted = false
+        )
+    }
+
+    fun appendDownloadConsoleStep(percent: Int, step: String) {
+        val prev = _downloadConsole.value
+        if (!prev.isActive && prev.logs.isEmpty()) return
+        val cleanStep = sanitizeConsoleText(step)
+        val clamped = percent.coerceIn(prev.percent, 100)
+        val line = "[$clamped%] $cleanStep"
+        val nextLogs = if (prev.logs.lastOrNull() == line) prev.logs else (prev.logs + line).takeLast(16)
+        _downloadConsole.value = prev.copy(
+            isActive = true,
+            percent = clamped,
+            currentStep = cleanStep,
+            logs = nextLogs,
+            isError = false,
+            isCompleted = false
+        )
+    }
+
+    fun completeDownloadConsole(step: String) {
+        val prev = _downloadConsole.value
+        if (!prev.isActive && prev.logs.isEmpty()) return
+        val cleanStep = sanitizeConsoleText(step)
+        val line = "[100%] $cleanStep"
+        val nextLogs = if (prev.logs.lastOrNull() == line) prev.logs else (prev.logs + line).takeLast(16)
+        _downloadConsole.value = prev.copy(
+            isActive = false,
+            percent = 100,
+            currentStep = cleanStep,
+            logs = nextLogs,
+            isError = false,
+            isCompleted = true
+        )
+    }
+
+    fun failDownloadConsole(reason: String) {
+        val prev = _downloadConsole.value
+        val cleanReason = sanitizeConsoleText(reason).ifBlank { "Error de conexión con el servidor" }
+        val line = "[Error] $cleanReason"
+        val nextLogs = if (prev.logs.lastOrNull() == line) prev.logs else (prev.logs + line).takeLast(16)
+        _downloadConsole.value = prev.copy(
+            isActive = false,
+            currentStep = cleanReason,
+            logs = nextLogs,
+            isError = true,
+            isCompleted = false
+        )
+    }
+
+    fun resetDownloadConsole() {
+        _downloadConsole.value = CatalogDownloadProgress()
+    }
+
+    private fun formatConsoleExpireDate(rawExpire: String?): String {
+        val epochSecs = rawExpire?.trim()?.toLongOrNull() ?: return "Activa"
+        if (epochSecs <= 0L) return "Ilimitada"
+        return try {
+            val sdf = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault())
+            sdf.format(java.util.Date(epochSecs * 1000L))
+        } catch (_: Exception) {
+            "Activa"
+        }
+    }
 
     // PASO 5: Mutex por sourceId para evitar múltiples syncs concurrentes de la misma fuente
     private val sourceSyncMutexes = ConcurrentHashMap<String, Mutex>()
@@ -458,6 +541,7 @@ class XtreamCatalogSyncManager private constructor(
             markHostDeadIfNetworkDown(serverUrl, e)
             val errorMsg = e.localizedMessage ?: "Error de sincronización con el servidor IPTV"
             emitUi(emitUiState, sourceId, SyncState.Error(errorMsg))
+            if (emitUiState) failDownloadConsole(errorMsg)
             Result.failure(e)
         } finally {
             if (gateAcquired) downloadGate.release()
@@ -655,6 +739,7 @@ class XtreamCatalogSyncManager private constructor(
     ): Result<Unit> {
         try {
             emitUi(emitUiState, sourceId, SyncState.SyncingLive(0))
+            if (emitUiState) appendDownloadConsoleStep(35, "Descargando lista M3U...")
 
             val channelStagingBatch = mutableListOf<ChannelStagingEntity>()
             val movieStagingBatch = mutableListOf<MovieStagingEntity>()
@@ -923,8 +1008,11 @@ class XtreamCatalogSyncManager private constructor(
                 val errorMsg = "No se pudo cargar el catálogo M3U: $detail (Catálogo activo preservado)"
                 android.util.Log.e("XtreamCatalogSync", errorMsg)
                 emitUi(emitUiState, sourceId, SyncState.Error(errorMsg))
+                if (emitUiState) failDownloadConsole(errorMsg)
                 return Result.failure(IllegalStateException(errorMsg))
             }
+
+            if (emitUiState) appendDownloadConsoleStep(85, "Guardando catálogo en el dispositivo ($totalNew elementos)...")
 
             val prevMeta = preferencesDataSource?.getSyncMetadata(sourceId)
             val now = System.currentTimeMillis()
@@ -975,6 +1063,10 @@ class XtreamCatalogSyncManager private constructor(
                     seriesCount = stagingSeries
                 )
             )
+            if (emitUiState) {
+                val totalSaved = stagingChannels + stagingMovies + stagingSeries
+                completeDownloadConsole("✓ Catálogo guardado ($totalSaved elementos)")
+            }
             return Result.success(Unit)
         } catch (e: Exception) {
             cleanupStaging(syncId)
@@ -985,6 +1077,7 @@ class XtreamCatalogSyncManager private constructor(
             val errorMsg = "Sincronización M3U interrumpida: ${e.message ?: e.javaClass.simpleName}"
             android.util.Log.e("XtreamCatalogSync", errorMsg, e)
             emitUi(emitUiState, sourceId, SyncState.Error(errorMsg))
+            if (emitUiState) failDownloadConsole(errorMsg)
             return Result.failure(e)
         }
     }
@@ -1001,6 +1094,7 @@ class XtreamCatalogSyncManager private constructor(
         try {
             val client = if (emitUiState) httpClient else fastPreCacheClient
             emitUi(emitUiState, sourceId, SyncState.Authenticating)
+            if (emitUiState) appendDownloadConsoleStep(20, "Obteniendo información de cuenta...")
             val api = NetworkClient.createXtreamApiService(serverUrl, client)
 
             // 1. Validar credenciales y cuenta (con retryIo solo para fuente activa)
@@ -1011,7 +1105,13 @@ class XtreamCatalogSyncManager private constructor(
             if (!userInfo.status.trim().equals("Active", ignoreCase = true)) {
                 val errorMsg = "La cuenta IPTV no está activa (Estado: ${userInfo.status})"
                 emitUi(emitUiState, sourceId, SyncState.Error(errorMsg))
+                if (emitUiState) failDownloadConsole(errorMsg)
                 return Result.failure(IllegalStateException(errorMsg))
+            }
+
+            if (emitUiState) {
+                val expLabel = formatConsoleExpireDate(userInfo.expDate)
+                appendDownloadConsoleStep(25, "✓ Cuenta activa — vence: $expLabel")
             }
 
             // FASE 35 (1.0.97): persistir los datos reales de la cuenta en cada sincronización
@@ -1030,6 +1130,7 @@ class XtreamCatalogSyncManager private constructor(
 
             // 2. Sincronizar Categorías en Staging (Live, VOD, Series)
             emitUi(emitUiState, sourceId, SyncState.SyncingCategories("Descargando categorías..."))
+            if (emitUiState) appendDownloadConsoleStep(30, "Obteniendo categorías...")
             val liveCategories = try { api.getLiveCategories(user, pass) } catch (_: Exception) { emptyList() }
             val vodCategories = try { api.getVodCategories(user, pass) } catch (_: Exception) { emptyList() }
             val seriesCategories = try { api.getSeriesCategories(user, pass) } catch (_: Exception) { emptyList() }
@@ -1083,6 +1184,7 @@ class XtreamCatalogSyncManager private constructor(
 
             // 3. Sincronizar Canales en Vivo hacia Staging (reutilizando pool de httpClient + hash SHA-256)
             emitUi(emitUiState, sourceId, SyncState.SyncingLive(0))
+            if (emitUiState) appendDownloadConsoleStep(45, "Descargando canales en vivo...")
 
             val liveUrl = "${if (serverUrl.endsWith("/")) serverUrl else "$serverUrl/"}player_api.php?username=$user&password=$pass&action=get_live_streams"
             var liveCount = 0
@@ -1123,8 +1225,11 @@ class XtreamCatalogSyncManager private constructor(
                 val errorMsg = "El servidor Xtream devolvió 0 canales en vivo. Se preserva el catálogo activo."
                 android.util.Log.w("XtreamCatalogSync", errorMsg)
                 emitUi(emitUiState, sourceId, SyncState.Error(errorMsg))
+                if (emitUiState) failDownloadConsole(errorMsg)
                 return Result.failure(IllegalStateException(errorMsg))
             }
+
+            if (emitUiState) appendDownloadConsoleStep(80, "Guardando canales en el dispositivo ($stagingChannels canales)...")
 
             val now = System.currentTimeMillis()
             val prevMeta = preferencesDataSource?.getSyncMetadata(sourceId)
@@ -1176,6 +1281,9 @@ class XtreamCatalogSyncManager private constructor(
                     seriesCount = prevMeta?.seriesCount ?: 0
                 )
             )
+            if (emitUiState) {
+                completeDownloadConsole("✓ Catálogo listo ($effectiveLiveCount canales en vivo)")
+            }
 
             // ── Sincronizar Películas VOD y Series en segundo plano controlado (TTL 3 días) ──
             if (syncVodInBackground) {
@@ -1201,6 +1309,7 @@ class XtreamCatalogSyncManager private constructor(
             markHostDeadIfNetworkDown(serverUrl, e)
             val errorMsg = e.localizedMessage ?: "Error de sincronización con el servidor IPTV"
             emitUi(emitUiState, sourceId, SyncState.Error(errorMsg))
+            if (emitUiState) failDownloadConsole(errorMsg)
             return Result.failure(e)
         }
     }

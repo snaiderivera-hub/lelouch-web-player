@@ -68,8 +68,10 @@ class MainActivity : ComponentActivity() {
             val bootstrapState by bootstrapViewModel.bootstrapState.collectAsStateWithLifecycle()
             val activeSource by app.authRepository.getActiveSource().collectAsStateWithLifecycle(initialValue = null)
             val syncState by app.syncManager.syncState.collectAsStateWithLifecycle()
+            val downloadConsole by app.syncManager.downloadConsole.collectAsStateWithLifecycle()
 
             var errorMessage by remember { mutableStateOf<String?>(null) }
+            var isAddingSource by remember { mutableStateOf(false) }
             var isManualAdminModalVisible by remember { mutableStateOf(false) }
             // FASE 41: fuerza la próxima sincronización de la fuente que se está activando.
             // Antes «🔄 Recargar» activaba y llamaba a onForceSync(), pero ese callback leía
@@ -255,14 +257,40 @@ class MainActivity : ComponentActivity() {
             }
 
             fun onAddSourceSmart(rawUrl: String, customName: String) {
+                if (isAddingSource) return
                 errorMessage = null
+                isAddingSource = true
+                app.syncManager.beginDownloadConsole("Analizando URL...", 5)
                 lifecycleScope.launch {
-                    val authResult = app.authRepository.addSourceFromUrl(rawUrl, customName)
-                    authResult.onSuccess { source ->
-                        forceSyncSourceId = source.id
-                        bootstrapViewModel.onSourceAdded(source)
-                    }.onFailure { error ->
-                        errorMessage = error.localizedMessage ?: "Error al conectar"
+                    try {
+                        val trimmed = rawUrl.trim()
+                        app.syncManager.appendDownloadConsoleStep(10, "Probando conexión con el servidor...")
+                        val connectStart = System.currentTimeMillis()
+                        val authResult = app.authRepository.addSourceFromUrl(trimmed, customName)
+                        authResult.onSuccess { source ->
+                            val elapsedMs = (System.currentTimeMillis() - connectStart).coerceAtLeast(1L)
+                            app.syncManager.appendDownloadConsoleStep(15, "Conexión establecida ${elapsedMs}ms")
+                            if (source.type == SourceType.XTREAM) {
+                                app.syncManager.appendDownloadConsoleStep(20, "Obteniendo información de cuenta...")
+                            } else {
+                                app.syncManager.appendDownloadConsoleStep(25, "✓ Enlace M3U detectado — preparando descarga...")
+                            }
+                            forceSyncSourceId = source.id
+                            bootstrapViewModel.onSourceAdded(source)
+                        }.onFailure { error ->
+                            val msg = error.localizedMessage ?: "Error al conectar"
+                            errorMessage = msg
+                            app.syncManager.failDownloadConsole(msg)
+                            isAddingSource = false
+                        }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        isAddingSource = false
+                        throw e
+                    } catch (e: Exception) {
+                        val msg = e.localizedMessage ?: "Error inesperado al agregar enlace"
+                        errorMessage = msg
+                        app.syncManager.failDownloadConsole(msg)
+                        isAddingSource = false
                     }
                 }
             }
@@ -335,6 +363,7 @@ class MainActivity : ComponentActivity() {
                             !msg.contains("left the composition", ignoreCase = true) &&
                             !msg.contains("StandaloneCoroutine was cancelled", ignoreCase = true)) {
                             errorMessage = msg
+                            if (isAddingSource) app.syncManager.failDownloadConsole(msg)
                         }
                     }
                 } catch (e: kotlinx.coroutines.CancellationException) {
@@ -345,7 +374,10 @@ class MainActivity : ComponentActivity() {
                         !msg.contains("left the composition", ignoreCase = true) &&
                         !msg.contains("StandaloneCoroutine was cancelled", ignoreCase = true)) {
                         errorMessage = msg
+                        if (isAddingSource) app.syncManager.failDownloadConsole(msg)
                     }
+                } finally {
+                    isAddingSource = false
                 }
             }
 
@@ -524,6 +556,8 @@ class MainActivity : ComponentActivity() {
                                 },
                                 syncStatusText = errorMessage ?: syncStatusText,
                                 syncIsError = errorMessage != null || syncState is SyncState.Error,
+                                downloadConsole = downloadConsole,
+                                isAddingSource = isAddingSource,
                                 onLogout = ::onLogout,
                                 playbackHistory = app.playbackHistoryRepository,
                                 onFetchSeriesDetails = { seriesId ->

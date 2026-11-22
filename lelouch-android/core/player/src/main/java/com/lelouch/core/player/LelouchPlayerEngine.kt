@@ -578,6 +578,19 @@ class LelouchPlayerEngine(
             )
         }
 
+        private fun extractHttpStatusCode(error: Throwable?): Int? {
+            var current: Throwable? = error
+            var depth = 0
+            while (current != null && depth < 6) {
+                if (current is HttpDataSource.InvalidResponseCodeException) {
+                    return current.responseCode
+                }
+                current = current.cause
+                depth++
+            }
+            return null
+        }
+
         override fun onPlayerError(error: PlaybackException) {
             // Error telemetry is handled exclusively by analyticsListener with verified attemptId
             stopBufferingWatchdog()
@@ -595,6 +608,7 @@ class LelouchPlayerEngine(
                 return
             }
 
+            val httpStatusCode = extractHttpStatusCode(error)
             val isNetworkError = error.errorCode in setOf(
                 PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
                 PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
@@ -603,9 +617,24 @@ class LelouchPlayerEngine(
                 PlaybackException.ERROR_CODE_IO_UNSPECIFIED,
                 -3 // Handling undocumented legacy error -3
             )
+            // Excepción FASE 34 acotada únicamente a VOD/Series (!isCurrentStreamLive):
+            // 403/404 fallan inmediato; 401 permite como máximo 1 reintento por token de redirección.
+            val allowRetryForStream = if (!isCurrentStreamLive && httpStatusCode != null) {
+                when (httpStatusCode) {
+                    403, 404 -> false
+                    401 -> autoRetryAttemptsLeft == config.autoRetryCount
+                    else -> autoRetryAttemptsLeft > 0
+                }
+            } else {
+                autoRetryAttemptsLeft > 0
+            }
             val currentStreamUrl = _currentUrl.value
-            if (isNetworkError && currentStreamUrl != null && autoRetryAttemptsLeft > 0) {
-                autoRetryAttemptsLeft--
+            if (isNetworkError && currentStreamUrl != null && allowRetryForStream) {
+                if (!isCurrentStreamLive && httpStatusCode == 401) {
+                    autoRetryAttemptsLeft = 0
+                } else {
+                    autoRetryAttemptsLeft--
+                }
                 _playbackState.value = PlaybackState.Buffering
                 android.util.Log.w(
                     "LelouchPlayer",
@@ -633,18 +662,22 @@ class LelouchPlayerEngine(
             val errorDescription = when (error.errorCode) {
                 PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
                 PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ->
-                    "Sin conexión al servidor IPTV. Saltando canal..."
+                    if (isCurrentStreamLive) "Sin conexión al servidor IPTV. Saltando canal..."
+                    else "Sin conexión con el servidor de películas y series."
                 PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ->
-                    "Canal no disponible (Error 403/404/429). Saltando al siguiente..."
+                    if (isCurrentStreamLive) "Canal no disponible (Error 403/404/429). Saltando al siguiente..."
+                    else "El servidor rechazó la reproducción${httpStatusCode?.let { " (HTTP $it)" } ?: ""}."
                 PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
                 PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED ->
-                    "Formato de stream incompatible. Saltando al siguiente..."
+                    if (isCurrentStreamLive) "Formato de stream incompatible. Saltando al siguiente..."
+                    else "Formato de video incompatible o dañado."
                 else -> error.localizedMessage ?: "Error durante la reproducción."
             }
             _playbackState.value = PlaybackState.Error(
                 errorMessage = errorDescription,
                 errorCode = error.errorCode,
-                canRetry = true
+                canRetry = true,
+                httpStatusCode = httpStatusCode
             )
             // FASE 33: Intentar salto automático al siguiente canal (limitado en UI)
             if (isCurrentStreamLive) {

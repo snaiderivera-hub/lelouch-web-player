@@ -101,7 +101,7 @@ class SeriesRepositoryImpl(
         username: String,
         password: String,
         seriesId: Int
-    ): Pair<List<Int>, List<Episode>> {
+    ): Pair<List<Int>, List<Episode>> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val seasonsList = mutableListOf<Int>()
         val episodesList = mutableListOf<Episode>()
 
@@ -109,13 +109,13 @@ class SeriesRepositoryImpl(
         // personalizada cuyo serverUrl es el endpoint de manifiesto de Vercel), NO se consultan
         // episodios ni se fabrican URLs ficticias: devolvemos vacío y la UI lo indica.
         if (!StreamUrlResolver.isXtreamBase(serverUrl, username)) {
-            return Pair(emptyList(), emptyList())
+            return@withContext Pair(emptyList(), emptyList())
         }
 
         try {
             val api = NetworkClient.createXtreamApiService(serverUrl)
             val responseBody = api.getSeriesInfo(username, password, seriesId = seriesId)
-            val jsonString = responseBody.string()
+            val jsonString = responseBody.use { it.string() }
             val root = JSONObject(jsonString)
 
             if (root.has("seasons")) {
@@ -144,34 +144,7 @@ class SeriesRepositoryImpl(
                     if (epArray != null) {
                         for (i in 0 until epArray.length()) {
                             val item = epArray.optJSONObject(i) ?: continue
-                            val epId = item.optInt("id", item.optInt("stream_id", item.optInt("episode_id", item.optString("id").toIntOrNull() ?: item.optString("stream_id").toIntOrNull() ?: 0)))
-                            val epNum = item.optInt("episode_num", item.optInt("episodeNumber", item.optString("episode_num").toIntOrNull() ?: (i + 1)))
-                            val rawTitle = item.optString("title").ifBlank { item.optString("name").ifBlank { "Episodio $epNum" } }
-                            val infoObj = item.optJSONObject("info")
-                            val rawExt = item.optString("container_extension").ifBlank { infoObj?.optString("container_extension").orEmpty() }
-                            val ext = rawExt.trimStart('.').ifBlank { "mp4" }
-                            val plot = infoObj?.optString("plot")?.ifBlank { null } ?: item.optString("plot").ifBlank { "Capítulo $epNum de la temporada $seasonNum." }
-                            val durationSecs = infoObj?.optInt("duration_secs", 0)?.takeIf { it > 0 } ?: item.optInt("duration_secs", 0)
-                            val coverUrl = infoObj?.optString("movie_image")?.ifBlank { null } ?: item.optString("movie_image").ifBlank { null }
-                            val streamUrl = XtreamUrlBuilder.buildSeriesStreamUrl(serverUrl, username, password, epId, ext)
-
-                            episodesList.add(
-                                Episode(
-                                    id = "$seriesId-$epId",
-                                    episodeId = epId,
-                                    seriesId = seriesId,
-                                    seasonNumber = seasonNum,
-                                    episodeNumber = epNum,
-                                    title = rawTitle,
-                                    containerExtension = ext,
-                                    info = null,
-                                    plot = plot,
-                                    durationSecs = durationSecs,
-                                    durationFormatted = if (durationSecs > 0) "${durationSecs / 60}m" else "45m",
-                                    cover = coverUrl,
-                                    streamUrl = streamUrl
-                                )
-                            )
+                            episodesList.add(parseEpisodeItem(item, seasonNum, i, serverUrl, username, password, seriesId))
                         }
                     }
                 }
@@ -182,38 +155,17 @@ class SeriesRepositoryImpl(
                     if (!seasonsList.contains(seasonNum)) {
                         seasonsList.add(seasonNum)
                     }
-                    val epId = item.optInt("id", item.optInt("stream_id", item.optInt("episode_id", item.optString("id").toIntOrNull() ?: item.optString("stream_id").toIntOrNull() ?: 0)))
-                    val epNum = item.optInt("episode_num", item.optInt("episodeNumber", item.optString("episode_num").toIntOrNull() ?: (i + 1)))
-                    val rawTitle = item.optString("title").ifBlank { item.optString("name").ifBlank { "Episodio $epNum" } }
-                    val infoObj = item.optJSONObject("info")
-                    val rawExt = item.optString("container_extension").ifBlank { infoObj?.optString("container_extension").orEmpty() }
-                    val ext = rawExt.trimStart('.').ifBlank { "mp4" }
-                    val plot = infoObj?.optString("plot")?.ifBlank { null } ?: item.optString("plot").ifBlank { "Capítulo $epNum de la temporada $seasonNum." }
-                    val durationSecs = infoObj?.optInt("duration_secs", 0)?.takeIf { it > 0 } ?: item.optInt("duration_secs", 0)
-                    val coverUrl = infoObj?.optString("movie_image")?.ifBlank { null } ?: item.optString("movie_image").ifBlank { null }
-                    val streamUrl = XtreamUrlBuilder.buildSeriesStreamUrl(serverUrl, username, password, epId, ext)
-
-                    episodesList.add(
-                        Episode(
-                            id = "$seriesId-$epId",
-                            episodeId = epId,
-                            seriesId = seriesId,
-                            seasonNumber = seasonNum,
-                            episodeNumber = epNum,
-                            title = rawTitle,
-                            containerExtension = ext,
-                            info = null,
-                            plot = plot,
-                            durationSecs = durationSecs,
-                            durationFormatted = if (durationSecs > 0) "${durationSecs / 60}m" else "45m",
-                            cover = coverUrl,
-                            streamUrl = streamUrl
-                        )
-                    )
+                    episodesList.add(parseEpisodeItem(item, seasonNum, i, serverUrl, username, password, seriesId))
                 }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             android.util.Log.e("SeriesRepo", "Error fetching series info: ${e.message}", e)
+            throw java.io.IOException(
+                "No se pudieron cargar las temporadas (${e.message ?: e.javaClass.simpleName})",
+                e
+            )
         }
 
         val actualEpisodeSeasons = episodesList.map { it.seasonNumber }.distinct()
@@ -223,34 +175,6 @@ class SeriesRepositoryImpl(
             }
         }
         seasonsList.sort()
-        if (seasonsList.isEmpty()) {
-            seasonsList.addAll(listOf(1, 2, 3))
-        }
-
-        if (episodesList.isEmpty()) {
-            for (s in seasonsList) {
-                for (ep in 1..8) {
-                    val fallbackId = (seriesId * 1000) + (s * 100) + ep
-                    val streamUrl = XtreamUrlBuilder.buildSeriesStreamUrl(serverUrl, username, password, fallbackId, "mp4")
-                    episodesList.add(
-                        Episode(
-                            id = "$seriesId-$fallbackId",
-                            episodeId = fallbackId,
-                            seriesId = seriesId,
-                            seasonNumber = s,
-                            episodeNumber = ep,
-                            title = "Episodio $ep",
-                            containerExtension = "mp4",
-                            plot = "Capítulo $ep de la Temporada $s.",
-                            durationSecs = 2700,
-                            durationFormatted = "45m",
-                            cover = null,
-                            streamUrl = streamUrl
-                        )
-                    )
-                }
-            }
-        }
 
         val seriesName = seriesDao.getSeriesById(seriesId)?.name.orEmpty()
         val finalEpisodes = if (seriesName.isNotBlank() && episodesList.isNotEmpty()) {
@@ -263,7 +187,57 @@ class SeriesRepositoryImpl(
             episodesList
         }
 
-        return Pair(seasonsList, finalEpisodes)
+        Pair(seasonsList, finalEpisodes)
+    }
+
+    private fun parseEpisodeItem(
+        item: JSONObject,
+        seasonNum: Int,
+        index: Int,
+        serverUrl: String,
+        username: String,
+        password: String,
+        seriesId: Int
+    ): Episode {
+        val epId = item.optInt(
+            "id",
+            item.optInt(
+                "stream_id",
+                item.optInt(
+                    "episode_id",
+                    item.optString("id").toIntOrNull() ?: item.optString("stream_id").toIntOrNull() ?: 0
+                )
+            )
+        )
+        val epNum = item.optInt(
+            "episode_num",
+            item.optInt("episodeNumber", item.optString("episode_num").toIntOrNull() ?: (index + 1))
+        )
+        val rawTitle = item.optString("title").ifBlank { item.optString("name").ifBlank { "Episodio $epNum" } }
+        val infoObj = item.optJSONObject("info")
+        val rawExt = item.optString("container_extension").ifBlank { infoObj?.optString("container_extension").orEmpty() }
+        val ext = rawExt.trimStart('.').ifBlank { "mp4" }
+        val plot = infoObj?.optString("plot")?.ifBlank { null }
+            ?: item.optString("plot").ifBlank { "Capítulo $epNum de la temporada $seasonNum." }
+        val durationSecs = infoObj?.optInt("duration_secs", 0)?.takeIf { it > 0 } ?: item.optInt("duration_secs", 0)
+        val coverUrl = infoObj?.optString("movie_image")?.ifBlank { null } ?: item.optString("movie_image").ifBlank { null }
+        val streamUrl = XtreamUrlBuilder.buildSeriesStreamUrl(serverUrl, username, password, epId, ext)
+
+        return Episode(
+            id = "$seriesId-$epId",
+            episodeId = epId,
+            seriesId = seriesId,
+            seasonNumber = seasonNum,
+            episodeNumber = epNum,
+            title = rawTitle,
+            containerExtension = ext,
+            info = null,
+            plot = plot,
+            durationSecs = durationSecs,
+            durationFormatted = if (durationSecs > 0) "${durationSecs / 60}m" else "45m",
+            cover = coverUrl,
+            streamUrl = streamUrl
+        )
     }
 
     override suspend fun toggleFavorite(seriesId: Int, isFavorite: Boolean) {
