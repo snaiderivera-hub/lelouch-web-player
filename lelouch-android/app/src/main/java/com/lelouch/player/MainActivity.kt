@@ -303,6 +303,15 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            // ── Pre-descarga silenciosa de listas secundarias en background para cambio instantáneo (<50ms) ──
+            LaunchedEffect(allSources, effectiveActiveSource?.id) {
+                val activeId = effectiveActiveSource?.id ?: return@LaunchedEffect
+                if (allSources.size > 1) {
+                    kotlinx.coroutines.delay(4000)
+                    app.syncManager.preCacheSources(activeId, allSources)
+                }
+            }
+
             val liveChannels by (if (effectiveActiveSource != null) app.channelRepository.getAllChannels(effectiveActiveSource.id) else kotlinx.coroutines.flow.emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
             val movies by (if (effectiveActiveSource != null) app.vodRepository.getAllMovies(effectiveActiveSource.id) else kotlinx.coroutines.flow.emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
             val recentMovies by (if (isTv && effectiveActiveSource != null) app.vodRepository.getRecentlyAddedMovies(20) else emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())

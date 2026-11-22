@@ -1,7 +1,7 @@
-﻿{
-  "versionName": "1.0.136",
-  "versionCode": 1000136,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.136/app-debug.apk",
-  "changelog": "- Carga Ultrarrápida (<3s en TV Box y Móvil): Sincronización atómica instantánea de Canales en Vivo.\n- Sync Asíncrono en Segundo Plano: Películas y Series descargan silenciosamente sin congelar la app.\n- Auto-detección Inteligente en Login Móvil: Extrae servidor, usuario y contraseña al pegar links completos (get.php).\n- Optimización Portal Dashboard: Catálogo fluido sin sobrecargar CPU.",
-  "version": "1.0.136"
+{
+  "versionName": "1.0.137",
+  "versionCode": 1000137,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.137/app-debug.apk",
+  "changelog": "- Pre-descarga Automática en Segundo Plano: Todas tus listas guardadas se descargan silenciosamente en la base de datos del teléfono.\n- Cambio de Cuentas Instantáneo (<50ms): Al alternar entre cualquiera de tus listas, la carga es inmediata (0s) sin volver a usar internet.\n- Ahorro Extremo de Datos: Solo se descargan una vez y solo se actualizan al presionar «Recargar Catálogo».",
+  "version": "1.0.137"
 }

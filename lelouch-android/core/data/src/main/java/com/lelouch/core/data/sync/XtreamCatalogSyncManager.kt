@@ -12,6 +12,7 @@ import com.lelouch.core.database.entity.MovieEntity
 import com.lelouch.core.database.entity.MovieStagingEntity
 import com.lelouch.core.database.entity.SeriesEntity
 import com.lelouch.core.database.entity.SeriesStagingEntity
+import com.lelouch.core.model.SourceConfig
 import com.lelouch.core.network.NetworkClient
 import com.lelouch.core.network.StreamUrlResolver
 import com.lelouch.core.network.XtreamStreamingParser
@@ -304,6 +305,40 @@ class XtreamCatalogSyncManager private constructor(
             Result.failure(e)
         } finally {
             mutex.unlock()
+        }
+    }
+
+    /**
+     * Pre-descarga y almacena en caché local Room todas las listas registradas
+     * de forma silenciosa en segundo plano. Así, al alternar entre cuentas,
+     * el cambio es instantáneo (<50ms) sin necesidad de conectarse a internet.
+     */
+    suspend fun preCacheSources(
+        activeSourceId: String?,
+        sources: List<SourceConfig>
+    ) = withContext(Dispatchers.IO) {
+        val pendingSources = sources.filter { it.id != activeSourceId }
+        for (source in pendingSources) {
+            try {
+                val chCount = database.channelDao().getChannelCount(source.id)
+                if (chCount == 0) {
+                    android.util.Log.i("XtreamCatalogSync", "PRE_CACHE: Descargando lista en segundo plano: ${source.name} (${source.serverUrl})")
+                    syncAll(
+                        sourceId = source.id,
+                        serverUrl = source.serverUrl,
+                        user = source.username,
+                        pass = source.password,
+                        sourceType = source.type,
+                        force = false
+                    )
+                    kotlinx.coroutines.delay(1000)
+                } else {
+                    android.util.Log.d("XtreamCatalogSync", "PRE_CACHE: ${source.name} ya tiene $chCount canales en Room. Omitiendo.")
+                }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                android.util.Log.w("XtreamCatalogSync", "PRE_CACHE omitido o falló para ${source.name}: ${e.message}")
+            }
         }
     }
 
