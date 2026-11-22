@@ -63,6 +63,7 @@ fun MobileTracksSheet(
     onDismiss: () -> Unit
 ) {
     val state by engine.trackSelection.collectAsState()
+    val videoInfo by engine.videoTrackInfo.collectAsState()
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -128,19 +129,56 @@ fun MobileTracksSheet(
             Spacer(modifier = Modifier.height(16.dp))
 
             // ── CALIDAD DE VIDEO ──
+            val currentQualitySummary = buildString {
+                append("Reproduciendo: ")
+                append(videoInfo.resolutionLabel)
+                if (videoInfo.width > 0 && videoInfo.height > 0) {
+                    append(" (${videoInfo.width}x${videoInfo.height})")
+                }
+                if (videoInfo.bitrate > 0) {
+                    append(" · ${videoInfo.bitrate / 1000} kbps")
+                }
+            }
             MobileSectionTitle("Calidad de video")
+            Text(
+                text = currentQualitySummary,
+                color = LelouchCyanAccent,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(bottom = 6.dp)
+            )
             MobileTrackRow(
-                title = "Auto (adaptativo)",
-                subtitle = "Ajusta la resolución al ancho de banda",
-                isSelected = state.autoVideoSelected,
-                onClick = { engine.selectVideoTrack(AUTO_VIDEO_TRACK_ID) }
+                title = "Auto (máxima disponible)",
+                subtitle = "Ajusta la resolución automáticamente sin límite",
+                isSelected = state.autoVideoSelected && state.maxVideoHeightCap == null,
+                onClick = { engine.setVideoQualityCap(null) }
             )
             state.video.forEach { track ->
                 MobileTrackRow(
                     title = track.label,
                     subtitle = track.secondaryLabel,
-                    isSelected = !state.autoVideoSelected && track.isSelected,
+                    isSelected = !state.autoVideoSelected && state.maxVideoHeightCap == null && track.isSelected,
                     onClick = { engine.selectVideoTrack(track.id) }
+                )
+            }
+            listOf(
+                Triple(720, 2_500_000, "Máx 720p HD (2.5 Mbps)"),
+                Triple(480, 1_200_000, "Máx 480p SD (1.2 Mbps)"),
+                Triple(360, 700_000, "Máx 360p Ahorro (700 kbps)")
+            ).forEach { (heightCap, bitrateCap, label) ->
+                MobileTrackRow(
+                    title = label,
+                    subtitle = "Reduce consumo y cortes en streams multi-calidad (HLS)",
+                    isSelected = state.maxVideoHeightCap == heightCap,
+                    onClick = { engine.setVideoQualityCap(heightCap, bitrateCap) }
+                )
+            }
+            if (state.video.size <= 1) {
+                Text(
+                    text = "Nota: este stream solo entrega 1 pista fija desde el servidor; si el canal tuviera múltiples variantes HLS, el límite aplicado bajará la calidad al instante.",
+                    color = LelouchTextMuted,
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(top = 4.dp)
                 )
             }
 

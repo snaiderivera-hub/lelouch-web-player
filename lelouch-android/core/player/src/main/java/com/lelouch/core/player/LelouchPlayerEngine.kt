@@ -1074,12 +1074,14 @@ class LelouchPlayerEngine(
             }
         }
 
+        val currentCap = _trackSelection.value.maxVideoHeightCap
         _trackSelection.value = TrackSelectionState(
             video = video,
             audio = audio,
             subtitles = subtitles,
-            // "Auto" está activo mientras el usuario no fije una resolución manual.
-            autoVideoSelected = manualVideoOverrideId == null,
+            // "Auto" está activo mientras el usuario no fije una resolución manual ni un tope máximo.
+            autoVideoSelected = manualVideoOverrideId == null && currentCap == null,
+            maxVideoHeightCap = currentCap,
             subtitlesEnabled = subtitles.any { it.isSelected }
         )
     }
@@ -1101,9 +1103,12 @@ class LelouchPlayerEngine(
             applyTrackParameters {
                 clearOverridesOfType(C.TRACK_TYPE_VIDEO)
                 setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, false)
+                setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
+                setMaxVideoBitrate(Int.MAX_VALUE)
             }
             _trackSelection.value = _trackSelection.value.copy(
                 autoVideoSelected = true,
+                maxVideoHeightCap = null,
                 video = _trackSelection.value.video.map { it.copy(isSelected = false) }
             )
             return
@@ -1113,12 +1118,45 @@ class LelouchPlayerEngine(
         manualVideoOverrideId = id
         applyTrackParameters {
             clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+            setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
+            setMaxVideoBitrate(Int.MAX_VALUE)
             setOverrideForType(TrackSelectionOverride(binding.group, binding.index))
             setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, false)
         }
         _trackSelection.value = _trackSelection.value.copy(
             autoVideoSelected = false,
+            maxVideoHeightCap = null,
             video = _trackSelection.value.video.map { it.copy(isSelected = it.id == id) }
+        )
+    }
+
+    /**
+     * Fija un tope máximo de resolución/bitrate en el TrackSelector (ej. 720p, 480p, 360p)
+     * o `null` para restaurar Auto sin límite en streams adaptativos/multi-pista.
+     */
+    fun setVideoQualityCap(maxHeight: Int?, maxBitrateBps: Int = Int.MAX_VALUE) {
+        manualVideoOverrideId = null
+        applyTrackParameters {
+            clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+            setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, false)
+            if (maxHeight == null || maxHeight <= 0) {
+                setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
+                setMaxVideoBitrate(Int.MAX_VALUE)
+            } else {
+                val maxWidth = when {
+                    maxHeight <= 360 -> 640
+                    maxHeight <= 480 -> 854
+                    maxHeight <= 720 -> 1280
+                    else -> 1920
+                }
+                setMaxVideoSize(maxWidth, maxHeight)
+                setMaxVideoBitrate(maxBitrateBps)
+            }
+        }
+        _trackSelection.value = _trackSelection.value.copy(
+            autoVideoSelected = maxHeight == null,
+            maxVideoHeightCap = maxHeight,
+            video = _trackSelection.value.video.map { it.copy(isSelected = false) }
         )
     }
 

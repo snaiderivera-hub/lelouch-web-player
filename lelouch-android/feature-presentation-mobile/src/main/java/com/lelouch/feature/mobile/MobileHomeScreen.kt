@@ -278,7 +278,12 @@ fun MobileHomeScreen(
         }
     }
     val hiddenPrefs = remember { context.getSharedPreferences("iptv_hidden_categories", android.content.Context.MODE_PRIVATE) }
-    
+    var mobileResizeMode by remember {
+        mutableIntStateOf(
+            hiddenPrefs.getInt("mobile_video_resize_mode", AspectRatioFrameLayout.RESIZE_MODE_ZOOM)
+        )
+    }
+
     val currentSourceKey = activeSource?.id.orEmpty().ifBlank { "default" }
     var hiddenLiveCategories by remember {
         mutableStateOf<Set<String>>(CategoryFilterSyncManager.loadFilters(context, currentSourceKey).live)
@@ -290,12 +295,25 @@ fun MobileHomeScreen(
         mutableStateOf<Set<String>>(CategoryFilterSyncManager.loadFilters(context, currentSourceKey).series)
     }
 
+    var previousSourceId by remember { mutableStateOf(activeSource?.id) }
     LaunchedEffect(activeSource?.id) {
         val src = activeSource?.id.orEmpty().ifBlank { "default" }
         val loaded = CategoryFilterSyncManager.loadFilters(context, src)
         hiddenLiveCategories = loaded.live
         hiddenMovieCategories = loaded.movies
         hiddenSeriesCategories = loaded.series
+
+        val currentId = activeSource?.id
+        if (previousSourceId != null && currentId != previousSourceId) {
+            if (activeStreamUrl != null || isPlayerFullscreen) {
+                playerEngine.stop()
+                activeStreamUrl = null
+                isPlayerFullscreen = false
+                activeChannelName = ""
+                activeContentMeta = null
+            }
+        }
+        previousSourceId = currentId
     }
 
     fun saveHiddenLive(newSet: Set<String>) {
@@ -512,48 +530,23 @@ fun MobileHomeScreen(
     }
 
     val playbackState by playerEngine.playbackState.collectAsState()
-    var consecutiveAutoSkips by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(playbackState) {
-        if (playbackState is com.lelouch.core.player.PlaybackState.Playing) {
-            consecutiveAutoSkips = 0
-        }
-    }
-
-    // FASE 33: Anticaídas de señal y Omisión Automática de canales caídos o vacíos
-    DisposableEffect(playerEngine, cleanLiveChannels, activeStreamUrl, isLivePlayback, activeSource) {
+    // Sin saltos automáticos en Live TV: preserva el canal actual y espera a que regrese la señal.
+    DisposableEffect(playerEngine) {
         playerEngine.onChannelUnavailable = {
-            if (isLivePlayback && cleanLiveChannels.isNotEmpty()) {
-                if (consecutiveAutoSkips < 5) {
-                    consecutiveAutoSkips++
-                    val currentIndex = cleanLiveChannels.indexOfFirst { it.name == activeChannelName }
-                    val nextIndex = if (currentIndex in 0 until cleanLiveChannels.size - 1) currentIndex + 1 else 0
-                    val nextChannel = cleanLiveChannels[nextIndex]
-                    android.widget.Toast.makeText(
-                        context,
-                        "⚠️ Señal caída. Saltando a: ${nextChannel.name}",
-                        android.widget.Toast.LENGTH_SHORT
-                    ).show()
-                    activeChannelName = nextChannel.name
-                    activeContentMeta = ActiveContentMeta(nextChannel.name, nextChannel.streamIcon, ContentType.LIVE)
-                    val targetUrl = com.lelouch.core.network.StreamUrlResolver.resolveLive(nextChannel.streamUrl, activeSource, nextChannel.streamId)
-                    if (targetUrl == activeStreamUrl) {
-                        playerEngine.playStream(targetUrl, isLive = true)
-                    } else {
-                        activeStreamUrl = targetUrl
-                    }
-                } else {
-                    android.widget.Toast.makeText(
-                        context,
-                        "Demasiados canales caídos. Deteniendo salto automático.",
-                        android.widget.Toast.LENGTH_LONG
-                    ).show()
-                    consecutiveAutoSkips = 0
-                }
-            }
+            // Se mantiene la sintonía en el canal actual esperando recuperación de señal.
         }
         onDispose {
             playerEngine.onChannelUnavailable = null
+        }
+    }
+
+    LaunchedEffect(playbackState, isLivePlayback, activeStreamUrl) {
+        if (isLivePlayback && activeStreamUrl != null && playbackState is PlaybackState.Error) {
+            kotlinx.coroutines.delay(6_000L)
+            if (isLivePlayback && activeStreamUrl != null) {
+                playerEngine.retry()
+            }
         }
     }
 
@@ -609,6 +602,30 @@ fun MobileHomeScreen(
 
     var selectedMovie by remember { mutableStateOf<VodMovie?>(null) }
     var selectedSeries by remember { mutableStateOf<Series?>(null) }
+
+    fun closeMiniPlayerIfRunning() {
+        if (activeStreamUrl != null && !isPlayerFullscreen) {
+            playerEngine.stop()
+            activeStreamUrl = null
+            activeChannelName = ""
+            activeContentMeta = null
+        }
+    }
+
+    fun openMovieDetail(movie: VodMovie) {
+        closeMiniPlayerIfRunning()
+        selectedMovie = movie
+    }
+
+    fun openSeriesDetail(series: Series) {
+        closeMiniPlayerIfRunning()
+        selectedSeries = series
+    }
+
+    LaunchedEffect(activeSource?.id) {
+        selectedMovie = null
+        selectedSeries = null
+    }
     var isUpdateModalOpen by remember { mutableStateOf(false) }
     var extractTargetSource by remember { mutableStateOf<SourceConfig?>(null) }
     var isDnsSelectorOpen by remember { mutableStateOf(false) }
@@ -846,8 +863,8 @@ fun MobileHomeScreen(
                             portalFeedData = portalFeedData,
                             activeSource = activeSource,
                             onChannelClick = { ch, url -> activeChannelName = ch; activeContentMeta = ActiveContentMeta(ch, type = ContentType.LIVE); startPlayback(url, true) },
-                            onMovieClick = { selectedMovie = it },
-                            onSeriesClick = { selectedSeries = it },
+                            onMovieClick = { openMovieDetail(it) },
+                            onSeriesClick = { openSeriesDetail(it) },
                             onSeeAllLive = { selectedTab = 2 },
                             onSeeAllMovies = { selectedTab = 1 },
                             onSeeAllSeries = { selectedTab = 1 },
@@ -880,11 +897,11 @@ fun MobileHomeScreen(
                             movies = if (searchQuery.isBlank()) filteredMovies
                                      else filteredMovies.filter { it.name.contains(searchQuery, ignoreCase = true) },
                             movieCategories = movieCategoryList,
-                            onMovieClick = { selectedMovie = it },
+                            onMovieClick = { openMovieDetail(it) },
                             seriesList = if (searchQuery.isBlank()) filteredSeriesList
                                          else filteredSeriesList.filter { it.name.contains(searchQuery, ignoreCase = true) },
                             seriesCategories = seriesCategoryList,
-                            onSeriesClick = { selectedSeries = it }
+                            onSeriesClick = { openSeriesDetail(it) }
                         )
                         2 -> MobileLiveTab(
                             channels = if (searchQuery.isBlank()) cleanLiveChannels
@@ -900,7 +917,7 @@ fun MobileHomeScreen(
                             favoriteMovies = favoriteMovies,
                             activeSource = activeSource,
                             onChannelClick = { ch, url -> activeChannelName = ch; activeContentMeta = ActiveContentMeta(ch, type = ContentType.LIVE); startPlayback(url, true) },
-                            onMovieClick = { selectedMovie = it },
+                            onMovieClick = { openMovieDetail(it) },
                             onToggleFavoriteChannel = onToggleFavoriteChannel,
                             onToggleFavoriteMovie = onToggleFavoriteMovie
                         )
@@ -1040,17 +1057,18 @@ fun MobileHomeScreen(
                 section = activeCuratedSection!!,
                 movies = filteredMovies,
                 seriesList = filteredSeriesList,
-                onMovieClick = { selectedMovie = it },
-                onSeriesClick = { selectedSeries = it },
+                onMovieClick = { openMovieDetail(it) },
+                onSeriesClick = { openSeriesDetail(it) },
                 onBack = { activeCuratedSection = null }
             )
         }
 
         // REPRODUCTOR HORIZONTAL A PANTALLA COMPLETA
         if (isPlayerFullscreen && activeStreamUrl != null) {
-            var isOverlayVisible by remember { mutableStateOf(true) }
+            // Al abrir película/serie los botones flotantes inician ocultos (limpio) y se muestran con un toque;
+            // en error también se ocultan para dejar despejado el aviso y botón Reintentar.
+            var isOverlayVisible by remember(activeStreamUrl, isLivePlayback) { mutableStateOf(isLivePlayback) }
             var isTracksSheetVisible by remember { mutableStateOf(false) }
-            var mobileResizeMode by remember { mutableStateOf(AspectRatioFrameLayout.RESIZE_MODE_ZOOM) }
 
             var skipIntervals by remember(activeContentMeta?.title, activeContentMeta?.episodeNumber) {
                 mutableStateOf<List<com.lelouch.core.network.anime.AnimeEnricher.SkipInterval>>(emptyList())
@@ -1073,10 +1091,12 @@ fun MobileHomeScreen(
                 }
             }
 
-            // Auto-hide timer
+            // Auto-hide timer y ocultado limpio cuando hay error
             LaunchedEffect(isOverlayVisible, playbackState) {
-                if (isOverlayVisible && playbackState is PlaybackState.Playing) {
-                    kotlinx.coroutines.delay(4000L)
+                if (playbackState is PlaybackState.Error) {
+                    isOverlayVisible = false
+                } else if (isOverlayVisible && playbackState is PlaybackState.Playing) {
+                    kotlinx.coroutines.delay(3500L)
                     isOverlayVisible = false
                 }
             }
@@ -1105,7 +1125,7 @@ fun MobileHomeScreen(
                 LelouchVideoPlayer(
                     playerEngine = playerEngine,
                     isLive = isLivePlayback,
-                    resizeMode = if (isLivePlayback) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else mobileResizeMode,
+                    resizeMode = mobileResizeMode,
                     modifier = Modifier.fillMaxSize()
                 )
 
@@ -1124,7 +1144,10 @@ fun MobileHomeScreen(
                     MobileTracksSheet(
                         engine = playerEngine,
                         currentResizeMode = mobileResizeMode,
-                        onResizeModeChanged = { mobileResizeMode = it },
+                        onResizeModeChanged = { newMode ->
+                            mobileResizeMode = newMode
+                            hiddenPrefs.edit().putInt("mobile_video_resize_mode", newMode).apply()
+                        },
                         onDismiss = { isTracksSheetVisible = false }
                     )
                 }

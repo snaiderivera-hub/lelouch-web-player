@@ -26,6 +26,7 @@ data class TrackSelectionState(
     val audio: List<PlayerTrack> = emptyList(),
     val subtitles: List<PlayerTrack> = emptyList(),
     val autoVideoSelected: Boolean = true,
+    val maxVideoHeightCap: Int? = null,
     val subtitlesEnabled: Boolean = false
 ) {
     val hasAlternatives: Boolean
