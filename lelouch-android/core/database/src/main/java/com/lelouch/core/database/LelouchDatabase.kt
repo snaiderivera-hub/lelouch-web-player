@@ -69,6 +69,7 @@ abstract class LelouchDatabase : RoomDatabase() {
                     LelouchDatabase::class.java,
                     DATABASE_NAME
                 )
+                    .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
                     .addMigrations(
                         com.lelouch.core.database.migrations.MIGRATION_1_2,
                         com.lelouch.core.database.migrations.MIGRATION_2_3,

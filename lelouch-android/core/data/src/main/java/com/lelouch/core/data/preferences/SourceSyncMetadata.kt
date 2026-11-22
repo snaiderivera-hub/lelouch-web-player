@@ -10,8 +10,12 @@ import kotlinx.serialization.Serializable
 data class SourceSyncMetadata(
     val sourceId: String,
     val lastSuccessfulSyncAt: Long = 0L,
+    val lastLiveSyncAt: Long = 0L,
+    val lastVodSyncAt: Long = 0L,
     val lastSuccessfulVersion: String = "",
     val lastEtag: String = "",
+    val lastLiveHash: String = "",
+    val lastVodHash: String = "",
     val lastSyncResult: String = "SUCCESS",
     val channelCount: Int = 0,
     val movieCount: Int = 0,

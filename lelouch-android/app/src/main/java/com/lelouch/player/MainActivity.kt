@@ -139,18 +139,26 @@ class MainActivity : ComponentActivity() {
             }
 
             val allSources by app.authRepository.getAllSources().collectAsStateWithLifecycle(initialValue = emptyList())
+            var lastStatusRefreshAt by remember { mutableLongStateOf(0L) }
 
             fun onRefreshAccountsStatus() {
+                val now = System.currentTimeMillis()
+                if (now - lastStatusRefreshAt < 10_000L) return
+                lastStatusRefreshAt = now
                 lifecycleScope.launch {
                     LelouchDnsManager.prewarmHosts(allSources.map { it.serverUrl })
                     app.authRepository.refreshAllSourcesStatus()
                 }
             }
 
-            LaunchedEffect(allSources.map { it.id }.joinToString(",")) {
+            LaunchedEffect(allSources.map { it.id }.sorted().joinToString(",")) {
                 if (allSources.isNotEmpty()) {
-                    LelouchDnsManager.prewarmHosts(allSources.map { it.serverUrl })
-                    app.authRepository.refreshAllSourcesStatus()
+                    val now = System.currentTimeMillis()
+                    if (now - lastStatusRefreshAt > 30_000L) {
+                        lastStatusRefreshAt = now
+                        LelouchDnsManager.prewarmHosts(allSources.map { it.serverUrl })
+                        app.authRepository.refreshAllSourcesStatus()
+                    }
                 }
             }
 
@@ -341,12 +349,13 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // ── Pre-descarga silenciosa de listas secundarias en background para cambio instantáneo (<50ms) ──
+            // ── Pre-descarga silenciosa diferida: espera a que termine el VOD activo antes de pre-cachear ──
             val sourceIdsKey = allSources.map { it.id }.sorted().joinToString(",")
             LaunchedEffect(sourceIdsKey) {
                 val activeId = effectiveActiveSource?.id ?: return@LaunchedEffect
                 if (allSources.size > 1) {
-                    kotlinx.coroutines.delay(4000)
+                    kotlinx.coroutines.delay(5000)
+                    app.syncManager.awaitActiveVodSync()
                     app.syncManager.preCacheSources(activeId, allSources)
                 }
             }

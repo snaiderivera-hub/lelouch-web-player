@@ -15,10 +15,19 @@ import com.lelouch.core.database.entity.SeriesStagingEntity
 import com.lelouch.core.model.SourceConfig
 import com.lelouch.core.network.NetworkClient
 import com.lelouch.core.network.StreamUrlResolver
+import com.lelouch.core.network.UrlSanitizer
 import com.lelouch.core.network.XtreamStreamingParser
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
+import java.io.IOException
+import java.net.ConnectException
+import java.net.NoRouteToHostException
+import java.net.SocketTimeoutException
+import java.net.URI
+import java.net.UnknownHostException
+import java.security.DigestInputStream
+import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
@@ -26,13 +35,17 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.withContext
+import kotlin.random.Random
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
 
@@ -93,10 +106,14 @@ class XtreamCatalogSyncManager private constructor(
         val defaultHttpClient: OkHttpClient by lazy {
             NetworkClient.createOkHttpClient()
         }
-        const val XTREAM_DEFAULT_TTL_MS: Long = 24 * 60 * 60 * 1000L // 24 horas para Xtream
+        const val XTREAM_DEFAULT_TTL_MS: Long = 24 * 60 * 60 * 1000L // 24 horas para Live
+        const val VOD_DEFAULT_TTL_MS: Long = 3L * 24 * 60 * 60 * 1000L // 3 días para VOD y Series
         const val M3U_DEFAULT_TTL_MS: Long = 24 * 60 * 60 * 1000L // 24 horas para M3U genérico
+        private const val HOST_COOLDOWN_MS: Long = 12 * 60 * 1000L // 12 min circuit breaker por host caído
         private const val SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvdHVwYmRlbGpnZmRkeXdyeWhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzNjA2MzksImV4cCI6MjEwNTkzNjYzOX0.zDVgrQo_IU5FhfSMpl0-MbS9Eod43czS21TBi5Z3Lvo"
     }
+
+    private class TransientHttpException(val code: Int, message: String) : IOException(message)
 
     private val _syncState = MutableStateFlow<SyncState>(SyncState.Idle)
     val syncState: StateFlow<SyncState> = _syncState.asStateFlow()
@@ -105,6 +122,15 @@ class XtreamCatalogSyncManager private constructor(
     private val sourceSyncMutexes = ConcurrentHashMap<String, Mutex>()
     private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val preCacheMutex = Mutex()
+    private val downloadGate = Semaphore(1)
+    private val vodJobMutex = Mutex()
+    private val deadHosts = ConcurrentHashMap<String, Long>()
+    private val fastPreCacheClient: OkHttpClient by lazy {
+        httpClient.newBuilder()
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .build()
+    }
     @Volatile private var foregroundSourceId: String? = null
     private var activeVodJob: Job? = null
 
@@ -113,6 +139,68 @@ class XtreamCatalogSyncManager private constructor(
             _syncState.value = state
         }
     }
+
+    suspend fun awaitActiveVodSync() {
+        try {
+            activeVodJob?.join()
+        } catch (_: Exception) {}
+    }
+
+    private fun hostOf(url: String): String? =
+        runCatching { URI(url.trim()).host?.lowercase() }.getOrNull()?.takeIf { it.isNotBlank() }
+
+    private fun isHostBlocked(url: String): Boolean {
+        val host = hostOf(url) ?: return false
+        val failedAt = deadHosts[host] ?: return false
+        if (System.currentTimeMillis() - failedAt < HOST_COOLDOWN_MS) return true
+        deadHosts.remove(host)
+        return false
+    }
+
+    private fun markHostDeadIfNetworkDown(url: String, error: Throwable) {
+        val isDead = error is ConnectException ||
+            error is UnknownHostException ||
+            error is NoRouteToHostException ||
+            (error is SocketTimeoutException && (error.message?.contains("failed to connect", ignoreCase = true) == true))
+        if (isDead) {
+            hostOf(url)?.let { host ->
+                deadHosts[host] = System.currentTimeMillis()
+                android.util.Log.w("XtreamCatalogSync", "Circuit breaker activado (12 min) para host caído: $host")
+            }
+        }
+    }
+
+    private fun markHostAlive(url: String) {
+        hostOf(url)?.let { deadHosts.remove(it) }
+    }
+
+    private suspend fun <T> retryIo(
+        enabled: Boolean,
+        times: Int = 3,
+        block: suspend () -> T
+    ): T {
+        if (!enabled) return block()
+        var delayMs = 2_000L
+        repeat(times - 1) {
+            try {
+                return block()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: IOException) {
+                val nonRetryable = e is ConnectException ||
+                    e is UnknownHostException ||
+                    e is NoRouteToHostException ||
+                    (e is SocketTimeoutException && (e.message?.contains("failed to connect", ignoreCase = true) == true))
+                if (nonRetryable) throw e
+                delay(delayMs + Random.nextLong(0L, 500L))
+                delayMs *= 2
+            }
+        }
+        return block()
+    }
+
+    private fun MessageDigest.toHexString(): String =
+        digest().joinToString("") { "%02x".format(it) }
 
     private fun detectMediaType(mediaType: String?, name: String, group: String, url: String): String {
         val mt = mediaType?.lowercase()?.trim().orEmpty()
@@ -253,7 +341,11 @@ class XtreamCatalogSyncManager private constructor(
     ): Result<Unit> = withContext(Dispatchers.IO) {
         if (emitUiState) {
             foregroundSourceId = sourceId
+            if (force) deadHosts.remove(hostOf(serverUrl) ?: "")
+        } else if (isHostBlocked(serverUrl)) {
+            return@withContext Result.failure(IOException("Host en cooldown por fallo reciente: ${hostOf(serverUrl)}"))
         }
+
         // PASO 5: Prevenir dos syncs simultáneos de la misma fuente
         val mutex = sourceSyncMutexes.computeIfAbsent(sourceId) { Mutex() }
         if (!mutex.tryLock()) {
@@ -261,6 +353,12 @@ class XtreamCatalogSyncManager private constructor(
             android.util.Log.w("XtreamCatalogSync", busyMsg)
             return@withContext Result.failure(IllegalStateException(busyMsg))
         }
+
+        var gateAcquired = false
+        var scheduleDeferredTtlRefresh = false
+        var scheduleDeferredVodOnly = false
+        var existingLiveCountForVod = 0
+        var deferredVodForce = false
 
         try {
             // ── FASE 33: Autodetección de M3U ────────────────────────────────────
@@ -281,19 +379,56 @@ class XtreamCatalogSyncManager private constructor(
             val isRoomEmpty = (totalLocal == 0)
 
             // Si la lista ya está guardada localmente en Room y NO es una recarga forzada,
-            // reutilizar el catálogo local del teléfono de inmediato sin bloquear ni volver a descargar.
+            // activar Room de inmediato y verificar TTL real en metadata (24h Live / 3 días VOD).
             if (!force && !isRoomEmpty) {
-                android.util.Log.i("XtreamCatalogSync", "CACHE_HIT: Fuente $sourceId ya tiene $totalLocal items en Room. Activación instantánea.")
-                emitUi(emitUiState, sourceId, SyncState.UpToDate(sourceId, "Catálogo local listo ($totalLocal items)"))
-                // Si la fuente fue pre-cacheada solo con TV en vivo, completar VOD/Series en segundo plano al seleccionarla
-                if (emitUiState && syncVodInBackground && chCount > 0 && movCount == 0 && serCount == 0 && effectiveType == com.lelouch.core.model.SourceType.XTREAM) {
-                    launchBackgroundVodSync(sourceId, serverUrl, user, pass, chCount, emitUiState = true)
+                val meta = preferencesDataSource?.getSyncMetadata(sourceId)
+                val now = System.currentTimeMillis()
+                val liveTimestamp = (meta?.lastLiveSyncAt ?: 0L).takeIf { it > 0L } ?: (meta?.lastSuccessfulSyncAt ?: 0L)
+                val vodTimestamp = (meta?.lastVodSyncAt ?: 0L).takeIf { it > 0L } ?: (meta?.lastSuccessfulSyncAt ?: 0L)
+                val liveFresh = liveTimestamp > 0L && (now - liveTimestamp) < XTREAM_DEFAULT_TTL_MS
+                val vodPresent = movCount > 0 || serCount > 0
+                val vodFresh = vodPresent && vodTimestamp > 0L && (now - vodTimestamp) < VOD_DEFAULT_TTL_MS
+
+                android.util.Log.i(
+                    "XtreamCatalogSync",
+                    "CACHE_HIT: Fuente $sourceId ($totalLocal items en Room, liveFresh=$liveFresh, vodFresh=$vodFresh). Activación instantánea."
+                )
+                emitUi(
+                    emitUiState,
+                    sourceId,
+                    if (liveFresh) {
+                        SyncState.TtlFresh(sourceId, "Catálogo al día ($totalLocal items)")
+                    } else {
+                        SyncState.UpToDate(sourceId, "Catálogo local listo ($totalLocal items)")
+                    }
+                )
+
+                if (emitUiState && !isHostBlocked(serverUrl)) {
+                    if (!liveFresh) {
+                        scheduleDeferredTtlRefresh = true
+                        deferredVodForce = !vodFresh && effectiveType == com.lelouch.core.model.SourceType.XTREAM
+                    } else if (syncVodInBackground && !vodFresh && chCount > 0 && effectiveType == com.lelouch.core.model.SourceType.XTREAM) {
+                        scheduleDeferredVodOnly = true
+                        existingLiveCountForVod = chCount
+                    }
                 }
                 return@withContext Result.success(Unit)
             }
 
-            var remoteVersionToSave = ""
-            var remoteEtagToSave = ""
+            // Semáforo global: solo 1 descarga+swap pesada a la vez. Prioridad para fuente activa.
+            if (emitUiState) {
+                downloadGate.acquire()
+                gateAcquired = true
+            } else {
+                gateAcquired = downloadGate.tryAcquire()
+                if (!gateAcquired) {
+                    return@withContext Result.failure(IllegalStateException("downloadGate ocupado; descarga diferida."))
+                }
+            }
+
+            val existingMeta = preferencesDataSource?.getSyncMetadata(sourceId)
+            val remoteVersionToSave = existingMeta?.lastSuccessfulVersion.orEmpty()
+            val remoteEtagToSave = existingMeta?.lastEtag.orEmpty()
 
             // PASO 4 (P0 #4): Generar syncId único para aislar completamente esta ejecución en staging
             val syncId = UUID.randomUUID().toString()
@@ -320,11 +455,30 @@ class XtreamCatalogSyncManager private constructor(
             if (e is kotlinx.coroutines.CancellationException) {
                 throw e
             }
+            markHostDeadIfNetworkDown(serverUrl, e)
             val errorMsg = e.localizedMessage ?: "Error de sincronización con el servidor IPTV"
             emitUi(emitUiState, sourceId, SyncState.Error(errorMsg))
             Result.failure(e)
         } finally {
+            if (gateAcquired) downloadGate.release()
             mutex.unlock()
+            if (scheduleDeferredTtlRefresh) {
+                syncScope.launch {
+                    delay(1_500L)
+                    syncAll(
+                        sourceId = sourceId,
+                        serverUrl = serverUrl,
+                        user = user,
+                        pass = pass,
+                        sourceType = sourceType,
+                        force = true,
+                        emitUiState = false,
+                        syncVodInBackground = deferredVodForce
+                    )
+                }
+            } else if (scheduleDeferredVodOnly) {
+                launchBackgroundVodSync(sourceId, serverUrl, user, pass, existingLiveCountForVod, emitUiState = true)
+            }
         }
     }
 
@@ -338,12 +492,18 @@ class XtreamCatalogSyncManager private constructor(
     ) = withContext(Dispatchers.IO) {
         if (!preCacheMutex.tryLock()) return@withContext
         try {
+            awaitActiveVodSync()
             val pendingSources = sources.filter { it.id != activeSourceId }
             for (source in pendingSources) {
+                if (isHostBlocked(source.serverUrl)) {
+                    android.util.Log.d("XtreamCatalogSync", "PRE_CACHE: Host en cooldown omitido (${source.name})")
+                    continue
+                }
                 try {
                     val chCount = database.channelDao().getChannelCount(source.id)
                     if (chCount == 0) {
-                        android.util.Log.i("XtreamCatalogSync", "PRE_CACHE: Descargando lista en segundo plano: ${source.name} (${source.serverUrl})")
+                        val safeUrl = UrlSanitizer.sanitizeUrl(source.serverUrl)
+                        android.util.Log.i("XtreamCatalogSync", "PRE_CACHE: Descargando lista en segundo plano: ${source.name} ($safeUrl)")
                         syncAll(
                             sourceId = source.id,
                             serverUrl = source.serverUrl,
@@ -354,7 +514,7 @@ class XtreamCatalogSyncManager private constructor(
                             emitUiState = false,
                             syncVodInBackground = false
                         )
-                        kotlinx.coroutines.delay(500)
+                        delay(750L)
                     } else {
                         android.util.Log.d("XtreamCatalogSync", "PRE_CACHE: ${source.name} ya tiene $chCount canales en Room. Omitiendo.")
                     }
@@ -423,7 +583,7 @@ class XtreamCatalogSyncManager private constructor(
                     405, 501 -> {
                         // Servidor IPTV no implementa o rechaza HEAD (Method Not Allowed / Not Implemented)
                         // Fallback seguro a TTL: NO considerar que cambió ni forzar descarga innecesaria
-                        android.util.Log.w("XtreamCatalogSync", "HEAD no soportado (HTTP ${response.code}) por $serverUrl. Aplicando fallback seguro a TTL.")
+                        android.util.Log.w("XtreamCatalogSync", "HEAD no soportado (HTTP ${response.code}) por ${UrlSanitizer.sanitizeUrl(serverUrl)}. Aplicando fallback seguro a TTL.")
                         if (age < M3U_DEFAULT_TTL_MS) {
                             FreshnessResult.TtlFresh(lastSyncAt = metadata.lastSuccessfulSyncAt, ttlMs = M3U_DEFAULT_TTL_MS)
                         } else {
@@ -454,7 +614,7 @@ class XtreamCatalogSyncManager private constructor(
                 }
             }
         } catch (e: Exception) {
-            android.util.Log.w("XtreamCatalogSync", "Error en HEAD request a $serverUrl: ${e.message}")
+            android.util.Log.w("XtreamCatalogSync", "Error en HEAD request a ${UrlSanitizer.sanitizeUrl(serverUrl)}: ${e.message}")
             FreshnessResult.CheckFailed(e.message ?: e.javaClass.simpleName)
         }
     }
@@ -513,116 +673,112 @@ class XtreamCatalogSyncManager private constructor(
                 database.catalogStagingDao().getStagingMovieCount(syncId) +
                 database.catalogStagingDao().getStagingSeriesCount(syncId)
 
+            var m3uHash = ""
+            var gotNotModified304 = false
+            var responseEtag = remoteEtag
+
             if (totalInStaging == 0 && (serverUrl.startsWith("http") || isLocalFile(serverUrl))) {
                 try {
-                    val inputStream: java.io.InputStream? = if (isLocalFile(serverUrl)) {
-                        val cleanPath = serverUrl.removePrefix("file://")
-                        val file = java.io.File(cleanPath)
-                        if (file.exists()) file.inputStream() else null
-                    } else {
-                        val m3uReq = Request.Builder()
-                            .url(serverUrl)
-                            .header("Accept-Encoding", "gzip, deflate")
-                            .build()
-                        val m3uRes = httpClient.newCall(m3uReq).execute()
-                        if (m3uRes.isSuccessful) m3uRes.body?.byteStream() else null
-                    }
+                    val digest = MessageDigest.getInstance("SHA-256")
+                    suspend fun consumeM3uStream(rawStream: java.io.InputStream) {
+                        digest.reset()
+                        channelStagingBatch.clear()
+                        movieStagingBatch.clear()
+                        seriesStagingBatch.clear()
+                        val digestStream = DigestInputStream(rawStream, digest)
+                        val bufferedReader = java.io.BufferedReader(java.io.InputStreamReader(digestStream, Charsets.UTF_8), 65536)
+                        var count = 0
+                        var currentName = "Canal"
+                        var currentGroup = "General"
+                        var currentLogo: String? = null
+                        var currentMediaType: String? = null
 
-                    if (inputStream != null) {
-                            val bufferedReader = java.io.BufferedReader(java.io.InputStreamReader(inputStream, Charsets.UTF_8), 65536)
-                            var count = 0
-                            var currentName = "Canal"
-                            var currentGroup = "General"
-                            var currentLogo: String? = null
-                            var currentMediaType: String? = null
+                        bufferedReader.useLines { lines ->
+                            for (line in lines) {
+                                val trimmed = line.trim()
+                                if (trimmed.isEmpty()) continue
 
-                            bufferedReader.useLines { lines ->
-                                for (line in lines) {
-                                    val trimmed = line.trim()
-                                    if (trimmed.isEmpty()) continue
+                                if (trimmed.startsWith("#EXTINF:", ignoreCase = true)) {
+                                    currentGroup = extractFastAttribute(trimmed, "group-title") ?: "General"
+                                    currentLogo = extractFastAttribute(trimmed, "tvg-logo")
+                                    currentMediaType = extractFastAttribute(trimmed, "tvg-type") ?: extractFastAttribute(trimmed, "media-type")
+                                    val commaIdx = trimmed.lastIndexOf(',')
+                                    currentName = if (commaIdx in 0 until trimmed.length - 1) {
+                                        trimmed.substring(commaIdx + 1).trim().ifEmpty { "Canal" }
+                                    } else {
+                                        "Canal"
+                                    }
+                                } else if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true) || trimmed.startsWith("rtmp://", ignoreCase = true)) {
+                                    val streamId = (currentName + trimmed).hashCode().let { if (it == Int.MIN_VALUE) 0 else kotlin.math.abs(it) }
+                                    val resolvedType = detectMediaType(currentMediaType, currentName, currentGroup, trimmed)
 
-                                    if (trimmed.startsWith("#EXTINF:", ignoreCase = true)) {
-                                        currentGroup = extractFastAttribute(trimmed, "group-title") ?: "General"
-                                        currentLogo = extractFastAttribute(trimmed, "tvg-logo")
-                                        currentMediaType = extractFastAttribute(trimmed, "tvg-type") ?: extractFastAttribute(trimmed, "media-type")
-                                        val commaIdx = trimmed.lastIndexOf(',')
-                                        currentName = if (commaIdx in 0 until trimmed.length - 1) {
-                                            trimmed.substring(commaIdx + 1).trim().ifEmpty { "Canal" }
-                                        } else {
-                                            "Canal"
-                                        }
-                                    } else if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true) || trimmed.startsWith("rtmp://", ignoreCase = true)) {
-                                        val streamId = (currentName + trimmed).hashCode().let { if (it == Int.MIN_VALUE) 0 else kotlin.math.abs(it) }
-                                        val resolvedType = detectMediaType(currentMediaType, currentName, currentGroup, trimmed)
-
-                                        if (resolvedType == "movie") {
-                                            vodCategories.add(currentGroup)
-                                            movieStagingBatch.add(
-                                                MovieStagingEntity(
-                                                    syncId = syncId,
-                                                    id = "$sourceId-$count",
-                                                    streamId = streamId,
-                                                    num = count,
-                                                    name = currentName,
-                                                    title = currentName,
-                                                    streamIcon = currentLogo,
-                                                    categoryId = "$sourceId-${currentGroup.hashCode()}",
-                                                    categoryName = currentGroup,
-                                                    containerExtension = "mp4",
-                                                    streamUrl = trimmed,
-                                                    sourceId = sourceId
-                                                )
+                                    if (resolvedType == "movie") {
+                                        vodCategories.add(currentGroup)
+                                        movieStagingBatch.add(
+                                            MovieStagingEntity(
+                                                syncId = syncId,
+                                                id = "$sourceId-$count",
+                                                streamId = streamId,
+                                                num = count,
+                                                name = currentName,
+                                                title = currentName,
+                                                streamIcon = currentLogo,
+                                                categoryId = "$sourceId-${currentGroup.hashCode()}",
+                                                categoryName = currentGroup,
+                                                containerExtension = "mp4",
+                                                streamUrl = trimmed,
+                                                sourceId = sourceId
                                             )
-                                        } else if (resolvedType == "series") {
-                                            seriesCategories.add(currentGroup)
-                                            seriesStagingBatch.add(
-                                                SeriesStagingEntity(
-                                                    syncId = syncId,
-                                                    id = "$sourceId-$count",
-                                                    seriesId = streamId,
-                                                    num = count,
-                                                    name = currentName,
-                                                    title = currentName,
-                                                    cover = currentLogo,
-                                                    categoryId = "$sourceId-${currentGroup.hashCode()}",
-                                                    categoryName = currentGroup,
-                                                    sourceId = sourceId
-                                                )
+                                        )
+                                    } else if (resolvedType == "series") {
+                                        seriesCategories.add(currentGroup)
+                                        seriesStagingBatch.add(
+                                            SeriesStagingEntity(
+                                                syncId = syncId,
+                                                id = "$sourceId-$count",
+                                                seriesId = streamId,
+                                                num = count,
+                                                name = currentName,
+                                                title = currentName,
+                                                cover = currentLogo,
+                                                categoryId = "$sourceId-${currentGroup.hashCode()}",
+                                                categoryName = currentGroup,
+                                                sourceId = sourceId
                                             )
-                                        } else {
-                                            liveCategories.add(currentGroup)
-                                            channelStagingBatch.add(
-                                                ChannelStagingEntity(
-                                                    syncId = syncId,
-                                                    id = "$sourceId-$count",
-                                                    streamId = streamId,
-                                                    num = count,
-                                                    name = currentName,
-                                                    streamType = "live",
-                                                    streamIcon = currentLogo,
-                                                    categoryId = "$sourceId-${currentGroup.hashCode()}",
-                                                    categoryName = currentGroup,
-                                                    streamUrl = trimmed,
-                                                    containerExtension = "m3u8",
-                                                    sourceId = sourceId
-                                                )
+                                        )
+                                    } else {
+                                        liveCategories.add(currentGroup)
+                                        channelStagingBatch.add(
+                                            ChannelStagingEntity(
+                                                syncId = syncId,
+                                                id = "$sourceId-$count",
+                                                streamId = streamId,
+                                                num = count,
+                                                name = currentName,
+                                                streamType = "live",
+                                                streamIcon = currentLogo,
+                                                categoryId = "$sourceId-${currentGroup.hashCode()}",
+                                                categoryName = currentGroup,
+                                                streamUrl = trimmed,
+                                                containerExtension = "m3u8",
+                                                sourceId = sourceId
                                             )
-                                        }
-                                        count++
+                                        )
+                                    }
+                                    count++
 
-                                        if (channelStagingBatch.size >= 2500) {
-                                            database.catalogStagingDao().insertChannelsStaging(channelStagingBatch)
-                                            channelStagingBatch.clear()
-                                            emitUi(emitUiState, sourceId, SyncState.SyncingLive(count))
-                                        }
-                                        if (movieStagingBatch.size >= 2500) {
-                                            database.catalogStagingDao().insertMoviesStaging(movieStagingBatch)
-                                            movieStagingBatch.clear()
-                                        }
-                                        if (seriesStagingBatch.size >= 2500) {
-                                            database.catalogStagingDao().insertSeriesStaging(seriesStagingBatch)
-                                            seriesStagingBatch.clear()
-                                        }
+                                    if (channelStagingBatch.size >= 2500) {
+                                        database.catalogStagingDao().insertChannelsStaging(channelStagingBatch)
+                                        channelStagingBatch.clear()
+                                        emitUi(emitUiState, sourceId, SyncState.SyncingLive(count))
+                                    }
+                                    if (movieStagingBatch.size >= 2500) {
+                                        database.catalogStagingDao().insertMoviesStaging(movieStagingBatch)
+                                        movieStagingBatch.clear()
+                                    }
+                                    if (seriesStagingBatch.size >= 2500) {
+                                        database.catalogStagingDao().insertSeriesStaging(seriesStagingBatch)
+                                        seriesStagingBatch.clear()
                                     }
                                 }
                             }
@@ -640,9 +796,63 @@ class XtreamCatalogSyncManager private constructor(
                             database.catalogStagingDao().insertSeriesStaging(seriesStagingBatch)
                             seriesStagingBatch.clear()
                         }
+                        m3uHash = digest.toHexString()
+                    }
+
+                    if (isLocalFile(serverUrl)) {
+                        val cleanPath = serverUrl.removePrefix("file://")
+                        val file = java.io.File(cleanPath)
+                        if (file.exists()) {
+                            file.inputStream().use { consumeM3uStream(it) }
+                        }
+                    } else {
+                        val client = if (emitUiState) httpClient else fastPreCacheClient
+                        retryIo(enabled = emitUiState) {
+                            val reqBuilder = Request.Builder()
+                                .url(serverUrl)
+                                .header("User-Agent", "IPTVSmartersPlayer")
+                            if (remoteEtag.isNotBlank()) {
+                                val formattedEtag = if (remoteEtag.startsWith("\"")) remoteEtag else "\"$remoteEtag\""
+                                reqBuilder.header("If-None-Match", formattedEtag)
+                            }
+                            client.newCall(reqBuilder.build()).execute().use { res ->
+                                if (res.code == 304) {
+                                    gotNotModified304 = true
+                                    return@use
+                                }
+                                if (res.code == 429 || res.code in 500..599) {
+                                    throw TransientHttpException(res.code, "HTTP ${res.code}")
+                                }
+                                if (!res.isSuccessful) {
+                                    throw IOException("HTTP ${res.code}")
+                                }
+                                markHostAlive(serverUrl)
+                                res.header("ETag")?.trim('"')?.takeIf { it.isNotBlank() }?.let { responseEtag = it }
+                                res.body?.byteStream()?.use { consumeM3uStream(it) }
+                            }
+                        }
+                    }
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    markHostDeadIfNetworkDown(serverUrl, e)
                     strategyErrors.add("M3U directo: ${e.message ?: e.javaClass.simpleName}")
                 }
+            }
+
+            if (gotNotModified304) {
+                cleanupStaging(syncId)
+                val prevMeta = preferencesDataSource?.getSyncMetadata(sourceId)
+                val now = System.currentTimeMillis()
+                preferencesDataSource?.saveSyncMetadata(
+                    (prevMeta ?: SourceSyncMetadata(sourceId = sourceId)).copy(
+                        lastSuccessfulSyncAt = now,
+                        lastLiveSyncAt = now,
+                        lastVodSyncAt = now,
+                        lastSyncResult = "SUCCESS"
+                    )
+                )
+                emitUi(emitUiState, sourceId, SyncState.UpToDate(sourceId, "Catálogo al día (304 Not Modified)"))
+                return Result.success(Unit)
             }
 
             // Insertar categorías en staging
@@ -716,23 +926,45 @@ class XtreamCatalogSyncManager private constructor(
                 return Result.failure(IllegalStateException(errorMsg))
             }
 
-            // PASO 8 (P0 #4): Swap atómico corto en base de datos Room
-            performAtomicSwap(syncId, sourceId)
+            val prevMeta = preferencesDataSource?.getSyncMetadata(sourceId)
+            val now = System.currentTimeMillis()
+            val hashUnchanged = m3uHash.isNotEmpty() && m3uHash == prevMeta?.lastLiveHash && totalOld > 0
 
-            // PASO 3 (P0 #5): Guardar metadata de sincronización exitosa SOLO tras swap exitoso
-            val versionToSave = remoteVersion.ifBlank { System.currentTimeMillis().toString() }
-            preferencesDataSource?.saveSyncMetadata(
-                SourceSyncMetadata(
-                    sourceId = sourceId,
-                    lastSuccessfulSyncAt = System.currentTimeMillis(),
-                    lastSuccessfulVersion = versionToSave,
-                    lastEtag = remoteEtag,
-                    lastSyncResult = "SUCCESS",
-                    channelCount = stagingChannels,
-                    movieCount = stagingMovies,
-                    seriesCount = stagingSeries
+            if (hashUnchanged) {
+                android.util.Log.i("XtreamCatalogSync", "HASH_MATCH M3U [$sourceId]: contenido idéntico; omitiendo swap Room ($totalOld items preservados).")
+                cleanupStaging(syncId)
+                preferencesDataSource?.saveSyncMetadata(
+                    (prevMeta ?: SourceSyncMetadata(sourceId = sourceId)).copy(
+                        lastSuccessfulSyncAt = now,
+                        lastLiveSyncAt = now,
+                        lastVodSyncAt = now,
+                        lastEtag = responseEtag,
+                        lastSyncResult = "SUCCESS"
+                    )
                 )
-            )
+            } else {
+                // PASO 8 (P0 #4): Swap atómico corto en base de datos Room
+                performAtomicSwap(syncId, sourceId)
+
+                // PASO 3 (P0 #5): Guardar metadata de sincronización exitosa SOLO tras swap exitoso
+                val versionToSave = remoteVersion.ifBlank { now.toString() }
+                preferencesDataSource?.saveSyncMetadata(
+                    SourceSyncMetadata(
+                        sourceId = sourceId,
+                        lastSuccessfulSyncAt = now,
+                        lastLiveSyncAt = now,
+                        lastVodSyncAt = now,
+                        lastSuccessfulVersion = versionToSave,
+                        lastEtag = responseEtag,
+                        lastLiveHash = m3uHash,
+                        lastVodHash = m3uHash,
+                        lastSyncResult = "SUCCESS",
+                        channelCount = stagingChannels,
+                        movieCount = stagingMovies,
+                        seriesCount = stagingSeries
+                    )
+                )
+            }
 
             emitUi(
                 emitUiState,
@@ -767,11 +999,13 @@ class XtreamCatalogSyncManager private constructor(
         syncVodInBackground: Boolean = true
     ): Result<Unit> {
         try {
+            val client = if (emitUiState) httpClient else fastPreCacheClient
             emitUi(emitUiState, sourceId, SyncState.Authenticating)
-            val api = NetworkClient.createXtreamApiService(serverUrl)
+            val api = NetworkClient.createXtreamApiService(serverUrl, client)
 
-            // 1. Validar credenciales y cuenta
-            val auth = api.authenticate(user, pass)
+            // 1. Validar credenciales y cuenta (con retryIo solo para fuente activa)
+            val auth = retryIo(enabled = emitUiState) { api.authenticate(user, pass) }
+            markHostAlive(serverUrl)
             val userInfo = auth.userInfo ?: throw IllegalStateException("Respuesta de autenticación vacía del servidor IPTV")
 
             if (!userInfo.status.trim().equals("Active", ignoreCase = true)) {
@@ -847,27 +1081,37 @@ class XtreamCatalogSyncManager private constructor(
                 database.catalogStagingDao().insertCategoriesStaging(categoryStagingEntities)
             }
 
-            // 3. Sincronizar Canales en Vivo hacia Staging
+            // 3. Sincronizar Canales en Vivo hacia Staging (reutilizando pool de httpClient + hash SHA-256)
             emitUi(emitUiState, sourceId, SyncState.SyncingLive(0))
-            val okHttpClient = NetworkClient.createOkHttpClient()
 
             val liveUrl = "${if (serverUrl.endsWith("/")) serverUrl else "$serverUrl/"}player_api.php?username=$user&password=$pass&action=get_live_streams"
-            val liveRequest = Request.Builder().url(liveUrl).build()
             var liveCount = 0
-            okHttpClient.newCall(liveRequest).execute().use { response ->
-                response.body?.byteStream()?.let { stream ->
-                    XtreamStreamingParser.parseLiveStreams(
-                        inputStream = stream,
-                        sourceId = sourceId,
-                        batchSize = 500,
-                        onBatchParsed = { batch ->
-                            val stagingBatch = batch.map { it.toStaging(syncId) }
-                            database.catalogStagingDao().insertChannelsStaging(stagingBatch)
-                            liveCount += batch.size
-                            emitUi(emitUiState, sourceId, SyncState.SyncingLive(liveCount))
-                        }
-                    )
+            var liveHash = ""
+            retryIo(enabled = emitUiState) {
+                val liveDigest = MessageDigest.getInstance("SHA-256")
+                liveCount = 0
+                val liveRequest = Request.Builder().url(liveUrl).build()
+                client.newCall(liveRequest).execute().use { response ->
+                    if (response.code == 429 || response.code in 500..599) {
+                        throw TransientHttpException(response.code, "HTTP ${response.code}")
+                    }
+                    if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
+                    response.body?.byteStream()?.let { rawStream ->
+                        val digestStream = DigestInputStream(rawStream, liveDigest)
+                        XtreamStreamingParser.parseLiveStreams(
+                            inputStream = digestStream,
+                            sourceId = sourceId,
+                            batchSize = 500,
+                            onBatchParsed = { batch ->
+                                val stagingBatch = batch.map { it.toStaging(syncId) }
+                                database.catalogStagingDao().insertChannelsStaging(stagingBatch)
+                                liveCount += batch.size
+                                emitUi(emitUiState, sourceId, SyncState.SyncingLive(liveCount))
+                            }
+                        )
+                    }
                 }
+                liveHash = liveDigest.toHexString()
             }
 
             // ── PASO CLAVE MREA (Arranque Instantáneo TV Box y Móvil): COMMIT INMEDIATO DE CANALES Y CATEGORÍAS ──
@@ -882,37 +1126,68 @@ class XtreamCatalogSyncManager private constructor(
                 return Result.failure(IllegalStateException(errorMsg))
             }
 
-            // Realizar swap atómico INMEDIATO de canales en vivo y categorías (<3 segundos)
-            performLiveAtomicSwap(syncId, sourceId)
+            val now = System.currentTimeMillis()
+            val prevMeta = preferencesDataSource?.getSyncMetadata(sourceId)
+            val oldChannels = database.channelDao().getChannelCount(sourceId)
+            val liveUnchanged = liveHash.isNotEmpty() && liveHash == prevMeta?.lastLiveHash && oldChannels > 0
 
-            // Guardar metadata preliminar de éxito para que el arranque no quede bloqueado
-            preferencesDataSource?.saveSyncMetadata(
-                SourceSyncMetadata(
-                    sourceId = sourceId,
-                    lastSuccessfulSyncAt = System.currentTimeMillis(),
-                    lastSuccessfulVersion = System.currentTimeMillis().toString(),
-                    lastEtag = "",
-                    lastSyncResult = "SUCCESS",
-                    channelCount = stagingChannels,
-                    movieCount = 0,
-                    seriesCount = 0
+            if (liveUnchanged) {
+                android.util.Log.i("XtreamCatalogSync", "HASH_MATCH Live [$sourceId]: canales sin cambios; omitiendo swap ($oldChannels preservados).")
+                cleanupStaging(syncId)
+                preferencesDataSource?.saveSyncMetadata(
+                    (prevMeta ?: SourceSyncMetadata(sourceId = sourceId)).copy(
+                        lastSuccessfulSyncAt = now,
+                        lastLiveSyncAt = now,
+                        lastSyncResult = "SUCCESS",
+                        channelCount = oldChannels
+                    )
                 )
-            )
+            } else {
+                // Realizar swap atómico INMEDIATO de canales en vivo y categorías (<3 segundos)
+                performLiveAtomicSwap(syncId, sourceId)
 
+                // Guardar metadata de Live preservando TTL/hash previo de VOD/Series
+                preferencesDataSource?.saveSyncMetadata(
+                    SourceSyncMetadata(
+                        sourceId = sourceId,
+                        lastSuccessfulSyncAt = now,
+                        lastLiveSyncAt = now,
+                        lastVodSyncAt = prevMeta?.lastVodSyncAt ?: 0L,
+                        lastSuccessfulVersion = now.toString(),
+                        lastEtag = prevMeta?.lastEtag.orEmpty(),
+                        lastLiveHash = liveHash,
+                        lastVodHash = prevMeta?.lastVodHash.orEmpty(),
+                        lastSyncResult = "SUCCESS",
+                        channelCount = stagingChannels,
+                        movieCount = prevMeta?.movieCount ?: 0,
+                        seriesCount = prevMeta?.seriesCount ?: 0
+                    )
+                )
+            }
+
+            val effectiveLiveCount = if (liveUnchanged) oldChannels else stagingChannels
             // Notificar estado completado a la UI para desbloquear la pantalla roja de inmediato
             emitUi(
                 emitUiState,
                 sourceId,
                 SyncState.Completed(
-                    channelsCount = stagingChannels,
-                    moviesCount = 0,
-                    seriesCount = 0
+                    channelsCount = effectiveLiveCount,
+                    moviesCount = prevMeta?.movieCount ?: 0,
+                    seriesCount = prevMeta?.seriesCount ?: 0
                 )
             )
 
-            // ── Sincronizar Películas VOD y Series en segundo plano controlado (sin tormentas paralelas) ──
+            // ── Sincronizar Películas VOD y Series en segundo plano controlado (TTL 3 días) ──
             if (syncVodInBackground) {
-                launchBackgroundVodSync(sourceId, serverUrl, user, pass, stagingChannels, emitUiState)
+                val vodAge = now - (prevMeta?.lastVodSyncAt ?: 0L)
+                val existingMovies = database.movieDao().getMovieCount(sourceId)
+                val existingSeries = database.seriesDao().getSeriesCount(sourceId)
+                val vodFresh = (existingMovies + existingSeries > 0) && (prevMeta?.lastVodSyncAt ?: 0L) > 0L && vodAge < VOD_DEFAULT_TTL_MS
+                if (!vodFresh) {
+                    launchBackgroundVodSync(sourceId, serverUrl, user, pass, effectiveLiveCount, emitUiState)
+                } else {
+                    android.util.Log.d("XtreamCatalogSync", "VOD_TTL_FRESH [$sourceId]: VOD/Series dentro de TTL 3d; omitiendo re-descarga.")
+                }
             }
 
             return Result.success(Unit)
@@ -923,13 +1198,14 @@ class XtreamCatalogSyncManager private constructor(
                 emitUi(emitUiState, sourceId, SyncState.Idle)
                 throw e
             }
+            markHostDeadIfNetworkDown(serverUrl, e)
             val errorMsg = e.localizedMessage ?: "Error de sincronización con el servidor IPTV"
             emitUi(emitUiState, sourceId, SyncState.Error(errorMsg))
             return Result.failure(e)
         }
     }
 
-    private fun launchBackgroundVodSync(
+    private suspend fun launchBackgroundVodSync(
         sourceId: String,
         serverUrl: String,
         user: String,
@@ -937,86 +1213,139 @@ class XtreamCatalogSyncManager private constructor(
         channelsCount: Int,
         emitUiState: Boolean
     ) {
-        activeVodJob?.cancel()
-        activeVodJob = syncScope.launch {
-            val vodSyncId = UUID.randomUUID().toString()
-            val okHttpClient = NetworkClient.createOkHttpClient()
-            try {
-                // 4. Sincronizar Películas VOD hacia Staging
-                emitUi(emitUiState, sourceId, SyncState.SyncingMovies(0))
-                val vodUrl = "${if (serverUrl.endsWith("/")) serverUrl else "$serverUrl/"}player_api.php?username=$user&password=$pass&action=get_vod_streams"
-                val vodRequest = Request.Builder().url(vodUrl).build()
-                var movieCount = 0
-                okHttpClient.newCall(vodRequest).execute().use { response ->
-                    response.body?.byteStream()?.let { stream ->
-                        XtreamStreamingParser.parseVodStreams(
-                            inputStream = stream,
-                            sourceId = sourceId,
-                            batchSize = 500,
-                            onBatchParsed = { batch ->
-                                val stagingBatch = batch.map { it.toStaging(vodSyncId) }
-                                database.catalogStagingDao().insertMoviesStaging(stagingBatch)
-                                movieCount += batch.size
-                                emitUi(emitUiState, sourceId, SyncState.SyncingMovies(movieCount))
+        vodJobMutex.lock()
+        try {
+            activeVodJob?.cancelAndJoin()
+            activeVodJob = syncScope.launch {
+                var gateAcquired = false
+                val vodSyncId = UUID.randomUUID().toString()
+                try {
+                    downloadGate.acquire()
+                    gateAcquired = true
+
+                    // 4. Sincronizar Películas VOD hacia Staging (reutilizando httpClient + hash combinado)
+                    emitUi(emitUiState, sourceId, SyncState.SyncingMovies(0))
+                    val vodUrl = "${if (serverUrl.endsWith("/")) serverUrl else "$serverUrl/"}player_api.php?username=$user&password=$pass&action=get_vod_streams"
+                    var movieCount = 0
+                    var vodPartHash = ""
+                    retryIo(enabled = emitUiState) {
+                        val vodDigest = MessageDigest.getInstance("SHA-256")
+                        movieCount = 0
+                        val vodRequest = Request.Builder().url(vodUrl).build()
+                        httpClient.newCall(vodRequest).execute().use { response ->
+                            if (response.code == 429 || response.code in 500..599) {
+                                throw TransientHttpException(response.code, "HTTP ${response.code}")
                             }
-                        )
-                    }
-                }
-
-                // 5. Sincronizar Series hacia Staging
-                emitUi(emitUiState, sourceId, SyncState.SyncingSeries(0))
-                val seriesUrl = "${if (serverUrl.endsWith("/")) serverUrl else "$serverUrl/"}player_api.php?username=$user&password=$pass&action=get_series"
-                val seriesRequest = Request.Builder().url(seriesUrl).build()
-                var seriesCount = 0
-                okHttpClient.newCall(seriesRequest).execute().use { response ->
-                    response.body?.byteStream()?.let { stream ->
-                        XtreamStreamingParser.parseSeriesStreams(
-                            inputStream = stream,
-                            sourceId = sourceId,
-                            batchSize = 500,
-                            onBatchParsed = { batch ->
-                                val stagingBatch = batch.map { it.toStaging(vodSyncId) }
-                                database.catalogStagingDao().insertSeriesStaging(stagingBatch)
-                                seriesCount += batch.size
-                                emitUi(emitUiState, sourceId, SyncState.SyncingSeries(seriesCount))
+                            if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
+                            response.body?.byteStream()?.let { rawStream ->
+                                val digestStream = DigestInputStream(rawStream, vodDigest)
+                                XtreamStreamingParser.parseVodStreams(
+                                    inputStream = digestStream,
+                                    sourceId = sourceId,
+                                    batchSize = 500,
+                                    onBatchParsed = { batch ->
+                                        val stagingBatch = batch.map { it.toStaging(vodSyncId) }
+                                        database.catalogStagingDao().insertMoviesStaging(stagingBatch)
+                                        movieCount += batch.size
+                                        emitUi(emitUiState, sourceId, SyncState.SyncingMovies(movieCount))
+                                    }
+                                )
                             }
-                        )
+                        }
+                        vodPartHash = vodDigest.toHexString()
                     }
-                }
 
-                val stagingMovies = database.catalogStagingDao().getStagingMovieCount(vodSyncId)
-                val stagingSeries = database.catalogStagingDao().getStagingSeriesCount(vodSyncId)
+                    // 5. Sincronizar Series hacia Staging
+                    emitUi(emitUiState, sourceId, SyncState.SyncingSeries(0))
+                    val seriesUrl = "${if (serverUrl.endsWith("/")) serverUrl else "$serverUrl/"}player_api.php?username=$user&password=$pass&action=get_series"
+                    var seriesCount = 0
+                    var seriesPartHash = ""
+                    retryIo(enabled = emitUiState) {
+                        val seriesDigest = MessageDigest.getInstance("SHA-256")
+                        seriesCount = 0
+                        val seriesRequest = Request.Builder().url(seriesUrl).build()
+                        httpClient.newCall(seriesRequest).execute().use { response ->
+                            if (response.code == 429 || response.code in 500..599) {
+                                throw TransientHttpException(response.code, "HTTP ${response.code}")
+                            }
+                            if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
+                            response.body?.byteStream()?.let { rawStream ->
+                                val digestStream = DigestInputStream(rawStream, seriesDigest)
+                                XtreamStreamingParser.parseSeriesStreams(
+                                    inputStream = digestStream,
+                                    sourceId = sourceId,
+                                    batchSize = 500,
+                                    onBatchParsed = { batch ->
+                                        val stagingBatch = batch.map { it.toStaging(vodSyncId) }
+                                        database.catalogStagingDao().insertSeriesStaging(stagingBatch)
+                                        seriesCount += batch.size
+                                        emitUi(emitUiState, sourceId, SyncState.SyncingSeries(seriesCount))
+                                    }
+                                )
+                            }
+                        }
+                        seriesPartHash = seriesDigest.toHexString()
+                    }
 
-                if (stagingMovies > 0 || stagingSeries > 0) {
-                    performVodAtomicSwap(vodSyncId, sourceId)
-                    preferencesDataSource?.saveSyncMetadata(
-                        SourceSyncMetadata(
-                            sourceId = sourceId,
-                            lastSuccessfulSyncAt = System.currentTimeMillis(),
-                            lastSuccessfulVersion = System.currentTimeMillis().toString(),
-                            lastEtag = "",
-                            lastSyncResult = "SUCCESS",
-                            channelCount = channelsCount,
-                            movieCount = stagingMovies,
-                            seriesCount = stagingSeries
+                    val vodHash = "$vodPartHash:$seriesPartHash"
+                    val stagingMovies = database.catalogStagingDao().getStagingMovieCount(vodSyncId)
+                    val stagingSeries = database.catalogStagingDao().getStagingSeriesCount(vodSyncId)
+                    val oldMovies = database.movieDao().getMovieCount(sourceId)
+                    val oldSeries = database.seriesDao().getSeriesCount(sourceId)
+                    val prevMeta = preferencesDataSource?.getSyncMetadata(sourceId)
+                    val now = System.currentTimeMillis()
+
+                    if (vodHash.isNotEmpty() && vodHash == prevMeta?.lastVodHash && (oldMovies + oldSeries) > 0) {
+                        android.util.Log.i("XtreamCatalogSync", "HASH_MATCH VOD/Series [$sourceId]: contenido idéntico; omitiendo swap masivo ($oldMovies pelis, $oldSeries series).")
+                        cleanupStaging(vodSyncId)
+                        preferencesDataSource?.saveSyncMetadata(
+                            (prevMeta ?: SourceSyncMetadata(sourceId = sourceId)).copy(
+                                lastVodSyncAt = now,
+                                lastSyncResult = "SUCCESS"
+                            )
+                        )
+                    } else if (stagingMovies > 0 || stagingSeries > 0) {
+                        performVodAtomicSwap(vodSyncId, sourceId)
+                        preferencesDataSource?.saveSyncMetadata(
+                            SourceSyncMetadata(
+                                sourceId = sourceId,
+                                lastSuccessfulSyncAt = prevMeta?.lastSuccessfulSyncAt?.takeIf { it > 0L } ?: now,
+                                lastLiveSyncAt = prevMeta?.lastLiveSyncAt?.takeIf { it > 0L } ?: now,
+                                lastVodSyncAt = now,
+                                lastSuccessfulVersion = prevMeta?.lastSuccessfulVersion.orEmpty().ifBlank { now.toString() },
+                                lastEtag = prevMeta?.lastEtag.orEmpty(),
+                                lastLiveHash = prevMeta?.lastLiveHash.orEmpty(),
+                                lastVodHash = vodHash,
+                                lastSyncResult = "SUCCESS",
+                                channelCount = channelsCount,
+                                movieCount = stagingMovies,
+                                seriesCount = stagingSeries
+                            )
+                        )
+                    } else {
+                        cleanupStaging(vodSyncId)
+                    }
+
+                    emitUi(
+                        emitUiState,
+                        sourceId,
+                        SyncState.Completed(
+                            channelsCount = channelsCount,
+                            moviesCount = if (stagingMovies > 0) stagingMovies else oldMovies,
+                            seriesCount = if (stagingSeries > 0) stagingSeries else oldSeries
                         )
                     )
+                    android.util.Log.i("XtreamCatalogSync", "Sync VOD/Series completado en background [$sourceId]: movies=$stagingMovies, series=$stagingSeries")
+                } catch (e: Exception) {
+                    cleanupStaging(vodSyncId)
+                    markHostDeadIfNetworkDown(serverUrl, e)
+                    android.util.Log.w("XtreamCatalogSync", "Sync VOD/Series en background omitido o falló: ${e.message}")
+                } finally {
+                    if (gateAcquired) downloadGate.release()
                 }
-
-                emitUi(
-                    emitUiState,
-                    sourceId,
-                    SyncState.Completed(
-                        channelsCount = channelsCount,
-                        moviesCount = stagingMovies,
-                        seriesCount = stagingSeries
-                    )
-                )
-                android.util.Log.i("XtreamCatalogSync", "Sync VOD/Series completado en background [$sourceId]: movies=$stagingMovies, series=$stagingSeries")
-            } catch (e: Exception) {
-                cleanupStaging(vodSyncId)
-                android.util.Log.w("XtreamCatalogSync", "Sync VOD/Series en background omitido o falló: ${e.message}")
             }
+        } finally {
+            vodJobMutex.unlock()
         }
     }
 

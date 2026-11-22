@@ -1,7 +1,7 @@
 {
-  "versionName": "1.0.138",
-  "versionCode": 1000138,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.138/app-debug.apk",
-  "changelog": "- Corrección de Avisos Falsos en Configuración: La pre-descarga silenciosa en segundo plano ya no interfiere ni muestra errores rojos de otras cuentas sobre la lista activa.\n- Eliminado Bloqueo SQLite: Cola ordenada sin tormentas paralelas al sincronizar VOD/Series.\n- Diagnóstico (Test) Ultrarrápido (<3s): Usa canales cacheados y pruebas paralelas sin re-descargar 40 MB cada vez.",
-  "version": "1.0.138"
+  "versionName": "1.0.139",
+  "versionCode": 1000139,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.139/app-debug.apk",
+  "changelog": "- SQLite WAL Forzado: Eliminados bloqueos de 8-9s al escribir VOD mientras la UI o pre-caché leen Room.\n- M3U Gzip + .use {}: Corregida descompresión automática y cierre seguro de respuestas HTTP.\n- TTL Real + Hash SHA-256: Live 24h y VOD/Series 3 días; omite swaps masivos cuando el contenido no cambió.\n- Semáforo Global (Semaphore(1)) + Pre-caché Diferido + Circuit Breaker de Hosts Muertos + Retry con Backoff.\n- Seguridad: URLs completamente sanitizadas en logs.",
+  "version": "1.0.139"
 }
