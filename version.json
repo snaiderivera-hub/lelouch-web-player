@@ -1,7 +1,7 @@
-{
+﻿{
   "versionName": "1.0.136",
   "versionCode": 1000136,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.136/LELOUCH-PLUS-v1.0.136.apk",
-  "changelog": "- Arranque Ultrarrápido (<3s en TV Box y Móvil): Sincronización desacoplada con commit atómico inmediato de Canales en Vivo y Categorías sin esperar a descargar decenas de miles de películas y series.\n- Descarga Asíncrona en Segundo Plano: Películas VOD y Series se procesan silenciosamente sin bloquear la pantalla de inicio.\n- Detección Inteligente de URLs en Login: Desglose automático de servidor, usuario y contraseña al pegar enlaces M3U / get.php.\n- Optimización del Portal Dashboard: Cálculo acelerado de feeds y secciones curadas sin sobrecargar la CPU del dispositivo.",
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.136/app-debug.apk",
+  "changelog": "- Carga Ultrarrápida (<3s en TV Box y Móvil): Sincronización atómica instantánea de Canales en Vivo.\n- Sync Asíncrono en Segundo Plano: Películas y Series descargan silenciosamente sin congelar la app.\n- Auto-detección Inteligente en Login Móvil: Extrae servidor, usuario y contraseña al pegar links completos (get.php).\n- Optimización Portal Dashboard: Catálogo fluido sin sobrecargar CPU.",
   "version": "1.0.136"
 }
