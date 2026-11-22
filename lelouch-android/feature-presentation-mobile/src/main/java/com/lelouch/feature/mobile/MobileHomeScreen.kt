@@ -7446,10 +7446,15 @@ private fun MobileDiagnosticsDialog(
                                 ) {
                                     Column {
                                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                            Text("📋 Catálogo Descargado", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                            Text("%.1f Mbps".format(pl.downloadMbps), color = Color(0xFF38BDF8), fontWeight = FontWeight.ExtraBold, fontSize = 11.sp)
+                                            Text(if (pl.sizeBytes > 0L) "📋 Catálogo Descargado" else "📋 Catálogo Local en Caché", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                            Text(if (pl.sizeBytes > 0L) "%.1f Mbps".format(pl.downloadMbps) else "Instantáneo", color = Color(0xFF38BDF8), fontWeight = FontWeight.ExtraBold, fontSize = 11.sp)
                                         }
-                                        Text("📺 ${pl.live} TV • 🎬 ${pl.movies} Pelis • 🎞️ ${pl.series} Series (%.1f MB en %.1f s)".format(pl.sizeMb, pl.downloadSeconds), color = LelouchTextSecondary, fontSize = 11.sp)
+                                        Text(
+                                            if (pl.sizeBytes > 0L) "📺 ${pl.live} TV • 🎬 ${pl.movies} Pelis • 🎞️ ${pl.series} Series (%.1f MB en %.1f s)".format(pl.sizeMb, pl.downloadSeconds)
+                                            else "📺 ${pl.live} TV • 🎬 ${pl.movies} Pelis • 🎞️ ${pl.series} Series (desde teléfono)",
+                                            color = LelouchTextSecondary,
+                                            fontSize = 11.sp
+                                        )
                                     }
                                 }
                             }

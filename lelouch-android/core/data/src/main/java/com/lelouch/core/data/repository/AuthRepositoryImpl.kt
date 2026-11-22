@@ -128,7 +128,7 @@ class AuthRepositoryImpl(
                 IllegalArgumentException("Respuesta inválida del servidor IPTV")
             )
 
-            if (userInfo.status != "Active") {
+            if (!userInfo.status.trim().equals("Active", ignoreCase = true)) {
                 return@withContext Result.failure(
                     IllegalStateException("La cuenta no está activa (Estado: ${userInfo.status})")
                 )

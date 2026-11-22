@@ -1,7 +1,7 @@
 {
-  "versionName": "1.0.137",
-  "versionCode": 1000137,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.137/app-debug.apk",
-  "changelog": "- Pre-descarga Automática en Segundo Plano: Todas tus listas guardadas se descargan silenciosamente en la base de datos del teléfono.\n- Cambio de Cuentas Instantáneo (<50ms): Al alternar entre cualquiera de tus listas, la carga es inmediata (0s) sin volver a usar internet.\n- Ahorro Extremo de Datos: Solo se descargan una vez y solo se actualizan al presionar «Recargar Catálogo».",
-  "version": "1.0.137"
+  "versionName": "1.0.138",
+  "versionCode": 1000138,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.138/app-debug.apk",
+  "changelog": "- Corrección de Avisos Falsos en Configuración: La pre-descarga silenciosa en segundo plano ya no interfiere ni muestra errores rojos de otras cuentas sobre la lista activa.\n- Eliminado Bloqueo SQLite: Cola ordenada sin tormentas paralelas al sincronizar VOD/Series.\n- Diagnóstico (Test) Ultrarrápido (<3s): Usa canales cacheados y pruebas paralelas sin re-descargar 40 MB cada vez.",
+  "version": "1.0.138"
 }

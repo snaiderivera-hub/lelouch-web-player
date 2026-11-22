@@ -2,6 +2,8 @@ package com.lelouch.core.network.diagnostics
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -52,8 +54,13 @@ class IptvDiagnostics(
         /** Si no es null se descarga esta URL como lista (fuentes M3U). */
         val m3uListUrl: String? = null,
         val systemDnsServers: List<String> = emptyList(),
-        val samples: Int = 3,
-        val secondsPerSample: Int = 8
+        val samples: Int = 1,
+        val secondsPerSample: Int = 2,
+        /** Si ya hay canales guardados en Room, evita re-descargar la lista completa. */
+        val cachedLiveCount: Int = 0,
+        val cachedMovieCount: Int = 0,
+        val cachedSeriesCount: Int = 0,
+        val cachedSampleUrls: List<String> = emptyList()
     )
 
     data class AccountInfo(
@@ -149,138 +156,150 @@ class IptvDiagnostics(
         config: Config,
         onProgress: suspend (String) -> Unit = {}
     ): Report = withContext(Dispatchers.IO) {
-        val started = System.currentTimeMillis()
-        val base = config.serverUrl.trim().trimEnd('/')
-        val user = config.username.trim()
-        val pass = config.password.trim()
+        coroutineScope {
+            val started = System.currentTimeMillis()
+            val base = config.serverUrl.trim().trimEnd('/')
+            val user = config.username.trim()
+            val pass = config.password.trim()
+            val panelHost = hostOf(base)
+            val panelPort = portOf(base)
 
-        val account = if (user.isNotBlank() && pass.isNotBlank()) {
-            onProgress("Consultando cuenta…")
-            fetchAccount(base, user, pass)
-        } else {
-            null
-        }
+            onProgress("Midiendo cuenta, DNS y servidor…")
+            val accountDeferred = async {
+                if (user.isNotBlank() && pass.isNotBlank()) fetchAccount(base, user, pass) else null
+            }
+            val dnsDeferred = async {
+                panelHost?.let { measureDns(it, config.systemDnsServers) }
+            }
+            val panelDeferred = async {
+                if (panelHost != null) {
+                    probeTcp(role = "Panel", host = panelHost, port = panelPort, location = null)
+                } else null
+            }
 
-        val listUrl = config.m3uListUrl?.takeIf { it.isNotBlank() }
-            ?: buildListUrl(base, user, pass)
+            val playlistDeferred = async {
+                if (config.cachedSampleUrls.isNotEmpty()) {
+                    PlaylistScan(
+                        info = PlaylistInfo(
+                            entries = config.cachedLiveCount + config.cachedMovieCount + config.cachedSeriesCount,
+                            live = config.cachedLiveCount,
+                            movies = config.cachedMovieCount,
+                            series = config.cachedSeriesCount,
+                            sizeBytes = 0L,
+                            downloadMs = 0L,
+                            hostCounts = emptyList()
+                        ),
+                        liveUrls = config.cachedSampleUrls
+                    )
+                } else {
+                    val listUrl = config.m3uListUrl?.takeIf { it.isNotBlank() } ?: buildListUrl(base, user, pass)
+                    try {
+                        if (listUrl.isBlank()) null else fetchPlaylist(listUrl, onProgress)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        android.util.Log.w("IptvDiagnostics", "Lista no descargada: ${error.message}")
+                        null
+                    }
+                }
+            }
 
-        val playlist = try {
-            if (listUrl.isBlank()) null else fetchPlaylist(listUrl, onProgress)
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (error: Exception) {
-            android.util.Log.w("IptvDiagnostics", "Lista no descargada: ${error.message}")
-            null
-        }
+            val account = accountDeferred.await()
+            val dns = dnsDeferred.await()
+            val panel = panelDeferred.await()
+            val playlist = playlistDeferred.await()
 
-        val panelHost = hostOf(base)
-        val panelPort = portOf(base)
-        val dns = panelHost?.let {
-            onProgress("Midiendo DNS y latencia del panel…")
-            measureDns(it, config.systemDnsServers)
-        }
-        val panel = if (panelHost != null) {
-            probeTcp(
-                role = "Panel",
-                host = panelHost,
-                port = panelPort,
-                location = fetchLocation(panelHost)
+            val channels = mutableListOf<ChannelProbe>()
+            var videoServer: HostInfo? = null
+            val candidateUrls = playlist?.let { sampleUrls(it.liveUrls, maxOf(config.samples, 2)) }.orEmpty()
+            val maxToTest = config.samples.coerceAtLeast(1)
+            for (url in candidateUrls) {
+                if (channels.count { it.ok } >= maxToTest) break
+                val idx = channels.size + 1
+                onProgress("Probando señal de video ($idx)…")
+                val probe = try {
+                    probeChannel(idx, url, config.secondsPerSample)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    ChannelProbe(
+                        number = idx,
+                        host = hostOf(url) ?: "desconocido",
+                        port = portOf(url),
+                        ttfbMs = 0,
+                        bitrateMbps = 0.0,
+                        bytes = 0,
+                        error = error.message ?: error.javaClass.simpleName
+                    )
+                }
+                channels.add(probe)
+                if (videoServer == null && probe.ok) {
+                    videoServer = probeTcp(role = "Servidor de video", host = probe.host, port = probe.port)
+                }
+            }
+
+            val warnings = mutableListOf<String>()
+            val problems = mutableListOf<String>()
+
+            account?.let { acc ->
+                if (!acc.authenticated) problems.add("cuenta no válida (${acc.status})")
+                val max = acc.maxConnections
+                val active = acc.activeConnections
+                if (max != null && active != null && active >= max) {
+                    warnings.add("conexiones al límite ($active/$max)")
+                }
+                if (acc.daysRemaining != null && acc.daysRemaining < 30) {
+                    warnings.add("la cuenta vence en ${acc.daysRemaining} días")
+                }
+                if (acc.isTrial) warnings.add("es una cuenta de prueba")
+            }
+
+            playlist?.let { list ->
+                if (list.info.live == 0 && config.cachedLiveCount == 0) problems.add("la lista no tiene canales en vivo")
+                if (list.info.sizeBytes > 0L) {
+                    if (list.info.sizeMb > 15) warnings.add("lista pesada (%.1f MB)".format(Locale.US, list.info.sizeMb))
+                    if (list.info.downloadSeconds > 8) warnings.add("descarga lenta (%.1f s)".format(Locale.US, list.info.downloadSeconds))
+                }
+            } ?: problems.add("no se pudo obtener muestra de la lista")
+
+            if (channels.isNotEmpty() && channels.none { it.ok }) {
+                problems.add("ningún canal de la muestra entregó video")
+            } else {
+                val slow = channels.count { it.ok && it.ttfbMs > 2_000 }
+                if (slow > 0) warnings.add("$slow canal(es) tardan más de 2 s en arrancar")
+                val lowBitrate = channels.count { it.ok && it.bitrateMbps <= 0.8 }
+                if (lowBitrate > 0) warnings.add("$lowBitrate canal(es) con bitrate muy bajo")
+            }
+
+            videoServer?.let { server ->
+                val ms = server.tcpAvgMs
+                if (server.tcpOk == 0) problems.add("el servidor de video no acepta conexiones TCP")
+                else if (ms != null && ms > 250) problems.add("servidor de video a $ms ms")
+                else if (ms != null && ms > 120) warnings.add("servidor de video a $ms ms")
+            }
+
+            dns?.let { d ->
+                val public = d.publicMs
+                val router = d.routerMs
+                if (public != null && public > 150) warnings.add("DNS lento (${public} ms)")
+                if (router != null && public != null && router > public * 4 && router > 100) {
+                    warnings.add("el DNS del router tarda ${router} ms")
+                }
+            }
+
+            Report(
+                measuredAt = System.currentTimeMillis(),
+                elapsedMs = System.currentTimeMillis() - started,
+                account = account,
+                playlist = playlist?.info,
+                dns = dns,
+                panel = panel,
+                videoServer = videoServer,
+                channels = channels,
+                warnings = warnings.distinct(),
+                problems = problems.distinct()
             )
-        } else {
-            null
         }
-
-        val channels = mutableListOf<ChannelProbe>()
-        var videoServer: HostInfo? = null
-        val sampleUrls = playlist?.let { sampleUrls(it.liveUrls, config.samples) }.orEmpty()
-        sampleUrls.forEachIndexed { index, url ->
-            onProgress("Probando canal ${index + 1} de ${sampleUrls.size}…")
-            val probe = try {
-                probeChannel(index + 1, url, config.secondsPerSample)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                ChannelProbe(
-                    number = index + 1,
-                    host = hostOf(url) ?: "desconocido",
-                    port = portOf(url),
-                    ttfbMs = 0,
-                    bitrateMbps = 0.0,
-                    bytes = 0,
-                    error = error.message ?: error.javaClass.simpleName
-                )
-            }
-            channels.add(probe)
-            if (videoServer == null && probe.ok) {
-                videoServer = probeTcp(role = "Servidor de video", host = probe.host, port = probe.port)
-            }
-        }
-
-        val warnings = mutableListOf<String>()
-        val problems = mutableListOf<String>()
-
-        account?.let { acc ->
-            if (!acc.authenticated) problems.add("cuenta no válida (${acc.status})")
-            val max = acc.maxConnections
-            val active = acc.activeConnections
-            if (max != null && active != null && active >= max) {
-                warnings.add("conexiones al límite ($active/$max)")
-            }
-            if (acc.daysRemaining != null && acc.daysRemaining < 30) {
-                warnings.add("la cuenta vence en ${acc.daysRemaining} días")
-            }
-            if (acc.isTrial) warnings.add("es una cuenta de prueba")
-        }
-
-        playlist?.let { list ->
-            if (list.info.live == 0) problems.add("la lista no tiene canales en vivo")
-            if (list.info.sizeMb > 15) {
-                warnings.add("lista pesada (%.1f MB)".format(Locale.US, list.info.sizeMb))
-            }
-            if (list.info.downloadSeconds > 8) {
-                warnings.add("descarga lenta (%.1f s)".format(Locale.US, list.info.downloadSeconds))
-            }
-        } ?: problems.add("no se pudo descargar la lista")
-
-        if (channels.isNotEmpty() && channels.none { it.ok }) {
-            problems.add("ningún canal de la muestra entregó video")
-        } else {
-            val slow = channels.count { it.ok && it.ttfbMs > 2_000 }
-            if (slow > 0) warnings.add("$slow canal(es) tardan más de 2 s en arrancar")
-            val failed = channels.count { !it.ok }
-            if (failed > 0) warnings.add("$failed canal(es) de la muestra no abrieron")
-            val lowBitrate = channels.count { it.ok && it.bitrateMbps <= 1.0 }
-            if (lowBitrate > 0) warnings.add("$lowBitrate canal(es) con bitrate muy bajo")
-        }
-
-        videoServer?.let { server ->
-            val ms = server.tcpAvgMs
-            if (server.tcpOk == 0) problems.add("el servidor de video no acepta conexiones TCP")
-            else if (ms != null && ms > 250) problems.add("servidor de video a $ms ms")
-            else if (ms != null && ms > 120) warnings.add("servidor de video a $ms ms")
-        }
-
-        dns?.let { d ->
-            val public = d.publicMs
-            val router = d.routerMs
-            if (public != null && public > 150) warnings.add("DNS lento (${public} ms)")
-            if (router != null && public != null && router > public * 4 && router > 100) {
-                warnings.add("el DNS del router tarda ${router} ms")
-            }
-        }
-
-        Report(
-            measuredAt = System.currentTimeMillis(),
-            elapsedMs = System.currentTimeMillis() - started,
-            account = account,
-            playlist = playlist?.info,
-            dns = dns,
-            panel = panel,
-            videoServer = videoServer,
-            channels = channels,
-            warnings = warnings.distinct(),
-            problems = problems.distinct()
-        )
     }
 
     // ─────────────────────────────────────────────── cuenta
@@ -358,7 +377,7 @@ class IptvDiagnostics(
         var series = 0
 
         val playlistClient = client.newBuilder()
-            .readTimeout(60, TimeUnit.SECONDS)
+            .readTimeout(12, TimeUnit.SECONDS)
             .build()
 
         playlistClient.newCall(request).execute().use { response ->
@@ -375,8 +394,7 @@ class IptvDiagnostics(
                 }
             }
             val source = counting.buffer()
-            var lastProgressAt = 0L
-            while (true) {
+            while (counting.total < MAX_SAMPLE_BYTES) {
                 val line = source.readUtf8Line() ?: break
                 val trimmed = line.trim()
                 if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) continue
@@ -390,13 +408,8 @@ class IptvDiagnostics(
                         val host = hostOf(trimmed)
                         if (host != null) hostCounts[host] = (hostCounts[host] ?: 0) + 1
                         if (liveUrls.size < MAX_STORED_LIVE_URLS) liveUrls.add(trimmed)
+                        if (liveUrls.size >= MAX_STORED_LIVE_URLS) break
                     }
-                }
-
-                val now = System.currentTimeMillis()
-                if (now - lastProgressAt > 2_000) {
-                    lastProgressAt = now
-                    onProgress("Lista: %.1f MB…".format(Locale.US, counting.total / 1_000_000.0))
                 }
             }
 
@@ -542,8 +555,8 @@ class IptvDiagnostics(
         role: String,
         host: String,
         port: Int,
-        attempts: Int = 3,
-        timeoutMs: Int = 4_000,
+        attempts: Int = 2,
+        timeoutMs: Int = 2_000,
         location: String? = null
     ): HostInfo {
         val address = runCatching { InetAddress.getByName(host) }.getOrNull()
@@ -598,7 +611,7 @@ class IptvDiagnostics(
      * Consulta DNS A por UDP y devuelve el tiempo hasta la respuesta. No usa la caché del
      * sistema, por eso sirve para comparar el DNS del router con 1.1.1.1.
      */
-    private fun dnsLookupMs(host: String, server: String, timeoutMs: Int = 3_000): Long? {
+    private fun dnsLookupMs(host: String, server: String, timeoutMs: Int = 1_500): Long? {
         return try {
             val id = (host.hashCode() * 31 + server.hashCode()) and 0xFFFF
             val query = buildDnsQuery(host, id)
@@ -655,6 +668,7 @@ class IptvDiagnostics(
     companion object {
         private const val USER_AGENT = "IPTVSmartersPlayer"
         private const val DNS_PORT = 53
-        private const val MAX_STORED_LIVE_URLS = 5_000
+        private const val MAX_STORED_LIVE_URLS = 15
+        private const val MAX_SAMPLE_BYTES = 512_000L
     }
 }

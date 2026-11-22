@@ -22,9 +22,10 @@ import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
-import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -102,6 +103,16 @@ class XtreamCatalogSyncManager private constructor(
 
     // PASO 5: Mutex por sourceId para evitar múltiples syncs concurrentes de la misma fuente
     private val sourceSyncMutexes = ConcurrentHashMap<String, Mutex>()
+    private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val preCacheMutex = Mutex()
+    @Volatile private var foregroundSourceId: String? = null
+    private var activeVodJob: Job? = null
+
+    private fun emitUi(emit: Boolean, sourceId: String, state: SyncState) {
+        if (emit && (foregroundSourceId == null || foregroundSourceId == sourceId)) {
+            _syncState.value = state
+        }
+    }
 
     private fun detectMediaType(mediaType: String?, name: String, group: String, url: String): String {
         val mt = mediaType?.lowercase()?.trim().orEmpty()
@@ -236,8 +247,13 @@ class XtreamCatalogSyncManager private constructor(
         user: String,
         pass: String,
         sourceType: com.lelouch.core.model.SourceType = com.lelouch.core.model.SourceType.XTREAM,
-        force: Boolean = true
+        force: Boolean = true,
+        emitUiState: Boolean = true,
+        syncVodInBackground: Boolean = true
     ): Result<Unit> = withContext(Dispatchers.IO) {
+        if (emitUiState) {
+            foregroundSourceId = sourceId
+        }
         // PASO 5: Prevenir dos syncs simultáneos de la misma fuente
         val mutex = sourceSyncMutexes.computeIfAbsent(sourceId) { Mutex() }
         if (!mutex.tryLock()) {
@@ -268,7 +284,11 @@ class XtreamCatalogSyncManager private constructor(
             // reutilizar el catálogo local del teléfono de inmediato sin bloquear ni volver a descargar.
             if (!force && !isRoomEmpty) {
                 android.util.Log.i("XtreamCatalogSync", "CACHE_HIT: Fuente $sourceId ya tiene $totalLocal items en Room. Activación instantánea.")
-                _syncState.value = SyncState.UpToDate(sourceId, "Catálogo local listo ($totalLocal items)")
+                emitUi(emitUiState, sourceId, SyncState.UpToDate(sourceId, "Catálogo local listo ($totalLocal items)"))
+                // Si la fuente fue pre-cacheada solo con TV en vivo, completar VOD/Series en segundo plano al seleccionarla
+                if (emitUiState && syncVodInBackground && chCount > 0 && movCount == 0 && serCount == 0 && effectiveType == com.lelouch.core.model.SourceType.XTREAM) {
+                    launchBackgroundVodSync(sourceId, serverUrl, user, pass, chCount, emitUiState = true)
+                }
                 return@withContext Result.success(Unit)
             }
 
@@ -290,18 +310,18 @@ class XtreamCatalogSyncManager private constructor(
 
             // ── Listas M3U (#EXTINF) directas ──────────────────────────────────────
             if (effectiveType == com.lelouch.core.model.SourceType.M3U) {
-                return@withContext syncM3uToStaging(sourceId, syncId, serverUrl, remoteVersionToSave, remoteEtagToSave)
+                return@withContext syncM3uToStaging(sourceId, syncId, serverUrl, remoteVersionToSave, remoteEtagToSave, emitUiState)
             }
 
             // ── RAMA XTREAM CODES CON STAGING ────────────────────────────────────
-            return@withContext syncXtreamToStaging(sourceId, syncId, serverUrl, user, pass)
+            return@withContext syncXtreamToStaging(sourceId, syncId, serverUrl, user, pass, emitUiState, syncVodInBackground)
 
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) {
                 throw e
             }
             val errorMsg = e.localizedMessage ?: "Error de sincronización con el servidor IPTV"
-            _syncState.value = SyncState.Error(errorMsg)
+            emitUi(emitUiState, sourceId, SyncState.Error(errorMsg))
             Result.failure(e)
         } finally {
             mutex.unlock()
@@ -309,36 +329,42 @@ class XtreamCatalogSyncManager private constructor(
     }
 
     /**
-     * Pre-descarga y almacena en caché local Room todas las listas registradas
-     * de forma silenciosa en segundo plano. Así, al alternar entre cuentas,
-     * el cambio es instantáneo (<50ms) sin necesidad de conectarse a internet.
+     * Pre-descarga y almacena en caché local Room las listas secundarias de forma silenciosa
+     * en segundo plano sin emitir errores rojos ni progreso cruzado a la UI activa.
      */
     suspend fun preCacheSources(
         activeSourceId: String?,
         sources: List<SourceConfig>
     ) = withContext(Dispatchers.IO) {
-        val pendingSources = sources.filter { it.id != activeSourceId }
-        for (source in pendingSources) {
-            try {
-                val chCount = database.channelDao().getChannelCount(source.id)
-                if (chCount == 0) {
-                    android.util.Log.i("XtreamCatalogSync", "PRE_CACHE: Descargando lista en segundo plano: ${source.name} (${source.serverUrl})")
-                    syncAll(
-                        sourceId = source.id,
-                        serverUrl = source.serverUrl,
-                        user = source.username,
-                        pass = source.password,
-                        sourceType = source.type,
-                        force = false
-                    )
-                    kotlinx.coroutines.delay(1000)
-                } else {
-                    android.util.Log.d("XtreamCatalogSync", "PRE_CACHE: ${source.name} ya tiene $chCount canales en Room. Omitiendo.")
+        if (!preCacheMutex.tryLock()) return@withContext
+        try {
+            val pendingSources = sources.filter { it.id != activeSourceId }
+            for (source in pendingSources) {
+                try {
+                    val chCount = database.channelDao().getChannelCount(source.id)
+                    if (chCount == 0) {
+                        android.util.Log.i("XtreamCatalogSync", "PRE_CACHE: Descargando lista en segundo plano: ${source.name} (${source.serverUrl})")
+                        syncAll(
+                            sourceId = source.id,
+                            serverUrl = source.serverUrl,
+                            user = source.username,
+                            pass = source.password,
+                            sourceType = source.type,
+                            force = false,
+                            emitUiState = false,
+                            syncVodInBackground = false
+                        )
+                        kotlinx.coroutines.delay(500)
+                    } else {
+                        android.util.Log.d("XtreamCatalogSync", "PRE_CACHE: ${source.name} ya tiene $chCount canales en Room. Omitiendo.")
+                    }
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    android.util.Log.w("XtreamCatalogSync", "PRE_CACHE omitido para ${source.name}: ${e.message}")
                 }
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                android.util.Log.w("XtreamCatalogSync", "PRE_CACHE omitido o falló para ${source.name}: ${e.message}")
             }
+        } finally {
+            preCacheMutex.unlock()
         }
     }
 
@@ -464,10 +490,11 @@ class XtreamCatalogSyncManager private constructor(
         syncId: String,
         serverUrl: String,
         remoteVersion: String = "",
-        remoteEtag: String = ""
+        remoteEtag: String = "",
+        emitUiState: Boolean = true
     ): Result<Unit> {
         try {
-            _syncState.value = SyncState.SyncingLive(0)
+            emitUi(emitUiState, sourceId, SyncState.SyncingLive(0))
 
             val channelStagingBatch = mutableListOf<ChannelStagingEntity>()
             val movieStagingBatch = mutableListOf<MovieStagingEntity>()
@@ -586,7 +613,7 @@ class XtreamCatalogSyncManager private constructor(
                                         if (channelStagingBatch.size >= 2500) {
                                             database.catalogStagingDao().insertChannelsStaging(channelStagingBatch)
                                             channelStagingBatch.clear()
-                                            _syncState.value = SyncState.SyncingLive(count)
+                                            emitUi(emitUiState, sourceId, SyncState.SyncingLive(count))
                                         }
                                         if (movieStagingBatch.size >= 2500) {
                                             database.catalogStagingDao().insertMoviesStaging(movieStagingBatch)
@@ -685,7 +712,7 @@ class XtreamCatalogSyncManager private constructor(
                 }
                 val errorMsg = "No se pudo cargar el catálogo M3U: $detail (Catálogo activo preservado)"
                 android.util.Log.e("XtreamCatalogSync", errorMsg)
-                _syncState.value = SyncState.Error(errorMsg)
+                emitUi(emitUiState, sourceId, SyncState.Error(errorMsg))
                 return Result.failure(IllegalStateException(errorMsg))
             }
 
@@ -707,21 +734,25 @@ class XtreamCatalogSyncManager private constructor(
                 )
             )
 
-            _syncState.value = SyncState.Completed(
-                channelsCount = stagingChannels,
-                moviesCount = stagingMovies,
-                seriesCount = stagingSeries
+            emitUi(
+                emitUiState,
+                sourceId,
+                SyncState.Completed(
+                    channelsCount = stagingChannels,
+                    moviesCount = stagingMovies,
+                    seriesCount = stagingSeries
+                )
             )
             return Result.success(Unit)
         } catch (e: Exception) {
             cleanupStaging(syncId)
             if (e is kotlinx.coroutines.CancellationException) {
-                _syncState.value = SyncState.Idle
+                emitUi(emitUiState, sourceId, SyncState.Idle)
                 throw e
             }
             val errorMsg = "Sincronización M3U interrumpida: ${e.message ?: e.javaClass.simpleName}"
             android.util.Log.e("XtreamCatalogSync", errorMsg, e)
-            _syncState.value = SyncState.Error(errorMsg)
+            emitUi(emitUiState, sourceId, SyncState.Error(errorMsg))
             return Result.failure(e)
         }
     }
@@ -731,19 +762,21 @@ class XtreamCatalogSyncManager private constructor(
         syncId: String,
         serverUrl: String,
         user: String,
-        pass: String
+        pass: String,
+        emitUiState: Boolean = true,
+        syncVodInBackground: Boolean = true
     ): Result<Unit> {
         try {
-            _syncState.value = SyncState.Authenticating
+            emitUi(emitUiState, sourceId, SyncState.Authenticating)
             val api = NetworkClient.createXtreamApiService(serverUrl)
 
             // 1. Validar credenciales y cuenta
             val auth = api.authenticate(user, pass)
             val userInfo = auth.userInfo ?: throw IllegalStateException("Respuesta de autenticación vacía del servidor IPTV")
 
-            if (userInfo.status != "Active") {
+            if (!userInfo.status.trim().equals("Active", ignoreCase = true)) {
                 val errorMsg = "La cuenta IPTV no está activa (Estado: ${userInfo.status})"
-                _syncState.value = SyncState.Error(errorMsg)
+                emitUi(emitUiState, sourceId, SyncState.Error(errorMsg))
                 return Result.failure(IllegalStateException(errorMsg))
             }
 
@@ -762,7 +795,7 @@ class XtreamCatalogSyncManager private constructor(
             }
 
             // 2. Sincronizar Categorías en Staging (Live, VOD, Series)
-            _syncState.value = SyncState.SyncingCategories("Descargando categorías...")
+            emitUi(emitUiState, sourceId, SyncState.SyncingCategories("Descargando categorías..."))
             val liveCategories = try { api.getLiveCategories(user, pass) } catch (_: Exception) { emptyList() }
             val vodCategories = try { api.getVodCategories(user, pass) } catch (_: Exception) { emptyList() }
             val seriesCategories = try { api.getSeriesCategories(user, pass) } catch (_: Exception) { emptyList() }
@@ -815,7 +848,7 @@ class XtreamCatalogSyncManager private constructor(
             }
 
             // 3. Sincronizar Canales en Vivo hacia Staging
-            _syncState.value = SyncState.SyncingLive(0)
+            emitUi(emitUiState, sourceId, SyncState.SyncingLive(0))
             val okHttpClient = NetworkClient.createOkHttpClient()
 
             val liveUrl = "${if (serverUrl.endsWith("/")) serverUrl else "$serverUrl/"}player_api.php?username=$user&password=$pass&action=get_live_streams"
@@ -831,7 +864,7 @@ class XtreamCatalogSyncManager private constructor(
                             val stagingBatch = batch.map { it.toStaging(syncId) }
                             database.catalogStagingDao().insertChannelsStaging(stagingBatch)
                             liveCount += batch.size
-                            _syncState.value = SyncState.SyncingLive(liveCount)
+                            emitUi(emitUiState, sourceId, SyncState.SyncingLive(liveCount))
                         }
                     )
                 }
@@ -845,7 +878,7 @@ class XtreamCatalogSyncManager private constructor(
                 cleanupStaging(syncId)
                 val errorMsg = "El servidor Xtream devolvió 0 canales en vivo. Se preserva el catálogo activo."
                 android.util.Log.w("XtreamCatalogSync", errorMsg)
-                _syncState.value = SyncState.Error(errorMsg)
+                emitUi(emitUiState, sourceId, SyncState.Error(errorMsg))
                 return Result.failure(IllegalStateException(errorMsg))
             }
 
@@ -867,88 +900,19 @@ class XtreamCatalogSyncManager private constructor(
             )
 
             // Notificar estado completado a la UI para desbloquear la pantalla roja de inmediato
-            _syncState.value = SyncState.Completed(
-                channelsCount = stagingChannels,
-                moviesCount = 0,
-                seriesCount = 0
+            emitUi(
+                emitUiState,
+                sourceId,
+                SyncState.Completed(
+                    channelsCount = stagingChannels,
+                    moviesCount = 0,
+                    seriesCount = 0
+                )
             )
 
-            // ── Sincronizar Películas VOD y Series en segundo plano sin bloquear el arranque ni la UI ──
-            @OptIn(DelicateCoroutinesApi::class)
-            GlobalScope.launch(Dispatchers.IO) {
-                val vodSyncId = UUID.randomUUID().toString()
-                try {
-                    // 4. Sincronizar Películas VOD hacia Staging
-                    _syncState.value = SyncState.SyncingMovies(0)
-                    val vodUrl = "${if (serverUrl.endsWith("/")) serverUrl else "$serverUrl/"}player_api.php?username=$user&password=$pass&action=get_vod_streams"
-                    val vodRequest = Request.Builder().url(vodUrl).build()
-                    var movieCount = 0
-                    okHttpClient.newCall(vodRequest).execute().use { response ->
-                        response.body?.byteStream()?.let { stream ->
-                            XtreamStreamingParser.parseVodStreams(
-                                inputStream = stream,
-                                sourceId = sourceId,
-                                batchSize = 500,
-                                onBatchParsed = { batch ->
-                                    val stagingBatch = batch.map { it.toStaging(vodSyncId) }
-                                    database.catalogStagingDao().insertMoviesStaging(stagingBatch)
-                                    movieCount += batch.size
-                                    _syncState.value = SyncState.SyncingMovies(movieCount)
-                                }
-                            )
-                        }
-                    }
-
-                    // 5. Sincronizar Series hacia Staging
-                    _syncState.value = SyncState.SyncingSeries(0)
-                    val seriesUrl = "${if (serverUrl.endsWith("/")) serverUrl else "$serverUrl/"}player_api.php?username=$user&password=$pass&action=get_series"
-                    val seriesRequest = Request.Builder().url(seriesUrl).build()
-                    var seriesCount = 0
-                    okHttpClient.newCall(seriesRequest).execute().use { response ->
-                        response.body?.byteStream()?.let { stream ->
-                            XtreamStreamingParser.parseSeriesStreams(
-                                inputStream = stream,
-                                sourceId = sourceId,
-                                batchSize = 500,
-                                onBatchParsed = { batch ->
-                                    val stagingBatch = batch.map { it.toStaging(vodSyncId) }
-                                    database.catalogStagingDao().insertSeriesStaging(stagingBatch)
-                                    seriesCount += batch.size
-                                    _syncState.value = SyncState.SyncingSeries(seriesCount)
-                                }
-                            )
-                        }
-                    }
-
-                    val stagingMovies = database.catalogStagingDao().getStagingMovieCount(vodSyncId)
-                    val stagingSeries = database.catalogStagingDao().getStagingSeriesCount(vodSyncId)
-
-                    if (stagingMovies > 0 || stagingSeries > 0) {
-                        performVodAtomicSwap(vodSyncId, sourceId)
-                        preferencesDataSource?.saveSyncMetadata(
-                            SourceSyncMetadata(
-                                sourceId = sourceId,
-                                lastSuccessfulSyncAt = System.currentTimeMillis(),
-                                lastSuccessfulVersion = System.currentTimeMillis().toString(),
-                                lastEtag = "",
-                                lastSyncResult = "SUCCESS",
-                                channelCount = stagingChannels,
-                                movieCount = stagingMovies,
-                                seriesCount = stagingSeries
-                            )
-                        )
-                    }
-
-                    _syncState.value = SyncState.Completed(
-                        channelsCount = stagingChannels,
-                        moviesCount = stagingMovies,
-                        seriesCount = stagingSeries
-                    )
-                    android.util.Log.i("XtreamCatalogSync", "Sync VOD/Series completado en background [$sourceId]: movies=$stagingMovies, series=$stagingSeries")
-                } catch (e: Exception) {
-                    cleanupStaging(vodSyncId)
-                    android.util.Log.w("XtreamCatalogSync", "Sync VOD/Series en background omitido o falló: ${e.message}")
-                }
+            // ── Sincronizar Películas VOD y Series en segundo plano controlado (sin tormentas paralelas) ──
+            if (syncVodInBackground) {
+                launchBackgroundVodSync(sourceId, serverUrl, user, pass, stagingChannels, emitUiState)
             }
 
             return Result.success(Unit)
@@ -956,12 +920,103 @@ class XtreamCatalogSyncManager private constructor(
         } catch (e: Exception) {
             cleanupStaging(syncId)
             if (e is kotlinx.coroutines.CancellationException) {
-                _syncState.value = SyncState.Idle
+                emitUi(emitUiState, sourceId, SyncState.Idle)
                 throw e
             }
             val errorMsg = e.localizedMessage ?: "Error de sincronización con el servidor IPTV"
-            _syncState.value = SyncState.Error(errorMsg)
+            emitUi(emitUiState, sourceId, SyncState.Error(errorMsg))
             return Result.failure(e)
+        }
+    }
+
+    private fun launchBackgroundVodSync(
+        sourceId: String,
+        serverUrl: String,
+        user: String,
+        pass: String,
+        channelsCount: Int,
+        emitUiState: Boolean
+    ) {
+        activeVodJob?.cancel()
+        activeVodJob = syncScope.launch {
+            val vodSyncId = UUID.randomUUID().toString()
+            val okHttpClient = NetworkClient.createOkHttpClient()
+            try {
+                // 4. Sincronizar Películas VOD hacia Staging
+                emitUi(emitUiState, sourceId, SyncState.SyncingMovies(0))
+                val vodUrl = "${if (serverUrl.endsWith("/")) serverUrl else "$serverUrl/"}player_api.php?username=$user&password=$pass&action=get_vod_streams"
+                val vodRequest = Request.Builder().url(vodUrl).build()
+                var movieCount = 0
+                okHttpClient.newCall(vodRequest).execute().use { response ->
+                    response.body?.byteStream()?.let { stream ->
+                        XtreamStreamingParser.parseVodStreams(
+                            inputStream = stream,
+                            sourceId = sourceId,
+                            batchSize = 500,
+                            onBatchParsed = { batch ->
+                                val stagingBatch = batch.map { it.toStaging(vodSyncId) }
+                                database.catalogStagingDao().insertMoviesStaging(stagingBatch)
+                                movieCount += batch.size
+                                emitUi(emitUiState, sourceId, SyncState.SyncingMovies(movieCount))
+                            }
+                        )
+                    }
+                }
+
+                // 5. Sincronizar Series hacia Staging
+                emitUi(emitUiState, sourceId, SyncState.SyncingSeries(0))
+                val seriesUrl = "${if (serverUrl.endsWith("/")) serverUrl else "$serverUrl/"}player_api.php?username=$user&password=$pass&action=get_series"
+                val seriesRequest = Request.Builder().url(seriesUrl).build()
+                var seriesCount = 0
+                okHttpClient.newCall(seriesRequest).execute().use { response ->
+                    response.body?.byteStream()?.let { stream ->
+                        XtreamStreamingParser.parseSeriesStreams(
+                            inputStream = stream,
+                            sourceId = sourceId,
+                            batchSize = 500,
+                            onBatchParsed = { batch ->
+                                val stagingBatch = batch.map { it.toStaging(vodSyncId) }
+                                database.catalogStagingDao().insertSeriesStaging(stagingBatch)
+                                seriesCount += batch.size
+                                emitUi(emitUiState, sourceId, SyncState.SyncingSeries(seriesCount))
+                            }
+                        )
+                    }
+                }
+
+                val stagingMovies = database.catalogStagingDao().getStagingMovieCount(vodSyncId)
+                val stagingSeries = database.catalogStagingDao().getStagingSeriesCount(vodSyncId)
+
+                if (stagingMovies > 0 || stagingSeries > 0) {
+                    performVodAtomicSwap(vodSyncId, sourceId)
+                    preferencesDataSource?.saveSyncMetadata(
+                        SourceSyncMetadata(
+                            sourceId = sourceId,
+                            lastSuccessfulSyncAt = System.currentTimeMillis(),
+                            lastSuccessfulVersion = System.currentTimeMillis().toString(),
+                            lastEtag = "",
+                            lastSyncResult = "SUCCESS",
+                            channelCount = channelsCount,
+                            movieCount = stagingMovies,
+                            seriesCount = stagingSeries
+                        )
+                    )
+                }
+
+                emitUi(
+                    emitUiState,
+                    sourceId,
+                    SyncState.Completed(
+                        channelsCount = channelsCount,
+                        moviesCount = stagingMovies,
+                        seriesCount = stagingSeries
+                    )
+                )
+                android.util.Log.i("XtreamCatalogSync", "Sync VOD/Series completado en background [$sourceId]: movies=$stagingMovies, series=$stagingSeries")
+            } catch (e: Exception) {
+                cleanupStaging(vodSyncId)
+                android.util.Log.w("XtreamCatalogSync", "Sync VOD/Series en background omitido o falló: ${e.message}")
+            }
         }
     }
 

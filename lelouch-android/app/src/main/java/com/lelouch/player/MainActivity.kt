@@ -24,6 +24,7 @@ import com.lelouch.core.designsystem.LelouchCyanAccent
 import com.lelouch.core.designsystem.LelouchTheme
 import com.lelouch.core.designsystem.LelouchTvTheme
 import com.lelouch.core.designsystem.components.LelouchRedLoadingScreen
+import com.lelouch.core.model.SourceConfig
 import com.lelouch.core.model.SourceType
 import com.lelouch.core.network.diagnostics.IptvDiagnostics
 import com.lelouch.core.network.dns.LelouchDnsManager
@@ -35,8 +36,10 @@ import com.lelouch.player.bootstrap.SourceBootstrapState
 import com.lelouch.player.bootstrap.SourceBootstrapViewModel
 import com.lelouch.feature.tv.components.TvBootstrapRecoveryScreen
 import com.lelouch.feature.tv.components.TvAdminPanelModal
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
 
@@ -90,14 +93,49 @@ class MainActivity : ComponentActivity() {
                 else -> ""
             }
 
-            if (syncState is SyncState.Error) {
-                errorMessage = (syncState as SyncState.Error).message
+            LaunchedEffect(syncState) {
+                when (val state = syncState) {
+                    is SyncState.Error -> errorMessage = state.message
+                    is SyncState.Completed,
+                    is SyncState.UpToDate,
+                    is SyncState.TtlFresh,
+                    is SyncState.Authenticating,
+                    is SyncState.SyncingCategories,
+                    is SyncState.SyncingLive -> errorMessage = null
+                    else -> Unit
+                }
             }
 
-            // Un error de sincronización deja de ser vigente en cuanto una sincronización
-            // posterior termina correctamente; si no, el aviso rojo quedaría pegado.
-            LaunchedEffect(syncState) {
-                if (syncState is SyncState.Completed) errorMessage = null
+            suspend fun runFastDiagnostics(
+                source: SourceConfig,
+                onProgress: suspend (String) -> Unit
+            ): IptvDiagnostics.Report {
+                val config = withContext(Dispatchers.IO) {
+                    val chDao = app.database.channelDao()
+                    val count = chDao.getChannelCount(source.id)
+                    val moviesC = app.database.movieDao().getMovieCount(source.id)
+                    val seriesC = app.database.seriesDao().getSeriesCount(source.id)
+                    val samples = if (count > 0) {
+                        listOfNotNull(
+                            chDao.getChannelByPosition(source.id, 0)?.streamUrl,
+                            if (count > 2) chDao.getChannelByPosition(source.id, count / 2)?.streamUrl else null
+                        ).distinct()
+                    } else {
+                        emptyList()
+                    }
+                    IptvDiagnostics.Config(
+                        serverUrl = source.serverUrl,
+                        username = source.username,
+                        password = source.password,
+                        m3uListUrl = if (source.type == SourceType.M3U) source.serverUrl else null,
+                        systemDnsServers = currentDnsServers(),
+                        cachedLiveCount = count,
+                        cachedMovieCount = moviesC,
+                        cachedSeriesCount = seriesC,
+                        cachedSampleUrls = samples
+                    )
+                }
+                return app.diagnostics.run(config = config, onProgress = onProgress)
             }
 
             val allSources by app.authRepository.getAllSources().collectAsStateWithLifecycle(initialValue = emptyList())
@@ -304,7 +342,8 @@ class MainActivity : ComponentActivity() {
             }
 
             // ── Pre-descarga silenciosa de listas secundarias en background para cambio instantáneo (<50ms) ──
-            LaunchedEffect(allSources, effectiveActiveSource?.id) {
+            val sourceIdsKey = allSources.map { it.id }.sorted().joinToString(",")
+            LaunchedEffect(sourceIdsKey) {
                 val activeId = effectiveActiveSource?.id ?: return@LaunchedEffect
                 if (allSources.size > 1) {
                     kotlinx.coroutines.delay(4000)
@@ -362,20 +401,7 @@ class MainActivity : ComponentActivity() {
                                 syncStateText = syncStatusText,
                                 playbackHistory = app.playbackHistoryRepository,
                                 onRunDiagnostics = { source, onProgress ->
-                                    app.diagnostics.run(
-                                        config = IptvDiagnostics.Config(
-                                            serverUrl = source.serverUrl,
-                                            username = source.username,
-                                            password = source.password,
-                                            m3uListUrl = if (source.type == SourceType.M3U) {
-                                                source.serverUrl
-                                            } else {
-                                                null
-                                            },
-                                            systemDnsServers = currentDnsServers()
-                                        ),
-                                        onProgress = onProgress
-                                    )
+                                    runFastDiagnostics(source, onProgress)
                                 },
                                 onFetchSeriesDetails = { seriesId ->
                                     app.seriesRepository.getSeriesDetailAndEpisodes(
@@ -485,20 +511,7 @@ class MainActivity : ComponentActivity() {
                                 onReloadSource = ::onReloadSource,
                                 onRefreshAccountsStatus = ::onRefreshAccountsStatus,
                                 onRunDiagnostics = { source, onProgress ->
-                                    app.diagnostics.run(
-                                        config = IptvDiagnostics.Config(
-                                            serverUrl = source.serverUrl,
-                                            username = source.username,
-                                            password = source.password,
-                                            m3uListUrl = if (source.type == SourceType.M3U) {
-                                                source.serverUrl
-                                            } else {
-                                                null
-                                            },
-                                            systemDnsServers = currentDnsServers()
-                                        ),
-                                        onProgress = onProgress
-                                    )
+                                    runFastDiagnostics(source, onProgress)
                                 },
                                 syncStatusText = errorMessage ?: syncStatusText,
                                 syncIsError = errorMessage != null || syncState is SyncState.Error,
