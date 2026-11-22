@@ -189,10 +189,53 @@ fun MobileLoginScreen(
                     Text("Sincronizar Cuentas de Supabase Cloud", color = LelouchTextPrimary, fontSize = 13.sp)
                 }
             } else {
-                // Formulario Manual Xtream
+                // Formulario Manual Xtream con Auto-detección inteligente al pegar
                 OutlinedTextField(
                     value = serverUrl,
-                    onValueChange = { serverUrl = it },
+                    onValueChange = { input ->
+                        val trimmed = input.trim()
+                        if (trimmed.contains("username=", ignoreCase = true) ||
+                            trimmed.contains("get.php", ignoreCase = true) ||
+                            trimmed.contains("player_api.php", ignoreCase = true)
+                        ) {
+                            try {
+                                val urlClean = if (!trimmed.startsWith("http://", ignoreCase = true) && !trimmed.startsWith("https://", ignoreCase = true)) {
+                                    "http://$trimmed"
+                                } else {
+                                    trimmed
+                                }
+                                val uri = try { java.net.URI(urlClean) } catch (_: Exception) { null }
+                                val query = uri?.rawQuery ?: (if (urlClean.contains('?')) urlClean.substringAfter('?') else "")
+                                val params = mutableMapOf<String, String>()
+                                if (query.isNotBlank()) {
+                                    query.split('&').forEach { param ->
+                                        val parts = param.split('=', limit = 2)
+                                        if (parts.size == 2) {
+                                            val key = try { java.net.URLDecoder.decode(parts[0], "UTF-8") } catch (_: Exception) { parts[0] }
+                                            val value = try { java.net.URLDecoder.decode(parts[1], "UTF-8") } catch (_: Exception) { parts[1] }
+                                            params[key] = value
+                                        }
+                                    }
+                                }
+                                val extractedUser = params["username"] ?: params["user"] ?: ""
+                                val extractedPass = params["password"] ?: params["pass"] ?: ""
+                                val cleanServer = if (uri != null && uri.host != null) {
+                                    val scheme = uri.scheme ?: "http"
+                                    val portStr = if (uri.port != -1) ":${uri.port}" else ""
+                                    "$scheme://${uri.host}$portStr"
+                                } else {
+                                    urlClean.substringBefore('?').substringBefore("/get.php").substringBefore("/player_api.php")
+                                }
+                                serverUrl = cleanServer
+                                if (extractedUser.isNotBlank()) username = extractedUser
+                                if (extractedPass.isNotBlank()) password = extractedPass
+                            } catch (_: Exception) {
+                                serverUrl = input
+                            }
+                        } else {
+                            serverUrl = input
+                        }
+                    },
                     label = { Text("URL del Servidor") },
                     placeholder = { Text("http://ejemplo.com:8080") },
                     leadingIcon = { Icon(Icons.Default.Dns, contentDescription = null, tint = LelouchCyanAccent) },

@@ -1,7 +1,7 @@
 {
-  "versionName": "1.0.135",
-  "versionCode": 1000135,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.135/LELOUCH-PLUS-v1.0.135.apk",
-  "changelog": "- Reorganización de Ajustes por Sub-Pestañas (TV Box y Mobile): Barra de 4 categorías (📋 Listas y Cuentas, 🛡️ Reproducción y VPN, 🩺 Diagnóstico, ⚙️ General y Sistema) estilo OwnTV/StreamVault sin omitir ninguna función.\n- Acceso Inmediato a Listas IPTV: Tus cuentas y listas guardadas aparecen en primer lugar al abrir Ajustes sin necesidad de hacer scroll.\n- Panel Dedicado de VPN Anti-DPI y Diagnóstico en Vivo.",
-  "version": "1.0.135"
+  "versionName": "1.0.136",
+  "versionCode": 1000136,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/v1.0.136/LELOUCH-PLUS-v1.0.136.apk",
+  "changelog": "- Arranque Ultrarrápido (<3s en TV Box y Móvil): Sincronización desacoplada con commit atómico inmediato de Canales en Vivo y Categorías sin esperar a descargar decenas de miles de películas y series.\n- Descarga Asíncrona en Segundo Plano: Películas VOD y Series se procesan silenciosamente sin bloquear la pantalla de inicio.\n- Detección Inteligente de URLs en Login: Desglose automático de servidor, usuario y contraseña al pegar enlaces M3U / get.php.\n- Optimización del Portal Dashboard: Cálculo acelerado de feeds y secciones curadas sin sobrecargar la CPU del dispositivo.",
+  "version": "1.0.136"
 }

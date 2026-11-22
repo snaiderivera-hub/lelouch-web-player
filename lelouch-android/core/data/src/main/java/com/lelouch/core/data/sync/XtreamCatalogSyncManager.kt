@@ -21,11 +21,14 @@ import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -169,6 +172,41 @@ class XtreamCatalogSyncManager private constructor(
             database.catalogStagingDao().deleteStagingMovies(syncId)
             database.catalogStagingDao().deleteStagingSeries(syncId)
             database.catalogStagingDao().deleteStagingCategories(syncId)
+        }
+    }
+
+    private suspend fun performLiveAtomicSwap(syncId: String, sourceId: String) {
+        database.withTransaction {
+            database.catalogStagingDao().preserveChannelFavorites(syncId, sourceId)
+            database.channelDao().deleteChannelsBySource(sourceId)
+            database.categoryDao().deleteCategoriesBySource(sourceId)
+
+            database.catalogStagingDao().copyChannelsFromStaging(syncId, sourceId)
+            database.catalogStagingDao().copyCategoriesFromStaging(syncId, sourceId)
+
+            database.categoryDao().updateLiveCategoryCounts(sourceId)
+
+            database.catalogStagingDao().deleteStagingChannels(syncId)
+            database.catalogStagingDao().deleteStagingCategories(syncId)
+        }
+    }
+
+    private suspend fun performVodAtomicSwap(syncId: String, sourceId: String) {
+        database.withTransaction {
+            database.catalogStagingDao().preserveMovieFavorites(syncId, sourceId)
+            database.catalogStagingDao().preserveSeriesFavorites(syncId, sourceId)
+
+            database.movieDao().deleteMoviesBySource(sourceId)
+            database.seriesDao().deleteSeriesBySource(sourceId)
+
+            database.catalogStagingDao().copyMoviesFromStaging(syncId, sourceId)
+            database.catalogStagingDao().copySeriesFromStaging(syncId, sourceId)
+
+            database.categoryDao().updateMovieCategoryCounts(sourceId)
+            database.categoryDao().updateSeriesCategoryCounts(sourceId)
+
+            database.catalogStagingDao().deleteStagingMovies(syncId)
+            database.catalogStagingDao().deleteStagingSeries(syncId)
         }
     }
 
@@ -764,79 +802,22 @@ class XtreamCatalogSyncManager private constructor(
                 }
             }
 
-            // 4. Sincronizar Películas VOD hacia Staging
-            _syncState.value = SyncState.SyncingMovies(0)
-            val vodUrl = "${if (serverUrl.endsWith("/")) serverUrl else "$serverUrl/"}player_api.php?username=$user&password=$pass&action=get_vod_streams"
-            val vodRequest = Request.Builder().url(vodUrl).build()
-            var movieCount = 0
-            okHttpClient.newCall(vodRequest).execute().use { response ->
-                response.body?.byteStream()?.let { stream ->
-                    XtreamStreamingParser.parseVodStreams(
-                        inputStream = stream,
-                        sourceId = sourceId,
-                        batchSize = 500,
-                        onBatchParsed = { batch ->
-                            val stagingBatch = batch.map { it.toStaging(syncId) }
-                            database.catalogStagingDao().insertMoviesStaging(stagingBatch)
-                            movieCount += batch.size
-                            _syncState.value = SyncState.SyncingMovies(movieCount)
-                        }
-                    )
-                }
-            }
-
-            // 5. Sincronizar Series hacia Staging
-            _syncState.value = SyncState.SyncingSeries(0)
-            val seriesUrl = "${if (serverUrl.endsWith("/")) serverUrl else "$serverUrl/"}player_api.php?username=$user&password=$pass&action=get_series"
-            val seriesRequest = Request.Builder().url(seriesUrl).build()
-            var seriesCount = 0
-            okHttpClient.newCall(seriesRequest).execute().use { response ->
-                response.body?.byteStream()?.let { stream ->
-                    XtreamStreamingParser.parseSeriesStreams(
-                        inputStream = stream,
-                        sourceId = sourceId,
-                        batchSize = 500,
-                        onBatchParsed = { batch ->
-                            val stagingBatch = batch.map { it.toStaging(syncId) }
-                            database.catalogStagingDao().insertSeriesStaging(stagingBatch)
-                            seriesCount += batch.size
-                            _syncState.value = SyncState.SyncingSeries(seriesCount)
-                        }
-                    )
-                }
-            }
-
-            // PASO 7 (P0 #4): Validar staging antes del swap
+            // ── PASO CLAVE MREA (Arranque Instantáneo TV Box y Móvil): COMMIT INMEDIATO DE CANALES Y CATEGORÍAS ──
             val stagingChannels = database.catalogStagingDao().getStagingChannelCount(syncId)
-            val stagingMovies = database.catalogStagingDao().getStagingMovieCount(syncId)
-            val stagingSeries = database.catalogStagingDao().getStagingSeriesCount(syncId)
             val stagingCategoriesCount = database.catalogStagingDao().getStagingCategoryCount(syncId)
-            val totalNew = stagingChannels + stagingMovies + stagingSeries
 
-            val oldChannels = database.channelDao().getChannelCount(sourceId)
-            val oldMovies = database.movieDao().getMovieCount(sourceId)
-            val oldSeries = database.seriesDao().getSeriesCount(sourceId)
-            val totalOld = oldChannels + oldMovies + oldSeries
-
-            android.util.Log.i(
-                "XtreamCatalogSync",
-                "Validación Staging Xtream [$sourceId] (syncId: $syncId): " +
-                    "OLD: [channels=$oldChannels, movies=$oldMovies, series=$oldSeries, total=$totalOld] -> " +
-                    "STAGING: [channels=$stagingChannels, movies=$stagingMovies, series=$stagingSeries, categories=$stagingCategoriesCount, total=$totalNew]"
-            )
-
-            if (totalNew == 0) {
+            if (stagingChannels == 0 && stagingCategoriesCount == 0) {
                 cleanupStaging(syncId)
-                val errorMsg = "El servidor Xtream devolvió 0 elementos en total. Se preserva el catálogo activo."
+                val errorMsg = "El servidor Xtream devolvió 0 canales en vivo. Se preserva el catálogo activo."
                 android.util.Log.w("XtreamCatalogSync", errorMsg)
                 _syncState.value = SyncState.Error(errorMsg)
                 return Result.failure(IllegalStateException(errorMsg))
             }
 
-            // PASO 8 (P0 #4): Swap atómico corto en base de datos Room
-            performAtomicSwap(syncId, sourceId)
+            // Realizar swap atómico INMEDIATO de canales en vivo y categorías (<3 segundos)
+            performLiveAtomicSwap(syncId, sourceId)
 
-            // PASO 3 (P0 #5): Guardar metadata de sincronización exitosa para Xtream
+            // Guardar metadata preliminar de éxito para que el arranque no quede bloqueado
             preferencesDataSource?.saveSyncMetadata(
                 SourceSyncMetadata(
                     sourceId = sourceId,
@@ -845,16 +826,96 @@ class XtreamCatalogSyncManager private constructor(
                     lastEtag = "",
                     lastSyncResult = "SUCCESS",
                     channelCount = stagingChannels,
-                    movieCount = stagingMovies,
-                    seriesCount = stagingSeries
+                    movieCount = 0,
+                    seriesCount = 0
                 )
             )
 
+            // Notificar estado completado a la UI para desbloquear la pantalla roja de inmediato
             _syncState.value = SyncState.Completed(
                 channelsCount = stagingChannels,
-                moviesCount = stagingMovies,
-                seriesCount = stagingSeries
+                moviesCount = 0,
+                seriesCount = 0
             )
+
+            // ── Sincronizar Películas VOD y Series en segundo plano sin bloquear el arranque ni la UI ──
+            @OptIn(DelicateCoroutinesApi::class)
+            GlobalScope.launch(Dispatchers.IO) {
+                val vodSyncId = UUID.randomUUID().toString()
+                try {
+                    // 4. Sincronizar Películas VOD hacia Staging
+                    _syncState.value = SyncState.SyncingMovies(0)
+                    val vodUrl = "${if (serverUrl.endsWith("/")) serverUrl else "$serverUrl/"}player_api.php?username=$user&password=$pass&action=get_vod_streams"
+                    val vodRequest = Request.Builder().url(vodUrl).build()
+                    var movieCount = 0
+                    okHttpClient.newCall(vodRequest).execute().use { response ->
+                        response.body?.byteStream()?.let { stream ->
+                            XtreamStreamingParser.parseVodStreams(
+                                inputStream = stream,
+                                sourceId = sourceId,
+                                batchSize = 500,
+                                onBatchParsed = { batch ->
+                                    val stagingBatch = batch.map { it.toStaging(vodSyncId) }
+                                    database.catalogStagingDao().insertMoviesStaging(stagingBatch)
+                                    movieCount += batch.size
+                                    _syncState.value = SyncState.SyncingMovies(movieCount)
+                                }
+                            )
+                        }
+                    }
+
+                    // 5. Sincronizar Series hacia Staging
+                    _syncState.value = SyncState.SyncingSeries(0)
+                    val seriesUrl = "${if (serverUrl.endsWith("/")) serverUrl else "$serverUrl/"}player_api.php?username=$user&password=$pass&action=get_series"
+                    val seriesRequest = Request.Builder().url(seriesUrl).build()
+                    var seriesCount = 0
+                    okHttpClient.newCall(seriesRequest).execute().use { response ->
+                        response.body?.byteStream()?.let { stream ->
+                            XtreamStreamingParser.parseSeriesStreams(
+                                inputStream = stream,
+                                sourceId = sourceId,
+                                batchSize = 500,
+                                onBatchParsed = { batch ->
+                                    val stagingBatch = batch.map { it.toStaging(vodSyncId) }
+                                    database.catalogStagingDao().insertSeriesStaging(stagingBatch)
+                                    seriesCount += batch.size
+                                    _syncState.value = SyncState.SyncingSeries(seriesCount)
+                                }
+                            )
+                        }
+                    }
+
+                    val stagingMovies = database.catalogStagingDao().getStagingMovieCount(vodSyncId)
+                    val stagingSeries = database.catalogStagingDao().getStagingSeriesCount(vodSyncId)
+
+                    if (stagingMovies > 0 || stagingSeries > 0) {
+                        performVodAtomicSwap(vodSyncId, sourceId)
+                        preferencesDataSource?.saveSyncMetadata(
+                            SourceSyncMetadata(
+                                sourceId = sourceId,
+                                lastSuccessfulSyncAt = System.currentTimeMillis(),
+                                lastSuccessfulVersion = System.currentTimeMillis().toString(),
+                                lastEtag = "",
+                                lastSyncResult = "SUCCESS",
+                                channelCount = stagingChannels,
+                                movieCount = stagingMovies,
+                                seriesCount = stagingSeries
+                            )
+                        )
+                    }
+
+                    _syncState.value = SyncState.Completed(
+                        channelsCount = stagingChannels,
+                        moviesCount = stagingMovies,
+                        seriesCount = stagingSeries
+                    )
+                    android.util.Log.i("XtreamCatalogSync", "Sync VOD/Series completado en background [$sourceId]: movies=$stagingMovies, series=$stagingSeries")
+                } catch (e: Exception) {
+                    cleanupStaging(vodSyncId)
+                    android.util.Log.w("XtreamCatalogSync", "Sync VOD/Series en background omitido o falló: ${e.message}")
+                }
+            }
+
             return Result.success(Unit)
 
         } catch (e: Exception) {

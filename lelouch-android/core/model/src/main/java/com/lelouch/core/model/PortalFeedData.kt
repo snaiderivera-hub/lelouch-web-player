@@ -96,6 +96,11 @@ object PortalFeedCalculator {
         movies: List<VodMovie>,
         seriesList: List<Series>
     ): PortalFeedData {
+        // Optimización de rendimiento para catálogos masivos (>50k ítems):
+        // Limitar la muestra curada para el cálculo del Portal a los primeros 500/300 ítems más relevantes.
+        val scanMovies = if (movies.size > 500) movies.take(500) else movies
+        val scanSeries = if (seriesList.size > 300) seriesList.take(300) else seriesList
+
         val sportsKeywords = listOf(
             "sport", "deporte", "futbol", "fútbol", "liga", "champions", "premier",
             "laliga", "nba", "mlb", "nfl", "ufc", "box", "f1", "formula 1",
@@ -127,15 +132,15 @@ object PortalFeedCalculator {
                    movie.name.contains(year)
         }
 
-        val yearMovies = movies.asSequence().filter { m ->
+        val yearMovies = scanMovies.asSequence().filter { m ->
             (isMovieFromYear(m, currentYearStr) || isMovieFromYear(m, previousYearStr)) &&
             !AdultContentFilter.isAdult(name = m.name, categoryName = m.categoryName, categoryId = m.categoryId, streamIcon = m.streamIcon, streamUrl = m.streamUrl)
         }.sortedByDescending { it.rating ?: 0.0 }.take(10).toList()
 
-        val topTenMovies = if (yearMovies.isNotEmpty()) yearMovies else movies.take(10)
+        val topTenMovies = if (yearMovies.isNotEmpty()) yearMovies else scanMovies.take(10)
 
         // 1. RECIÉN AGREGADAS: Ordenadas por fecha de añadido (added) desc, excluyendo anime y adultos
-        val recentMovies = movies.asSequence().filter { m ->
+        val recentMovies = scanMovies.asSequence().filter { m ->
             !isAnimation(m.name, m.categoryName, m.genre) &&
             !AdultContentFilter.isAdult(name = m.name, categoryName = m.categoryName, categoryId = m.categoryId, streamIcon = m.streamIcon, streamUrl = m.streamUrl)
         }.sortedWith(
@@ -143,7 +148,7 @@ object PortalFeedCalculator {
         ).take(15).toList()
 
         // 2. MEJOR VALORADAS: Películas y series con rating >= 6.5 ordenadas globalmente por nota, balanceadas
-        val highMovies = movies.asSequence().filter { m ->
+        val highMovies = scanMovies.asSequence().filter { m ->
             !isAnimation(m.name, m.categoryName, m.genre) &&
             (m.rating ?: 0.0) >= 6.5 &&
             !AdultContentFilter.isAdult(name = m.name, categoryName = m.categoryName, categoryId = m.categoryId, streamIcon = m.streamIcon, streamUrl = m.streamUrl)
@@ -157,7 +162,7 @@ object PortalFeedCalculator {
             )
         }.toList().sortedByDescending { it.rating ?: 0.0 }
 
-        val highSeries = seriesList.asSequence().filter { s ->
+        val highSeries = scanSeries.asSequence().filter { s ->
             !isAnimation(s.name, s.categoryName, s.genre) &&
             ((s.rating5based?.times(2.0)) ?: (s.rating ?: 0.0)) >= 6.5 &&
             !AdultContentFilter.isAdult(name = s.name, categoryName = s.categoryName, categoryId = s.categoryId, streamIcon = s.cover)
@@ -174,12 +179,12 @@ object PortalFeedCalculator {
         val mostViewedItems = (highMovies.take(8) + highSeries.take(7)).sortedByDescending { it.rating ?: 0.0 }
 
         // 3. TERROR Y SUSPENSO: Prioridad de género oficial
-        val terrorMovies = movies.asSequence().filter { m ->
+        val terrorMovies = scanMovies.asSequence().filter { m ->
             isTerror(m.name, m.categoryName, m.genre, m.plot) &&
             !AdultContentFilter.isAdult(name = m.name, categoryName = m.categoryName, categoryId = m.categoryId, streamIcon = m.streamIcon, streamUrl = m.streamUrl)
         }.take(10).map { CuratedMediaItem(it.name, it.streamIcon, it.rating, it.year, movie = it) }.toList()
 
-        val terrorSeries = seriesList.asSequence().filter { s ->
+        val terrorSeries = scanSeries.asSequence().filter { s ->
             isTerror(s.name, s.categoryName, s.genre, s.plot) &&
             !AdultContentFilter.isAdult(name = s.name, categoryName = s.categoryName, categoryId = s.categoryId, streamIcon = s.cover)
         }.take(10).map { CuratedMediaItem(it.name, it.cover, it.rating5based?.times(2.0) ?: it.rating, it.releaseDate?.take(4), series = it) }.toList()
@@ -187,12 +192,12 @@ object PortalFeedCalculator {
         val terrorItems = (terrorMovies.take(8) + terrorSeries.take(7)).take(15)
 
         // 4. CIENCIA FICCIÓN: Prioridad de género oficial
-        val sciFiMovies = movies.asSequence().filter { m ->
+        val sciFiMovies = scanMovies.asSequence().filter { m ->
             isSciFi(m.name, m.categoryName, m.genre, m.plot) &&
             !AdultContentFilter.isAdult(name = m.name, categoryName = m.categoryName, categoryId = m.categoryId, streamIcon = m.streamIcon, streamUrl = m.streamUrl)
         }.take(10).map { CuratedMediaItem(it.name, it.streamIcon, it.rating, it.year, movie = it) }.toList()
 
-        val sciFiSeries = seriesList.asSequence().filter { s ->
+        val sciFiSeries = scanSeries.asSequence().filter { s ->
             isSciFi(s.name, s.categoryName, s.genre, s.plot) &&
             !AdultContentFilter.isAdult(name = s.name, categoryName = s.categoryName, categoryId = s.categoryId, streamIcon = s.cover)
         }.take(10).map { CuratedMediaItem(it.name, it.cover, it.rating5based?.times(2.0) ?: it.rating, it.releaseDate?.take(4), series = it) }.toList()
@@ -200,12 +205,12 @@ object PortalFeedCalculator {
         val sciFiItems = (sciFiMovies.take(8) + sciFiSeries.take(7)).take(15)
 
         // 5. BASADO EN HECHOS REALES: Biopics, historia real, documentales
-        val realMovies = movies.asSequence().filter { m ->
+        val realMovies = scanMovies.asSequence().filter { m ->
             isRealHistory(m.name, m.categoryName, m.genre, m.plot) &&
             !AdultContentFilter.isAdult(name = m.name, categoryName = m.categoryName, categoryId = m.categoryId, streamIcon = m.streamIcon, streamUrl = m.streamUrl)
         }.take(10).map { CuratedMediaItem(it.name, it.streamIcon, it.rating, it.year, movie = it) }.toList()
 
-        val realSeries = seriesList.asSequence().filter { s ->
+        val realSeries = scanSeries.asSequence().filter { s ->
             isRealHistory(s.name, s.categoryName, s.genre, s.plot) &&
             !AdultContentFilter.isAdult(name = s.name, categoryName = s.categoryName, categoryId = s.categoryId, streamIcon = s.cover)
         }.take(10).map { CuratedMediaItem(it.name, it.cover, it.rating5based?.times(2.0) ?: it.rating, it.releaseDate?.take(4), series = it) }.toList()
@@ -213,12 +218,12 @@ object PortalFeedCalculator {
         val realHistoryItems = (realMovies.take(8) + realSeries.take(7)).take(15)
 
         // 6. ACCIÓN Y AVENTURA: Prioridad de género oficial
-        val actionMovies = movies.asSequence().filter { m ->
+        val actionMovies = scanMovies.asSequence().filter { m ->
             isAction(m.name, m.categoryName, m.genre, m.plot) &&
             !AdultContentFilter.isAdult(name = m.name, categoryName = m.categoryName, categoryId = m.categoryId, streamIcon = m.streamIcon, streamUrl = m.streamUrl)
         }.take(10).map { CuratedMediaItem(it.name, it.streamIcon, it.rating, it.year, movie = it) }.toList()
 
-        val actionSeries = seriesList.asSequence().filter { s ->
+        val actionSeries = scanSeries.asSequence().filter { s ->
             isAction(s.name, s.categoryName, s.genre, s.plot) &&
             !AdultContentFilter.isAdult(name = s.name, categoryName = s.categoryName, categoryId = s.categoryId, streamIcon = s.cover)
         }.take(10).map { CuratedMediaItem(it.name, it.cover, it.rating5based?.times(2.0) ?: it.rating, it.releaseDate?.take(4), series = it) }.toList()
@@ -226,12 +231,12 @@ object PortalFeedCalculator {
         val actionItems = (actionMovies.take(8) + actionSeries.take(7)).take(15)
 
         // 7. MUNDO ANIMADO: Animación, Anime, Películas y Series de animación
-        val animMovies = movies.asSequence().filter { m ->
+        val animMovies = scanMovies.asSequence().filter { m ->
             isAnimation(m.name, m.categoryName, m.genre) &&
             !AdultContentFilter.isAdult(name = m.name, categoryName = m.categoryName, categoryId = m.categoryId, streamIcon = m.streamIcon, streamUrl = m.streamUrl)
         }.take(10).map { CuratedMediaItem(it.name, it.streamIcon, it.rating, it.year, movie = it) }.toList()
 
-        val animSeries = seriesList.asSequence().filter { s ->
+        val animSeries = scanSeries.asSequence().filter { s ->
             isAnimation(s.name, s.categoryName, s.genre) &&
             !AdultContentFilter.isAdult(name = s.name, categoryName = s.categoryName, categoryId = s.categoryId, streamIcon = s.cover)
         }.take(10).map { CuratedMediaItem(it.name, it.cover, it.rating5based?.times(2.0) ?: it.rating, it.releaseDate?.take(4), series = it) }.toList()
