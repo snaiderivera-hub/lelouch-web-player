@@ -191,6 +191,9 @@ fun TvHomeScreen(
     vodCategories: List<Category> = emptyList(),
     seriesList: List<Series> = emptyList(),
     seriesCategories: List<Category> = emptyList(),
+    dbChannelCount: Int = 0,
+    dbMovieCount: Int = 0,
+    dbSeriesCount: Int = 0,
     favoriteChannels: List<LiveStream> = emptyList(),
     favoriteMovies: List<VodMovie> = emptyList(),
     onToggleFavoriteChannel: (streamId: Int, isFav: Boolean) -> Unit = { _, _ -> },
@@ -673,10 +676,11 @@ fun TvHomeScreen(
     }
 
     val movieCategoryList = remember(movieCategoryItemModels, hiddenMovieCategories, isAdultModeEnabled) {
-        val visibleCats = movieCategoryItemModels
+        val baseCats = movieCategoryItemModels
             .filter { it.id !in hiddenMovieCategories && it.name !in hiddenMovieCategories }
             .filter { isAdultModeEnabled || !it.isAdult }
-            .filter { it.itemCount > 0 }
+        val hasCounted = baseCats.any { it.itemCount > 0 }
+        val visibleCats = (if (hasCounted) baseCats.filter { it.itemCount > 0 } else baseCats)
             .map { CategoryUiItem(id = it.id, name = it.name) }
         listOf(CategoryUiItem(id = "all", name = "Todas")) + visibleCats
     }
@@ -763,10 +767,11 @@ fun TvHomeScreen(
     }
 
     val seriesCategoryList = remember(seriesCategoryItemModels, hiddenSeriesCategories, isAdultModeEnabled) {
-        val visibleCats = seriesCategoryItemModels
+        val baseCats = seriesCategoryItemModels
             .filter { it.id !in hiddenSeriesCategories && it.name !in hiddenSeriesCategories }
             .filter { isAdultModeEnabled || !it.isAdult }
-            .filter { it.itemCount > 0 }
+        val hasCounted = baseCats.any { it.itemCount > 0 }
+        val visibleCats = (if (hasCounted) baseCats.filter { it.itemCount > 0 } else baseCats)
             .map { CategoryUiItem(id = it.id, name = it.name) }
         listOf(CategoryUiItem(id = "all", name = "Todas")) + visibleCats
     }
@@ -1774,17 +1779,17 @@ fun TvHomeScreen(
                                             name.contains("deporte") || name.contains("sport") || name.contains("espn") || name.contains("fox sport") || name.contains("dazn")
                                         }.sumOf { it.itemCount }
                                     }
-                                    val totalLiveChannelsCount = remember(liveCategories, visibleChannels) {
+                                    val totalLiveChannelsCount = remember(liveCategories, visibleChannels, dbChannelCount) {
                                         val catCount = liveCategories.sumOf { it.itemCount }
-                                        if (catCount > 0) catCount else visibleChannels.size
+                                        maxOf(catCount, dbChannelCount, visibleChannels.size)
                                     }
-                                    val totalMoviesCount = remember(vodCategories, visibleMovies) {
+                                    val totalMoviesCount = remember(vodCategories, visibleMovies, dbMovieCount) {
                                         val catCount = vodCategories.sumOf { it.itemCount }
-                                        if (catCount > 0) catCount else visibleMovies.size
+                                        maxOf(catCount, dbMovieCount, visibleMovies.size)
                                     }
-                                    val totalSeriesCount = remember(seriesCategories, visibleSeriesList) {
+                                    val totalSeriesCount = remember(seriesCategories, visibleSeriesList, dbSeriesCount) {
                                         val catCount = seriesCategories.sumOf { it.itemCount }
-                                        if (catCount > 0) catCount else visibleSeriesList.size
+                                        maxOf(catCount, dbSeriesCount, visibleSeriesList.size)
                                     }
 
                                     if (activeCuratedSection != null) {
@@ -2214,8 +2219,8 @@ fun TvHomeScreen(
                                             fontWeight = FontWeight.Black,
                                             letterSpacing = 1.sp
                                         )
-                                        val activeMovieCatCount = remember(vodCategories) {
-                                            vodCategories.sumOf { it.itemCount }
+                                        val activeMovieCatCount = remember(vodCategories, dbMovieCount) {
+                                            maxOf(vodCategories.sumOf { it.itemCount }, dbMovieCount)
                                         }
                                         Text(
                                             text = if (activeMovieCatCount > 0) "$activeMovieCatCount películas disponibles • Categoría: $activeMovieCatName" else "Catálogo de películas • Categoría: $activeMovieCatName",

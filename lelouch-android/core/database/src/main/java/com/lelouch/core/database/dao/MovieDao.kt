@@ -32,6 +32,12 @@ interface MovieDao {
     @Query("SELECT * FROM movies WHERE streamIcon IS NOT NULL AND streamIcon != '' AND streamIcon LIKE 'http%' ORDER BY added DESC LIMIT :limit")
     fun getRecentlyAddedMovies(limit: Int = 20): Flow<List<MovieEntity>>
 
+    @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND streamIcon IS NOT NULL AND streamIcon != '' AND streamIcon LIKE 'http%' ORDER BY added DESC LIMIT :limit")
+    fun getRecentlyAddedMoviesBySource(sourceId: String, limit: Int = 20): Flow<List<MovieEntity>>
+
+    @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND streamIcon IS NOT NULL AND streamIcon != '' AND streamIcon LIKE 'http%' ORDER BY added DESC, rating DESC LIMIT :limit")
+    fun getMoviesSampleBySource(sourceId: String, limit: Int = 500): Flow<List<MovieEntity>>
+
     @Query("SELECT * FROM movies WHERE rating >= 7.5 AND streamIcon IS NOT NULL AND streamIcon != '' AND streamIcon LIKE 'http%' ORDER BY rating DESC LIMIT :limit")
     fun getTopRatedMovies(limit: Int = 20): Flow<List<MovieEntity>>
 
@@ -64,4 +70,7 @@ interface MovieDao {
 
     @Query("SELECT COUNT(*) FROM movies WHERE sourceId = :sourceId")
     suspend fun getMovieCount(sourceId: String): Int
+
+    @Query("SELECT COUNT(*) FROM movies WHERE sourceId = :sourceId")
+    fun observeMovieCount(sourceId: String): Flow<Int>
 }

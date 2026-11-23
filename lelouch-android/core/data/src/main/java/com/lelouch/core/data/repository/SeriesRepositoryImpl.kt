@@ -52,6 +52,22 @@ class SeriesRepositoryImpl(
         }
     }
 
+    override fun getFeaturedSeries(sourceId: String, limit: Int): Flow<List<Series>> {
+        return seriesDao.getFeaturedSeriesBySource(sourceId, limit).map { entities ->
+            entities.map { it.toDomain() }
+        }
+    }
+
+    override fun getSeriesSample(sourceId: String, limit: Int): Flow<List<Series>> {
+        return seriesDao.getSeriesSampleBySource(sourceId, limit).map { entities ->
+            entities.map { it.toDomain() }
+        }
+    }
+
+    override fun observeSeriesCount(sourceId: String): Flow<Int> {
+        return seriesDao.observeSeriesCount(sourceId)
+    }
+
     override fun getFavoriteSeries(): Flow<List<Series>> {
         return seriesDao.getFavoriteSeries().map { entities ->
             entities.map { it.toDomain() }

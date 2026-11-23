@@ -45,6 +45,22 @@ class VodRepositoryImpl(
         }
     }
 
+    override fun getRecentlyAddedMovies(sourceId: String, limit: Int): Flow<List<VodMovie>> {
+        return movieDao.getRecentlyAddedMoviesBySource(sourceId, limit).map { entities ->
+            entities.map { it.toDomain() }
+        }
+    }
+
+    override fun getMoviesSample(sourceId: String, limit: Int): Flow<List<VodMovie>> {
+        return movieDao.getMoviesSampleBySource(sourceId, limit).map { entities ->
+            entities.map { it.toDomain() }
+        }
+    }
+
+    override fun observeMovieCount(sourceId: String): Flow<Int> {
+        return movieDao.observeMovieCount(sourceId)
+    }
+
     override fun getFavoriteMovies(): Flow<List<VodMovie>> {
         return movieDao.getFavoriteMovies().map { entities ->
             entities.map { it.toDomain() }

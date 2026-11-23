@@ -10,6 +10,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <!-- FASE 38: SSDP/DLNA necesita recibir multicast en la red local. -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <!-- Búsqueda por Voz interna para Android TV y Móvil -->
@@ -93,6 +95,19 @@
             android:name="com.lelouch.core.network.download.LelouchDownloadService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <!-- BroadcastReceiver de Auto-arranque para TV Box al encender -->
+        <receiver
+            android:name=".TvBootReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter android:priority="999">
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </receiver>
 
         <!-- Lelouch Anti-DPI & DoH Local VPN Shield Service -->
         <service

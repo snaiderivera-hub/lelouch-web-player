@@ -10,6 +10,9 @@ interface VodRepository {
     fun getCategories(sourceId: String): Flow<List<Category>>
     fun getMoviesForRail(categoryId: String, limit: Int = 20): Flow<List<VodMovie>>
     fun getRecentlyAddedMovies(limit: Int = 20): Flow<List<VodMovie>>
+    fun getRecentlyAddedMovies(sourceId: String, limit: Int = 20): Flow<List<VodMovie>> = getRecentlyAddedMovies(limit)
+    fun getMoviesSample(sourceId: String, limit: Int = 500): Flow<List<VodMovie>> = getAllMovies(sourceId)
+    fun observeMovieCount(sourceId: String): Flow<Int> = kotlinx.coroutines.flow.flowOf(0)
     fun getFavoriteMovies(): Flow<List<VodMovie>>
     fun getMoviesByCategory(sourceId: String, categoryId: String): Flow<List<VodMovie>>
     fun getAllMovies(sourceId: String? = null): Flow<List<VodMovie>>

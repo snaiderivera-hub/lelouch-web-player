@@ -11,6 +11,9 @@ interface SeriesRepository {
     fun getCategories(sourceId: String): Flow<List<Category>>
     fun getSeriesForRail(categoryId: String, limit: Int = 20): Flow<List<Series>>
     fun getFeaturedSeries(limit: Int = 30): Flow<List<Series>>
+    fun getFeaturedSeries(sourceId: String, limit: Int = 30): Flow<List<Series>> = getFeaturedSeries(limit)
+    fun getSeriesSample(sourceId: String, limit: Int = 300): Flow<List<Series>> = getAllSeries(sourceId)
+    fun observeSeriesCount(sourceId: String): Flow<Int> = kotlinx.coroutines.flow.flowOf(0)
     fun getFavoriteSeries(): Flow<List<Series>>
     fun getAllSeries(sourceId: String? = null): Flow<List<Series>>
     fun getSeriesPaging(

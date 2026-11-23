@@ -12,6 +12,7 @@ interface ChannelRepository {
     fun getFavoriteChannels(): Flow<List<LiveStream>>
     fun getFeaturedChannels(limit: Int = 30): Flow<List<LiveStream>>
     fun getAllChannels(sourceId: String? = null): Flow<List<LiveStream>>
+    fun observeChannelCount(sourceId: String): Flow<Int> = kotlinx.coroutines.flow.flowOf(0)
     fun getLiveChannelsPaging(
         sourceId: String,
         categoryId: String? = null,

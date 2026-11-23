@@ -1,7 +1,7 @@
 {
-  "versionName": "1.0.141",
-  "versionCode": 1000141,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.141/app-debug.apk",
-  "changelog": "- Mobile Live TV: Sin saltos automáticos al caer la señal; mantiene el canal y reintenta cada 6s esperando recuperación.\n- Mobile Cambio de Lista y Películas: Detiene/cierra el reproductor al cambiar de lista o abrir detalle de película/serie, y oculta inicialmente los botones flotantes al abrir películas.\n- Modo de Pantalla en Canales en Vivo: Ahora aplica y persiste Ajustar / Zoom / Estirar 16:9 también en canales en vivo.\n- Selector de Calidad Manual: Muestra la resolución/bitrate real actual y agrega topes máximos (720p / 480p / 360p) para bajar calidad manualmente.",
-  "version": "1.0.141"
+  "versionName": "1.0.142",
+  "versionCode": 1000142,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.142/app-debug.apk",
+  "changelog": "- Catálogo TV Box y Pre-caché: Recalcula contadores VOD/Series tras swap Live y HASH_MATCH, filtra recién agregadas/destacadas por sourceId, evita cargar 200k+ ítems completos en RAM en TV y espera downloadGate al pre-cachear listas secundarias.\n- Arranque inicial con Slogan: Mantiene la pantalla de carga hasta completar la primera sincronización Live si Room está vacío, pasando directo al Home con catálogo completo sin ir a Login.\n- Auto-arranque TV Box (TvBootReceiver): Abre LELOUCH automáticamente al encender dispositivos Android TV.",
+  "version": "1.0.142"
 }

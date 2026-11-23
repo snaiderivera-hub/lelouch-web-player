@@ -35,6 +35,12 @@ interface SeriesDao {
     @Query("SELECT * FROM series ORDER BY rating DESC, name ASC LIMIT :limit")
     fun getFeaturedSeries(limit: Int = 30): Flow<List<SeriesEntity>>
 
+    @Query("SELECT * FROM series WHERE sourceId = :sourceId ORDER BY rating DESC, name ASC LIMIT :limit")
+    fun getFeaturedSeriesBySource(sourceId: String, limit: Int = 30): Flow<List<SeriesEntity>>
+
+    @Query("SELECT * FROM series WHERE sourceId = :sourceId ORDER BY rating DESC, name ASC LIMIT :limit")
+    fun getSeriesSampleBySource(sourceId: String, limit: Int = 300): Flow<List<SeriesEntity>>
+
 
     @Query("SELECT * FROM series WHERE sourceId = :sourceId AND seriesId = :seriesId LIMIT 1")
     suspend fun getSeriesById(sourceId: String, seriesId: Int): SeriesEntity?
@@ -59,4 +65,7 @@ interface SeriesDao {
 
     @Query("SELECT COUNT(*) FROM series WHERE sourceId = :sourceId")
     suspend fun getSeriesCount(sourceId: String): Int
+
+    @Query("SELECT COUNT(*) FROM series WHERE sourceId = :sourceId")
+    fun observeSeriesCount(sourceId: String): Flow<Int>
 }

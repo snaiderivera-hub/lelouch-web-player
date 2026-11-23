@@ -65,6 +65,10 @@ class ChannelRepositoryImpl(
         }
     }
 
+    override fun observeChannelCount(sourceId: String): Flow<Int> {
+        return channelDao.observeChannelCount(sourceId)
+    }
+
 
     override fun getLiveChannelsPaging(
         sourceId: String,

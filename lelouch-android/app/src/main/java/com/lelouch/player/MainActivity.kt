@@ -313,8 +313,21 @@ class MainActivity : ComponentActivity() {
                 else -> allSources.firstOrNull()
             }
 
-            val isHomeVisible = effectiveActiveSource != null &&
-                    (bootstrapState is SourceBootstrapState.Ready || bootstrapState is SourceBootstrapState.UsingLocalCache)
+            val activeChannelCount by (if (effectiveActiveSource != null) app.channelRepository.observeChannelCount(effectiveActiveSource.id) else emptyFlow()).collectAsStateWithLifecycle(initialValue = -1)
+            val activeMovieCount by (if (effectiveActiveSource != null) app.vodRepository.observeMovieCount(effectiveActiveSource.id) else emptyFlow()).collectAsStateWithLifecycle(initialValue = -1)
+            val activeSeriesCount by (if (effectiveActiveSource != null) app.seriesRepository.observeSeriesCount(effectiveActiveSource.id) else emptyFlow()).collectAsStateWithLifecycle(initialValue = -1)
+
+            val hasAnyLocalCatalog = activeChannelCount > 0 || activeMovieCount > 0 || activeSeriesCount > 0
+            var hasEnteredHomeOnce by remember { mutableStateOf(false) }
+            var initialSyncFinished by remember { mutableStateOf(false) }
+
+            val bootstrapReady = effectiveActiveSource != null &&
+                (bootstrapState is SourceBootstrapState.Ready || bootstrapState is SourceBootstrapState.UsingLocalCache)
+            val readyToShowHome = bootstrapReady && (hasEnteredHomeOnce || hasAnyLocalCatalog || initialSyncFinished)
+            LaunchedEffect(readyToShowHome) {
+                if (readyToShowHome) hasEnteredHomeOnce = true
+            }
+            val isHomeVisible = readyToShowHome
 
             fun onForceSync() {
                 val src = effectiveActiveSource ?: return
@@ -378,6 +391,7 @@ class MainActivity : ComponentActivity() {
                     }
                 } finally {
                     isAddingSource = false
+                    initialSyncFinished = true
                 }
             }
 
@@ -393,10 +407,20 @@ class MainActivity : ComponentActivity() {
             }
 
             val liveChannels by (if (effectiveActiveSource != null) app.channelRepository.getAllChannels(effectiveActiveSource.id) else kotlinx.coroutines.flow.emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
-            val movies by (if (effectiveActiveSource != null) app.vodRepository.getAllMovies(effectiveActiveSource.id) else kotlinx.coroutines.flow.emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
-            val recentMovies by (if (isTv && effectiveActiveSource != null) app.vodRepository.getRecentlyAddedMovies(20) else emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
-            val seriesList by (if (effectiveActiveSource != null) app.seriesRepository.getAllSeries(effectiveActiveSource.id) else kotlinx.coroutines.flow.emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
-            val featuredSeries by (if (isTv && effectiveActiveSource != null) app.seriesRepository.getFeaturedSeries(20) else emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
+            val movies by (
+                if (effectiveActiveSource != null) {
+                    if (isTv) app.vodRepository.getMoviesSample(effectiveActiveSource.id, 500)
+                    else app.vodRepository.getAllMovies(effectiveActiveSource.id)
+                } else kotlinx.coroutines.flow.emptyFlow()
+            ).collectAsStateWithLifecycle(initialValue = emptyList())
+            val recentMovies by (if (isTv && effectiveActiveSource != null) app.vodRepository.getRecentlyAddedMovies(effectiveActiveSource.id, 20) else emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
+            val seriesList by (
+                if (effectiveActiveSource != null) {
+                    if (isTv) app.seriesRepository.getSeriesSample(effectiveActiveSource.id, 300)
+                    else app.seriesRepository.getAllSeries(effectiveActiveSource.id)
+                } else kotlinx.coroutines.flow.emptyFlow()
+            ).collectAsStateWithLifecycle(initialValue = emptyList())
+            val featuredSeries by (if (isTv && effectiveActiveSource != null) app.seriesRepository.getFeaturedSeries(effectiveActiveSource.id, 20) else emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
             val liveCategories by (if (effectiveActiveSource != null) app.channelRepository.getCategories(effectiveActiveSource.id) else emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
             val vodCategories by (if (effectiveActiveSource != null) app.vodRepository.getCategories(effectiveActiveSource.id) else emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
             val seriesCategories by (if (effectiveActiveSource != null) app.seriesRepository.getCategories(effectiveActiveSource.id) else emptyFlow()).collectAsStateWithLifecycle(initialValue = emptyList())
@@ -424,6 +448,9 @@ class MainActivity : ComponentActivity() {
                                 seriesRepository = app.seriesRepository,
                                 featuredSeries = featuredSeries,
                                 seriesCategories = seriesCategories,
+                                dbChannelCount = activeChannelCount.coerceAtLeast(0),
+                                dbMovieCount = activeMovieCount.coerceAtLeast(0),
+                                dbSeriesCount = activeSeriesCount.coerceAtLeast(0),
                                 favoriteChannels = favoriteChannels,
                                 favoriteMovies = favoriteMovies,
                                 onToggleFavoriteChannel = { streamId, isFav ->
@@ -457,7 +484,9 @@ class MainActivity : ComponentActivity() {
                             )
                         } else {
                             when (val bs = bootstrapState) {
-                                is SourceBootstrapState.Loading -> {
+                                is SourceBootstrapState.Loading,
+                                is SourceBootstrapState.Ready,
+                                is SourceBootstrapState.UsingLocalCache -> {
                                     LelouchRedLoadingScreen(
                                         statusText = if (syncStatusText.isNotBlank()) syncStatusText else "Preparando el contenido...",
                                         isTv = true
@@ -579,7 +608,9 @@ class MainActivity : ComponentActivity() {
                             )
                         } else {
                             when (val bs = bootstrapState) {
-                                is SourceBootstrapState.Loading -> {
+                                is SourceBootstrapState.Loading,
+                                is SourceBootstrapState.Ready,
+                                is SourceBootstrapState.UsingLocalCache -> {
                                     LelouchRedLoadingScreen(
                                         statusText = if (syncStatusText.isNotBlank()) syncStatusText else "Preparando el contenido...",
                                         isTv = false

@@ -229,6 +229,17 @@ class XtreamCatalogSyncManager private constructor(
         } catch (_: Exception) {}
     }
 
+    private suspend fun awaitIdleForPreCache() {
+        var polls = 0
+        while ((downloadGate.availablePermits == 0 || activeVodJob?.isActive == true) && polls < 240) {
+            awaitActiveVodSync()
+            if (downloadGate.availablePermits == 0) {
+                delay(500L)
+            }
+            polls++
+        }
+    }
+
     private fun hostOf(url: String): String? =
         runCatching { URI(url.trim()).host?.lowercase() }.getOrNull()?.takeIf { it.isNotBlank() }
 
@@ -368,6 +379,8 @@ class XtreamCatalogSyncManager private constructor(
             database.catalogStagingDao().copyCategoriesFromStaging(syncId, sourceId)
 
             database.categoryDao().updateLiveCategoryCounts(sourceId)
+            database.categoryDao().updateMovieCategoryCounts(sourceId)
+            database.categoryDao().updateSeriesCategoryCounts(sourceId)
 
             database.catalogStagingDao().deleteStagingChannels(syncId)
             database.catalogStagingDao().deleteStagingCategories(syncId)
@@ -576,13 +589,16 @@ class XtreamCatalogSyncManager private constructor(
     ) = withContext(Dispatchers.IO) {
         if (!preCacheMutex.tryLock()) return@withContext
         try {
-            awaitActiveVodSync()
+            awaitIdleForPreCache()
             val pendingSources = sources.filter { it.id != activeSourceId }
             for (source in pendingSources) {
+                if (source.id == foregroundSourceId) continue
                 if (isHostBlocked(source.serverUrl)) {
                     android.util.Log.d("XtreamCatalogSync", "PRE_CACHE: Host en cooldown omitido (${source.name})")
                     continue
                 }
+                awaitIdleForPreCache()
+                if (source.id == foregroundSourceId) continue
                 try {
                     val chCount = database.channelDao().getChannelCount(source.id)
                     if (chCount == 0) {
@@ -1407,6 +1423,8 @@ class XtreamCatalogSyncManager private constructor(
                     if (vodHash.isNotEmpty() && vodHash == prevMeta?.lastVodHash && (oldMovies + oldSeries) > 0) {
                         android.util.Log.i("XtreamCatalogSync", "HASH_MATCH VOD/Series [$sourceId]: contenido idéntico; omitiendo swap masivo ($oldMovies pelis, $oldSeries series).")
                         cleanupStaging(vodSyncId)
+                        database.categoryDao().updateMovieCategoryCounts(sourceId)
+                        database.categoryDao().updateSeriesCategoryCounts(sourceId)
                         preferencesDataSource?.saveSyncMetadata(
                             (prevMeta ?: SourceSyncMetadata(sourceId = sourceId)).copy(
                                 lastVodSyncAt = now,
