@@ -387,10 +387,6 @@ fun MobileHomeScreen(
         }
     }
 
-    BackHandler(enabled = isPlayerFullscreen) {
-        isPlayerFullscreen = false
-    }
-
     // FASE 33: Regex defensivo para filtrar episodios de series en pantalla de canales en vivo
     val seriesLeakRegex = remember { Regex("(?i)\\b(s\\d{1,2}|t\\d{1,2}|cap\\.?\\s*\\d+|ep\\.?\\s*\\d+)\\b") }
 
@@ -407,7 +403,64 @@ fun MobileHomeScreen(
     var selectedSeriesCategoryId by remember(activeSource?.id) { mutableStateOf("all") }
     var isFavoritesSheetOpen by remember { mutableStateOf(false) }
     var activeNextEpisode by remember(activeSource?.id) { mutableStateOf<Triple<String, String, Episode>?>(null) }
+    var activeSeriesEpisodesQueue by remember(activeSource?.id) { mutableStateOf<List<Episode>>(emptyList()) }
+    var activeSeriesForQueue by remember(activeSource?.id) { mutableStateOf<Series?>(null) }
     var nextEpisodeCancelledForUrl by remember { mutableStateOf<String?>(null) }
+
+    fun exitPlayerFullscreen() {
+        isPlayerFullscreen = false
+        if (!isLivePlayback) {
+            playerEngine.stop()
+            activeStreamUrl = null
+        }
+    }
+
+    fun playSeriesEpisode(
+        url: String,
+        title: String,
+        episode: Episode,
+        queue: List<Episode> = activeSeriesEpisodesQueue,
+        seriesObj: Series? = activeSeriesForQueue
+    ) {
+        playerEngine.stop()
+        nextEpisodeCancelledForUrl = null
+        val sortedQueue = if (queue.isNotEmpty()) {
+            queue.sortedWith(compareBy({ it.seasonNumber }, { it.episodeNumber }))
+        } else emptyList()
+        activeSeriesEpisodesQueue = sortedQueue
+        activeSeriesForQueue = seriesObj
+
+        val curIdx = sortedQueue.indexOfFirst {
+            it.episodeId == episode.episodeId && it.seasonNumber == episode.seasonNumber
+        }
+        val nextEp = if (curIdx >= 0 && curIdx + 1 < sortedQueue.size) sortedQueue[curIdx + 1] else null
+        activeNextEpisode = if (nextEp != null && seriesObj != null) {
+            val neUrl = StreamUrlResolver.resolve(
+                directUrl = nextEp.streamUrl,
+                source = activeSource,
+                streamId = nextEp.episodeId,
+                kind = StreamUrlResolver.Kind.SERIES,
+                extension = nextEp.containerExtension.ifBlank { "mp4" }
+            )
+            val neCode = "S${nextEp.seasonNumber.toString().padStart(2, '0')}E${nextEp.episodeNumber.toString().padStart(2, '0')}"
+            val neLabel = "$neCode - ${nextEp.title.ifBlank { "Episodio ${nextEp.episodeNumber}" }}"
+            Triple(neUrl, "${seriesObj.name} - $neLabel", nextEp)
+        } else null
+
+        activeChannelName = title
+        activeContentMeta = ActiveContentMeta(
+            title = title,
+            posterUrl = episode.cover ?: seriesObj?.cover,
+            type = ContentType.SERIES,
+            seasonNumber = episode.seasonNumber,
+            episodeNumber = episode.episodeNumber
+        )
+        startPlayback(url, false)
+    }
+
+    BackHandler(enabled = isPlayerFullscreen) {
+        exitPlayerFullscreen()
+    }
 
     LaunchedEffect(activeSource?.id) {
         val srcId = activeSource?.id ?: return@LaunchedEffect
@@ -948,6 +1001,18 @@ fun MobileHomeScreen(
                             onOpenFavorites = { isFavoritesSheetOpen = true },
                             continueWatchingItems = historyItems,
                             onResumeContinueWatching = { item ->
+                                if (item.contentType == ContentType.VOD) {
+                                    filteredMovies.firstOrNull {
+                                        it.name.equals(item.title, ignoreCase = true) ||
+                                            item.contentId.contains("/${it.streamId}.")
+                                    }?.let { selectedMovie = it }
+                                } else if (item.contentType == ContentType.SERIES) {
+                                    val baseSeriesName = item.title.substringBefore(" - S").trim()
+                                    filteredSeriesList.firstOrNull {
+                                        it.name.equals(baseSeriesName, ignoreCase = true) ||
+                                            item.title.startsWith(it.name, ignoreCase = true)
+                                    }?.let { selectedSeries = it }
+                                }
                                 activeChannelName = item.title
                                 activeContentMeta = ActiveContentMeta(
                                     title = item.title,
@@ -1157,20 +1222,9 @@ fun MobileHomeScreen(
                 series = selectedSeries!!,
                 activeSource = activeSource,
                 onFetchSeriesDetails = onFetchSeriesDetails,
-                onNextEpisodeResolved = { nextEp -> activeNextEpisode = nextEp },
+                onSeriesQueueResolved = { queue -> activeSeriesEpisodesQueue = queue },
                 onPlayEpisode = { url, title, episode ->
-                    // Detener de forma limpia cualquier reproduccion previa antes de iniciar episodio
-                    playerEngine.stop()
-                    nextEpisodeCancelledForUrl = null
-                    activeChannelName = title
-                    activeContentMeta = ActiveContentMeta(
-                        title = title,
-                        posterUrl = episode.cover ?: selectedSeries?.cover,
-                        type = ContentType.SERIES,
-                        seasonNumber = episode.seasonNumber,
-                        episodeNumber = episode.episodeNumber
-                    )
-                    startPlayback(url, false)
+                    playSeriesEpisode(url, title, episode, activeSeriesEpisodesQueue, selectedSeries)
                 },
                 onBack = { selectedSeries = null }
             )
@@ -1190,9 +1244,8 @@ fun MobileHomeScreen(
 
         // REPRODUCTOR HORIZONTAL A PANTALLA COMPLETA
         if (isPlayerFullscreen && activeStreamUrl != null) {
-            // Al abrir película/serie los botones flotantes inician ocultos (limpio) y se muestran con un toque;
-            // en error también se ocultan para dejar despejado el aviso y botón Reintentar.
-            var isOverlayVisible by remember(activeStreamUrl, isLivePlayback) { mutableStateOf(isLivePlayback) }
+            // Al abrir película/serie/siguiente episodio los botones inician visibles y se auto-ocultan a los 3.5s al reproducir.
+            var isOverlayVisible by remember(activeStreamUrl, isLivePlayback) { mutableStateOf(true) }
             var isTracksSheetVisible by remember { mutableStateOf(false) }
 
             var skipIntervals by remember(activeContentMeta?.title, activeContentMeta?.episodeNumber) {
@@ -1309,7 +1362,7 @@ fun MobileHomeScreen(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                         IconButton(
-                            onClick = { isPlayerFullscreen = false },
+                            onClick = { exitPlayerFullscreen() },
                             modifier = Modifier.background(Color.Black.copy(0.6f), CircleShape)
                         ) {
                             Icon(Icons.Default.ArrowBack, contentDescription = "Regresar", tint = Color.White)
@@ -1420,7 +1473,7 @@ fun MobileHomeScreen(
                             Icon(Icons.Default.ScreenRotation, contentDescription = "Girar Pantalla", tint = Color.White)
                         }
                         IconButton(
-                            onClick = { isPlayerFullscreen = false },
+                            onClick = { exitPlayerFullscreen() },
                             modifier = Modifier.background(Color.Black.copy(0.6f), CircleShape)
                         ) {
                             Icon(Icons.Default.FullscreenExit, contentDescription = "Minimizar", tint = Color.White)
@@ -1507,16 +1560,7 @@ fun MobileHomeScreen(
                             }
                             if (nextEpisodeCancelledForUrl != activeStreamUrl) {
                                 val (nUrl, nTitle, nEpisode) = nextEp
-                                playerEngine.stop()
-                                activeChannelName = nTitle
-                                activeContentMeta = ActiveContentMeta(
-                                    title = nTitle,
-                                    posterUrl = nEpisode.cover ?: selectedSeries?.cover,
-                                    type = ContentType.SERIES,
-                                    seasonNumber = nEpisode.seasonNumber,
-                                    episodeNumber = nEpisode.episodeNumber
-                                )
-                                startPlayback(nUrl, false)
+                                playSeriesEpisode(nUrl, nTitle, nEpisode)
                             }
                         }
                         Box(
@@ -1556,16 +1600,7 @@ fun MobileHomeScreen(
                                     Button(
                                         onClick = {
                                             val (nUrl, nTitle, nEpisode) = nextEp
-                                            playerEngine.stop()
-                                            activeChannelName = nTitle
-                                            activeContentMeta = ActiveContentMeta(
-                                                title = nTitle,
-                                                posterUrl = nEpisode.cover ?: selectedSeries?.cover,
-                                                type = ContentType.SERIES,
-                                                seasonNumber = nEpisode.seasonNumber,
-                                                episodeNumber = nEpisode.episodeNumber
-                                            )
-                                            startPlayback(nUrl, false)
+                                            playSeriesEpisode(nUrl, nTitle, nEpisode)
                                         },
                                         colors = ButtonDefaults.buttonColors(containerColor = BixOrangeAccent),
                                         shape = RoundedCornerShape(10.dp),
@@ -6386,12 +6421,13 @@ private fun MobileMovieDetailView(
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun MobileSeriesDetailView(
     series: Series,
     activeSource: SourceConfig?,
     onFetchSeriesDetails: (suspend (seriesId: Int) -> Pair<List<Int>, List<Episode>>)? = null,
-    onNextEpisodeResolved: ((Triple<String, String, Episode>?) -> Unit)? = null,
+    onSeriesQueueResolved: ((List<Episode>) -> Unit)? = null,
     onPlayEpisode: (String, String, Episode) -> Unit,
     onBack: () -> Unit
 ) {
@@ -6421,7 +6457,8 @@ private fun MobileSeriesDetailView(
     var loadError by remember { mutableStateOf<String?>(null) }
     var retryTrigger by remember { mutableIntStateOf(0) }
     var selectedSeason by remember { mutableStateOf<Int?>(null) }
-    var selectedDetailTab by remember { mutableStateOf("temporadas") } // "resumen", "temporadas", "detalles"
+    val detailPagerState = androidx.compose.foundation.pager.rememberPagerState(initialPage = 1, pageCount = { 3 })
+    val detailScope = rememberCoroutineScope()
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     val context = LocalContext.current
 
@@ -6505,58 +6542,20 @@ private fun MobileSeriesDetailView(
             )
         }
 
-        HorizontalDivider(color = LelouchBorder, thickness = 1.dp)
-
-        // PESTAÑAS: RESUMEN | TEMPORADAS | DETALLES (Estilo Netflix / HorizonX con indicador activo)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(BixSurfaceCard)
-                .padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            val tabs = listOf(
-                "resumen" to "Resumen",
-                "temporadas" to "Temporadas",
-                "detalles" to "Detalles"
-            )
-
-            tabs.forEach { (tabId, tabTitle) ->
-                val isSelected = selectedDetailTab == tabId
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier
-                        .clickable { selectedDetailTab = tabId }
-                        .padding(top = 12.dp, bottom = 8.dp)
-                ) {
-                    Text(
-                        text = tabTitle,
-                        color = if (isSelected) LelouchLiveRed else LelouchTextSecondary,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                        fontSize = 14.sp
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Box(
-                        modifier = Modifier
-                            .height(2.5.dp)
-                            .width(if (isSelected) 40.dp else 0.dp)
-                            .background(if (isSelected) LelouchLiveRed else Color.Transparent, RoundedCornerShape(2.dp))
-                    )
-                }
-            }
-        }
-
         HorizontalDivider(color = Color(0xFF1E2229), thickness = 0.8.dp)
 
-        // CONTENEDOR SEGÚN PESTAÑA CON BARRA CTA INFERIOR
+        // CONTENEDOR DESLIZABLE (RESUMEN <-> TEMPORADAS <-> DETALLES) CON BARRA CTA INFERIOR
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
         ) {
-            when (selectedDetailTab) {
-                "resumen" -> {
+            androidx.compose.foundation.pager.HorizontalPager(
+                state = detailPagerState,
+                modifier = Modifier.fillMaxSize()
+            ) { page ->
+                when (page) {
+                    0 -> {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(bottom = 80.dp)
@@ -6672,7 +6671,7 @@ private fun MobileSeriesDetailView(
                     }
                 }
 
-                "detalles" -> {
+                2 -> {
                     LazyColumn(
                         modifier = Modifier
                             .fillMaxSize()
@@ -6724,7 +6723,7 @@ private fun MobileSeriesDetailView(
                     }
                 }
 
-                "temporadas" -> {
+                else -> {
                     if (isLoading) {
                         Box(
                             modifier = Modifier.fillMaxSize(),
@@ -6843,22 +6842,7 @@ private fun MobileSeriesDetailView(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clickable {
-                                            val sortedAll = episodes.sortedWith(compareBy({ it.seasonNumber }, { it.episodeNumber }))
-                                            val curIdx = sortedAll.indexOfFirst { it.episodeId == ep.episodeId && it.seasonNumber == ep.seasonNumber }
-                                            val nextEp = if (curIdx >= 0 && curIdx + 1 < sortedAll.size) sortedAll[curIdx + 1] else null
-                                            val nextTriple = nextEp?.let { ne ->
-                                                val neUrl = StreamUrlResolver.resolve(
-                                                    directUrl = ne.streamUrl,
-                                                    source = activeSource,
-                                                    streamId = ne.episodeId,
-                                                    kind = StreamUrlResolver.Kind.SERIES,
-                                                    extension = ne.containerExtension.ifBlank { "mp4" }
-                                                )
-                                                val neCode = "S${ne.seasonNumber.toString().padStart(2, '0')}E${ne.episodeNumber.toString().padStart(2, '0')}"
-                                                val neLabel = "$neCode - ${ne.title.ifBlank { "Episodio ${ne.episodeNumber}" }}"
-                                                Triple(neUrl, "${series.name} - $neLabel", ne)
-                                            }
-                                            onNextEpisodeResolved?.invoke(nextTriple)
+                                            onSeriesQueueResolved?.invoke(episodes)
                                             onPlayEpisode(streamUrl, "${series.name} - $epFullTitle", ep)
                                         }
                                         .padding(horizontal = 16.dp, vertical = 8.dp)
@@ -7031,6 +7015,7 @@ private fun MobileSeriesDetailView(
                     }
                 }
             }
+            }
 
             // BARRA FLOTANTE INFERIOR FIJA: CONTINUAR / REPRODUCIR (CTA)
             if (firstOrNextEpisode != null) {
@@ -7078,22 +7063,7 @@ private fun MobileSeriesDetailView(
 
                     Button(
                         onClick = {
-                            val sortedAll = episodes.sortedWith(compareBy({ it.seasonNumber }, { it.episodeNumber }))
-                            val curIdx = sortedAll.indexOfFirst { it.episodeId == firstOrNextEpisode.episodeId && it.seasonNumber == firstOrNextEpisode.seasonNumber }
-                            val nextEp = if (curIdx >= 0 && curIdx + 1 < sortedAll.size) sortedAll[curIdx + 1] else null
-                            val nextTriple = nextEp?.let { ne ->
-                                val neUrl = StreamUrlResolver.resolve(
-                                    directUrl = ne.streamUrl,
-                                    source = activeSource,
-                                    streamId = ne.episodeId,
-                                    kind = StreamUrlResolver.Kind.SERIES,
-                                    extension = ne.containerExtension.ifBlank { "mp4" }
-                                )
-                                val neCode = "S${ne.seasonNumber.toString().padStart(2, '0')}E${ne.episodeNumber.toString().padStart(2, '0')}"
-                                val neLabel = "$neCode - ${ne.title.ifBlank { "Episodio ${ne.episodeNumber}" }}"
-                                Triple(neUrl, "${series.name} - $neLabel", ne)
-                            }
-                            onNextEpisodeResolved?.invoke(nextTriple)
+                            onSeriesQueueResolved?.invoke(episodes)
                             onPlayEpisode(nextStreamUrl, "${series.name} - $nextLabel", firstOrNextEpisode)
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = BixOrangeAccent),
@@ -7114,6 +7084,46 @@ private fun MobileSeriesDetailView(
                             fontSize = 12.sp
                         )
                     }
+                }
+            }
+        }
+
+        // BARRA DE PESTAÑAS ABAJO (DESLIZABLE: RESUMEN | TEMPORADAS | DETALLES)
+        HorizontalDivider(color = Color(0xFF252938), thickness = 1.dp)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF14161F))
+                .navigationBarsPadding()
+                .padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            val tabs = listOf(0 to "Resumen", 1 to "Temporadas", 2 to "Detalles")
+            tabs.forEach { (pageIdx, tabTitle) ->
+                val isSelected = detailPagerState.currentPage == pageIdx
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable {
+                            detailScope.launch { detailPagerState.animateScrollToPage(pageIdx) }
+                        }
+                        .padding(top = 10.dp, bottom = 10.dp)
+                ) {
+                    Text(
+                        text = tabTitle,
+                        color = if (isSelected) BixOrangeAccent else LelouchTextSecondary,
+                        fontWeight = if (isSelected) FontWeight.Black else FontWeight.Medium,
+                        fontSize = 13.sp
+                    )
+                    Spacer(Modifier.height(5.dp))
+                    Box(
+                        modifier = Modifier
+                            .height(3.dp)
+                            .width(if (isSelected) 36.dp else 0.dp)
+                            .background(if (isSelected) BixOrangeAccent else Color.Transparent, RoundedCornerShape(2.dp))
+                    )
                 }
             }
         }

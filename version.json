@@ -1,7 +1,7 @@
 {
-  "versionName": "1.0.143",
-  "versionCode": 1000143,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.143/app-debug.apk",
-  "changelog": "- Rediseño Mobile v1.0.143 (solo Mobile, sin tocar TV ni Live TV): barra inferior naranja de 5 pestañas, Hero Carousel con backdrops HD cacheados en Room (tmdb_match_cache), snapshot local de Inicio 24h (MobileHomeCacheManager), Hub visual por Plataformas/Categorías, scoring histórico de fuentes (source_health), controles integrados en Live Mobile (Play/Pause, Recargar, Mute, Auto resizeMode, calidad manual y Pantalla Completa) y Siguiente Episodio automático en VOD Series.",
-  "version": "1.0.143"
+  "versionName": "1.0.144",
+  "versionCode": 1000144,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.144/app-debug.apk",
+  "changelog": "- Mobile v1.0.144: reproductor Live arranca en vertical y exclusivo en pestaña TV, logotipos en Explorar por Plataforma, chip de resolución real en barra Live, retroceder en VOD regresa al resumen de Película/Serie, controles visibles tras Siguiente Episodio y pestañas Resumen/Temporadas/Detalles abajo con deslizamiento lateral.",
+  "version": "1.0.144"
 }
