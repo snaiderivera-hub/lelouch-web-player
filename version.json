@@ -1,7 +1,7 @@
 {
-  "versionName": "1.0.150",
-  "versionCode": 1000150,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.150/app-debug.apk",
-  "changelog": "- TV Box v1.0.150: actualización inmediata de PlayerView al cambiar formato de pantalla, botón directo Pantalla en controles VOD (Original -> Llenar -> Estirar 16:9 -> Cine Zoom 1.33x para recortar barras negras), persistencia de preferencia y panel TvTracksPanel con tema naranja.",
-  "version": "1.0.150"
+  "versionName": "1.0.151",
+  "versionCode": 1000151,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.151/app-debug.apk",
+  "changelog": "- Live TV Recovery v1.0.151: auto-recuperación rápida en vivo (congelamiento 8s->4s, buffering 10s->5s, timeout lectura 12s->7s y failover HTTP rápido a Hard Flush Amlogic) + botón directo Reconectar en reproductor Live de TV Box y Móvil.",
+  "version": "1.0.151"
 }

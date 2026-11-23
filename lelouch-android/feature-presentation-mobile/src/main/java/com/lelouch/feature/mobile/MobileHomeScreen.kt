@@ -1481,6 +1481,14 @@ fun MobileHomeScreen(
                         ) {
                             Icon(Icons.Default.Share, contentDescription = "Copiar Enlace", tint = Color.White)
                         }
+                        if (isLivePlayback) {
+                            IconButton(
+                                onClick = { playerEngine.manualReconnect() },
+                                modifier = Modifier.background(Color.Black.copy(0.6f), CircleShape)
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = "Reconectar", tint = Color.White)
+                            }
+                        }
                         IconButton(
                             onClick = { isTracksSheetVisible = true },
                             modifier = Modifier.background(Color.Black.copy(0.6f), CircleShape)

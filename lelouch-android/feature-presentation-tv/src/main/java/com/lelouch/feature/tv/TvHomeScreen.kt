@@ -442,6 +442,7 @@ fun TvHomeScreen(
         )
     val hudPlayPauseRequester = remember { FocusRequester() }
     val hudFavoriteRequester = remember { FocusRequester() }
+    val hudReconnectRequester = remember { FocusRequester() }
     val hudTracksRequester = remember { FocusRequester() }
     val hudExitRequester = remember { FocusRequester() }
     var seekFeedbackText by remember { mutableStateOf<String?>(null) }
@@ -3617,7 +3618,7 @@ fun TvHomeScreen(
                                 ),
                                 modifier = Modifier
                                     .focusRequester(hudFavoriteRequester)
-                                    .focusProperties { right = hudTracksRequester }
+                                    .focusProperties { right = hudReconnectRequester }
                             ) {
                                 Row(
                                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
@@ -3642,6 +3643,48 @@ fun TvHomeScreen(
                             Surface(
                                 onClick = {
                                     isHudVisible = false
+                                    playerEngine.manualReconnect()
+                                    seekFeedbackText = "🔄 Reconectando canal..."
+                                },
+                                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+                                colors = ClickableSurfaceDefaults.colors(
+                                    containerColor = LelouchSurfaceVariant,
+                                    focusedContainerColor = BixOrangeAccent
+                                ),
+                                border = ClickableSurfaceDefaults.border(
+                                    focusedBorder = Border(BorderStroke(2.dp, Color.White))
+                                ),
+                                modifier = Modifier
+                                    .focusRequester(hudReconnectRequester)
+                                    .focusProperties {
+                                        left = hudFavoriteRequester
+                                        right = hudTracksRequester
+                                    }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = "Reconectar",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Reconectar",
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            Surface(
+                                onClick = {
+                                    isHudVisible = false
                                     isTracksPanelVisible = true
                                 },
                                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
@@ -3656,7 +3699,7 @@ fun TvHomeScreen(
                                 modifier = Modifier
                                     .focusRequester(hudTracksRequester)
                                     .focusProperties {
-                                        left = hudFavoriteRequester
+                                        left = hudReconnectRequester
                                         right = hudExitRequester
                                     }
                             ) {

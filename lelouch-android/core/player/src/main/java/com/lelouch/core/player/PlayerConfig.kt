@@ -16,8 +16,8 @@ data class PlayerConfig(
     val maxBufferMs: Int = 50_000,
     val bufferForPlaybackMs: Int = 1_500,
     val bufferForPlaybackAfterRebufferMs: Int = 3_000,
-    val connectTimeoutMs: Int = 12_000,
-    val readTimeoutMs: Int = 12_000,
+    val connectTimeoutMs: Int = 8_000,
+    val readTimeoutMs: Int = 7_000,
     val enableHardwareAcceleration: Boolean = true,
     val allowChunklessPreparation: Boolean = true,
     val autoRetryCount: Int = 5

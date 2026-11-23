@@ -53,8 +53,15 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 @OptIn(UnstableApi::class)
-private class IptvLoadErrorHandlingPolicy(private val maxRetries: Int = 5) : DefaultLoadErrorHandlingPolicy(maxRetries) {
+private class IptvLoadErrorHandlingPolicy(
+    private val maxRetries: Int = 5,
+    private val isLive: Boolean = false
+) : DefaultLoadErrorHandlingPolicy(if (isLive) 1 else maxRetries) {
     override fun getRetryDelayMsFor(loadErrorInfo: LoadErrorHandlingPolicy.LoadErrorInfo): Long {
+        if (isLive) {
+            // En vivo: máximo 1 micro-reintento rápido (400ms) y entregar enseguida a recoverLiveStream()
+            return if (loadErrorInfo.errorCount <= 1) 400L else androidx.media3.common.C.TIME_UNSET
+        }
         val ex = loadErrorInfo.exception
         if (ex is HttpDataSource.InvalidResponseCodeException) {
             // Error 429 (Too Many Requests), 503 (Service Unavailable) o 500: reintentar con backoff suave
@@ -68,7 +75,7 @@ private class IptvLoadErrorHandlingPolicy(private val maxRetries: Int = 5) : Def
     }
 
     override fun getMinimumLoadableRetryCount(dataType: Int): Int {
-        return maxRetries
+        return if (isLive) 1 else maxRetries
     }
 }
 
@@ -402,11 +409,22 @@ class LelouchPlayerEngine(
      * (exactamente lo mismo que ocurre al cambiar de canal y retornar),
      * sin alterar la interfaz ni deseleccionar el canal actual.
      */
+    fun manualReconnect() {
+        if (!isCurrentStreamLive || _currentUrl.value == null) {
+            retry()
+            return
+        }
+        lastFreezeRecoveryTimestampMs = 0L
+        isRecoveringLive = false
+        autoRetryAttemptsLeft = config.autoRetryCount
+        recoverLiveStream("Reconexión manual del usuario")
+    }
+
     fun recoverLiveStream(reason: String) {
         if (!isCurrentStreamLive) return
         val url = _currentUrl.value ?: return
         val now = System.currentTimeMillis()
-        if (isRecoveringLive || (now - lastFreezeRecoveryTimestampMs < 3_500L)) {
+        if (isRecoveringLive || (now - lastFreezeRecoveryTimestampMs < 2_000L)) {
             return
         }
         isRecoveringLive = true
@@ -439,7 +457,7 @@ class LelouchPlayerEngine(
             } catch (e: Exception) {
                 android.util.Log.e("LelouchDiag", "[LIVE_HARD_RECOVER] Error al reconectar: ${e.message}")
             } finally {
-                delay(2_000L)
+                delay(1_200L)
                 isRecoveringLive = false
             }
         }
@@ -454,15 +472,14 @@ class LelouchPlayerEngine(
             val isMultiBitrateHls = _currentUrl.value?.contains(".m3u8", ignoreCase = true) == true ||
                                     _currentUrl.value?.contains("output=m3u8", ignoreCase = true) == true
 
-            // FASE 1 (3.5 segundos de buffering):
+            // FASE 1 (2.5 segundos de buffering):
             // Reducir la calidad de video al bitrate intermedio (720p/480p) para salvar la transmisión sin cortar.
-            // NOTA: Solo aplicar reducción de bitrate (ABR) en streams HLS multi-bitrate (.m3u8).
-            delay(3_500L)
+            delay(2_500L)
             if (!isActive || !isCurrentStreamLive) return@launch
 
             if (isMultiBitrateHls) {
                 playbackTracker.onWatchdogEvent(watchdogAttemptId, WatchdogEventType.WATCHDOG_BITRATE_REDUCTION, "Bitrate -> 1.5Mbps")
-                android.util.Log.w("LelouchPlayer", "Buffer en riesgo (>3.5s). Reduciendo calidad de video (ABR) para evitar corte...")
+                android.util.Log.w("LelouchPlayer", "Buffer en riesgo (>2.5s). Reduciendo calidad de video (ABR) para evitar corte...")
                 try {
                     trackSelector.setParameters(
                         trackSelector.parameters.buildUpon()
@@ -472,15 +489,15 @@ class LelouchPlayerEngine(
                 } catch (_: Exception) {}
             }
 
-            // FASE 2 (10 segundos continuos en buffering en vivo):
-            // Tolerancia ampliada para túneles VPN y rellenado de buffer sin abortar cargas al 80%.
-            delay(6_500L)
+            // FASE 2 (5 segundos continuos en buffering en vivo):
+            // Hard Flush rápido para listas inestables sin esperar 10+ segundos.
+            delay(2_500L)
             if (!isActive || !isCurrentStreamLive) return@launch
 
             if (autoRetryAttemptsLeft > 0) {
                 autoRetryAttemptsLeft--
                 playbackTracker.onWatchdogEvent(watchdogAttemptId, WatchdogEventType.WATCHDOG_RETRY, "Buffering timeout auto-recover")
-                recoverLiveStream("Buffer agotado durante >10s")
+                recoverLiveStream("Buffer agotado durante >5s")
             }
         }
     }
@@ -788,7 +805,7 @@ class LelouchPlayerEngine(
 
     private fun buildMediaSource(url: String, attemptId: Long): MediaSource {
         val uri = Uri.parse(url)
-        val retryPolicy = IptvLoadErrorHandlingPolicy(config.autoRetryCount)
+        val retryPolicy = IptvLoadErrorHandlingPolicy(config.autoRetryCount, isLive = isCurrentStreamLive)
 
         val isHls = url.contains(".m3u8", ignoreCase = true) || url.contains("output=m3u8", ignoreCase = true)
         val isMp4 = url.contains(".mp4", ignoreCase = true)
@@ -881,14 +898,14 @@ class LelouchPlayerEngine(
 
                     if (isFrameStalled || isNotPlayingStalled) {
                         silentStallCounter++
-                        if (silentStallCounter >= 8) { // 8 segundos consecutivos sin renderizar fotogramas reales
+                        if (silentStallCounter >= 4) { // 4 segundos consecutivos sin renderizar fotogramas reales
                             silentStallCounter = 0
                             lastTrackedPositionMs = -1L
                             lastRenderedFrames = -1
                             recoverLiveStream(
                                 when {
-                                    isFrameStalled -> "Video congelado (0 frames renderizados en 8s, decodificador bloqueado)"
-                                    else -> "ExoPlayer detenido en STATE_READY (isPlaying=false por 8s)"
+                                    isFrameStalled -> "Video congelado (0 frames renderizados en 4s, decodificador bloqueado)"
+                                    else -> "ExoPlayer detenido en STATE_READY (isPlaying=false por 4s)"
                                 }
                             )
                         }
