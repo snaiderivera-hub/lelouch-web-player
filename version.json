@@ -1,7 +1,7 @@
 {
-  "versionName": "1.0.142",
-  "versionCode": 1000142,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.142/app-debug.apk",
-  "changelog": "- Catálogo TV Box y Pre-caché: Recalcula contadores VOD/Series tras swap Live y HASH_MATCH, filtra recién agregadas/destacadas por sourceId, evita cargar 200k+ ítems completos en RAM en TV y espera downloadGate al pre-cachear listas secundarias.\n- Arranque inicial con Slogan: Mantiene la pantalla de carga hasta completar la primera sincronización Live si Room está vacío, pasando directo al Home con catálogo completo sin ir a Login.\n- Auto-arranque TV Box (TvBootReceiver): Abre LELOUCH automáticamente al encender dispositivos Android TV.",
-  "version": "1.0.142"
+  "versionName": "1.0.143",
+  "versionCode": 1000143,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.143/app-debug.apk",
+  "changelog": "- Rediseño Mobile v1.0.143 (solo Mobile, sin tocar TV ni Live TV): barra inferior naranja de 5 pestañas, Hero Carousel con backdrops HD cacheados en Room (tmdb_match_cache), snapshot local de Inicio 24h (MobileHomeCacheManager), Hub visual por Plataformas/Categorías, scoring histórico de fuentes (source_health), controles integrados en Live Mobile (Play/Pause, Recargar, Mute, Auto resizeMode, calidad manual y Pantalla Completa) y Siguiente Episodio automático en VOD Series.",
+  "version": "1.0.143"
 }

@@ -11,6 +11,8 @@ import com.lelouch.core.database.dao.FavoriteDao
 import com.lelouch.core.database.dao.MovieDao
 import com.lelouch.core.database.dao.SearchDao
 import com.lelouch.core.database.dao.SeriesDao
+import com.lelouch.core.database.dao.SourceHealthDao
+import com.lelouch.core.database.dao.TmdbMatchCacheDao
 import com.lelouch.core.database.dao.WatchHistoryDao
 import com.lelouch.core.database.entity.CategoryEntity
 import com.lelouch.core.database.entity.CategoryStagingEntity
@@ -24,6 +26,8 @@ import com.lelouch.core.database.entity.MovieStagingEntity
 import com.lelouch.core.database.entity.SeriesEntity
 import com.lelouch.core.database.entity.SeriesFtsEntity
 import com.lelouch.core.database.entity.SeriesStagingEntity
+import com.lelouch.core.database.entity.SourceHealthEntity
+import com.lelouch.core.database.entity.TmdbMatchCacheEntity
 import com.lelouch.core.database.entity.WatchHistoryEntity
 
 @Database(
@@ -40,9 +44,11 @@ import com.lelouch.core.database.entity.WatchHistoryEntity
         ChannelStagingEntity::class,
         MovieStagingEntity::class,
         SeriesStagingEntity::class,
-        CategoryStagingEntity::class
+        CategoryStagingEntity::class,
+        TmdbMatchCacheEntity::class,
+        SourceHealthEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = true
 )
 abstract class LelouchDatabase : RoomDatabase() {
@@ -55,6 +61,8 @@ abstract class LelouchDatabase : RoomDatabase() {
     abstract fun favoriteDao(): FavoriteDao
     abstract fun searchDao(): SearchDao
     abstract fun catalogStagingDao(): CatalogStagingDao
+    abstract fun tmdbMatchCacheDao(): TmdbMatchCacheDao
+    abstract fun sourceHealthDao(): SourceHealthDao
 
     companion object {
         private const val DATABASE_NAME = "lelouch_player.db"
@@ -74,7 +82,8 @@ abstract class LelouchDatabase : RoomDatabase() {
                         com.lelouch.core.database.migrations.MIGRATION_1_2,
                         com.lelouch.core.database.migrations.MIGRATION_2_3,
                         com.lelouch.core.database.migrations.MIGRATION_3_4,
-                        com.lelouch.core.database.migrations.MIGRATION_4_5
+                        com.lelouch.core.database.migrations.MIGRATION_4_5,
+                        com.lelouch.core.database.migrations.MIGRATION_5_6
                     )
                     .build()
                 INSTANCE = instance

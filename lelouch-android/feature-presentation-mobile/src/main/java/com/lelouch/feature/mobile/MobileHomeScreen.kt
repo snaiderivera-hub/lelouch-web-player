@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.lelouch.core.model.TmdbHeroMatch
 import kotlinx.coroutines.isActive
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -144,7 +145,10 @@ fun MobileHomeScreen(
     // pantalla solo avisa de que hay reproducción activa y dibuja el vídeo sin el resto de la UI.
     isInPictureInPicture: Boolean = false,
     onPlaybackActiveChanged: (Boolean) -> Unit = {},
-    onEnterPictureInPicture: () -> Unit = {}
+    onEnterPictureInPicture: () -> Unit = {},
+    sourceHealthScores: Map<String, Double> = emptyMap(),
+    onRecordSourceHealth: (SourceConfig, Boolean, Long) -> Unit = { _, _, _ -> },
+    onEnrichHeroTmdb: (suspend (title: String, isSeries: Boolean, year: String?) -> com.lelouch.core.model.TmdbHeroMatch?)? = null
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var activeStreamUrl by remember { mutableStateOf<String?>(null) }
@@ -399,6 +403,21 @@ fun MobileHomeScreen(
     var movieCategoryList by remember(activeSource?.id) { mutableStateOf<List<MobileCategoryItem>>(emptyList()) }
     var seriesCategoryList by remember(activeSource?.id) { mutableStateOf<List<MobileCategoryItem>>(emptyList()) }
     var portalFeedData by remember(activeSource?.id) { mutableStateOf<PortalFeedData?>(null) }
+    var selectedMovieCategoryId by remember(activeSource?.id) { mutableStateOf("all") }
+    var selectedSeriesCategoryId by remember(activeSource?.id) { mutableStateOf("all") }
+    var isFavoritesSheetOpen by remember { mutableStateOf(false) }
+    var activeNextEpisode by remember(activeSource?.id) { mutableStateOf<Triple<String, String, Episode>?>(null) }
+    var nextEpisodeCancelledForUrl by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(activeSource?.id) {
+        val srcId = activeSource?.id ?: return@LaunchedEffect
+        if (portalFeedData == null) {
+            val cachedFeed = MobileHomeCacheManager.load(context, srcId)
+            if (cachedFeed != null && portalFeedData == null) {
+                portalFeedData = cachedFeed
+            }
+        }
+    }
 
     LaunchedEffect(
         activeSource?.id,
@@ -526,10 +545,41 @@ fun MobileHomeScreen(
             movieCategoryList = resMovieCat
             seriesCategoryList = resSeriesCat
             portalFeedData = feed
+            MobileHomeCacheManager.save(context, activeSource.id, feed)
         }
     }
 
     val playbackState by playerEngine.playbackState.collectAsState()
+    var lastScoredAttemptKey by remember { mutableStateOf<String?>(null) }
+    var streamAttemptStartMs by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(activeStreamUrl) {
+        if (activeStreamUrl != null) {
+            streamAttemptStartMs = android.os.SystemClock.elapsedRealtime()
+            lastScoredAttemptKey = null
+        }
+    }
+    LaunchedEffect(playbackState, activeSource?.id, activeStreamUrl) {
+        val src = activeSource ?: return@LaunchedEffect
+        val url = activeStreamUrl ?: return@LaunchedEffect
+        when (playbackState) {
+            is PlaybackState.Playing -> {
+                val key = "${src.id}|$url|ok"
+                if (lastScoredAttemptKey != key) {
+                    lastScoredAttemptKey = key
+                    val latency = if (streamAttemptStartMs > 0L) (android.os.SystemClock.elapsedRealtime() - streamAttemptStartMs).coerceAtLeast(1L) else 0L
+                    onRecordSourceHealth(src, true, latency)
+                }
+            }
+            is PlaybackState.Error -> {
+                val key = "${src.id}|$url|err"
+                if (lastScoredAttemptKey != key) {
+                    lastScoredAttemptKey = key
+                    onRecordSourceHealth(src, false, 0L)
+                }
+            }
+            else -> Unit
+        }
+    }
 
     // Sin saltos automáticos en Live TV: preserva el canal actual y espera a que regrese la señal.
     DisposableEffect(playerEngine) {
@@ -834,6 +884,19 @@ fun MobileHomeScreen(
                         channelName = activeChannelName,
                         isLive = isLivePlayback,
                         playerEngine = playerEngine,
+                        resizeMode = mobileResizeMode,
+                        onCycleResizeMode = {
+                            val next = when (mobileResizeMode) {
+                                AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                                AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                                else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                            }
+                            mobileResizeMode = next
+                            hiddenPrefs.edit().putInt("mobile_video_resize_mode", next).apply()
+                        },
+                        onReload = {
+                            activeStreamUrl?.let { url -> startPlayback(url, isLivePlayback) }
+                        },
                         onToggleFullscreen = { isPlayerFullscreen = true },
                         onCopyUrl = {
                             activeStreamUrl?.let { url ->
@@ -865,9 +928,9 @@ fun MobileHomeScreen(
                             onChannelClick = { ch, url -> activeChannelName = ch; activeContentMeta = ActiveContentMeta(ch, type = ContentType.LIVE); startPlayback(url, true) },
                             onMovieClick = { openMovieDetail(it) },
                             onSeriesClick = { openSeriesDetail(it) },
-                            onSeeAllLive = { selectedTab = 2 },
-                            onSeeAllMovies = { selectedTab = 1 },
-                            onSeeAllSeries = { selectedTab = 1 },
+                            onSeeAllLive = { selectedTab = 1 },
+                            onSeeAllMovies = { selectedTab = 2 },
+                            onSeeAllSeries = { selectedTab = 3 },
                             onReloadCatalog = onForceSync,
                             onOpenSettings = { selectedTab = 4 },
                             onOpenAccountSwitcher = { isAccountSwitcherOpen = true },
@@ -875,6 +938,8 @@ fun MobileHomeScreen(
                             onSearchChange = { searchQuery = it },
                             onSeeAllAnime = { activeCuratedSection = CuratedSectionType.ANIMATION },
                             onOpenCuratedSection = { activeCuratedSection = it },
+                            onEnrichHeroTmdb = onEnrichHeroTmdb,
+                            onOpenFavorites = { isFavoritesSheetOpen = true },
                             continueWatchingItems = historyItems,
                             onResumeContinueWatching = { item ->
                                 activeChannelName = item.title
@@ -893,17 +958,7 @@ fun MobileHomeScreen(
                                 }
                             }
                         )
-                        1 -> MobileVodTab(
-                            movies = if (searchQuery.isBlank()) filteredMovies
-                                     else filteredMovies.filter { it.name.contains(searchQuery, ignoreCase = true) },
-                            movieCategories = movieCategoryList,
-                            onMovieClick = { openMovieDetail(it) },
-                            seriesList = if (searchQuery.isBlank()) filteredSeriesList
-                                         else filteredSeriesList.filter { it.name.contains(searchQuery, ignoreCase = true) },
-                            seriesCategories = seriesCategoryList,
-                            onSeriesClick = { openSeriesDetail(it) }
-                        )
-                        2 -> MobileLiveTab(
+                        1 -> MobileLiveTab(
                             channels = if (searchQuery.isBlank()) cleanLiveChannels
                                        else cleanLiveChannels.filter { it.name.contains(searchQuery, ignoreCase = true) },
                             activeSource = activeSource,
@@ -912,14 +967,27 @@ fun MobileHomeScreen(
                             onToggleFavorite = onToggleFavoriteChannel,
                             onChannelClick = { ch, url -> activeChannelName = ch; activeContentMeta = ActiveContentMeta(ch, type = ContentType.LIVE); startPlayback(url, true) }
                         )
-                        3 -> MobileFavoritesTab(
-                            favoriteChannels = favoriteChannels,
-                            favoriteMovies = favoriteMovies,
-                            activeSource = activeSource,
-                            onChannelClick = { ch, url -> activeChannelName = ch; activeContentMeta = ActiveContentMeta(ch, type = ContentType.LIVE); startPlayback(url, true) },
+                        2 -> MobileMoviesTab(
+                            movies = if (searchQuery.isBlank()) filteredMovies
+                                     else filteredMovies.filter { it.name.contains(searchQuery, ignoreCase = true) },
+                            categories = movieCategoryList,
+                            selectedCategoryId = selectedMovieCategoryId,
+                            onSelectCategory = { selectedMovieCategoryId = it },
                             onMovieClick = { openMovieDetail(it) },
-                            onToggleFavoriteChannel = onToggleFavoriteChannel,
-                            onToggleFavoriteMovie = onToggleFavoriteMovie
+                            searchQuery = searchQuery,
+                            onSearchChange = { searchQuery = it },
+                            onEnrichHeroTmdb = onEnrichHeroTmdb
+                        )
+                        3 -> MobileSeriesTab(
+                            seriesList = if (searchQuery.isBlank()) filteredSeriesList
+                                         else filteredSeriesList.filter { it.name.contains(searchQuery, ignoreCase = true) },
+                            categories = seriesCategoryList,
+                            selectedCategoryId = selectedSeriesCategoryId,
+                            onSelectCategory = { selectedSeriesCategoryId = it },
+                            onSeriesClick = { openSeriesDetail(it) },
+                            searchQuery = searchQuery,
+                            onSearchChange = { searchQuery = it },
+                            onEnrichHeroTmdb = onEnrichHeroTmdb
                         )
                         4 -> MobileSettingsTab(
                             activeSource = activeSource, allSources = allSources,
@@ -941,7 +1009,7 @@ fun MobileHomeScreen(
                             syncStatusText = syncStatusText, syncIsError = syncIsError,
                             downloadConsole = downloadConsole, isAddingSource = isAddingSource,
                             onOpenUpdate = { isUpdateModalOpen = true },
-                            onNavigateToFavorites = { selectedTab = 3 },
+                            onNavigateToFavorites = { isFavoritesSheetOpen = true },
                             onOpenHistory = { isHistoryVisible = true },
                             isAdultModeEnabled = isAdultModeEnabled,
                             onToggleAdultMode = { saveAdultMode(it) },
@@ -992,6 +1060,55 @@ fun MobileHomeScreen(
             return@Box
         }
 
+        // FAVORITOS (MODAL DESDE INICIO O AJUSTES)
+        if (isFavoritesSheetOpen) {
+            BackHandler { isFavoritesSheetOpen = false }
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(BixDarkBackground)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF14161F))
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Mis Favoritos",
+                        color = Color.White,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                    IconButton(onClick = { isFavoritesSheetOpen = false }) {
+                        Icon(Icons.Default.Close, contentDescription = "Cerrar Favoritos", tint = Color.White)
+                    }
+                }
+                Box(modifier = Modifier.weight(1f)) {
+                    MobileFavoritesTab(
+                        favoriteChannels = favoriteChannels,
+                        favoriteMovies = favoriteMovies,
+                        activeSource = activeSource,
+                        onChannelClick = { ch, url ->
+                            isFavoritesSheetOpen = false
+                            activeChannelName = ch
+                            activeContentMeta = ActiveContentMeta(ch, type = ContentType.LIVE)
+                            startPlayback(url, true)
+                        },
+                        onMovieClick = { movie ->
+                            isFavoritesSheetOpen = false
+                            openMovieDetail(movie)
+                        },
+                        onToggleFavoriteChannel = onToggleFavoriteChannel,
+                        onToggleFavoriteMovie = onToggleFavoriteMovie
+                    )
+                }
+            }
+            return@Box
+        }
+
                 // VISTA COMPLETA DE DETALLE DE PELICULA (PANTALLA COMPLETA, SIN DIALOGOS FLOTANTES)
         if (selectedMovie != null && !isPlayerFullscreen) {
             val isMovieFav = favoriteMovies.any { it.streamId == selectedMovie!!.streamId }
@@ -1034,9 +1151,11 @@ fun MobileHomeScreen(
                 series = selectedSeries!!,
                 activeSource = activeSource,
                 onFetchSeriesDetails = onFetchSeriesDetails,
+                onNextEpisodeResolved = { nextEp -> activeNextEpisode = nextEp },
                 onPlayEpisode = { url, title, episode ->
                     // Detener de forma limpia cualquier reproduccion previa antes de iniciar episodio
                     playerEngine.stop()
+                    nextEpisodeCancelledForUrl = null
                     activeChannelName = title
                     activeContentMeta = ActiveContentMeta(
                         title = title,
@@ -1363,6 +1482,91 @@ fun MobileHomeScreen(
                                         fontWeight = FontWeight.Black,
                                         fontSize = 13.sp
                                     )
+                                }
+                            }
+                        }
+                    }
+
+                    // VOD Auto-Next Episode Countdown Overlay (solo Mobile VOD / Series, aislado de Live TV)
+                    val nextEp = activeNextEpisode
+                    val showAutoNext = nextEp != null &&
+                        nextEpisodeCancelledForUrl != activeStreamUrl &&
+                        ((totalDur > 60_000L && totalDur - currentPos in 1L..15_000L) || playbackState is PlaybackState.Ended)
+                    if (showAutoNext && nextEp != null) {
+                        var countdownSec by remember(activeStreamUrl, nextEp.first) { mutableIntStateOf(10) }
+                        LaunchedEffect(activeStreamUrl, nextEp.first) {
+                            while (countdownSec > 0) {
+                                kotlinx.coroutines.delay(1000L)
+                                countdownSec--
+                            }
+                            if (nextEpisodeCancelledForUrl != activeStreamUrl) {
+                                val (nUrl, nTitle, nEpisode) = nextEp
+                                playerEngine.stop()
+                                activeChannelName = nTitle
+                                activeContentMeta = ActiveContentMeta(
+                                    title = nTitle,
+                                    posterUrl = nEpisode.cover ?: selectedSeries?.cover,
+                                    type = ContentType.SERIES,
+                                    seasonNumber = nEpisode.seasonNumber,
+                                    episodeNumber = nEpisode.episodeNumber
+                                )
+                                startPlayback(nUrl, false)
+                            }
+                        }
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(bottom = if (isOverlayVisible) 115.dp else 24.dp, end = 20.dp)
+                                .widthIn(max = 310.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(Color(0xFF14161F).copy(alpha = 0.95f))
+                                .border(1.5.dp, BixOrangeAccent, RoundedCornerShape(14.dp))
+                                .padding(14.dp)
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    text = "Siguiente episodio en ${countdownSec}s",
+                                    color = BixOrangeAccent,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                                Text(
+                                    text = nextEp.second,
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedButton(
+                                        onClick = { nextEpisodeCancelledForUrl = activeStreamUrl },
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
+                                        shape = RoundedCornerShape(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                    ) {
+                                        Text("Cancelar", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                    }
+                                    Button(
+                                        onClick = {
+                                            val (nUrl, nTitle, nEpisode) = nextEp
+                                            playerEngine.stop()
+                                            activeChannelName = nTitle
+                                            activeContentMeta = ActiveContentMeta(
+                                                title = nTitle,
+                                                posterUrl = nEpisode.cover ?: selectedSeries?.cover,
+                                                type = ContentType.SERIES,
+                                                seasonNumber = nEpisode.seasonNumber,
+                                                episodeNumber = nEpisode.episodeNumber
+                                            )
+                                            startPlayback(nUrl, false)
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = BixOrangeAccent),
+                                        shape = RoundedCornerShape(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                    ) {
+                                        Text("Ver ahora", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                                    }
                                 }
                             }
                         }
@@ -1857,19 +2061,19 @@ private fun MobileTopBar(
     }
 }
 
-// BOTTOM NAV (ESTILO BIX PLUS - 5 PESTAÑAS)
+// BOTTOM NAV (ESTILO CAPTURAS - 5 PESTAÑAS CON PILL NARANJA)
 @Composable
 private fun MobileBottomNavBar(selectedTab: Int, onTabChange: (Int) -> Unit) {
     NavigationBar(
-        containerColor = BixDarkBackground,
-        tonalElevation = 10.dp
+        containerColor = Color(0xFF0E1017),
+        tonalElevation = 8.dp
     ) {
         val navItems = listOf(
             Triple(Icons.Default.Home, "Inicio", 0),
-            Triple(Icons.Default.Movie, "Películas", 1),
-            Triple(Icons.Default.LiveTv, "En Vivo", 2),
-            Triple(Icons.Default.Favorite, "Favoritos", 3),
-            Triple(Icons.Default.Menu, "Más", 4)
+            Triple(Icons.Default.LiveTv, "TV en Vivo", 1),
+            Triple(Icons.Default.Movie, "Películas", 2),
+            Triple(Icons.Default.VideoLibrary, "Series", 3),
+            Triple(Icons.Default.Settings, "Ajustes", 4)
         )
         navItems.forEach { (icon, label, index) ->
             val isSelected = selectedTab == index
@@ -1880,21 +2084,21 @@ private fun MobileBottomNavBar(selectedTab: Int, onTabChange: (Int) -> Unit) {
                     Icon(
                         imageVector = icon,
                         contentDescription = label,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(22.dp)
                     )
                 },
                 label = {
                     Text(
                         text = label,
                         maxLines = 1,
-                        fontSize = 11.sp,
+                        fontSize = 10.sp,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                     )
                 },
                 colors = NavigationBarItemDefaults.colors(
                     selectedIconColor = BixOrangeAccent,
                     selectedTextColor = BixOrangeAccent,
-                    indicatorColor = BixOrangeAccent.copy(alpha = 0.15f),
+                    indicatorColor = BixOrangeAccent.copy(alpha = 0.20f),
                     unselectedIconColor = BixTextMuted,
                     unselectedTextColor = BixTextMuted
                 )
@@ -1924,6 +2128,8 @@ private fun MobileHomeTab(
     onSearchChange: (String) -> Unit = {},
     onSeeAllAnime: () -> Unit = {},
     onOpenCuratedSection: (CuratedSectionType) -> Unit = {},
+    onEnrichHeroTmdb: (suspend (title: String, isSeries: Boolean, year: String?) -> TmdbHeroMatch?)? = null,
+    onOpenFavorites: () -> Unit = {},
     continueWatchingItems: List<ContinueWatchingItem> = emptyList(),
     onResumeContinueWatching: (ContinueWatchingItem) -> Unit = {},
     onRemoveContinueWatching: (ContinueWatchingItem) -> Unit = {}
@@ -1953,6 +2159,8 @@ private fun MobileHomeTab(
                 onSearchChange = onSearchChange,
                 onSeeAllAnime = { onOpenCuratedSection(CuratedSectionType.ANIMATION) },
                 onOpenSection = onOpenCuratedSection,
+                onEnrichHeroTmdb = onEnrichHeroTmdb,
+                onOpenFavorites = onOpenFavorites,
                 liveChannels = liveChannels,
                 movies = movies,
                 seriesList = seriesList,
@@ -2070,9 +2278,46 @@ private fun MobileLiveTab(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Canales en Vivo",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Black
+                )
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(BixOrangeAccent.copy(alpha = 0.2f))
+                        .border(1.dp, BixOrangeAccent.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "${filtered.size}",
+                        color = BixOrangeAccent,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                }
+            }
+            Text(
+                text = selectedCat?.name ?: "Todos",
+                color = BixTextMuted,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
+
         // Barra de categorías con clave estable para no recomponer los chips
         LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             // Chips de categorías normales (Todos, Eventos del Día, y categorías)
@@ -2082,13 +2327,14 @@ private fun MobileLiveTab(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(20.dp))
-                            .background(if (isSel) LelouchCyanAccent else LelouchSurface)
+                            .background(if (isSel) BixOrangeAccent else Color(0xFF14161F))
+                            .border(1.dp, if (isSel) BixOrangeAccent else Color(0xFF252938), RoundedCornerShape(20.dp))
                             .clickable { selectedCategoryId = cat.id }
                             .padding(horizontal = 14.dp, vertical = 7.dp)
                     ) {
                         Text(
                             cat.name,
-                            color = if (isSel) Color.Black else LelouchTextSecondary,
+                            color = Color.White,
                             fontSize = 12.sp,
                             fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
                         )
@@ -2116,16 +2362,19 @@ private fun MobileLiveTab(
     }
 }
 
-// TAB 2: PELÍCULAS CON CHIPS DE CATEGORÍAS Y FILTRADO O(1)
+// TAB 2: PELÍCULAS CON HERO BANNER, BUSCADOR Y GRILLA 2:3
 @Composable
 private fun MobileMoviesTab(
     movies: List<VodMovie>,
     categories: List<MobileCategoryItem>,
     selectedCategoryId: String,
     onSelectCategory: (String) -> Unit,
-    onMovieClick: (VodMovie) -> Unit
+    onMovieClick: (VodMovie) -> Unit,
+    searchQuery: String = "",
+    onSearchChange: (String) -> Unit = {},
+    onEnrichHeroTmdb: (suspend (title: String, isSeries: Boolean, year: String?) -> TmdbHeroMatch?)? = null
 ) {
-    if (movies.isEmpty()) {
+    if (movies.isEmpty() && searchQuery.isBlank()) {
         EmptyState("No hay películas", "Sincroniza tu lista desde la pestaña Listas")
         return
     }
@@ -2141,7 +2390,130 @@ private fun MobileMoviesTab(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    val featuredMovie = remember(filteredMovies) { filteredMovies.firstOrNull() }
+    var featuredTmdb by remember(featuredMovie?.streamId) { mutableStateOf<TmdbHeroMatch?>(null) }
+    LaunchedEffect(featuredMovie?.streamId, onEnrichHeroTmdb) {
+        if (featuredMovie != null && onEnrichHeroTmdb != null) {
+            featuredTmdb = onEnrichHeroTmdb(featuredMovie.name, false, featuredMovie.year)
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize().background(BixDarkBackground)) {
+        if (featuredMovie != null && searchQuery.isBlank()) {
+            val heroImg = featuredTmdb?.backdropUrl?.ifBlank { null }
+                ?: featuredMovie.backdropPath?.ifBlank { null }
+                ?: featuredMovie.streamIcon
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 8.dp)
+                    .height(172.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFF14161F))
+                    .border(1.dp, Color(0xFF252938), RoundedCornerShape(16.dp))
+                    .clickable { onMovieClick(featuredMovie) }
+            ) {
+                if (!heroImg.isNullOrBlank()) {
+                    AsyncImage(
+                        model = heroImg,
+                        contentDescription = featuredMovie.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color.Transparent, Color(0xFF090A0E).copy(alpha = 0.92f))
+                            )
+                        )
+                )
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.Bottom,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
+                        Text(
+                            text = "DESTACADA",
+                            color = BixOrangeAccent,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                        Text(
+                            text = featuredMovie.name,
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Black,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        val year = featuredTmdb?.year?.ifBlank { null } ?: featuredMovie.year.orEmpty()
+                        val rating = featuredTmdb?.rating ?: featuredMovie.rating ?: 0.0
+                        if (year.isNotBlank() || rating > 0.0) {
+                            Text(
+                                text = listOfNotNull(
+                                    year.takeIf { it.isNotBlank() },
+                                    rating.takeIf { it > 0.0 }?.let { "★ %.1f".format(it) }
+                                ).joinToString(" • "),
+                                color = Color.White.copy(alpha = 0.8f),
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(BixOrangeAccent)
+                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                    ) {
+                        Text("▶ Ver", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                    }
+                }
+            }
+        }
+
+        // Buscador pill inline
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 4.dp)
+                .clip(RoundedCornerShape(22.dp))
+                .background(Color(0xFF14161F))
+                .border(1.dp, if (searchQuery.isNotEmpty()) BixOrangeAccent else Color(0xFF252938), RoundedCornerShape(22.dp))
+                .padding(horizontal = 14.dp, vertical = 9.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Search, contentDescription = null, tint = BixOrangeAccent, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                BasicTextField(
+                    value = searchQuery,
+                    onValueChange = onSearchChange,
+                    singleLine = true,
+                    textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
+                    cursorBrush = SolidColor(BixOrangeAccent),
+                    modifier = Modifier.weight(1f),
+                    decorationBox = { inner ->
+                        if (searchQuery.isEmpty()) Text("Buscar película...", color = BixTextMuted, fontSize = 13.sp)
+                        inner()
+                    }
+                )
+                if (searchQuery.isNotEmpty()) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = "Limpiar",
+                        tint = BixTextMuted,
+                        modifier = Modifier.size(18.dp).clickable { onSearchChange("") }
+                    )
+                }
+            }
+        }
+
         if (categories.isNotEmpty()) {
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
@@ -2153,8 +2525,8 @@ private fun MobileMoviesTab(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(20.dp))
-                            .background(if (isSelected) BixOrangeAccent else BixSurfaceCard)
-                            .border(1.dp, if (isSelected) BixOrangeAccent else Color.White.copy(alpha = 0.1f), RoundedCornerShape(20.dp))
+                            .background(if (isSelected) BixOrangeAccent else Color(0xFF14161F))
+                            .border(1.dp, if (isSelected) BixOrangeAccent else Color(0xFF252938), RoundedCornerShape(20.dp))
                             .clickable { onSelectCategory(cat.id) }
                             .padding(horizontal = 14.dp, vertical = 6.dp)
                     ) {
@@ -2170,10 +2542,10 @@ private fun MobileMoviesTab(
         }
 
         if (filteredMovies.isEmpty()) {
-            EmptyState("Sin películas en esta categoría", "Selecciona otra categoría en la barra superior")
+            EmptyState("Sin películas en esta categoría", "Selecciona otra categoría o ajusta tu búsqueda")
         } else {
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(85.dp),
+                columns = GridCells.Adaptive(100.dp),
                 contentPadding = PaddingValues(12.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -2187,16 +2559,19 @@ private fun MobileMoviesTab(
     }
 }
 
-// TAB 3: SERIES CON CHIPS DE CATEGORÍAS Y FILTRADO O(1)
+// TAB 3: SERIES CON HERO BANNER, BUSCADOR Y GRILLA 2:3
 @Composable
 private fun MobileSeriesTab(
     seriesList: List<Series>,
     categories: List<MobileCategoryItem>,
     selectedCategoryId: String,
     onSelectCategory: (String) -> Unit,
-    onSeriesClick: (Series) -> Unit
+    onSeriesClick: (Series) -> Unit,
+    searchQuery: String = "",
+    onSearchChange: (String) -> Unit = {},
+    onEnrichHeroTmdb: (suspend (title: String, isSeries: Boolean, year: String?) -> TmdbHeroMatch?)? = null
 ) {
-    if (seriesList.isEmpty()) {
+    if (seriesList.isEmpty() && searchQuery.isBlank()) {
         EmptyState("No hay series", "Sincroniza tu lista desde la pestaña Listas")
         return
     }
@@ -2212,7 +2587,124 @@ private fun MobileSeriesTab(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    val featuredSeries = remember(filteredSeries) { filteredSeries.firstOrNull() }
+    var featuredTmdb by remember(featuredSeries?.seriesId) { mutableStateOf<TmdbHeroMatch?>(null) }
+    LaunchedEffect(featuredSeries?.seriesId, onEnrichHeroTmdb) {
+        if (featuredSeries != null && onEnrichHeroTmdb != null) {
+            featuredTmdb = onEnrichHeroTmdb(featuredSeries.name, true, null)
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize().background(BixDarkBackground)) {
+        if (featuredSeries != null && searchQuery.isBlank()) {
+            val heroImg = featuredTmdb?.backdropUrl?.ifBlank { null } ?: featuredSeries.cover
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 8.dp)
+                    .height(172.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFF14161F))
+                    .border(1.dp, Color(0xFF252938), RoundedCornerShape(16.dp))
+                    .clickable { onSeriesClick(featuredSeries) }
+            ) {
+                if (!heroImg.isNullOrBlank()) {
+                    AsyncImage(
+                        model = heroImg,
+                        contentDescription = featuredSeries.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color.Transparent, Color(0xFF090A0E).copy(alpha = 0.92f))
+                            )
+                        )
+                )
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.Bottom,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
+                        Text(
+                            text = "SERIE DESTACADA",
+                            color = BixOrangeAccent,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                        Text(
+                            text = featuredSeries.name,
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Black,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        val rating = featuredTmdb?.rating ?: featuredSeries.rating ?: 0.0
+                        if (rating > 0.0) {
+                            Text(
+                                text = "★ %.1f".format(rating),
+                                color = Color.White.copy(alpha = 0.8f),
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(BixOrangeAccent)
+                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                    ) {
+                        Text("▶ Ver", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                    }
+                }
+            }
+        }
+
+        // Buscador pill inline
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 4.dp)
+                .clip(RoundedCornerShape(22.dp))
+                .background(Color(0xFF14161F))
+                .border(1.dp, if (searchQuery.isNotEmpty()) BixOrangeAccent else Color(0xFF252938), RoundedCornerShape(22.dp))
+                .padding(horizontal = 14.dp, vertical = 9.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Search, contentDescription = null, tint = BixOrangeAccent, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                BasicTextField(
+                    value = searchQuery,
+                    onValueChange = onSearchChange,
+                    singleLine = true,
+                    textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
+                    cursorBrush = SolidColor(BixOrangeAccent),
+                    modifier = Modifier.weight(1f),
+                    decorationBox = { inner ->
+                        if (searchQuery.isEmpty()) Text("Buscar serie...", color = BixTextMuted, fontSize = 13.sp)
+                        inner()
+                    }
+                )
+                if (searchQuery.isNotEmpty()) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = "Limpiar",
+                        tint = BixTextMuted,
+                        modifier = Modifier.size(18.dp).clickable { onSearchChange("") }
+                    )
+                }
+            }
+        }
+
         if (categories.isNotEmpty()) {
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
@@ -2224,8 +2716,8 @@ private fun MobileSeriesTab(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(20.dp))
-                            .background(if (isSelected) BixOrangeAccent else BixSurfaceCard)
-                            .border(1.dp, if (isSelected) BixOrangeAccent else Color.White.copy(alpha = 0.1f), RoundedCornerShape(20.dp))
+                            .background(if (isSelected) BixOrangeAccent else Color(0xFF14161F))
+                            .border(1.dp, if (isSelected) BixOrangeAccent else Color(0xFF252938), RoundedCornerShape(20.dp))
                             .clickable { onSelectCategory(cat.id) }
                             .padding(horizontal = 14.dp, vertical = 6.dp)
                     ) {
@@ -2241,10 +2733,10 @@ private fun MobileSeriesTab(
         }
 
         if (filteredSeries.isEmpty()) {
-            EmptyState("Sin series en esta categoría", "Selecciona otra categoría en la barra superior")
+            EmptyState("Sin series en esta categoría", "Selecciona otra categoría o ajusta tu búsqueda")
         } else {
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(85.dp),
+                columns = GridCells.Adaptive(100.dp),
                 contentPadding = PaddingValues(12.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -5023,6 +5515,9 @@ private fun MiniPlayerOverlay(
     channelName: String,
     isLive: Boolean = true,
     playerEngine: com.lelouch.core.player.LelouchPlayerEngine,
+    resizeMode: Int = AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
+    onCycleResizeMode: () -> Unit = {},
+    onReload: () -> Unit = {},
     onToggleFullscreen: () -> Unit,
     onCopyUrl: () -> Unit,
     onClose: () -> Unit,
@@ -5033,71 +5528,222 @@ private fun MiniPlayerOverlay(
 ) {
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
     val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val playbackState by playerEngine.playbackState.collectAsState()
+    val isPlaying = playbackState is PlaybackState.Playing
+    var isMuted by remember { mutableStateOf(false) }
+    var selectedMaxHeight by remember(channelName) { mutableStateOf<Int?>(null) }
 
-    Box(
+    val resizeLabel = when (resizeMode) {
+        AspectRatioFrameLayout.RESIZE_MODE_FIT -> "Ajustar"
+        AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Zoom"
+        AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Estirar"
+        else -> "Auto"
+    }
+
+    Column(
         modifier = modifier
             .fillMaxWidth()
-            .then(if (isLandscape) Modifier.height(180.dp) else Modifier.aspectRatio(16f / 9f))
-            .background(Color.Black)
+            .background(Color(0xFF0A0B0F))
     ) {
-        LelouchVideoPlayer(playerEngine = playerEngine, modifier = Modifier.fillMaxSize())
-
-        AnimatedVisibility(
-            visible = osdText != null,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.align(Alignment.Center)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(if (isLandscape) Modifier.height(180.dp) else Modifier.aspectRatio(16f / 9f))
+                .background(Color.Black)
         ) {
-            ChannelChangeOsd(
-                channelName = osdText.orEmpty(),
-                subtext = osdSubtext.orEmpty(),
-                direction = osdDirection.orEmpty()
+            LelouchVideoPlayer(
+                playerEngine = playerEngine,
+                isLive = isLive,
+                resizeMode = resizeMode,
+                modifier = Modifier.fillMaxSize()
             )
+
+            androidx.compose.animation.AnimatedVisibility(
+                visible = osdText != null,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier.align(Alignment.Center)
+            ) {
+                ChannelChangeOsd(
+                    channelName = osdText.orEmpty(),
+                    subtext = osdSubtext.orEmpty(),
+                    direction = osdDirection.orEmpty()
+                )
+            }
+
+            Row(
+                modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                IconButton(
+                    onClick = onCopyUrl,
+                    modifier = Modifier.size(34.dp).background(Color.Black.copy(0.6f), CircleShape)
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = "Copiar Enlace", tint = Color.White, modifier = Modifier.size(16.dp))
+                }
+                IconButton(
+                    onClick = onToggleFullscreen,
+                    modifier = Modifier.size(34.dp).background(Color.Black.copy(0.6f), CircleShape)
+                ) {
+                    Icon(Icons.Default.Fullscreen, contentDescription = "Pantalla Completa", tint = Color.White, modifier = Modifier.size(18.dp))
+                }
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier.size(34.dp).background(Color.Black.copy(0.6f), CircleShape)
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = Color.White, modifier = Modifier.size(16.dp))
+                }
+            }
+            Row(
+                modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth()
+                    .background(Color.Black.copy(0.65f)).padding(horizontal = 12.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(channelName, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Spacer(Modifier.width(8.dp))
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(if (isLive) LelouchLiveRed else BixOrangeAccent)
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = if (isLive) "EN VIVO" else "VOD",
+                        color = Color.White,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                }
+            }
         }
 
-        Row(
-            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        // Barra integrada de controles Live / MiniPlayer (sin abrir modal)
+        LazyRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF14161F))
+                .border(0.5.dp, Color(0xFF252938))
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(
-                onClick = onCopyUrl,
-                modifier = Modifier.background(Color.Black.copy(0.6f), CircleShape)
-            ) {
-                Icon(Icons.Default.Share, contentDescription = "Copiar Enlace", tint = Color.White)
+            item {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(BixOrangeAccent)
+                        .clickable { playerEngine.togglePlayPause() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = "Play/Pausa",
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
-            IconButton(
-                onClick = onToggleFullscreen,
-                modifier = Modifier.background(Color.Black.copy(0.6f), CircleShape)
-            ) {
-                Icon(Icons.Default.Fullscreen, contentDescription = "Pantalla Completa", tint = Color.White)
+            item {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF1E202B))
+                        .border(1.dp, Color(0xFF252938), CircleShape)
+                        .clickable { onReload() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "Recargar",
+                        tint = Color.White,
+                        modifier = Modifier.size(17.dp)
+                    )
+                }
             }
-            IconButton(
-                onClick = onClose,
-                modifier = Modifier.background(Color.Black.copy(0.6f), CircleShape)
-            ) {
-                Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = Color.White)
+            item {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(if (isMuted) BixOrangeAccent.copy(alpha = 0.25f) else Color(0xFF1E202B))
+                        .border(1.dp, if (isMuted) BixOrangeAccent else Color(0xFF252938), CircleShape)
+                        .clickable {
+                            isMuted = !isMuted
+                            playerEngine.setMuted(isMuted)
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
+                        contentDescription = "Silenciar",
+                        tint = if (isMuted) BixOrangeAccent else Color.White,
+                        modifier = Modifier.size(17.dp)
+                    )
+                }
             }
-        }
-        Row(
-            modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth()
-                .background(Color.Black.copy(0.7f)).padding(horizontal = 12.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(channelName, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp,
-                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            Spacer(Modifier.width(8.dp))
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(3.dp))
-                    .background(if (isLive) LelouchLiveRed else LelouchCyanAccent)
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
-            ) {
-                Text(
-                    text = if (isLive) "EN VIVO" else "VOD",
-                    color = if (isLive) Color.White else Color.Black,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold
-                )
+            item {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color(0xFF1E202B))
+                        .border(1.dp, BixOrangeAccent.copy(alpha = 0.55f), RoundedCornerShape(16.dp))
+                        .clickable { onCycleResizeMode() }
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = "Auto: $resizeLabel",
+                        color = BixOrangeAccent,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+            val qualityPresets = listOf<Pair<String, Int?>>(
+                "Calidad Auto" to null,
+                "720p" to 720,
+                "480p" to 480,
+                "360p" to 360
+            )
+            items(qualityPresets) { (label, cap) ->
+                val active = selectedMaxHeight == cap
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(if (active) BixOrangeAccent else Color(0xFF1E202B))
+                        .border(1.dp, if (active) BixOrangeAccent else Color(0xFF252938), RoundedCornerShape(16.dp))
+                        .clickable {
+                            selectedMaxHeight = cap
+                            playerEngine.setVideoQualityCap(cap)
+                        }
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = label,
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = if (active) FontWeight.Bold else FontWeight.Medium
+                    )
+                }
+            }
+            item {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color(0xFF1E202B))
+                        .border(1.dp, Color(0xFF252938), RoundedCornerShape(16.dp))
+                        .clickable { onToggleFullscreen() }
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = "Pantalla Completa",
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
             }
         }
     }
@@ -5702,6 +6348,7 @@ private fun MobileSeriesDetailView(
     series: Series,
     activeSource: SourceConfig?,
     onFetchSeriesDetails: (suspend (seriesId: Int) -> Pair<List<Int>, List<Episode>>)? = null,
+    onNextEpisodeResolved: ((Triple<String, String, Episode>?) -> Unit)? = null,
     onPlayEpisode: (String, String, Episode) -> Unit,
     onBack: () -> Unit
 ) {
@@ -6094,10 +6741,10 @@ private fun MobileSeriesDetailView(
                                             Box(
                                                 modifier = Modifier
                                                     .clip(RoundedCornerShape(14.dp))
-                                                    .background(if (isSelected) LelouchLiveRed else BixSurfaceCard)
+                                                    .background(if (isSelected) BixOrangeAccent else Color(0xFF14161F))
                                                     .border(
                                                         1.dp,
-                                                        if (isSelected) LelouchLiveRed else LelouchBorder,
+                                                        if (isSelected) BixOrangeAccent else Color(0xFF252938),
                                                         RoundedCornerShape(14.dp)
                                                     )
                                                     .clickable { selectedSeason = sNum }
@@ -6152,7 +6799,25 @@ private fun MobileSeriesDetailView(
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clickable { onPlayEpisode(streamUrl, "${series.name} - $epFullTitle", ep) }
+                                        .clickable {
+                                            val sortedAll = episodes.sortedWith(compareBy({ it.seasonNumber }, { it.episodeNumber }))
+                                            val curIdx = sortedAll.indexOfFirst { it.episodeId == ep.episodeId && it.seasonNumber == ep.seasonNumber }
+                                            val nextEp = if (curIdx >= 0 && curIdx + 1 < sortedAll.size) sortedAll[curIdx + 1] else null
+                                            val nextTriple = nextEp?.let { ne ->
+                                                val neUrl = StreamUrlResolver.resolve(
+                                                    directUrl = ne.streamUrl,
+                                                    source = activeSource,
+                                                    streamId = ne.episodeId,
+                                                    kind = StreamUrlResolver.Kind.SERIES,
+                                                    extension = ne.containerExtension.ifBlank { "mp4" }
+                                                )
+                                                val neCode = "S${ne.seasonNumber.toString().padStart(2, '0')}E${ne.episodeNumber.toString().padStart(2, '0')}"
+                                                val neLabel = "$neCode - ${ne.title.ifBlank { "Episodio ${ne.episodeNumber}" }}"
+                                                Triple(neUrl, "${series.name} - $neLabel", ne)
+                                            }
+                                            onNextEpisodeResolved?.invoke(nextTriple)
+                                            onPlayEpisode(streamUrl, "${series.name} - $epFullTitle", ep)
+                                        }
                                         .padding(horizontal = 16.dp, vertical = 8.dp)
                                 ) {
                                     // Fila superior: Miniatura 16:9 + Título y Metadatos + Acciones
@@ -6353,7 +7018,7 @@ private fun MobileSeriesDetailView(
                     Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
                         Text(
                             text = "CONTINUAR",
-                            color = LelouchLiveRed,
+                            color = BixOrangeAccent,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Black,
                             letterSpacing = 1.sp
@@ -6370,9 +7035,25 @@ private fun MobileSeriesDetailView(
 
                     Button(
                         onClick = {
+                            val sortedAll = episodes.sortedWith(compareBy({ it.seasonNumber }, { it.episodeNumber }))
+                            val curIdx = sortedAll.indexOfFirst { it.episodeId == firstOrNextEpisode.episodeId && it.seasonNumber == firstOrNextEpisode.seasonNumber }
+                            val nextEp = if (curIdx >= 0 && curIdx + 1 < sortedAll.size) sortedAll[curIdx + 1] else null
+                            val nextTriple = nextEp?.let { ne ->
+                                val neUrl = StreamUrlResolver.resolve(
+                                    directUrl = ne.streamUrl,
+                                    source = activeSource,
+                                    streamId = ne.episodeId,
+                                    kind = StreamUrlResolver.Kind.SERIES,
+                                    extension = ne.containerExtension.ifBlank { "mp4" }
+                                )
+                                val neCode = "S${ne.seasonNumber.toString().padStart(2, '0')}E${ne.episodeNumber.toString().padStart(2, '0')}"
+                                val neLabel = "$neCode - ${ne.title.ifBlank { "Episodio ${ne.episodeNumber}" }}"
+                                Triple(neUrl, "${series.name} - $neLabel", ne)
+                            }
+                            onNextEpisodeResolved?.invoke(nextTriple)
                             onPlayEpisode(nextStreamUrl, "${series.name} - $nextLabel", firstOrNextEpisode)
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = LelouchLiveRed),
+                        colors = ButtonDefaults.buttonColors(containerColor = BixOrangeAccent),
                         shape = RoundedCornerShape(8.dp),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
                     ) {
@@ -6557,77 +7238,115 @@ private fun ChannelListItem(
     isFavorite: Boolean = false,
     onToggleFavorite: (() -> Unit)? = null
 ) {
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(if (isFavorite) LelouchSurface.copy(alpha = 0.95f) else LelouchSurface)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color(0xFF14161F))
+            .border(1.dp, Color(0xFF252938), RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
-            .padding(10.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(12.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .size(width = 50.dp, height = 32.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(Color.Black.copy(0.5f)),
-            contentAlignment = Alignment.Center
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            if (!channel.streamIcon.isNullOrBlank()) {
-                AsyncImage(
-                    model = channel.streamIcon,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Fit
-                )
-            } else {
-                Text(
-                    channel.name.take(3).uppercase(),
-                    color = LelouchCyanAccent,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-        Spacer(Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                channel.name,
-                color = LelouchTextPrimary,
-                fontWeight = FontWeight.Bold,
-                fontSize = 13.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            if (channel.categoryName.isNotBlank()) {
-                Text(channel.categoryName, color = LelouchTextSecondary, fontSize = 11.sp)
-            }
-        }
-        Spacer(Modifier.width(8.dp))
-        // Botón favorito: toca la estrella para agregar/quitar de favoritos
-        if (onToggleFavorite != null) {
             Box(
                 modifier = Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .background(if (isFavorite) Color(0xFFFFD700).copy(alpha = 0.15f) else Color.Transparent)
-                    .clickable { onToggleFavorite() },
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0xFF090A0E))
+                    .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(10.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = if (isFavorite) "⭐" else "☆",
-                    fontSize = 16.sp
-                )
+                if (!channel.streamIcon.isNullOrBlank()) {
+                    AsyncImage(
+                        model = channel.streamIcon,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize().padding(4.dp),
+                        contentScale = ContentScale.Fit
+                    )
+                } else {
+                    Text(
+                        channel.name.take(3).uppercase(),
+                        color = BixOrangeAccent,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                }
             }
-            Spacer(Modifier.width(6.dp))
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    channel.name,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(3.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF10B981))
+                    )
+                    Text(
+                        text = channel.categoryName.ifBlank { "Señal en Vivo" },
+                        color = BixTextMuted,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+            if (onToggleFavorite != null) {
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(if (isFavorite) Color(0xFFFFD700).copy(alpha = 0.15f) else Color.Transparent)
+                        .clickable { onToggleFavorite() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (isFavorite) "⭐" else "☆",
+                        fontSize = 16.sp
+                    )
+                }
+                Spacer(Modifier.width(6.dp))
+            }
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(BixOrangeAccent.copy(alpha = 0.18f))
+                    .border(1.dp, BixOrangeAccent.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                    .padding(horizontal = 7.dp, vertical = 3.dp)
+            ) {
+                Text("EN VIVO", color = BixOrangeAccent, fontSize = 9.sp, fontWeight = FontWeight.Black)
+            }
         }
+        Spacer(Modifier.height(8.dp))
+        // Barra EPG visual inferior
         Box(
             modifier = Modifier
-                .clip(RoundedCornerShape(4.dp))
-                .background(LelouchLiveRed)
-                .padding(horizontal = 6.dp, vertical = 3.dp)
+                .fillMaxWidth()
+                .height(2.5.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(Color.White.copy(alpha = 0.08f))
         ) {
-            Text("LIVE", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.45f)
+                    .height(2.5.dp)
+                    .background(BixOrangeAccent)
+            )
         }
     }
 }

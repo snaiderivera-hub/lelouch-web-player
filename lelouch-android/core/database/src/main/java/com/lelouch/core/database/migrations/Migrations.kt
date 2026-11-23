@@ -290,3 +290,41 @@ val MIGRATION_4_5 = object : Migration(4, 5) {
         db.execSQL("INSERT INTO `series_fts`(`docid`, `name`, `title`, `genre`, `cast`, `plot`) SELECT `rowid`, `name`, `title`, `genre`, `cast`, `plot` FROM `series`")
     }
 }
+
+/**
+ * Migración de base de datos v5 a v6:
+ * Agrega `tmdb_match_cache` (caché persistente TMDB HD) y `source_health` (scoring histórico).
+ */
+val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS `tmdb_match_cache` (
+                `cacheKey` TEXT NOT NULL,
+                `tmdbId` INTEGER NOT NULL,
+                `mediaType` TEXT NOT NULL,
+                `title` TEXT NOT NULL,
+                `overview` TEXT NOT NULL,
+                `posterUrl` TEXT,
+                `backdropUrl` TEXT,
+                `rating` REAL,
+                `releaseYear` TEXT,
+                `updatedAt` INTEGER NOT NULL,
+                PRIMARY KEY(`cacheKey`)
+            )
+        """.trimIndent())
+
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS `source_health` (
+                `sourceId` TEXT NOT NULL,
+                `host` TEXT NOT NULL,
+                `successCount` INTEGER NOT NULL,
+                `failCount` INTEGER NOT NULL,
+                `avgLatencyMs` INTEGER NOT NULL,
+                `lastSuccessAt` INTEGER NOT NULL,
+                `lastFailAt` INTEGER NOT NULL,
+                `updatedAt` INTEGER NOT NULL,
+                PRIMARY KEY(`sourceId`)
+            )
+        """.trimIndent())
+    }
+}

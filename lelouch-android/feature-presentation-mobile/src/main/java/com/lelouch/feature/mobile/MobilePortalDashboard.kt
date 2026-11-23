@@ -3,6 +3,7 @@ package com.lelouch.feature.mobile
 import android.app.Activity
 import android.content.Intent
 import android.speech.RecognizerIntent
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -17,10 +18,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tv
@@ -53,6 +57,7 @@ import com.lelouch.core.model.CuratedMediaItem
 import com.lelouch.core.model.CuratedSectionType
 import com.lelouch.core.model.LiveStream
 import com.lelouch.core.model.PortalFeedCalculator
+import com.lelouch.core.model.TmdbHeroMatch
 import com.lelouch.core.model.PortalFeedData
 import com.lelouch.core.model.Series
 import com.lelouch.core.model.SourceConfig
@@ -368,6 +373,8 @@ fun MobilePortalDashboard(
     onSearchChange: (String) -> Unit = {},
     onSeeAllAnime: () -> Unit = {},
     onOpenSection: (CuratedSectionType) -> Unit = {},
+    onEnrichHeroTmdb: (suspend (title: String, isSeries: Boolean, year: String?) -> TmdbHeroMatch?)? = null,
+    onOpenFavorites: () -> Unit = {},
     modifier: Modifier = Modifier,
     liveChannels: List<LiveStream> = emptyList(),
     movies: List<VodMovie> = emptyList(),
@@ -391,143 +398,30 @@ fun MobilePortalDashboard(
     val actionItems = portalFeedData?.actionItems ?: emptyList()
     val animItems = portalFeedData?.animItems ?: emptyList()
 
+    var isSearchExpanded by remember { mutableStateOf(false) }
+    var selectedPlatform by remember { mutableStateOf<PlatformHubSpec?>(null) }
+
+    val platformHubItems = remember(movies, seriesList, liveChannels) {
+        buildPlatformHubSpecs(movies, seriesList, liveChannels)
+    }
+
+    if (selectedPlatform != null) {
+        BackHandler { selectedPlatform = null }
+        MobilePlatformDetailView(
+            spec = selectedPlatform!!,
+            onBack = { selectedPlatform = null },
+            onMovieClick = onMovieClick,
+            onSeriesClick = onSeriesClick,
+            onChannelClick = onChannelClick
+        )
+        return
+    }
+
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFF2E0C06),
-                        Color(0xFF180703),
-                        BixDarkBackground,
-                        BixDarkBackground
-                    )
-                )
-            )
+            .background(BixDarkBackground)
     ) {
-        // ══════════════════════════════════════════════════════════════════════
-        // 1. CABECERA SUPERIOR ESTILO LELOUCH PLUS
-        // ══════════════════════════════════════════════════════════════════════
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                // Icono Circular estilizado Lelouch
-                Box(
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.linearGradient(
-                                listOf(BixOrangeAccent, Color(0xFFD9480F))
-                            )
-                        )
-                        .border(1.5.dp, Color.White.copy(alpha = 0.35f), CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "L",
-                        color = Color.White,
-                        fontWeight = FontWeight.Black,
-                        fontSize = 20.sp
-                    )
-                }
-
-                Spacer(Modifier.width(10.dp))
-
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "LELOUCH",
-                            color = Color.White,
-                            fontWeight = FontWeight.Black,
-                            fontSize = 22.sp,
-                            letterSpacing = 0.5.sp
-                        )
-                        Spacer(Modifier.width(5.dp))
-                        Text(
-                            text = "PLUS",
-                            color = BixOrangeAccent,
-                            fontWeight = FontWeight.Black,
-                            fontSize = 22.sp,
-                            letterSpacing = 0.5.sp
-                        )
-                    }
-                    Spacer(Modifier.height(2.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "PELICULAS, SERIES, TV EN VIVO",
-                            color = BixTextMuted,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.2.sp
-                        )
-                        sourceConnectionLabel(activeSource)?.let { label ->
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                text = label,
-                                color = BixOrangeAccent,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1
-                            )
-                        }
-                    }
-
-                    if (activeSource != null) {
-                        Spacer(Modifier.height(4.dp))
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Color(0xFF1E202B))
-                                .border(1.dp, BixOrangeAccent.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                                .clickable { onOpenAccountSwitcher() }
-                                .padding(horizontal = 8.dp, vertical = 3.dp)
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color(0xFF10B981)))
-                                Spacer(Modifier.width(5.dp))
-                                Text(
-                                    text = activeSource.name,
-                                    color = Color.White,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Spacer(Modifier.width(5.dp))
-                                Text("Cambiar ▼", color = BixOrangeAccent, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                }
-            }
-
-            Box(
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF1E202B))
-                    .border(1.dp, Color.White.copy(alpha = 0.12f), CircleShape)
-                    .clickable { onNavigateToLive() },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.LiveTv,
-                    contentDescription = "TV en vivo",
-                    tint = Color.White,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-        }
-
-        // ══════════════════════════════════════════════════════════════════════
-        // 2. BARRA DE BÚSQUEDA INTEGRADA TIPO PÍLDORA (INTERACTIVA CON VOZ)
-        // ══════════════════════════════════════════════════════════════════════
         val context = LocalContext.current
         val voiceLauncher = rememberLauncherForActivityResult(
             contract = ActivityResultContracts.StartActivityForResult()
@@ -542,84 +436,103 @@ fun MobilePortalDashboard(
             }
         }
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 6.dp)
-                .clip(RoundedCornerShape(24.dp))
-                .background(Color(0xFF14161F))
-                .border(1.dp, if (searchQuery.isNotEmpty()) LelouchCyanAccent else Color.White.copy(alpha = 0.08f), RoundedCornerShape(24.dp))
-                .padding(horizontal = 14.dp, vertical = 8.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.Search,
-                    contentDescription = "Buscar",
-                    tint = if (searchQuery.isNotEmpty()) LelouchCyanAccent else BixTextMuted,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(Modifier.width(10.dp))
-                BasicTextField(
-                    value = searchQuery,
-                    onValueChange = onSearchChange,
-                    singleLine = true,
-                    textStyle = TextStyle(
-                        color = Color.White,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
-                    ),
-                    cursorBrush = SolidColor(LelouchCyanAccent),
-                    modifier = Modifier.weight(1f),
-                    decorationBox = { innerTextField ->
-                        if (searchQuery.isEmpty()) {
-                            Text(
-                                text = "Buscar películas, series o canales...",
-                                color = BixTextMuted,
-                                fontSize = 14.sp
+        if (isSearchExpanded || searchQuery.isNotBlank()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(Color(0xFF14161F))
+                        .border(1.dp, if (searchQuery.isNotEmpty()) BixOrangeAccent else Color(0xFF252938), RoundedCornerShape(24.dp))
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Buscar",
+                            tint = BixOrangeAccent,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        BasicTextField(
+                            value = searchQuery,
+                            onValueChange = onSearchChange,
+                            singleLine = true,
+                            textStyle = TextStyle(
+                                color = Color.White,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium
+                            ),
+                            cursorBrush = SolidColor(BixOrangeAccent),
+                            modifier = Modifier.weight(1f),
+                            decorationBox = { innerTextField ->
+                                if (searchQuery.isEmpty()) {
+                                    Text(
+                                        text = "Buscar películas, series o canales...",
+                                        color = BixTextMuted,
+                                        fontSize = 14.sp
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        )
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(
+                                onClick = { onSearchChange("") },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Limpiar",
+                                    tint = LelouchTextSecondary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                        IconButton(
+                            onClick = {
+                                try {
+                                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                        putExtra(RecognizerIntent.EXTRA_PROMPT, "Habla para buscar canales, películas o series...")
+                                    }
+                                    voiceLauncher.launch(intent)
+                                } catch (_: Exception) {
+                                    android.widget.Toast.makeText(context, "Búsqueda por voz no disponible", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Mic,
+                                contentDescription = "Voz",
+                                tint = BixOrangeAccent,
+                                modifier = Modifier.size(20.dp)
                             )
                         }
-                        innerTextField()
-                    }
-                )
-                if (searchQuery.isNotEmpty()) {
-                    IconButton(
-                        onClick = { onSearchChange("") },
-                        modifier = Modifier.size(28.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Limpiar",
-                            tint = LelouchTextSecondary,
-                            modifier = Modifier.size(18.dp)
-                        )
                     }
                 }
-                Spacer(Modifier.width(4.dp))
                 IconButton(
                     onClick = {
-                        try {
-                            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                putExtra(RecognizerIntent.EXTRA_PROMPT, "Habla para buscar canales, películas o series...")
-                            }
-                            voiceLauncher.launch(intent)
-                        } catch (e: Exception) {
-                            android.widget.Toast.makeText(context, "Búsqueda por voz no disponible", android.widget.Toast.LENGTH_SHORT).show()
-                        }
+                        onSearchChange("")
+                        isSearchExpanded = false
                     },
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF14161F))
+                        .border(1.dp, Color(0xFF252938), CircleShape)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Mic,
-                        contentDescription = "Voz",
-                        tint = LelouchCyanAccent,
-                        modifier = Modifier.size(20.dp)
-                    )
+                    Icon(Icons.Default.Close, contentDescription = "Cerrar búsqueda", tint = Color.White, modifier = Modifier.size(18.dp))
                 }
             }
         }
-
-        Spacer(modifier = Modifier.height(18.dp))
 
         if (searchQuery.isNotBlank()) {
             val q = searchQuery.trim()
@@ -758,17 +671,116 @@ fun MobilePortalDashboard(
             }
         } else {
             // ══════════════════════════════════════════════════════════════════════
-            // 4. HERO CAROUSEL: TOP 10 MÁS RECIENTES (CAPTURA 1)
+            // 4. HERO CAROUSEL FULL-BLEED + CABECERA FLOTANTE TRANSLÚCIDA
             // ══════════════════════════════════════════════════════════════════════
-            if (topTenMovies.isNotEmpty()) {
-                MobileTopTenHeroCarousel(
-                    topMovies = topTenMovies,
-                    onMovieClick = onMovieClick,
-                    onExploreClick = onNavigateToMovies,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(20.dp))
+            Box(modifier = Modifier.fillMaxWidth()) {
+                if (topTenMovies.isNotEmpty()) {
+                    MobileTopTenHeroCarousel(
+                        topMovies = topTenMovies,
+                        onMovieClick = onMovieClick,
+                        onExploreClick = onNavigateToMovies,
+                        onEnrichHeroTmdb = onEnrichHeroTmdb,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    Spacer(modifier = Modifier.height(76.dp))
+                }
+
+                // Cabecera flotante sobre el Hero
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(
+                                    Color(0xFF090A0E).copy(alpha = 0.86f),
+                                    Color.Transparent
+                                )
+                            )
+                        )
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { onOpenAccountSwitcher() }
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(BixOrangeAccent),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("L", color = Color.White, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = "LELOUCH",
+                                color = Color.White,
+                                fontWeight = FontWeight.Black,
+                                fontSize = 17.sp,
+                                letterSpacing = 0.6.sp
+                            )
+                            if (activeSource != null) {
+                                Text(
+                                    text = activeSource.name,
+                                    color = BixOrangeAccent,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF14161F).copy(alpha = 0.85f))
+                                .border(1.dp, Color.White.copy(alpha = 0.14f), CircleShape)
+                                .clickable { isSearchExpanded = true },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Search, contentDescription = "Buscar", tint = Color.White, modifier = Modifier.size(18.dp))
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF14161F).copy(alpha = 0.85f))
+                                .border(1.dp, Color.White.copy(alpha = 0.14f), CircleShape)
+                                .clickable { onOpenFavorites() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.FavoriteBorder, contentDescription = "Favoritos", tint = Color.White, modifier = Modifier.size(18.dp))
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF14161F).copy(alpha = 0.85f))
+                                .border(1.dp, BixOrangeAccent.copy(alpha = 0.45f), CircleShape)
+                                .clickable { onOpenAccountSwitcher() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Person, contentDescription = "Cuentas", tint = BixOrangeAccent, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
             }
+
+            Spacer(modifier = Modifier.height(16.dp))
 
             // ══════════════════════════════════════════════════════════════════════
             // 🕘 CONTINUAR VIENDO (HISTORIAL DE REPRODUCCIÓN EN MÓVIL)
@@ -778,6 +790,17 @@ fun MobilePortalDashboard(
                     items = continueWatchingItems,
                     onResume = onResumeContinueWatching,
                     onRemove = onRemoveContinueWatching
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+            }
+
+            // ══════════════════════════════════════════════════════════════════════
+            // 🏷️ HUB VISUAL POR PLATAFORMAS / CATEGORÍAS REALES
+            // ══════════════════════════════════════════════════════════════════════
+            if (platformHubItems.isNotEmpty()) {
+                MobilePlatformHubSection(
+                    platforms = platformHubItems,
+                    onPlatformClick = { selectedPlatform = it }
                 )
                 Spacer(modifier = Modifier.height(20.dp))
             }
@@ -1197,7 +1220,7 @@ private fun MobileContinueWatchingCard(
                         .size(34.dp)
                         .clip(CircleShape)
                         .background(Color.Black.copy(alpha = 0.65f))
-                        .border(1.dp, Color(0xFF00E5C9), CircleShape)
+                        .border(1.dp, BixOrangeAccent, CircleShape)
                         .align(Alignment.Center),
                     contentAlignment = Alignment.Center
                 ) {
@@ -1206,6 +1229,23 @@ private fun MobileContinueWatchingCard(
                         contentDescription = "Reanudar",
                         tint = Color.White,
                         modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                // Badge tipo de contenido
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(6.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(BixOrangeAccent.copy(alpha = 0.9f))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = if (item.episodeLabel != null) "SERIE" else "PELÍCULA",
+                        color = Color.White,
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Black
                     )
                 }
 
@@ -1237,7 +1277,7 @@ private fun MobileContinueWatchingCard(
                         modifier = Modifier
                             .fillMaxWidth(item.fraction.coerceIn(0f, 1f))
                             .height(3.dp)
-                            .background(Color(0xFF00E5C9))
+                            .background(BixOrangeAccent)
                     )
                 }
             }
@@ -1289,10 +1329,19 @@ private fun MobileTopTenHeroCarousel(
     topMovies: List<VodMovie>,
     onMovieClick: (VodMovie) -> Unit,
     onExploreClick: () -> Unit,
+    onEnrichHeroTmdb: (suspend (title: String, isSeries: Boolean, year: String?) -> TmdbHeroMatch?)? = null,
     modifier: Modifier = Modifier
 ) {
     var currentIndex by remember { mutableIntStateOf(0) }
     val currentMovie = topMovies.getOrNull(currentIndex) ?: return
+    val enrichedHeroMap = remember { mutableStateMapOf<String, TmdbHeroMatch?>() }
+
+    LaunchedEffect(currentMovie.streamId, onEnrichHeroTmdb) {
+        if (onEnrichHeroTmdb != null && !enrichedHeroMap.containsKey(currentMovie.name)) {
+            enrichedHeroMap[currentMovie.name] = onEnrichHeroTmdb(currentMovie.name, false, currentMovie.year)
+        }
+    }
+    val tmdbHero = enrichedHeroMap[currentMovie.name]
 
     // Auto-avance suave cada 6 segundos si el usuario no interactúa
     LaunchedEffect(topMovies) {
@@ -1304,7 +1353,9 @@ private fun MobileTopTenHeroCarousel(
         }
     }
 
-    val imageUrl = currentMovie.backdropPath?.ifBlank { null }
+    val imageUrl = tmdbHero?.backdropUrl?.ifBlank { null }
+        ?: currentMovie.backdropPath?.ifBlank { null }
+        ?: tmdbHero?.posterUrl?.ifBlank { null }
         ?: currentMovie.streamIcon?.ifBlank { null }
 
     val formattedIndex = String.format("%02d", currentIndex + 1)
@@ -1313,7 +1364,7 @@ private fun MobileTopTenHeroCarousel(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(390.dp)
+            .height(410.dp)
             .background(Color(0xFF090A0E))
     ) {
         // Imagen de Fondo del Hero
@@ -1350,16 +1401,16 @@ private fun MobileTopTenHeroCarousel(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Píldora Cyan TOP 10 • 0X
+            // Píldora Naranja DESTACADO
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFF00E5C9))
+                    .background(BixOrangeAccent)
                     .padding(horizontal = 10.dp, vertical = 4.dp)
             ) {
                 Text(
-                    text = "DESTACADAS 2026 • $formattedIndex",
-                    color = Color.Black,
+                    text = "DESTACADO • $formattedIndex",
+                    color = Color.White,
                     fontWeight = FontWeight.Black,
                     fontSize = 11.sp,
                     letterSpacing = 0.5.sp
@@ -1390,7 +1441,7 @@ private fun MobileTopTenHeroCarousel(
                 )
                 Text(text = "•", color = Color.White.copy(alpha = 0.5f), fontSize = 12.sp)
 
-                val yearText = currentMovie.year?.ifBlank { "2026" } ?: "2026"
+                val yearText = tmdbHero?.year?.ifBlank { null } ?: currentMovie.year?.ifBlank { "2026" } ?: "2026"
                 Text(
                     text = yearText,
                     color = Color.White.copy(alpha = 0.9f),
@@ -1399,7 +1450,7 @@ private fun MobileTopTenHeroCarousel(
                 )
                 Text(text = "•", color = Color.White.copy(alpha = 0.5f), fontSize = 12.sp)
 
-                val rating = currentMovie.rating ?: 0.0
+                val rating = tmdbHero?.rating?.takeIf { it > 0.0 } ?: currentMovie.rating ?: 0.0
                 val ratingFormatted = if (rating > 0.0) "★ %.1f".format(rating) else "★ 6.5"
                 Text(
                     text = ratingFormatted,
@@ -1410,7 +1461,8 @@ private fun MobileTopTenHeroCarousel(
             }
 
             // Sinopsis corta (2 líneas máx)
-            val synopsis = currentMovie.plot?.ifBlank { null }
+            val synopsis = tmdbHero?.overview?.ifBlank { null }
+                ?: currentMovie.plot?.ifBlank { null }
                 ?: "Descubre esta película recién agregada con la máxima calidad y fluidez del reproductor Lelouch."
             Text(
                 text = synopsis,
@@ -1423,7 +1475,7 @@ private fun MobileTopTenHeroCarousel(
 
             Spacer(Modifier.height(2.dp))
 
-            // Fila de Botones: [ ▶ Descubrir ] y [ Explorar → ]
+            // Fila de Botones: [ ▶ Ver Ahora ] y [ Siguiente → ]
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1433,20 +1485,20 @@ private fun MobileTopTenHeroCarousel(
                     onClick = { onMovieClick(currentMovie) },
                     modifier = Modifier.weight(1f).height(42.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF00E5C9),
-                        contentColor = Color.Black
+                        containerColor = BixOrangeAccent,
+                        contentColor = Color.White
                     ),
-                    shape = RoundedCornerShape(14.dp)
+                    shape = RoundedCornerShape(22.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.PlayArrow,
                         contentDescription = null,
-                        tint = Color.Black,
+                        tint = Color.White,
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        text = "Descubrir",
+                        text = "Ver Ahora",
                         fontWeight = FontWeight.Black,
                         fontSize = 13.sp
                     )
@@ -1454,19 +1506,18 @@ private fun MobileTopTenHeroCarousel(
 
                 OutlinedButton(
                     onClick = {
-                        // Avanza al siguiente ítem del Top 10
                         currentIndex = (currentIndex + 1) % topMovies.size
                     },
-                    modifier = Modifier.weight(1f).height(42.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.35f)),
+                    modifier = Modifier.weight(0.75f).height(42.dp),
+                    shape = RoundedCornerShape(22.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.3f)),
                     colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = Color.Black.copy(alpha = 0.4f),
+                        containerColor = Color.Black.copy(alpha = 0.45f),
                         contentColor = Color.White
                     )
                 ) {
                     Text(
-                        text = "Explorar →",
+                        text = "Siguiente →",
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp,
                         color = Color.White
@@ -1502,7 +1553,7 @@ private fun MobileTopTenHeroCarousel(
                                 .weight(if (isSelected) 1.8f else 1f)
                                 .clip(RoundedCornerShape(2.dp))
                                 .background(
-                                    if (isSelected) Color(0xFF00E5C9)
+                                    if (isSelected) BixOrangeAccent
                                     else Color.White.copy(alpha = 0.25f)
                                 )
                                 .clickable { currentIndex = index }
@@ -1561,8 +1612,8 @@ private fun CuratedSectionHeader(
             )
         }
         Text(
-            text = actionText,
-            color = Color(0xFF00E5C9),
+            text = "Ver todo >",
+            color = BixOrangeAccent,
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.clickable(onClick = onActionClick)
@@ -2200,5 +2251,248 @@ private fun NativeLiveStreamCard(
                 overflow = TextOverflow.Ellipsis
             )
         }
+    }
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// HUB VISUAL POR PLATAFORMAS / CATEGORÍAS REALES + VISTA DEDICADA
+// ══════════════════════════════════════════════════════════════════════════════
+
+private data class PlatformHubSpec(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val accentColor: Color,
+    val movies: List<VodMovie>,
+    val series: List<Series>,
+    val channels: List<LiveStream>
+) {
+    val totalCount: Int get() = movies.size + series.size + channels.size
+}
+
+private data class PlatformMatchRule(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val accentColor: Color,
+    val keywords: List<String>
+)
+
+private val platformRules = listOf(
+    PlatformMatchRule("netflix", "Netflix", "Series y Películas", Color(0xFFE50914), listOf("netflix", "nfx")),
+    PlatformMatchRule("prime", "Prime Video", "Amazon Originals", Color(0xFF00A8E1), listOf("prime", "amazon")),
+    PlatformMatchRule("disney", "Disney+", "Familia y Marvel", Color(0xFF1E54E8), listOf("disney", "pixar", "marvel", "star wars")),
+    PlatformMatchRule("max", "Max", "HBO y Warner", Color(0xFF7B2CBF), listOf("hbo", "max", "warner")),
+    PlatformMatchRule("deportes", "Deportes", "En Vivo y Eventos", Color(0xFF10B981), listOf("deporte", "sport", "futbol", "fútbol", "liga", "espn", "fox sports", "tnt sports", "nba", "ufc")),
+    PlatformMatchRule("anime", "Anime", "Series y Películas", Color(0xFFFF6B00), listOf("anime", "crunchyroll", "animación", "animacion"))
+)
+
+private fun buildPlatformHubSpecs(
+    movies: List<VodMovie>,
+    seriesList: List<Series>,
+    liveChannels: List<LiveStream>
+): List<PlatformHubSpec> {
+    return platformRules.mapNotNull { rule ->
+        val matchedMovies = movies.filter { m ->
+            val cat = m.categoryName.lowercase()
+            val name = m.name.lowercase()
+            rule.keywords.any { kw -> cat.contains(kw) || name.contains(kw) }
+        }
+        val matchedSeries = seriesList.filter { s ->
+            val cat = s.categoryName.lowercase()
+            val name = s.name.lowercase()
+            rule.keywords.any { kw -> cat.contains(kw) || name.contains(kw) }
+        }
+        val matchedChannels = if (rule.id == "deportes" || rule.id == "anime") {
+            liveChannels.filter { ch ->
+                val cat = ch.categoryName.lowercase()
+                val name = ch.name.lowercase()
+                rule.keywords.any { kw -> cat.contains(kw) || name.contains(kw) }
+            }
+        } else emptyList()
+
+        val total = matchedMovies.size + matchedSeries.size + matchedChannels.size
+        if (total == 0) null
+        else PlatformHubSpec(
+            id = rule.id,
+            title = rule.title,
+            subtitle = "$total títulos",
+            accentColor = rule.accentColor,
+            movies = matchedMovies,
+            series = matchedSeries,
+            channels = matchedChannels
+        )
+    }
+}
+
+@Composable
+private fun MobilePlatformHubSection(
+    platforms: List<PlatformHubSpec>,
+    onPlatformClick: (PlatformHubSpec) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Explorar por Plataforma",
+                color = Color.White,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Black
+            )
+            Text(
+                text = "${platforms.size} hubs",
+                color = BixOrangeAccent,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            items(platforms, key = { it.id }) { spec ->
+                Box(
+                    modifier = Modifier
+                        .width(136.dp)
+                        .height(74.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(
+                            Brush.linearGradient(
+                                listOf(
+                                    spec.accentColor.copy(alpha = 0.28f),
+                                    Color(0xFF14161F)
+                                )
+                            )
+                        )
+                        .border(1.dp, spec.accentColor.copy(alpha = 0.45f), RoundedCornerShape(14.dp))
+                        .clickable { onPlatformClick(spec) }
+                        .padding(12.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.align(Alignment.CenterStart),
+                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Text(
+                            text = spec.title,
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Black,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = spec.subtitle,
+                            color = spec.accentColor,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MobilePlatformDetailView(
+    spec: PlatformHubSpec,
+    onBack: () -> Unit,
+    onMovieClick: (VodMovie) -> Unit,
+    onSeriesClick: (Series) -> Unit,
+    onChannelClick: (String, String) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(BixDarkBackground)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF14161F))
+                    .border(1.dp, Color(0xFF252938), CircleShape)
+            ) {
+                Icon(Icons.Default.ArrowBack, contentDescription = "Volver", tint = Color.White, modifier = Modifier.size(18.dp))
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = spec.title,
+                    color = Color.White,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Black
+                )
+                Text(
+                    text = "${spec.totalCount} elementos disponibles",
+                    color = spec.accentColor,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        if (spec.channels.isNotEmpty()) {
+            Spacer(Modifier.height(16.dp))
+            Text("Canales (${spec.channels.size})", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(8.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(spec.channels.take(40)) { ch ->
+                    NativeLiveStreamCard(
+                        channel = ch,
+                        onClick = { onChannelClick(ch.name, ch.streamUrl ?: "") }
+                    )
+                }
+            }
+        }
+
+        if (spec.movies.isNotEmpty()) {
+            Spacer(Modifier.height(16.dp))
+            Text("Películas (${spec.movies.size})", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(8.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                items(spec.movies.take(60)) { movie ->
+                    CuratedPosterItem(
+                        title = movie.name,
+                        imageUrl = movie.streamIcon,
+                        rating = movie.rating,
+                        year = movie.year,
+                        onClick = { onMovieClick(movie) }
+                    )
+                }
+            }
+        }
+
+        if (spec.series.isNotEmpty()) {
+            Spacer(Modifier.height(16.dp))
+            Text("Series (${spec.series.size})", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(8.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                items(spec.series.take(60)) { series ->
+                    CuratedPosterItem(
+                        title = series.name,
+                        imageUrl = series.cover,
+                        rating = series.rating,
+                        onClick = { onSeriesClick(series) }
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(24.dp))
     }
 }

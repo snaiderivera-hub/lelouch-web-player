@@ -548,6 +548,10 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             } else {
+                val sourceHealthScores by app.sourceHealthManager.observeScores().collectAsStateWithLifecycle(initialValue = emptyMap())
+                val rankedMobileSources = remember(allSources, sourceHealthScores, effectiveActiveSource?.id) {
+                    app.sourceHealthManager.sortSourcesByHealth(allSources, sourceHealthScores, effectiveActiveSource?.id)
+                }
                 LelouchTheme {
                     Surface(
                         modifier = Modifier.fillMaxSize(),
@@ -556,7 +560,29 @@ class MainActivity : ComponentActivity() {
                         if (isHomeVisible && effectiveActiveSource != null) {
                             MobileHomeScreen(
                                 activeSource = effectiveActiveSource,
-                                allSources = allSources,
+                                allSources = rankedMobileSources,
+                                sourceHealthScores = sourceHealthScores,
+                                onRecordSourceHealth = { src, success, latencyMs ->
+                                    lifecycleScope.launch {
+                                        app.sourceHealthManager.recordOutcome(src.id, src.serverUrl, success, latencyMs)
+                                    }
+                                },
+                                onEnrichHeroTmdb = { title, isSeries, year ->
+                                    val cached = if (isSeries) {
+                                        app.tmdbMetadataCache.getOrFetchSeries(title)
+                                    } else {
+                                        app.tmdbMetadataCache.getOrFetchMovie(title, year)
+                                    }
+                                    cached?.let {
+                                        com.lelouch.core.model.TmdbHeroMatch(
+                                            backdropUrl = it.backdropUrl,
+                                            posterUrl = it.posterUrl,
+                                            overview = it.overview,
+                                            rating = it.rating,
+                                            year = it.releaseYear
+                                        )
+                                    }
+                                },
                                 liveChannels = liveChannels,
                                 liveCategories = liveCategories,
                                 movies = movies,

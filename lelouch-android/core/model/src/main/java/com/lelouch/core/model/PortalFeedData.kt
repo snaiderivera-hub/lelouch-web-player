@@ -14,6 +14,14 @@ data class CuratedMediaItem(
     val series: Series? = null
 )
 
+data class TmdbHeroMatch(
+    val backdropUrl: String? = null,
+    val posterUrl: String? = null,
+    val overview: String? = null,
+    val rating: Double? = null,
+    val year: String? = null
+)
+
 data class PortalFeedData(
     val sportsCount: Int = 0,
     val topTenMovies: List<VodMovie> = emptyList(),

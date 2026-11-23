@@ -10,8 +10,10 @@ import com.lelouch.core.data.repository.AuthRepositoryImpl
 import com.lelouch.core.data.repository.ChannelRepositoryImpl
 import com.lelouch.core.data.repository.PlaybackHistoryRepositoryImpl
 import com.lelouch.core.data.repository.SeriesRepositoryImpl
+import com.lelouch.core.data.repository.TmdbMetadataCache
 import com.lelouch.core.data.repository.VodRepositoryImpl
 import com.lelouch.core.data.sync.XtreamCatalogSyncManager
+import com.lelouch.core.data.telemetry.SourceHealthManager
 import com.lelouch.core.database.LelouchDatabase
 import com.lelouch.core.domain.repository.AuthRepository
 import com.lelouch.core.domain.repository.ChannelRepository
@@ -58,6 +60,12 @@ class LelouchApplication : Application(), ImageLoaderFactory {
     lateinit var diagnostics: IptvDiagnostics
         private set
 
+    lateinit var sourceHealthManager: SourceHealthManager
+        private set
+
+    lateinit var tmdbMetadataCache: TmdbMetadataCache
+        private set
+
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
@@ -75,6 +83,8 @@ class LelouchApplication : Application(), ImageLoaderFactory {
         seriesRepository = SeriesRepositoryImpl(database.seriesDao(), database.categoryDao(), syncManager, database.searchDao())
         playbackHistoryRepository = PlaybackHistoryRepositoryImpl(database.watchHistoryDao())
         diagnostics = IptvDiagnostics()
+        sourceHealthManager = SourceHealthManager(database.sourceHealthDao())
+        tmdbMetadataCache = TmdbMetadataCache(database.tmdbMatchCacheDao())
 
         // FASE 35 (1.0.97): la lista personalizada quedó retirada. Se purga su catálogo local
         // (incluidos los 3.594 ítems de la última sincronización) en cada arranque. Las
