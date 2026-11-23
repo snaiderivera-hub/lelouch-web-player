@@ -55,6 +55,7 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Border
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.itemsIndexed
@@ -214,7 +215,9 @@ fun TvHomeScreen(
     // FASE 37: historial y «continuar viendo». Si es null, la función queda desactivada.
     playbackHistory: com.lelouch.core.domain.repository.PlaybackHistoryRepository? = null,
     isHardwareVoiceSearch: Boolean = false,
-    onHardwareVoiceSearchConsumed: (() -> Unit)? = null
+    onHardwareVoiceSearchConsumed: (() -> Unit)? = null,
+    onRecordSourceHealth: (source: SourceConfig, success: Boolean, latencyMs: Long) -> Unit = { _, _, _ -> },
+    onEnrichHeroTmdb: (suspend (title: String, isSeries: Boolean, year: String?) -> com.lelouch.core.model.TmdbHeroMatch?)? = null
 ) {
     val playerEngine = rememberLelouchPlayer()
     val playbackState by playerEngine.playbackState.collectAsStateWithLifecycle()
@@ -320,6 +323,17 @@ fun TvHomeScreen(
     var portalFeedData by remember(activeSource?.id) { mutableStateOf<PortalFeedData?>(null) }
     var activeCuratedSection by remember(activeSource?.id) { mutableStateOf<CuratedSectionType?>(null) }
 
+    val homeCacheContext = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(activeSource?.id) {
+        val srcId = activeSource?.id ?: return@LaunchedEffect
+        if (portalFeedData == null) {
+            val cachedFeed = com.lelouch.core.model.PortalHomeCacheManager.load(homeCacheContext, "tv", srcId)
+            if (cachedFeed != null && portalFeedData == null) {
+                portalFeedData = cachedFeed
+            }
+        }
+    }
+
     LaunchedEffect(
         activeSource?.id,
         liveChannels,
@@ -341,6 +355,39 @@ fun TvHomeScreen(
                 seriesList = seriesList.filter { it.categoryId !in hiddenSeriesCategories && it.categoryName !in hiddenSeriesCategories }
             )
             portalFeedData = feed
+            com.lelouch.core.model.PortalHomeCacheManager.save(homeCacheContext, "tv", activeSource.id, feed)
+        }
+    }
+
+    val currentStreamUrlForHealth by playerEngine.currentUrl.collectAsStateWithLifecycle()
+    var lastScoredTvHealthKey by remember { mutableStateOf<String?>(null) }
+    var tvStreamStartMs by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(currentStreamUrlForHealth) {
+        if (!currentStreamUrlForHealth.isNullOrBlank()) {
+            tvStreamStartMs = android.os.SystemClock.elapsedRealtime()
+            lastScoredTvHealthKey = null
+        }
+    }
+    LaunchedEffect(playbackState, activeSource?.id, currentStreamUrlForHealth) {
+        val src = activeSource ?: return@LaunchedEffect
+        val url = currentStreamUrlForHealth ?: return@LaunchedEffect
+        when (playbackState) {
+            is PlaybackState.Playing -> {
+                val key = "${src.id}|$url|ok"
+                if (lastScoredTvHealthKey != key) {
+                    lastScoredTvHealthKey = key
+                    val latency = if (tvStreamStartMs > 0L) (android.os.SystemClock.elapsedRealtime() - tvStreamStartMs).coerceAtLeast(1L) else 0L
+                    onRecordSourceHealth(src, true, latency)
+                }
+            }
+            is PlaybackState.Error -> {
+                val key = "${src.id}|$url|err"
+                if (lastScoredTvHealthKey != key) {
+                    lastScoredTvHealthKey = key
+                    onRecordSourceHealth(src, false, 0L)
+                }
+            }
+            else -> Unit
         }
     }
 
@@ -351,6 +398,12 @@ fun TvHomeScreen(
     var focusedChannel by remember { mutableStateOf<ChannelUiModel?>(null) }
 
     var activeDetailMedia by remember { mutableStateOf<MediaDetailUiModel?>(null) }
+    var lastDetailMediaBeforeVod by remember { mutableStateOf<MediaDetailUiModel?>(null) }
+    var activeSeriesEpisodesQueue by remember { mutableStateOf<List<Episode>>(emptyList()) }
+    var activePlayingEpisodeId by remember { mutableStateOf<Int?>(null) }
+    var isAutoNextDismissed by remember { mutableStateOf(false) }
+    var autoNextCountdown by remember { mutableIntStateOf(10) }
+    val autoNextPlayNowRequester = remember { FocusRequester() }
 
     var isFullscreen by remember { mutableStateOf(false) }
     var isHudVisible by remember { mutableStateOf(false) }
@@ -360,6 +413,28 @@ fun TvHomeScreen(
     var isPlayingLive by remember { mutableStateOf(true) }
     var currentPlayingTitle by remember { mutableStateOf<String?>(null) }
     var currentPlayingMedia by remember { mutableStateOf<MediaDetailUiModel?>(null) }
+    val currentVodNextEpisode = remember(isPlayingLive, currentPlayingMedia, activeSeriesEpisodesQueue, activePlayingEpisodeId) {
+        if (isPlayingLive || currentPlayingMedia?.isSeries != true) null
+        else {
+            val curId = activePlayingEpisodeId
+            val idx = if (curId != null) activeSeriesEpisodesQueue.indexOfFirst { it.episodeId == curId } else -1
+            if (idx >= 0 && idx + 1 < activeSeriesEpisodesQueue.size) activeSeriesEpisodesQueue[idx + 1] else null
+        }
+    }
+    val vodPlaybackPosMs = (playbackState as? PlaybackState.Playing)?.positionMs
+        ?: (playbackState as? PlaybackState.Paused)?.positionMs
+        ?: 0L
+    val vodPlaybackDurMs = (playbackState as? PlaybackState.Playing)?.durationMs
+        ?: (playbackState as? PlaybackState.Paused)?.durationMs
+        ?: 0L
+    val shouldShowVodAutoNext = isFullscreen &&
+        !isPlayingLive &&
+        currentVodNextEpisode != null &&
+        !isAutoNextDismissed &&
+        (
+            playbackState is PlaybackState.Ended ||
+                (vodPlaybackDurMs > 60_000L && (vodPlaybackDurMs - vodPlaybackPosMs) in 1L..15_000L)
+        )
     val hudPlayPauseRequester = remember { FocusRequester() }
     val hudFavoriteRequester = remember { FocusRequester() }
     val hudTracksRequester = remember { FocusRequester() }
@@ -1109,6 +1184,53 @@ fun TvHomeScreen(
         }
     }
 
+    fun playTvSeriesEpisode(media: MediaDetailUiModel, ep: Episode) {
+        currentPlayingMedia = media
+        lastDetailMediaBeforeVod = media
+        activePlayingEpisodeId = ep.episodeId
+        isAutoNextDismissed = false
+        isPlayingLive = false
+        val epTitle = ep.title.ifBlank { "Episodio ${ep.episodeNumber}" }
+        val meta = TvActiveContentMeta(
+            title = "${media.title}: $epTitle",
+            posterUrl = media.posterUrl,
+            type = ContentType.SERIES,
+            seasonNumber = ep.seasonNumber,
+            episodeNumber = ep.episodeNumber
+        )
+        val epUrl = if (ep.streamUrl.isNotBlank()) {
+            ep.streamUrl
+        } else {
+            StreamUrlResolver.resolve(
+                directUrl = null,
+                source = activeSource,
+                streamId = ep.episodeId,
+                kind = StreamUrlResolver.Kind.SERIES,
+                extension = ep.containerExtension.ifEmpty { "mp4" }
+            )
+        }
+        playVod(epUrl, meta)
+    }
+
+    LaunchedEffect(shouldShowVodAutoNext, currentVodNextEpisode?.episodeId) {
+        if (!shouldShowVodAutoNext) {
+            autoNextCountdown = 10
+            return@LaunchedEffect
+        }
+        autoNextCountdown = 10
+        delay(120L)
+        try { autoNextPlayNowRequester.requestFocus() } catch (_: Exception) {}
+        for (sec in 10 downTo 1) {
+            autoNextCountdown = sec
+            delay(1000L)
+        }
+        val media = currentPlayingMedia
+        val nextEp = currentVodNextEpisode
+        if (media != null && nextEp != null && !isPlayingLive && isFullscreen && !isAutoNextDismissed) {
+            playTvSeriesEpisode(media, nextEp)
+        }
+    }
+
     LaunchedEffect(seekFeedbackText) {
         if (seekFeedbackText != null) {
             delay(1500)
@@ -1292,10 +1414,19 @@ fun TvHomeScreen(
     // Al salir de pantalla completa se detiene por completo (libera red y decodificador).
     LaunchedEffect(isFullscreen) {
         if (!isFullscreen) {
+            val returnDetail = if (!isPlayingLive) lastDetailMediaBeforeVod else null
+            lastDetailMediaBeforeVod = null
+            activeSeriesEpisodesQueue = emptyList()
+            activePlayingEpisodeId = null
+            isAutoNextDismissed = false
             isPlayingLive = false
             playerEngine.stop()
-            delay(150)
-            try { contentFocusRequester.requestFocus() } catch (_: Exception) {}
+            if (returnDetail != null) {
+                activeDetailMedia = returnDetail
+            } else {
+                delay(150)
+                try { contentFocusRequester.requestFocus() } catch (_: Exception) {}
+            }
         }
     }
 
@@ -1691,7 +1822,8 @@ fun TvHomeScreen(
                     playerEngine = playerEngine,
                     modifier = Modifier.fillMaxSize(),
                     resizeMode = if (isPlayingLive) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else vodResizeMode,
-                    isLive = isPlayingLive
+                    isLive = isPlayingLive,
+                    useOrangeSpinner = !isPlayingLive
                 )
             }
         }
@@ -1841,6 +1973,21 @@ fun TvHomeScreen(
                                             onOpenCuratedSection = { activeCuratedSection = it },
                                             onVodMovieClick = { movie -> openVodMovieDetails(movie) },
                                             onSeriesEntityClick = { series -> openSeriesEntityDetails(series) },
+                                            allCleanMovies = remember(movies, hiddenMovieCategories) {
+                                                movies.filter { it.categoryId !in hiddenMovieCategories && it.categoryName !in hiddenMovieCategories }
+                                            },
+                                            allCleanSeries = remember(seriesList, hiddenSeriesCategories) {
+                                                seriesList.filter { it.categoryId !in hiddenSeriesCategories && it.categoryName !in hiddenSeriesCategories }
+                                            },
+                                            allCleanChannels = remember(liveChannels, hiddenLiveCategories) {
+                                                liveChannels.filter { it.categoryId !in hiddenLiveCategories && it.categoryName !in hiddenLiveCategories }
+                                            },
+                                            onEnrichHeroTmdb = onEnrichHeroTmdb,
+                                            onPlatformLiveClick = { ch ->
+                                                val idx = visibleChannels.indexOfFirst { it.streamId == ch.streamId }
+                                                if (idx >= 0) focusedChannelIndex = idx
+                                                selectedTopTab = 2
+                                            },
                                             onChannelClick = { ch ->
                                                 val userT0 = android.os.SystemClock.elapsedRealtime()
                                                 focusedChannelId = ch.id
@@ -2200,247 +2347,159 @@ fun TvHomeScreen(
                         }
 
                         3 -> {
-                            // 🎬 PELÍCULAS EN GRID VERTICAL CON SELECTOR DE CATEGORÍAS
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(start = 32.dp, end = 32.dp, top = 16.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column {
-                                        Text(
-                                            text = "🎬 CATÁLOGO DE PELÍCULAS",
-                                            color = LelouchCyanAccent,
-                                            fontSize = 22.sp,
-                                            fontWeight = FontWeight.Black,
-                                            letterSpacing = 1.sp
-                                        )
-                                        val activeMovieCatCount = remember(vodCategories, dbMovieCount) {
-                                            maxOf(vodCategories.sumOf { it.itemCount }, dbMovieCount)
-                                        }
-                                        Text(
-                                            text = if (activeMovieCatCount > 0) "$activeMovieCatCount películas disponibles • Categoría: $activeMovieCatName" else "Catálogo de películas • Categoría: $activeMovieCatName",
-                                            color = LelouchTextSecondary,
-                                            fontSize = 13.sp
-                                        )
-                                    }
-
-                                    HomeHeaderBar(
-                                        activeSource = activeSource,
-                                        videoInfo = videoInfo,
-                                        playbackState = playbackState,
-                                        onOpenAdmin = { selectedTopTab = 7 },
-                                        onOpenAccountSwitcher = { isAccountSwitcherVisible = true }
-                                    )
-                                }
-
-                                // Barra de Búsqueda de Películas optimizada para TV Box con D-Pad y Voz
-                                Surface(
-                                    onClick = {
-                                        isVoiceSearchRequested = false
-                                        isSearchModalVisible = true
-                                    },
-                                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
-                                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
-                                    colors = ClickableSurfaceDefaults.colors(
-                                        containerColor = Color(0xFF0F172A),
-                                        focusedContainerColor = Color(0xFF1E293B)
-                                    ),
-                                    border = ClickableSurfaceDefaults.border(
-                                        border = Border(BorderStroke(1.dp, Color(0xFF334155))),
-                                        focusedBorder = Border(BorderStroke(2.dp, LelouchCyanAccent))
-                                    ),
+                            // 🎬 PELÍCULAS: HERO CAROUSEL HD + BUSCADOR/MICRÓFONO + GRILLA TODO SCROLLEABLE (SIN CATEGORÍAS NI BANNER FIJO)
+                            val isMovieSearchActive = movieSearchQuery.trim().length >= 2
+                            val heroMoviePool = remember(recentMovies, movies) {
+                                (recentMovies.ifEmpty { movies }).take(8)
+                            }
+                            if (!isMovieSearchActive && pagedMovies.itemCount == 0 && pagedMovies.loadState.refresh !is androidx.paging.LoadState.Loading) {
+                                Box(
                                     modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(bottom = 12.dp)
+                                        .fillMaxSize()
+                                        .padding(horizontal = 32.dp, vertical = 24.dp),
+                                    contentAlignment = Alignment.Center
                                 ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                        verticalAlignment = Alignment.CenterVertically
+                                    Surface(
+                                        onClick = {
+                                            categoryManagerInitialScope = CategoryScope.MOVIES
+                                            isCategoryManagerVisible = true
+                                        },
+                                        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(18.dp)),
+                                        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+                                        colors = ClickableSurfaceDefaults.colors(
+                                            containerColor = Color(0xFF14161F),
+                                            focusedContainerColor = BixOrangeAccent
+                                        ),
+                                        modifier = Modifier.padding(24.dp)
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Search,
-                                            contentDescription = "Buscar Películas",
-                                            tint = LelouchCyanAccent,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(10.dp))
-                                        Text(
-                                            text = "🔍 Buscar en catálogo con teclado o voz (Presiona OK)...",
-                                            color = Color.White,
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text(
-                                                text = "🎤 Voz / Teclado",
-                                                color = LelouchCyanAccent,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                    }
-                                }
-
-                                val isMovieSearchActive = movieSearchQuery.trim().length >= 2
-                                if (!isMovieSearchActive && movieCategoryList.isNotEmpty()) {
-                                    TvCategorySelectorBar(
-                                        categories = movieCategoryList,
-                                        selectedCategoryId = selectedMovieCategoryId,
-                                        onSelectCategory = { selectedMovieCategoryId = it.id },
-                                        firstItemRequester = contentFocusRequester,
-                                        sidebarRequester = sidebarRequesters[3],
-                                        modifier = Modifier.padding(bottom = 12.dp)
-                                    )
-                                } else if (isMovieSearchActive) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(bottom = 12.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text(
-                                            text = if (isMovieSearching) "Buscando '$movieSearchQuery'..." else "Resultados de búsqueda: ${movieSearchResults.size} películas encontradas",
-                                            color = LelouchCyanAccent,
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        Surface(
-                                            onClick = { movieSearchQuery = "" },
-                                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-                                            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
-                                            colors = ClickableSurfaceDefaults.colors(
-                                                containerColor = Color(0xFF1E293B),
-                                                focusedContainerColor = LelouchCyanAccent
-                                            )
+                                        Column(
+                                            modifier = Modifier.padding(horizontal = 32.dp, vertical = 24.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally
                                         ) {
+                                            Text(text = "🎬", fontSize = 36.sp)
+                                            Spacer(modifier = Modifier.height(8.dp))
                                             Text(
-                                                text = "Ver Todo el Catálogo",
+                                                text = "No hay películas disponibles",
                                                 color = Color.White,
-                                                fontSize = 12.sp,
                                                 fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                                fontSize = 18.sp
+                                            )
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text(
+                                                text = "Presiona OK para gestionar listas de películas",
+                                                color = LelouchTextSecondary,
+                                                fontSize = 14.sp
                                             )
                                         }
                                     }
                                 }
+                            } else {
+                                LazyVerticalGrid(
+                                    state = moviesGridState,
+                                    columns = GridCells.Fixed(6),
+                                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(20.dp),
+                                    contentPadding = PaddingValues(start = 32.dp, end = 32.dp, top = 16.dp, bottom = 48.dp),
+                                    modifier = Modifier.fillMaxSize().background(BixDarkBackground)
+                                ) {
+                                    if (!isMovieSearchActive && heroMoviePool.isNotEmpty()) {
+                                        item(span = { GridItemSpan(maxLineSpan) }) {
+                                            TvVodHeroCarousel(
+                                                entries = heroMoviePool.map { mov ->
+                                                    TvHeroCarouselEntry(
+                                                        id = "mov_${mov.streamId}",
+                                                        title = mov.name,
+                                                        subtitle = "DESTACADA • PELÍCULA",
+                                                        rating = mov.rating,
+                                                        year = mov.year,
+                                                        overview = mov.plot,
+                                                        fallbackImageUrl = mov.backdropPath?.ifBlank { null } ?: mov.streamIcon,
+                                                        isSeries = false,
+                                                        onSelect = { openVodMovieDetails(mov) }
+                                                    )
+                                                },
+                                                onEnrichHeroTmdb = onEnrichHeroTmdb,
+                                                sidebarRequester = sidebarRequesters[3],
+                                                playFocusRequester = contentFocusRequester
+                                            )
+                                        }
+                                    }
 
-                                if (isMovieSearchActive) {
-                                    if (movieSearchResults.isEmpty() && !isMovieSearching) {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .padding(bottom = 48.dp),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                Text(text = "🎬", fontSize = 36.sp)
-                                                Spacer(modifier = Modifier.height(8.dp))
+                                    item(span = { GridItemSpan(maxLineSpan) }) {
+                                        TvCatalogSearchAndMicRow(
+                                            placeholder = "Buscar películas con teclado o micrófono...",
+                                            onOpenSearch = {
+                                                isVoiceSearchRequested = false
+                                                isSearchModalVisible = true
+                                            },
+                                            onOpenVoiceMic = {
+                                                isVoiceSearchRequested = true
+                                                isSearchModalVisible = true
+                                            },
+                                            sidebarRequester = sidebarRequesters[3]
+                                        )
+                                    }
+
+                                    if (isMovieSearchActive) {
+                                        item(span = { GridItemSpan(maxLineSpan) }) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
                                                 Text(
-                                                    text = "No se encontraron películas para '$movieSearchQuery'",
-                                                    color = Color.White,
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 18.sp
+                                                    text = if (isMovieSearching) "Buscando '$movieSearchQuery'..." else "Resultados: ${movieSearchResults.size} películas",
+                                                    color = BixOrangeAccent,
+                                                    fontSize = 14.sp,
+                                                    fontWeight = FontWeight.Bold
                                                 )
-                                                Spacer(modifier = Modifier.height(6.dp))
-                                                Text(
-                                                    text = "Prueba con otra palabra o borra el buscador",
-                                                    color = LelouchTextSecondary,
-                                                    fontSize = 14.sp
-                                                )
+                                                Surface(
+                                                    onClick = { movieSearchQuery = "" },
+                                                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                                                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+                                                    colors = ClickableSurfaceDefaults.colors(
+                                                        containerColor = Color(0xFF14161F),
+                                                        focusedContainerColor = BixOrangeAccent
+                                                    )
+                                                ) {
+                                                    Text(
+                                                        text = "Limpiar búsqueda",
+                                                        color = Color.White,
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                                    )
+                                                }
                                             }
                                         }
-                                    } else {
-                                        LazyVerticalGrid(
-                                            columns = GridCells.Fixed(6),
-                                            horizontalArrangement = Arrangement.spacedBy(16.dp),
-                                            verticalArrangement = Arrangement.spacedBy(20.dp),
-                                            contentPadding = PaddingValues(bottom = 48.dp),
-                                            modifier = Modifier.fillMaxSize()
-                                        ) {
+
+                                        if (movieSearchResults.isEmpty() && !isMovieSearching) {
+                                            item(span = { GridItemSpan(maxLineSpan) }) {
+                                                Text(
+                                                    text = "No se encontraron películas para '$movieSearchQuery'",
+                                                    color = LelouchTextSecondary,
+                                                    fontSize = 15.sp,
+                                                    modifier = Modifier.padding(vertical = 24.dp)
+                                                )
+                                            }
+                                        } else {
                                             items(
                                                 count = movieSearchResults.size,
                                                 key = { idx -> "search_movie_${movieSearchResults[idx].id}_$idx" }
                                             ) { idx ->
                                                 val movie = movieSearchResults[idx]
                                                 val isFirstColumn = (idx % 6 == 0)
-                                                val cardModifier = if (isFirstColumn) {
-                                                    Modifier.focusProperties { left = sidebarRequesters[3] }
-                                                } else {
-                                                    Modifier
-                                                }
-
                                                 TvPosterCard(
                                                     title = movie.name,
                                                     posterUrl = movie.streamIcon,
                                                     rating = movie.rating ?: 0.0,
                                                     year = movie.year,
-                                                    onClick = {
-                                                        openVodMovieDetails(movie)
-                                                    },
-                                                    modifier = cardModifier
+                                                    onClick = { openVodMovieDetails(movie) },
+                                                    modifier = if (isFirstColumn) Modifier.focusProperties { left = sidebarRequesters[3] } else Modifier
                                                 )
                                             }
                                         }
-                                    }
-                                } else
-
-                                if (pagedMovies.itemCount == 0 && pagedMovies.loadState.refresh !is androidx.paging.LoadState.Loading) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .padding(bottom = 48.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Surface(
-                                            onClick = {
-                                                categoryManagerInitialScope = CategoryScope.MOVIES
-                                                isCategoryManagerVisible = true
-                                            },
-                                            shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(18.dp)),
-                                            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
-                                            colors = ClickableSurfaceDefaults.colors(
-                                                containerColor = LelouchSurfaceVariant.copy(alpha = 0.85f),
-                                                focusedContainerColor = LelouchCyanAccent
-                                            ),
-                                            modifier = Modifier.padding(24.dp)
-                                        ) {
-                                            Column(
-                                                modifier = Modifier.padding(horizontal = 32.dp, vertical = 24.dp),
-                                                horizontalAlignment = Alignment.CenterHorizontally
-                                            ) {
-                                                Text(text = "🎬", fontSize = 36.sp)
-                                                Spacer(modifier = Modifier.height(8.dp))
-                                                Text(
-                                                    text = "No hay películas disponibles",
-                                                    color = Color.White,
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 18.sp
-                                                )
-                                                Spacer(modifier = Modifier.height(6.dp))
-                                                Text(
-                                                    text = "Presiona OK para gestionar categorías de películas",
-                                                    color = LelouchTextSecondary,
-                                                    fontSize = 14.sp
-                                                )
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    LazyVerticalGrid(
-                                        state = moviesGridState,
-                                        columns = GridCells.Fixed(6),
-                                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                                        verticalArrangement = Arrangement.spacedBy(20.dp),
-                                        contentPadding = PaddingValues(bottom = 48.dp),
-                                        modifier = Modifier.fillMaxSize()
-                                    ) {
+                                    } else {
                                         items(
                                             count = pagedMovies.itemCount,
                                             key = pagedMovies.itemKey { it.id },
@@ -2448,12 +2507,6 @@ fun TvHomeScreen(
                                         ) { idx ->
                                             val movie = pagedMovies[idx] ?: return@items
                                             val isFirstColumn = (idx % 6 == 0)
-                                            val cardModifier = when {
-                                                idx == 0 && !isMovieSearchActive -> Modifier.focusRequester(contentFocusRequester).focusProperties { left = sidebarRequesters[3] }
-                                                isFirstColumn -> Modifier.focusProperties { left = sidebarRequesters[3] }
-                                                else -> Modifier
-                                            }
-
                                             TvPosterCard(
                                                 title = movie.name,
                                                 posterUrl = movie.streamIcon,
@@ -2463,10 +2516,8 @@ fun TvHomeScreen(
                                                     focusedMovie = movie
                                                     focusedMovieId = movie.id
                                                 },
-                                                onClick = {
-                                                    openMovieDetails(movie)
-                                                },
-                                                modifier = cardModifier
+                                                onClick = { openMovieDetails(movie) },
+                                                modifier = if (isFirstColumn) Modifier.focusProperties { left = sidebarRequesters[3] } else Modifier
                                             )
                                         }
                                     }
@@ -2475,180 +2526,117 @@ fun TvHomeScreen(
                         }
 
                         4 -> {
-                            // 📺 SERIES EN GRID VERTICAL CON CATÁLOGO COMPLETO UNIFICADO
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(start = 32.dp, end = 32.dp, top = 16.dp)
-                            ) {
-                                val activeSeriesCatCount = remember(seriesCategories) {
-                                    seriesCategories.sumOf { it.itemCount }
-                                }
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column {
-                                        Text(
-                                            text = "📺 SERIES & TEMPORADAS",
-                                            color = LelouchCyanAccent,
-                                            fontSize = 22.sp,
-                                            fontWeight = FontWeight.Black,
-                                            letterSpacing = 1.sp
-                                        )
-                                        Text(
-                                            text = if (activeSeriesCatCount > 0) "$activeSeriesCatCount series completas • Categoría: $activeSeriesCatName" else "Catálogo de series • Categoría: $activeSeriesCatName",
-                                            color = LelouchTextSecondary,
-                                            fontSize = 13.sp
-                                        )
-                                    }
-
-                                    HomeHeaderBar(
-                                        activeSource = activeSource,
-                                        videoInfo = videoInfo,
-                                        playbackState = playbackState,
-                                        onOpenAdmin = { selectedTopTab = 7 },
-                                        onOpenAccountSwitcher = { isAccountSwitcherVisible = true }
-                                    )
-                                }
-
-                                // Barra de Búsqueda de Series optimizada para TV Box con D-Pad y Voz
-                                Surface(
-                                    onClick = {
-                                        isVoiceSearchRequested = false
-                                        isSearchModalVisible = true
-                                    },
-                                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
-                                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
-                                    colors = ClickableSurfaceDefaults.colors(
-                                        containerColor = Color(0xFF0F172A),
-                                        focusedContainerColor = Color(0xFF1E293B)
-                                    ),
-                                    border = ClickableSurfaceDefaults.border(
-                                        border = Border(BorderStroke(1.dp, Color(0xFF334155))),
-                                        focusedBorder = Border(BorderStroke(2.dp, LelouchCyanAccent))
-                                    ),
+                            // 📺 SERIES: HERO CAROUSEL HD + BUSCADOR/MICRÓFONO + GRILLA TODO SCROLLEABLE (SIN CATEGORÍAS NI BANNER FIJO)
+                            val heroSeriesPool = remember(featuredSeries, seriesList) {
+                                (featuredSeries.ifEmpty { seriesList }).take(8)
+                            }
+                            if (pagedSeries.itemCount == 0 && pagedSeries.loadState.refresh !is androidx.paging.LoadState.Loading) {
+                                Box(
                                     modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(bottom = 12.dp)
+                                        .fillMaxSize()
+                                        .padding(horizontal = 32.dp, vertical = 24.dp),
+                                    contentAlignment = Alignment.Center
                                 ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                        verticalAlignment = Alignment.CenterVertically
+                                    Surface(
+                                        onClick = {
+                                            categoryManagerInitialScope = CategoryScope.SERIES
+                                            isCategoryManagerVisible = true
+                                        },
+                                        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(18.dp)),
+                                        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+                                        colors = ClickableSurfaceDefaults.colors(
+                                            containerColor = Color(0xFF14161F),
+                                            focusedContainerColor = BixOrangeAccent
+                                        ),
+                                        modifier = Modifier.padding(24.dp)
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Search,
-                                            contentDescription = "Buscar Series",
-                                            tint = LelouchCyanAccent,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(10.dp))
-                                        Text(
-                                            text = "🔍 Buscar series completas con teclado o voz (Presiona OK)...",
-                                            color = LelouchTextMuted,
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text(
-                                                text = "🎤 Voz / Teclado",
-                                                color = LelouchCyanAccent,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                    }
-                                }
-
-                                if (seriesCategoryList.isNotEmpty()) {
-                                    TvCategorySelectorBar(
-                                        categories = seriesCategoryList,
-                                        selectedCategoryId = selectedSeriesCategoryId,
-                                        onSelectCategory = { selectedSeriesCategoryId = it.id },
-                                        firstItemRequester = contentFocusRequester,
-                                        sidebarRequester = sidebarRequesters[4],
-                                        modifier = Modifier.padding(bottom = 12.dp)
-                                    )
-                                }
-
-                                if (pagedSeries.itemCount == 0 && pagedSeries.loadState.refresh !is androidx.paging.LoadState.Loading) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .padding(bottom = 48.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Surface(
-                                            onClick = {
-                                                categoryManagerInitialScope = CategoryScope.SERIES
-                                                isCategoryManagerVisible = true
-                                            },
-                                            shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(18.dp)),
-                                            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
-                                            colors = ClickableSurfaceDefaults.colors(
-                                                containerColor = LelouchSurfaceVariant.copy(alpha = 0.85f),
-                                                focusedContainerColor = LelouchCyanAccent
-                                            ),
-                                            modifier = Modifier.padding(24.dp)
+                                        Column(
+                                            modifier = Modifier.padding(horizontal = 32.dp, vertical = 24.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally
                                         ) {
-                                            Column(
-                                                modifier = Modifier.padding(horizontal = 32.dp, vertical = 24.dp),
-                                                horizontalAlignment = Alignment.CenterHorizontally
-                                            ) {
-                                                Text(text = "📺", fontSize = 36.sp)
-                                                Spacer(modifier = Modifier.height(8.dp))
-                                                Text(
-                                                    text = "No hay series disponibles",
-                                                    color = Color.White,
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 18.sp
-                                                )
-                                                Spacer(modifier = Modifier.height(6.dp))
-                                                Text(
-                                                    text = "Presiona OK para gestionar categorías de series",
-                                                    color = LelouchTextSecondary,
-                                                    fontSize = 14.sp
-                                                )
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    LazyVerticalGrid(
-                                        state = seriesGridState,
-                                        columns = GridCells.Fixed(6),
-                                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                                        verticalArrangement = Arrangement.spacedBy(20.dp),
-                                        contentPadding = PaddingValues(bottom = 48.dp),
-                                        modifier = Modifier.fillMaxSize()
-                                    ) {
-                                        items(
-                                            count = pagedSeries.itemCount,
-                                            key = pagedSeries.itemKey { it.id },
-                                            contentType = pagedSeries.itemContentType { "series" }
-                                        ) { idx ->
-                                            val series = pagedSeries[idx] ?: return@items
-                                            val isFirstColumn = (idx % 6 == 0)
-                                            val cardModifier = when {
-                                                idx == 0 -> Modifier.focusRequester(contentFocusRequester).focusProperties { left = sidebarRequesters[4] }
-                                                isFirstColumn -> Modifier.focusProperties { left = sidebarRequesters[4] }
-                                                else -> Modifier
-                                            }
-
-                                            TvPosterCard(
-                                                title = series.name,
-                                                posterUrl = series.cover,
-                                                rating = series.rating,
-                                                year = series.releaseDate?.take(4),
-                                                onFocused = {
-                                                    focusedHeroSeriesModel = series
-                                                    focusedSeriesId = series.id
-                                                },
-                                                onClick = { openSeriesDetails(series) },
-                                                modifier = cardModifier
+                                            Text(text = "📺", fontSize = 36.sp)
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Text(
+                                                text = "No hay series disponibles",
+                                                color = Color.White,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 18.sp
+                                            )
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text(
+                                                text = "Presiona OK para gestionar listas de series",
+                                                color = LelouchTextSecondary,
+                                                fontSize = 14.sp
                                             )
                                         }
+                                    }
+                                }
+                            } else {
+                                LazyVerticalGrid(
+                                    state = seriesGridState,
+                                    columns = GridCells.Fixed(6),
+                                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(20.dp),
+                                    contentPadding = PaddingValues(start = 32.dp, end = 32.dp, top = 16.dp, bottom = 48.dp),
+                                    modifier = Modifier.fillMaxSize().background(BixDarkBackground)
+                                ) {
+                                    if (heroSeriesPool.isNotEmpty()) {
+                                        item(span = { GridItemSpan(maxLineSpan) }) {
+                                            TvVodHeroCarousel(
+                                                entries = heroSeriesPool.map { ser ->
+                                                    TvHeroCarouselEntry(
+                                                        id = "ser_${ser.seriesId}",
+                                                        title = ser.name,
+                                                        subtitle = "DESTACADA • SERIE",
+                                                        rating = ser.rating5based ?: ser.rating,
+                                                        year = ser.releaseDate?.take(4),
+                                                        overview = ser.plot,
+                                                        fallbackImageUrl = ser.backdropPath?.ifBlank { null } ?: ser.cover,
+                                                        isSeries = true,
+                                                        onSelect = { openSeriesDetails(ser) }
+                                                    )
+                                                },
+                                                onEnrichHeroTmdb = onEnrichHeroTmdb,
+                                                sidebarRequester = sidebarRequesters[4],
+                                                playFocusRequester = contentFocusRequester
+                                            )
+                                        }
+                                    }
+
+                                    item(span = { GridItemSpan(maxLineSpan) }) {
+                                        TvCatalogSearchAndMicRow(
+                                            placeholder = "Buscar series con teclado o micrófono...",
+                                            onOpenSearch = {
+                                                isVoiceSearchRequested = false
+                                                isSearchModalVisible = true
+                                            },
+                                            onOpenVoiceMic = {
+                                                isVoiceSearchRequested = true
+                                                isSearchModalVisible = true
+                                            },
+                                            sidebarRequester = sidebarRequesters[4]
+                                        )
+                                    }
+
+                                    items(
+                                        count = pagedSeries.itemCount,
+                                        key = pagedSeries.itemKey { it.id },
+                                        contentType = pagedSeries.itemContentType { "series" }
+                                    ) { idx ->
+                                        val series = pagedSeries[idx] ?: return@items
+                                        val isFirstColumn = (idx % 6 == 0)
+                                        TvPosterCard(
+                                            title = series.name,
+                                            posterUrl = series.cover,
+                                            rating = series.rating,
+                                            year = series.releaseDate?.take(4),
+                                            onFocused = {
+                                                focusedHeroSeriesModel = series
+                                                focusedSeriesId = series.id
+                                            },
+                                            onClick = { openSeriesDetails(series) },
+                                            modifier = if (isFirstColumn) Modifier.focusProperties { left = sidebarRequesters[4] } else Modifier
+                                        )
                                     }
                                 }
                             }
@@ -3693,7 +3681,7 @@ fun TvHomeScreen(
                                         else -> "DETENIDO"
                                     }
                                     val statusBadgeBg = when (playbackState) {
-                                        is PlaybackState.Playing -> LelouchCyanAccent
+                                        is PlaybackState.Playing -> BixOrangeAccent
                                         is PlaybackState.Buffering -> Color(0xFFFFB300)
                                         is PlaybackState.Error -> Color(0xFFFF5252)
                                         else -> Color(0xFF888888)
@@ -3733,14 +3721,14 @@ fun TvHomeScreen(
                             Column(horizontalAlignment = Alignment.End) {
                                 Text(
                                     text = videoInfo.resolutionLabel.ifEmpty { "1080p FHD" },
-                                    color = LelouchCyanAccent,
+                                    color = BixOrangeAccent,
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     text = String.format("%02d:%02d / %02d:%02d", posMin, posSec, durMin, durSec),
-                                    color = if (pendingSeekTargetMs != null) LelouchCyanAccent else LelouchTextSecondary,
+                                    color = if (pendingSeekTargetMs != null) BixOrangeAccent else LelouchTextSecondary,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.SemiBold
                                 )
@@ -3763,7 +3751,7 @@ fun TvHomeScreen(
                                     .fillMaxWidth(progress)
                                     .fillMaxHeight()
                                     .clip(RoundedCornerShape(3.dp))
-                                    .background(LelouchCyanAccent)
+                                    .background(BixOrangeAccent)
                             )
                         }
 
@@ -3789,7 +3777,7 @@ fun TvHomeScreen(
                                 scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
                                 colors = ClickableSurfaceDefaults.colors(
                                     containerColor = LelouchSurfaceVariant,
-                                    focusedContainerColor = LelouchCyanAccent
+                                    focusedContainerColor = BixOrangeAccent
                                 ),
                                 border = ClickableSurfaceDefaults.border(
                                     focusedBorder = Border(BorderStroke(2.dp, Color.White))
@@ -3824,11 +3812,11 @@ fun TvHomeScreen(
                                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
                                 scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
                                 colors = ClickableSurfaceDefaults.colors(
-                                    containerColor = LelouchCyanAccent,
+                                    containerColor = BixOrangeAccent,
                                     focusedContainerColor = Color.White
                                 ),
                                 border = ClickableSurfaceDefaults.border(
-                                    focusedBorder = Border(BorderStroke(2.dp, LelouchCyanAccent))
+                                    focusedBorder = Border(BorderStroke(2.dp, BixOrangeAccent))
                                 ),
                                 modifier = Modifier.focusRequester(hudPlayPauseRequester)
                             ) {
@@ -3859,7 +3847,7 @@ fun TvHomeScreen(
                                 scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
                                 colors = ClickableSurfaceDefaults.colors(
                                     containerColor = LelouchSurfaceVariant,
-                                    focusedContainerColor = LelouchCyanAccent
+                                    focusedContainerColor = BixOrangeAccent
                                 ),
                                 border = ClickableSurfaceDefaults.border(
                                     focusedBorder = Border(BorderStroke(2.dp, Color.White))
@@ -3885,6 +3873,44 @@ fun TvHomeScreen(
                                 }
                             }
 
+                            if (currentVodNextEpisode != null && currentPlayingMedia != null) {
+                                Surface(
+                                    onClick = {
+                                        isHudVisible = false
+                                        playTvSeriesEpisode(currentPlayingMedia!!, currentVodNextEpisode)
+                                    },
+                                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+                                    colors = ClickableSurfaceDefaults.colors(
+                                        containerColor = Color(0xFF14161F),
+                                        focusedContainerColor = BixOrangeAccent
+                                    ),
+                                    border = ClickableSurfaceDefaults.border(
+                                        border = Border(BorderStroke(1.dp, BixOrangeAccent)),
+                                        focusedBorder = Border(BorderStroke(2.dp, Color.White))
+                                    )
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.FastForward,
+                                            contentDescription = "Siguiente episodio",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(17.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "Sig. E${currentVodNextEpisode.episodeNumber}",
+                                            color = Color.White,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+
                             // ❤️ Favorito VOD
                             val isVodFav = currentPlayingMedia?.isFavorite == true
                             Surface(
@@ -3907,7 +3933,7 @@ fun TvHomeScreen(
                                 scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
                                 colors = ClickableSurfaceDefaults.colors(
                                     containerColor = if (isVodFav) Color(0xFFFF4081).copy(alpha = 0.25f) else LelouchSurfaceVariant,
-                                    focusedContainerColor = if (isVodFav) Color(0xFFFF4081) else LelouchCyanAccent
+                                    focusedContainerColor = if (isVodFav) Color(0xFFFF4081) else BixOrangeAccent
                                 ),
                                 border = ClickableSurfaceDefaults.border(
                                     focusedBorder = Border(BorderStroke(2.dp, Color.White))
@@ -3943,7 +3969,7 @@ fun TvHomeScreen(
                                 scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
                                 colors = ClickableSurfaceDefaults.colors(
                                     containerColor = LelouchSurfaceVariant,
-                                    focusedContainerColor = LelouchCyanAccent
+                                    focusedContainerColor = BixOrangeAccent
                                 ),
                                 border = ClickableSurfaceDefaults.border(
                                     focusedBorder = Border(BorderStroke(2.dp, Color.White))
@@ -4004,6 +4030,102 @@ fun TvHomeScreen(
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // CAPA 5.3: Auto-Next Episodio VOD con cuenta regresiva D-Pad (solo VOD/Series)
+        if (shouldShowVodAutoNext && currentVodNextEpisode != null && currentPlayingMedia != null) {
+            val nextEp = currentVodNextEpisode
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(36.dp),
+                contentAlignment = Alignment.BottomEnd
+            ) {
+                Column(
+                    modifier = Modifier
+                        .width(380.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color(0xF0090A0E))
+                        .border(2.dp, BixOrangeAccent, RoundedCornerShape(16.dp))
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "SIGUIENTE EPISODIO EN ${autoNextCountdown}s",
+                        color = BixOrangeAccent,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 1.sp
+                    )
+                    Text(
+                        text = "T${nextEp.seasonNumber} E${nextEp.episodeNumber} · ${nextEp.title.ifBlank { "Episodio ${nextEp.episodeNumber}" }}",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Surface(
+                            onClick = { playTvSeriesEpisode(currentPlayingMedia!!, nextEp) },
+                            modifier = Modifier.focusRequester(autoNextPlayNowRequester),
+                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+                            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
+                            colors = ClickableSurfaceDefaults.colors(
+                                containerColor = BixOrangeAccent,
+                                focusedContainerColor = Color.White
+                            ),
+                            border = ClickableSurfaceDefaults.border(
+                                focusedBorder = Border(BorderStroke(2.dp, BixOrangeAccent))
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = "Ver ahora (${autoNextCountdown}s)",
+                                    color = Color.Black,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                        }
+                        Surface(
+                            onClick = {
+                                isAutoNextDismissed = true
+                                try { playerFocusRequester.requestFocus() } catch (_: Exception) {}
+                            },
+                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+                            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
+                            colors = ClickableSurfaceDefaults.colors(
+                                containerColor = Color(0xFF14161F),
+                                focusedContainerColor = Color.White
+                            ),
+                            border = ClickableSurfaceDefaults.border(
+                                border = Border(BorderStroke(1.dp, Color(0xFF252938))),
+                                focusedBorder = Border(BorderStroke(2.dp, BixOrangeAccent))
+                            )
+                        ) {
+                            var isCancelFocused by remember { mutableStateOf(false) }
+                            Box(
+                                modifier = Modifier
+                                    .onFocusChanged { isCancelFocused = it.isFocused }
+                                    .padding(horizontal = 16.dp, vertical = 9.dp)
+                            ) {
+                                Text(
+                                    text = "Cancelar",
+                                    color = if (isCancelFocused) Color.Black else Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                         }
                     }
@@ -4194,37 +4316,42 @@ fun TvHomeScreen(
                 onPlayClick = { episodeId ->
                     val media = activeDetailMedia ?: return@TvMediaDetailModal
                     currentPlayingMedia = media
+                    lastDetailMediaBeforeVod = media
                     isPlayingLive = false
                     if (media.isSeries) {
-                        val ep = (if (episodeId != null) media.episodes.find { it.episodeId == episodeId } else null)
-                            ?: media.episodes.firstOrNull()
-                        val sTitle = media.title
-                        val epTitle = ep?.title ?: "Episodio 1"
-                        currentPlayingTitle = "$sTitle: $epTitle"
-                        val meta = TvActiveContentMeta(
-                            title = "$sTitle: $epTitle",
-                            posterUrl = media.posterUrl,
-                            type = ContentType.SERIES,
-                            seasonNumber = ep?.seasonNumber,
-                            episodeNumber = ep?.episodeNumber
-                        )
-                        if (ep != null && ep.streamUrl.isNotEmpty()) {
-                            playVod(ep.streamUrl, meta)
+                        val orderedEps = media.episodes.sortedWith(compareBy({ it.seasonNumber }, { it.episodeNumber }))
+                        activeSeriesEpisodesQueue = orderedEps
+                        val ep = (if (episodeId != null) orderedEps.find { it.episodeId == episodeId } else null)
+                            ?: orderedEps.firstOrNull()
+                        if (ep != null) {
+                            playTvSeriesEpisode(media, ep)
                         } else {
-                            // FASE 33: el resolvedor decide; en fuentes M3U devuelve "" en vez
-                            // de una URL de Vercel que devolvería 404.
-                            val targetId = ep?.episodeId ?: episodeId ?: media.id
-                            val ext = ep?.containerExtension?.ifEmpty { "mp4" } ?: "mp4"
+                            activePlayingEpisodeId = episodeId
+                            isAutoNextDismissed = false
+                            val sTitle = media.title
+                            val epTitle = "Episodio 1"
+                            currentPlayingTitle = "$sTitle: $epTitle"
+                            val meta = TvActiveContentMeta(
+                                title = "$sTitle: $epTitle",
+                                posterUrl = media.posterUrl,
+                                type = ContentType.SERIES,
+                                seasonNumber = 1,
+                                episodeNumber = 1
+                            )
+                            val targetId = episodeId ?: media.id
                             val fallbackUrl = StreamUrlResolver.resolve(
                                 directUrl = null,
                                 source = activeSource,
                                 streamId = targetId,
                                 kind = StreamUrlResolver.Kind.SERIES,
-                                extension = ext
+                                extension = "mp4"
                             )
                             playVod(fallbackUrl, meta)
                         }
                     } else {
+                        activeSeriesEpisodesQueue = emptyList()
+                        activePlayingEpisodeId = null
+                        isAutoNextDismissed = false
                         currentPlayingTitle = media.title
                         val ext = media.containerExtension.ifEmpty { "mp4" }
                         val movieUrl = StreamUrlResolver.resolve(
@@ -5180,6 +5307,299 @@ private fun TvDnsSelectorModal(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+
+private data class TvHeroCarouselEntry(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val rating: Double?,
+    val year: String?,
+    val overview: String?,
+    val fallbackImageUrl: String?,
+    val isSeries: Boolean,
+    val onSelect: () -> Unit
+)
+
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class)
+@Composable
+private fun TvVodHeroCarousel(
+    entries: List<TvHeroCarouselEntry>,
+    onEnrichHeroTmdb: (suspend (title: String, isSeries: Boolean, year: String?) -> com.lelouch.core.model.TmdbHeroMatch?)?,
+    sidebarRequester: FocusRequester,
+    playFocusRequester: FocusRequester
+) {
+    if (entries.isEmpty()) return
+    var currentIndex by remember(entries.size) { mutableIntStateOf(0) }
+    val safeIndex = currentIndex.coerceIn(0, entries.lastIndex)
+    val current = entries[safeIndex]
+    val tmdbMap = remember { mutableStateMapOf<String, com.lelouch.core.model.TmdbHeroMatch?>() }
+
+    LaunchedEffect(current.id, onEnrichHeroTmdb) {
+        if (onEnrichHeroTmdb != null && !tmdbMap.containsKey(current.id)) {
+            tmdbMap[current.id] = onEnrichHeroTmdb(current.title, current.isSeries, current.year)
+        }
+    }
+
+    LaunchedEffect(entries.size) {
+        if (entries.size > 1) {
+            while (true) {
+                delay(6500L)
+                currentIndex = (currentIndex + 1) % entries.size
+            }
+        }
+    }
+
+    val tmdb = tmdbMap[current.id]
+    val heroImg = tmdb?.backdropUrl?.ifBlank { null }
+        ?: tmdb?.posterUrl?.ifBlank { null }
+        ?: current.fallbackImageUrl
+    val year = tmdb?.year?.ifBlank { null } ?: current.year
+    val rating = tmdb?.rating?.takeIf { it > 0.0 } ?: current.rating
+    val overview = tmdb?.overview?.ifBlank { null } ?: current.overview
+
+    val nextBtnRequester = remember { FocusRequester() }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(250.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0xFF14161F))
+            .border(1.dp, Color(0xFF252938), RoundedCornerShape(16.dp))
+    ) {
+        if (!heroImg.isNullOrBlank()) {
+            AsyncImage(
+                model = heroImg,
+                contentDescription = current.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.horizontalGradient(
+                        listOf(
+                            Color(0xFF090A0E).copy(alpha = 0.95f),
+                            Color(0xFF090A0E).copy(alpha = 0.65f),
+                            Color.Transparent
+                        )
+                    )
+                )
+        )
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .fillMaxWidth(0.62f)
+                .padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(BixOrangeAccent.copy(alpha = 0.22f))
+                        .border(1.dp, BixOrangeAccent, RoundedCornerShape(6.dp))
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                ) {
+                    Text(
+                        text = current.subtitle,
+                        color = BixOrangeAccent,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                }
+                if (rating != null && rating > 0.0) {
+                    Text("★ %.1f".format(rating), color = Color(0xFFFFD700), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+                if (!year.isNullOrBlank()) {
+                    Text(year, color = LelouchTextSecondary, fontSize = 12.sp)
+                }
+            }
+
+            Text(
+                text = current.title,
+                color = Color.White,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Black,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            if (!overview.isNullOrBlank()) {
+                Text(
+                    text = overview,
+                    color = Color.White.copy(alpha = 0.8f),
+                    fontSize = 12.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Spacer(Modifier.height(4.dp))
+
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Surface(
+                    onClick = current.onSelect,
+                    modifier = Modifier
+                        .focusRequester(playFocusRequester)
+                        .focusProperties {
+                            left = sidebarRequester
+                            if (entries.size > 1) right = nextBtnRequester
+                        },
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(22.dp)),
+                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = BixOrangeAccent,
+                        focusedContainerColor = Color.White
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Ver Ahora", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                    }
+                }
+
+                if (entries.size > 1) {
+                    Surface(
+                        onClick = { currentIndex = (currentIndex + 1) % entries.size },
+                        modifier = Modifier
+                            .focusRequester(nextBtnRequester)
+                            .focusProperties { left = playFocusRequester },
+                        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(22.dp)),
+                        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+                        colors = ClickableSurfaceDefaults.colors(
+                            containerColor = Color(0xFF14161F),
+                            focusedContainerColor = BixOrangeAccent
+                        ),
+                        border = ClickableSurfaceDefaults.border(
+                            border = Border(BorderStroke(1.dp, Color(0xFF252938))),
+                            focusedBorder = Border(BorderStroke(2.dp, Color.White))
+                        )
+                    ) {
+                        Text(
+                            text = "Siguiente →",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        if (entries.size > 1) {
+            Row(
+                modifier = Modifier.align(Alignment.BottomEnd).padding(18.dp),
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                entries.indices.forEach { idx ->
+                    val active = idx == safeIndex
+                    Box(
+                        modifier = Modifier
+                            .height(5.dp)
+                            .width(if (active) 20.dp else 6.dp)
+                            .clip(CircleShape)
+                            .background(if (active) BixOrangeAccent else Color.White.copy(alpha = 0.35f))
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class)
+@Composable
+private fun TvCatalogSearchAndMicRow(
+    placeholder: String,
+    onOpenSearch: () -> Unit,
+    onOpenVoiceMic: () -> Unit,
+    sidebarRequester: FocusRequester
+) {
+    val searchRequester = remember { FocusRequester() }
+    val micRequester = remember { FocusRequester() }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Surface(
+            onClick = onOpenSearch,
+            modifier = Modifier
+                .weight(1f)
+                .focusRequester(searchRequester)
+                .focusProperties {
+                    left = sidebarRequester
+                    right = micRequester
+                },
+            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
+            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+            colors = ClickableSurfaceDefaults.colors(
+                containerColor = Color(0xFF14161F),
+                focusedContainerColor = Color(0xFF1E202B)
+            ),
+            border = ClickableSurfaceDefaults.border(
+                border = Border(BorderStroke(1.dp, Color(0xFF252938))),
+                focusedBorder = Border(BorderStroke(2.dp, BixOrangeAccent))
+            )
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Default.Search, contentDescription = "Buscar", tint = BixOrangeAccent, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = placeholder,
+                    color = LelouchTextSecondary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+
+        Surface(
+            onClick = onOpenVoiceMic,
+            modifier = Modifier
+                .focusRequester(micRequester)
+                .focusProperties { left = searchRequester },
+            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
+            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
+            colors = ClickableSurfaceDefaults.colors(
+                containerColor = BixOrangeAccent.copy(alpha = 0.22f),
+                focusedContainerColor = BixOrangeAccent
+            ),
+            border = ClickableSurfaceDefaults.border(
+                border = Border(BorderStroke(1.dp, BixOrangeAccent)),
+                focusedBorder = Border(BorderStroke(2.dp, Color.White))
+            )
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(Icons.Default.Mic, contentDescription = "Micrófono del control", tint = Color.White, modifier = Modifier.size(20.dp))
+                Text("Micrófono", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Black)
             }
         }
     }

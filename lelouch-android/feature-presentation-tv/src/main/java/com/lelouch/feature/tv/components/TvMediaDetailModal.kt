@@ -3,17 +3,21 @@ package com.lelouch.feature.tv.components
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -30,6 +34,9 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -100,31 +107,38 @@ fun TvMediaDetailModal(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
+        val clipboardManager = LocalClipboardManager.current
+        val context = LocalContext.current
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(LelouchBackground.copy(alpha = 0.95f))
+                .background(Color(0xFF090A0E))
         ) {
-            // Fondo cinematográfico con Backdrop
-            if (!media.backdropUrl.isNullOrBlank()) {
+            // Fondo cinematográfico full-bleed con Backdrop HD
+            val heroBgUrl = media.backdropUrl?.takeIf { it.isNotBlank() } ?: media.posterUrl
+            if (!heroBgUrl.isNullOrBlank()) {
                 AsyncImage(
-                    model = media.backdropUrl,
+                    model = heroBgUrl,
                     contentDescription = null,
                     modifier = Modifier
                         .fillMaxSize()
-                        .alpha(0.35f),
+                        .alpha(0.42f),
                     contentScale = ContentScale.Crop
                 )
             }
 
-            // Vignette Oscura para contraste y legibilidad
+            // Viñeta oscura cinematográfica estilo móvil unificado
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(
-                        Brush.radialGradient(
-                            colors = listOf(Color.Transparent, LelouchBackground.copy(alpha = 0.95f)),
-                            radius = 1200f
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color(0x99090A0E),
+                                Color(0xCC090A0E),
+                                Color(0xFF090A0E)
+                            )
                         )
                     )
             )
@@ -132,46 +146,118 @@ fun TvMediaDetailModal(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 48.dp, vertical = 32.dp)
+                    .padding(horizontal = 48.dp, vertical = 28.dp)
             ) {
-                // Fila Superior: Botón Cerrar (Compatible con mando Xiaomi)
+                // Botones flotantes D-Pad sobre el Hero (Atrás izquierda · Compartir & Favoritos derecha)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Surface(
                         onClick = onDismiss,
-                        shape = ClickableSurfaceDefaults.shape(
-                            shape = RoundedCornerShape(8.dp),
-                            focusedShape = RoundedCornerShape(8.dp)
-                        ),
+                        modifier = Modifier.size(44.dp),
+                        shape = ClickableSurfaceDefaults.shape(shape = CircleShape, focusedShape = CircleShape),
+                        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.1f),
                         colors = ClickableSurfaceDefaults.colors(
-                            containerColor = LelouchSurface,
+                            containerColor = Color(0xCC14161F),
                             focusedContainerColor = Color.White
                         ),
                         border = ClickableSurfaceDefaults.border(
-                            border = Border(androidx.compose.foundation.BorderStroke(1.dp, LelouchBorder)),
-                            focusedBorder = Border(androidx.compose.foundation.BorderStroke(2.dp, LelouchCyanAccent))
+                            border = Border(BorderStroke(1.dp, Color(0xFF252938))),
+                            focusedBorder = Border(BorderStroke(2.dp, BixOrangeAccent))
                         )
                     ) {
-                        var isCloseFocused by remember { mutableStateOf(false) }
+                        var isBackFocused by remember { mutableStateOf(false) }
                         Box(
                             modifier = Modifier
-                                .onFocusChanged { isCloseFocused = it.isFocused }
-                                .padding(8.dp)
+                                .fillMaxSize()
+                                .onFocusChanged { isBackFocused = it.isFocused },
+                            contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Cerrar",
-                                tint = if (isCloseFocused) Color.Black else Color.White
+                                imageVector = Icons.Default.ArrowBack,
+                                contentDescription = "Atrás",
+                                tint = if (isBackFocused) Color.Black else Color.White,
+                                modifier = Modifier.size(20.dp)
                             )
+                        }
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Surface(
+                            onClick = {
+                                val sharePayload = buildString {
+                                    append(media.title)
+                                    if (!media.year.isNullOrBlank()) append(" (${media.year})")
+                                    if (!media.streamUrl.isNullOrBlank()) append("\n${media.streamUrl}")
+                                }
+                                clipboardManager.setText(AnnotatedString(sharePayload))
+                                android.widget.Toast.makeText(context, "Enlace copiado", android.widget.Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.size(44.dp),
+                            shape = ClickableSurfaceDefaults.shape(shape = CircleShape, focusedShape = CircleShape),
+                            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.1f),
+                            colors = ClickableSurfaceDefaults.colors(
+                                containerColor = Color(0xCC14161F),
+                                focusedContainerColor = BixOrangeAccent
+                            ),
+                            border = ClickableSurfaceDefaults.border(
+                                border = Border(BorderStroke(1.dp, Color(0xFF252938))),
+                                focusedBorder = Border(BorderStroke(2.dp, Color.White))
+                            )
+                        ) {
+                            var isShareFocused by remember { mutableStateOf(false) }
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .onFocusChanged { isShareFocused = it.isFocused },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Share,
+                                    contentDescription = "Compartir",
+                                    tint = if (isShareFocused) Color.Black else Color.White,
+                                    modifier = Modifier.size(19.dp)
+                                )
+                            }
+                        }
+
+                        Surface(
+                            onClick = onToggleFavorite,
+                            modifier = Modifier.size(44.dp),
+                            shape = ClickableSurfaceDefaults.shape(shape = CircleShape, focusedShape = CircleShape),
+                            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.1f),
+                            colors = ClickableSurfaceDefaults.colors(
+                                containerColor = if (media.isFavorite) Color(0x40FF4081) else Color(0xCC14161F),
+                                focusedContainerColor = if (media.isFavorite) Color(0xFFFF4081) else BixOrangeAccent
+                            ),
+                            border = ClickableSurfaceDefaults.border(
+                                border = Border(BorderStroke(1.dp, if (media.isFavorite) Color(0xFFFF4081) else Color(0xFF252938))),
+                                focusedBorder = Border(BorderStroke(2.dp, Color.White))
+                            )
+                        ) {
+                            var isFavFocused by remember { mutableStateOf(false) }
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .onFocusChanged { isFavFocused = it.isFocused },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (media.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                    contentDescription = if (media.isFavorite) "En Favoritos" else "Favorito",
+                                    tint = if (isFavFocused) Color.Black else if (media.isFavorite) Color(0xFFFF4081) else Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                // Contenido Principal: Póster 2:3 + Ficha de Datos
+                // Contenido Principal Unificado: Póster 2:3 + Metadatos & Acción
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -180,10 +266,10 @@ fun TvMediaDetailModal(
                     // Póster vertical
                     Box(
                         modifier = Modifier
-                            .width(200.dp)
-                            .height(290.dp)
+                            .width(195.dp)
+                            .height(285.dp)
                             .clip(RoundedCornerShape(14.dp))
-                            .border(2.dp, LelouchCyanAccent.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
+                            .border(2.dp, BixOrangeAccent.copy(alpha = 0.7f), RoundedCornerShape(14.dp))
                     ) {
                         if (!media.posterUrl.isNullOrBlank()) {
                             AsyncImage(
@@ -196,12 +282,12 @@ fun TvMediaDetailModal(
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .background(LelouchSurfaceVariant),
+                                    .background(Color(0xFF14161F)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
                                     text = media.title.take(3).uppercase(),
-                                    color = LelouchCyanAccent,
+                                    color = BixOrangeAccent,
                                     fontSize = 24.sp,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -215,17 +301,17 @@ fun TvMediaDetailModal(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = media.title,
-                            color = LelouchTextPrimary,
-                            fontSize = 26.sp,
+                            color = Color.White,
+                            fontSize = 28.sp,
                             fontWeight = FontWeight.Black,
-                            letterSpacing = 1.sp,
+                            letterSpacing = 0.5.sp,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )
 
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        // Etiquetas: Año, Calificación, Género, Duración
+                        // Etiquetas: Calificación, Año, Género, Duración/Temporadas
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -234,14 +320,14 @@ fun TvMediaDetailModal(
                                 Box(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(4.dp))
-                                        .background(Color(0xFFE5A00D))
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        .background(BixOrangeAccent)
+                                        .padding(horizontal = 7.dp, vertical = 2.dp)
                                 ) {
                                     Text(
                                         text = "★ ${String.format("%.1f", media.rating)}",
                                         color = Color.Black,
                                         fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
+                                        fontWeight = FontWeight.Black
                                     )
                                 }
                             }
@@ -249,7 +335,7 @@ fun TvMediaDetailModal(
                             if (!media.year.isNullOrBlank()) {
                                 Text(
                                     text = media.year,
-                                    color = LelouchTextSecondary,
+                                    color = Color(0xFFB3B8C8),
                                     fontSize = 13.sp
                                 )
                             }
@@ -257,21 +343,22 @@ fun TvMediaDetailModal(
                             if (!media.genre.isNullOrBlank()) {
                                 Text(
                                     text = "•  ${media.genre}",
-                                    color = LelouchCyanAccent,
-                                    fontSize = 13.sp
+                                    color = BixOrangeAccent,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold
                                 )
                             }
 
                             if (media.isSeries && media.seasons.isNotEmpty()) {
                                 Text(
                                     text = "•  ${media.seasons.size} Temporadas",
-                                    color = LelouchTextSecondary,
+                                    color = Color(0xFFB3B8C8),
                                     fontSize = 13.sp
                                 )
                             } else if (!media.duration.isNullOrBlank()) {
                                 Text(
                                     text = "•  ${media.duration}",
-                                    color = LelouchTextSecondary,
+                                    color = Color(0xFFB3B8C8),
                                     fontSize = 13.sp
                                 )
                             }
@@ -279,20 +366,20 @@ fun TvMediaDetailModal(
 
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        // Sinopsis
                         Text(
                             text = media.synopsis.ifEmpty { "Información de la producción en catálogo streaming." },
-                            color = LelouchTextSecondary,
-                            fontSize = 13.sp,
+                            color = Color(0xFFD1D5DB),
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp,
                             maxLines = 4,
                             overflow = TextOverflow.Ellipsis
                         )
 
                         if (!media.director.isNullOrBlank()) {
-                            Spacer(modifier = Modifier.height(6.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "🎬 Director: ${media.director}",
-                                color = LelouchCyanAccent,
+                                text = "Director: ${media.director}",
+                                color = BixOrangeAccent,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -301,100 +388,67 @@ fun TvMediaDetailModal(
                         if (!media.cast.isNullOrBlank()) {
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "🎭 Reparto: ${media.cast}",
-                                color = LelouchTextMuted,
+                                text = "Reparto: ${media.cast}",
+                                color = Color(0xFF9CA3AF),
                                 fontSize = 12.sp,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(18.dp))
+                        Spacer(modifier = Modifier.height(20.dp))
 
-                        // Botones de Acción nativos TV Surface para mando Xiaomi / Android TV
-                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                            Surface(
-                                onClick = { onPlayClick(null) },
-                                modifier = Modifier.focusRequester(playFocusRequester),
-                                shape = ClickableSurfaceDefaults.shape(
-                                    shape = RoundedCornerShape(10.dp),
-                                    focusedShape = RoundedCornerShape(10.dp)
-                                ),
-                                colors = ClickableSurfaceDefaults.colors(
-                                    containerColor = LelouchCyanAccent,
-                                    focusedContainerColor = Color.White
-                                ),
-                                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
-                                border = ClickableSurfaceDefaults.border(
-                                    border = Border(androidx.compose.foundation.BorderStroke(1.dp, Color.Transparent)),
-                                    focusedBorder = Border(androidx.compose.foundation.BorderStroke(2.dp, Color.White))
-                                )
+                        // CTA Principal Naranja (#FF6B00)
+                        Surface(
+                            onClick = { onPlayClick(null) },
+                            modifier = Modifier.focusRequester(playFocusRequester),
+                            shape = ClickableSurfaceDefaults.shape(
+                                shape = RoundedCornerShape(10.dp),
+                                focusedShape = RoundedCornerShape(10.dp)
+                            ),
+                            colors = ClickableSurfaceDefaults.colors(
+                                containerColor = BixOrangeAccent,
+                                focusedContainerColor = Color.White
+                            ),
+                            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+                            border = ClickableSurfaceDefaults.border(
+                                border = Border(BorderStroke(1.dp, Color.Transparent)),
+                                focusedBorder = Border(BorderStroke(2.dp, BixOrangeAccent))
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 26.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 22.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.PlayArrow,
-                                        contentDescription = null,
-                                        tint = Color.Black,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = if (media.isSeries) "VER SERIE (OK)" else "REPRODUCIR (OK)",
-                                        color = Color.Black,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-
-                            Surface(
-                                onClick = onToggleFavorite,
-                                shape = ClickableSurfaceDefaults.shape(
-                                    shape = RoundedCornerShape(10.dp),
-                                    focusedShape = RoundedCornerShape(10.dp)
-                                ),
-                                colors = ClickableSurfaceDefaults.colors(
-                                    containerColor = LelouchSurface,
-                                    focusedContainerColor = LelouchCardFocused
-                                ),
-                                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
-                                border = ClickableSurfaceDefaults.border(
-                                    border = Border(androidx.compose.foundation.BorderStroke(1.dp, LelouchBorder)),
-                                    focusedBorder = Border(androidx.compose.foundation.BorderStroke(2.dp, LelouchCyanAccent))
+                                Icon(
+                                    imageVector = Icons.Default.PlayArrow,
+                                    contentDescription = null,
+                                    tint = Color.Black,
+                                    modifier = Modifier.size(20.dp)
                                 )
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = if (media.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                        contentDescription = null,
-                                        tint = if (media.isFavorite) Color(0xFFFF4081) else LelouchTextSecondary,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = if (media.isFavorite) "En Favoritos" else "Añadir a Favoritos",
-                                        color = LelouchTextPrimary,
-                                        fontSize = 13.sp
-                                    )
-                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                val playLabel = if (media.isSeries) {
+                                    val firstEp = media.episodes.firstOrNull { it.seasonNumber == selectedSeason } ?: media.episodes.firstOrNull()
+                                    if (firstEp != null) "REPRODUCIR T${firstEp.seasonNumber} E${firstEp.episodeNumber}" else "VER SERIE"
+                                } else "REPRODUCIR"
+                                Text(
+                                    text = playLabel,
+                                    color = Color.Black,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Black
+                                )
                             }
                         }
                     }
                 }
 
-                // Sección Especial para Series: Selector de Temporadas y Capítulos 16:9
+                // Temporadas y Episodios con acentos naranja
                 if (media.isSeries) {
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = "📺 Temporadas y Episodios",
-                        color = LelouchTextPrimary,
-                        fontSize = 17.sp,
+                        text = "Temporadas y Episodios",
+                        color = Color.White,
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(bottom = 8.dp)
                     )
@@ -403,7 +457,6 @@ fun TvMediaDetailModal(
                         media.episodes.map { it.seasonNumber }.distinct().sorted()
                     } else if (media.seasons.isNotEmpty()) media.seasons else listOf(1)
 
-                    // Selector de Temporadas con foco para mando TV
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         modifier = Modifier.padding(bottom = 10.dp)
@@ -417,28 +470,28 @@ fun TvMediaDetailModal(
                                     focusedShape = RoundedCornerShape(8.dp)
                                 ),
                                 colors = ClickableSurfaceDefaults.colors(
-                                    containerColor = if (isCurrent) LelouchCyanAccent.copy(alpha = 0.35f) else LelouchSurface,
+                                    containerColor = if (isCurrent) BixOrangeAccent else Color(0xFF14161F),
                                     focusedContainerColor = Color.White
                                 ),
                                 border = ClickableSurfaceDefaults.border(
-                                    border = Border(androidx.compose.foundation.BorderStroke(
-                                        width = if (isCurrent) 1.5.dp else 1.dp,
-                                        color = if (isCurrent) LelouchCyanAccent else LelouchBorder
+                                    border = Border(BorderStroke(
+                                        width = 1.dp,
+                                        color = if (isCurrent) BixOrangeAccent else Color(0xFF252938)
                                     )),
-                                    focusedBorder = Border(androidx.compose.foundation.BorderStroke(2.dp, Color.White))
+                                    focusedBorder = Border(BorderStroke(2.dp, BixOrangeAccent))
                                 )
                             ) {
                                 var isSeasonFocused by remember { mutableStateOf(false) }
                                 Box(
                                     modifier = Modifier
                                         .onFocusChanged { isSeasonFocused = it.isFocused }
-                                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                                        .padding(horizontal = 14.dp, vertical = 7.dp)
                                 ) {
                                     Text(
                                         text = "Temporada $seasonNum",
-                                        color = if (isSeasonFocused) Color.Black else if (isCurrent) LelouchCyanAccent else LelouchTextSecondary,
+                                        color = if (isSeasonFocused || isCurrent) Color.Black else Color(0xFFD1D5DB),
                                         fontSize = 12.sp,
-                                        fontWeight = if (isCurrent || isSeasonFocused) FontWeight.Bold else FontWeight.Normal
+                                        fontWeight = if (isCurrent || isSeasonFocused) FontWeight.Bold else FontWeight.Medium
                                     )
                                 }
                             }
@@ -449,7 +502,6 @@ fun TvMediaDetailModal(
                         val eps = media.episodes.filter { it.seasonNumber == selectedSeason }
                         if (eps.isNotEmpty()) eps
                         else {
-                            // Fallback dinámico si aún están cargando o no vinieron indexados
                             media.episodes.ifEmpty {
                                 (1..6).map { num ->
                                     Episode(
@@ -467,7 +519,6 @@ fun TvMediaDetailModal(
                         }
                     }
 
-                    // Riel de Episodios 16:9 con foco navegable D-Pad y restauración
                     TvLazyRow(
                         modifier = Modifier.focusRestorer(),
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -481,8 +532,8 @@ fun TvMediaDetailModal(
                             Surface(
                                 onClick = { onPlayClick(ep.episodeId) },
                                 modifier = Modifier
-                                    .width(235.dp)
-                                    .height(125.dp)
+                                    .width(240.dp)
+                                    .height(126.dp)
                                     .onFocusChanged { isEpFocused = it.isFocused },
                                 shape = ClickableSurfaceDefaults.shape(
                                     shape = RoundedCornerShape(10.dp),
@@ -490,18 +541,18 @@ fun TvMediaDetailModal(
                                 ),
                                 scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
                                 colors = ClickableSurfaceDefaults.colors(
-                                    containerColor = LelouchSurface,
-                                    focusedContainerColor = LelouchCardFocused
+                                    containerColor = Color(0xFF14161F),
+                                    focusedContainerColor = Color(0xFF1F2330)
                                 ),
                                 border = ClickableSurfaceDefaults.border(
-                                    border = Border(androidx.compose.foundation.BorderStroke(1.dp, LelouchBorder)),
-                                    focusedBorder = Border(androidx.compose.foundation.BorderStroke(2.5.dp, LelouchCyanAccent))
+                                    border = Border(BorderStroke(1.dp, Color(0xFF252938))),
+                                    focusedBorder = Border(BorderStroke(2.5.dp, BixOrangeAccent))
                                 )
                             ) {
                                 Column(
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .padding(10.dp),
+                                        .padding(12.dp),
                                     verticalArrangement = Arrangement.SpaceBetween
                                 ) {
                                     Row(
@@ -512,12 +563,12 @@ fun TvMediaDetailModal(
                                         Box(
                                             modifier = Modifier
                                                 .clip(RoundedCornerShape(4.dp))
-                                                .background(if (isEpFocused) LelouchCyanAccent else LelouchSurfaceVariant)
-                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                .background(if (isEpFocused) BixOrangeAccent else BixOrangeAccent.copy(alpha = 0.2f))
+                                                .padding(horizontal = 7.dp, vertical = 2.dp)
                                         ) {
                                             Text(
-                                                text = "E${ep.episodeNumber}",
-                                                color = if (isEpFocused) Color.Black else LelouchCyanAccent,
+                                                text = "EP ${ep.episodeNumber.toString().padStart(2, '0')}",
+                                                color = if (isEpFocused) Color.Black else BixOrangeAccent,
                                                 fontSize = 10.sp,
                                                 fontWeight = FontWeight.Black
                                             )
@@ -527,7 +578,7 @@ fun TvMediaDetailModal(
                                             if (ep.durationFormatted.isNotBlank()) {
                                                 Text(
                                                     text = ep.durationFormatted,
-                                                    color = LelouchTextSecondary,
+                                                    color = Color(0xFF9CA3AF),
                                                     fontSize = 10.sp
                                                 )
                                                 Spacer(modifier = Modifier.width(6.dp))
@@ -536,8 +587,8 @@ fun TvMediaDetailModal(
                                                 Icon(
                                                     imageVector = Icons.Default.PlayArrow,
                                                     contentDescription = null,
-                                                    tint = LelouchCyanAccent,
-                                                    modifier = Modifier.size(14.dp)
+                                                    tint = BixOrangeAccent,
+                                                    modifier = Modifier.size(15.dp)
                                                 )
                                             }
                                         }
@@ -546,8 +597,8 @@ fun TvMediaDetailModal(
                                     Column {
                                         Text(
                                             text = ep.title,
-                                            color = if (isEpFocused) LelouchCyanAccent else LelouchTextPrimary,
-                                            fontSize = 12.sp,
+                                            color = if (isEpFocused) BixOrangeAccent else Color.White,
+                                            fontSize = 13.sp,
                                             fontWeight = FontWeight.Bold,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
@@ -555,7 +606,7 @@ fun TvMediaDetailModal(
                                         Spacer(modifier = Modifier.height(2.dp))
                                         Text(
                                             text = ep.plot ?: "Capítulo ${ep.episodeNumber}",
-                                            color = LelouchTextSecondary,
+                                            color = Color(0xFF9CA3AF),
                                             fontSize = 10.sp,
                                             maxLines = 2,
                                             overflow = TextOverflow.Ellipsis

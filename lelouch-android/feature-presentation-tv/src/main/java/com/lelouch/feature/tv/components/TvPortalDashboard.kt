@@ -1,6 +1,10 @@
 package com.lelouch.feature.tv.components
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.material.icons.filled.ArrowBack
+import com.lelouch.core.model.LiveStream
+import com.lelouch.core.model.TmdbHeroMatch
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -90,7 +94,12 @@ fun TvPortalDashboard(
     portalFeedData: PortalFeedData? = null,
     onOpenCuratedSection: ((CuratedSectionType) -> Unit)? = null,
     onVodMovieClick: ((VodMovie) -> Unit)? = null,
-    onSeriesEntityClick: ((Series) -> Unit)? = null
+    onSeriesEntityClick: ((Series) -> Unit)? = null,
+    allCleanMovies: List<VodMovie> = emptyList(),
+    allCleanSeries: List<Series> = emptyList(),
+    allCleanChannels: List<LiveStream> = emptyList(),
+    onEnrichHeroTmdb: (suspend (title: String, isSeries: Boolean, year: String?) -> TmdbHeroMatch?)? = null,
+    onPlatformLiveClick: ((LiveStream) -> Unit)? = null
 ) {
     val homeChannels = remember(visibleChannels) { visibleChannels.take(15) }
     val homeMovies = remember(visibleMovies) { visibleMovies.take(15) }
@@ -115,6 +124,23 @@ fun TvPortalDashboard(
     val featuredSeries = remember(visibleSeriesList) {
         visibleSeriesList.firstOrNull { !it.backdropPath.isNullOrBlank() || !it.cover.isNullOrBlank() }
             ?: visibleSeriesList.firstOrNull()
+    }
+
+    var selectedPlatform by remember { mutableStateOf<TvPlatformHubSpec?>(null) }
+    val platformHubItems = remember(allCleanMovies, allCleanSeries, allCleanChannels) {
+        buildTvPlatformHubSpecs(allCleanMovies, allCleanSeries, allCleanChannels)
+    }
+
+    if (selectedPlatform != null) {
+        BackHandler { selectedPlatform = null }
+        TvPlatformDetailView(
+            spec = selectedPlatform!!,
+            onBack = { selectedPlatform = null },
+            onMovieClick = { movie -> onVodMovieClick?.invoke(movie) ?: onNavigateToMovies() },
+            onSeriesClick = { series -> onSeriesEntityClick?.invoke(series) ?: onNavigateToSeries() },
+            onChannelClick = { ch -> onPlatformLiveClick?.invoke(ch) ?: onNavigateToLive() }
+        )
+        return
     }
 
     val accountPillFocusRequester = remember { FocusRequester() }
@@ -335,16 +361,25 @@ fun TvPortalDashboard(
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        // 1. HERO FEATURED BANNER TV (CINEMÁTICO CON D-PAD)
+        // 1. HERO FEATURED BANNER TV (TMDB HD ENRICHED + D-PAD)
         // ══════════════════════════════════════════════════════════════════════
         if (featuredMovie != null) {
+            var tmdbHero by remember(featuredMovie.streamId) { mutableStateOf<TmdbHeroMatch?>(null) }
+            LaunchedEffect(featuredMovie.streamId, onEnrichHeroTmdb) {
+                if (onEnrichHeroTmdb != null) {
+                    tmdbHero = onEnrichHeroTmdb(featuredMovie.name, false, featuredMovie.year)
+                }
+            }
             TvHeroBanner(
                 title = featuredMovie.name,
                 subtitle = featuredMovie.genre?.ifBlank { null } ?: featuredMovie.categoryName.ifBlank { "Película Destacada" },
-                rating = featuredMovie.rating,
-                year = featuredMovie.year,
-                plot = featuredMovie.plot,
-                imageUrl = featuredMovie.backdropPath?.ifBlank { null } ?: featuredMovie.streamIcon,
+                rating = tmdbHero?.rating?.takeIf { it > 0.0 } ?: featuredMovie.rating,
+                year = tmdbHero?.year?.ifBlank { null } ?: featuredMovie.year,
+                plot = tmdbHero?.overview?.ifBlank { null } ?: featuredMovie.plot,
+                imageUrl = tmdbHero?.backdropUrl?.ifBlank { null }
+                    ?: featuredMovie.backdropPath?.ifBlank { null }
+                    ?: tmdbHero?.posterUrl?.ifBlank { null }
+                    ?: featuredMovie.streamIcon,
                 onPlayClick = { onMovieClick?.invoke(featuredMovie) ?: onNavigateToMovies() },
                 onInfoClick = { onMovieClick?.invoke(featuredMovie) ?: onNavigateToMovies() },
                 playFocusRequester = heroBtnRequester,
@@ -357,13 +392,22 @@ fun TvPortalDashboard(
                     .height(230.dp)
             )
         } else if (featuredSeries != null) {
+            var tmdbHero by remember(featuredSeries.seriesId) { mutableStateOf<TmdbHeroMatch?>(null) }
+            LaunchedEffect(featuredSeries.seriesId, onEnrichHeroTmdb) {
+                if (onEnrichHeroTmdb != null) {
+                    tmdbHero = onEnrichHeroTmdb(featuredSeries.name, true, featuredSeries.releaseDate?.take(4))
+                }
+            }
             TvHeroBanner(
                 title = featuredSeries.name,
                 subtitle = featuredSeries.genre?.ifBlank { null } ?: featuredSeries.categoryName.ifBlank { "Serie Destacada" },
-                rating = featuredSeries.rating,
-                year = featuredSeries.releaseDate?.take(4),
-                plot = featuredSeries.plot,
-                imageUrl = featuredSeries.backdropPath?.ifBlank { null } ?: featuredSeries.cover,
+                rating = tmdbHero?.rating?.takeIf { it > 0.0 } ?: featuredSeries.rating,
+                year = tmdbHero?.year?.ifBlank { null } ?: featuredSeries.releaseDate?.take(4),
+                plot = tmdbHero?.overview?.ifBlank { null } ?: featuredSeries.plot,
+                imageUrl = tmdbHero?.backdropUrl?.ifBlank { null }
+                    ?: featuredSeries.backdropPath?.ifBlank { null }
+                    ?: tmdbHero?.posterUrl?.ifBlank { null }
+                    ?: featuredSeries.cover,
                 onPlayClick = { onSeriesClick?.invoke(featuredSeries) ?: onNavigateToSeries() },
                 onInfoClick = { onSeriesClick?.invoke(featuredSeries) ?: onNavigateToSeries() },
                 playFocusRequester = heroBtnRequester,
@@ -446,7 +490,18 @@ fun TvPortalDashboard(
             )
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(22.dp))
+
+        // ══════════════════════════════════════════════════════════════════════
+        // 2B. HUB DE PLATAFORMAS (TARJETAS BLANCAS CON LOGOTIPOS D-PAD)
+        // ══════════════════════════════════════════════════════════════════════
+        if (platformHubItems.isNotEmpty()) {
+            TvPlatformHubSection(
+                platforms = platformHubItems,
+                onPlatformClick = { selectedPlatform = it }
+            )
+            Spacer(modifier = Modifier.height(22.dp))
+        }
 
         // ══════════════════════════════════════════════════════════════════════
         // 3. CARRUSEL HORIZONTAL TV: CANALES EN VIVO & DEPORTES
@@ -891,13 +946,13 @@ private fun TvHeroBanner(
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(4.dp))
-                        .background(LelouchCyanAccent.copy(alpha = 0.2f))
-                        .border(1.dp, LelouchCyanAccent.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                        .background(BixOrangeAccent.copy(alpha = 0.2f))
+                        .border(1.dp, BixOrangeAccent.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
                     Text(
                         text = "⭐ DESTACADO TV",
-                        color = LelouchCyanAccent,
+                        color = BixOrangeAccent,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.ExtraBold,
                         letterSpacing = 1.sp
@@ -937,7 +992,7 @@ private fun TvHeroBanner(
 
             Text(
                 text = subtitle,
-                color = LelouchCyanAccent,
+                color = BixOrangeAccent,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
@@ -969,10 +1024,10 @@ private fun TvHeroBanner(
                             if (downRequester != null) down = downRequester
                             if (upRequester != null) up = upRequester
                         },
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(20.dp)),
                     scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
                     colors = ClickableSurfaceDefaults.colors(
-                        containerColor = LelouchCyanAccent,
+                        containerColor = BixOrangeAccent,
                         focusedContainerColor = Color.White
                     )
                 ) {
@@ -1005,15 +1060,15 @@ private fun TvHeroBanner(
                             if (downRequester != null) down = downRequester
                             if (upRequester != null) up = upRequester
                         },
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(20.dp)),
                     scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
                     colors = ClickableSurfaceDefaults.colors(
-                        containerColor = Color(0xFF0B131E),
-                        focusedContainerColor = LelouchSurfaceVariant
+                        containerColor = Color(0xFF14161F),
+                        focusedContainerColor = Color(0xFF252938)
                     ),
                     border = ClickableSurfaceDefaults.border(
-                        border = Border(BorderStroke(1.dp, Color.White.copy(alpha = 0.3f))),
-                        focusedBorder = Border(BorderStroke(1.5.dp, LelouchCyanAccent))
+                        border = Border(BorderStroke(1.dp, Color.White.copy(alpha = 0.25f))),
+                        focusedBorder = Border(BorderStroke(1.8.dp, BixOrangeAccent))
                     )
                 ) {
                     Row(
@@ -1060,11 +1115,11 @@ private fun TvCategoryPill(
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color(0xFF0B131E),
-            focusedContainerColor = LelouchCyanAccent
+            containerColor = Color(0xFF14161F),
+            focusedContainerColor = BixOrangeAccent
         ),
         border = ClickableSurfaceDefaults.border(
-            border = Border(BorderStroke(1.dp, Color(0xFF1E293B))),
+            border = Border(BorderStroke(1.dp, Color(0xFF252938))),
             focusedBorder = Border(BorderStroke(1.5.dp, Color.White))
         )
     ) {
@@ -1181,12 +1236,12 @@ private fun TvStreamCard(
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color(0xFF0B131E),
-            focusedContainerColor = LelouchSurfaceVariant
+            containerColor = Color(0xFF14161F),
+            focusedContainerColor = Color(0xFF1E202B)
         ),
         border = ClickableSurfaceDefaults.border(
-            border = Border(BorderStroke(1.dp, Color(0xFF1E293B))),
-            focusedBorder = Border(BorderStroke(2.dp, LelouchCyanAccent))
+            border = Border(BorderStroke(1.dp, Color(0xFF252938))),
+            focusedBorder = Border(BorderStroke(2.dp, BixOrangeAccent))
         )
     ) {
         Box(modifier = Modifier.fillMaxSize().padding(10.dp)) {
@@ -1280,8 +1335,8 @@ private fun TvCuratedItemCard(
             containerColor = Color(0xFF0B131E)
         ),
         border = ClickableSurfaceDefaults.border(
-            border = Border(BorderStroke(1.dp, Color(0xFF1E293B))),
-            focusedBorder = Border(BorderStroke(2.dp, LelouchCyanAccent))
+            border = Border(BorderStroke(1.dp, Color(0xFF252938))),
+            focusedBorder = Border(BorderStroke(2.dp, BixOrangeAccent))
         )
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
@@ -1417,8 +1472,8 @@ private fun TvPosterMovieCard(
             containerColor = Color(0xFF0B131E)
         ),
         border = ClickableSurfaceDefaults.border(
-            border = Border(BorderStroke(1.dp, Color(0xFF1E293B))),
-            focusedBorder = Border(BorderStroke(2.dp, LelouchCyanAccent))
+            border = Border(BorderStroke(1.dp, Color(0xFF252938))),
+            focusedBorder = Border(BorderStroke(2.dp, BixOrangeAccent))
         )
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
@@ -1522,8 +1577,8 @@ private fun TvPosterSeriesCard(
             containerColor = Color(0xFF0B131E)
         ),
         border = ClickableSurfaceDefaults.border(
-            border = Border(BorderStroke(1.dp, Color(0xFF1E293B))),
-            focusedBorder = Border(BorderStroke(2.dp, LelouchCyanAccent))
+            border = Border(BorderStroke(1.dp, Color(0xFF252938))),
+            focusedBorder = Border(BorderStroke(2.dp, BixOrangeAccent))
         )
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
@@ -1595,6 +1650,374 @@ private fun TvPosterSeriesCard(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
+            }
+        }
+    }
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// HUB DE PLATAFORMAS EN ANDROID TV (TARJETAS BLANCAS CON LOGOTIPOS + VISTA COMPLETA)
+// ══════════════════════════════════════════════════════════════════════════════
+
+private data class TvPlatformHubSpec(
+    val id: String,
+    val title: String,
+    val accentColor: Color,
+    val movies: List<VodMovie>,
+    val series: List<Series>,
+    val channels: List<LiveStream>
+) {
+    val totalCount: Int get() = movies.size + series.size + channels.size
+}
+
+private data class TvPlatformMatchRule(
+    val id: String,
+    val title: String,
+    val accentColor: Color,
+    val keywords: List<String>
+)
+
+private val tvPlatformRules = listOf(
+    TvPlatformMatchRule("netflix", "Netflix", Color(0xFFE50914), listOf("netflix", "nfx")),
+    TvPlatformMatchRule("prime", "Prime Video", Color(0xFF00A8E1), listOf("prime", "amazon")),
+    TvPlatformMatchRule("disney", "Disney+", Color(0xFF113CCF), listOf("disney", "pixar", "marvel", "star wars")),
+    TvPlatformMatchRule("max", "Max", Color(0xFF002BE7), listOf("hbo", "max", "warner")),
+    TvPlatformMatchRule("deportes", "Deportes", Color(0xFF059669), listOf("deporte", "sport", "futbol", "fútbol", "liga", "espn", "fox sports", "tnt sports", "nba", "ufc")),
+    TvPlatformMatchRule("anime", "Anime", Color(0xFFFF6B00), listOf("anime", "crunchyroll", "animación", "animacion"))
+)
+
+private fun buildTvPlatformHubSpecs(
+    movies: List<VodMovie>,
+    seriesList: List<Series>,
+    liveChannels: List<LiveStream>
+): List<TvPlatformHubSpec> {
+    return tvPlatformRules.mapNotNull { rule ->
+        val matchedMovies = movies.filter { m ->
+            val cat = m.categoryName.lowercase()
+            val name = m.name.lowercase()
+            rule.keywords.any { kw -> cat.contains(kw) || name.contains(kw) }
+        }
+        val matchedSeries = seriesList.filter { s ->
+            val cat = s.categoryName.lowercase()
+            val name = s.name.lowercase()
+            rule.keywords.any { kw -> cat.contains(kw) || name.contains(kw) }
+        }
+        val matchedChannels = if (rule.id == "deportes" || rule.id == "anime") {
+            liveChannels.filter { ch ->
+                val cat = ch.categoryName.lowercase()
+                val name = ch.name.lowercase()
+                rule.keywords.any { kw -> cat.contains(kw) || name.contains(kw) }
+            }
+        } else emptyList()
+
+        val total = matchedMovies.size + matchedSeries.size + matchedChannels.size
+        if (total == 0) null
+        else TvPlatformHubSpec(
+            id = rule.id,
+            title = rule.title,
+            accentColor = rule.accentColor,
+            movies = matchedMovies,
+            series = matchedSeries,
+            channels = matchedChannels
+        )
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvPlatformHubSection(
+    platforms: List<TvPlatformHubSpec>,
+    onPlatformClick: (TvPlatformHubSpec) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = "CATÁLOGOS POR PLATAFORMA",
+            color = LelouchTextMuted,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.sp,
+            modifier = Modifier.padding(bottom = 10.dp)
+        )
+
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            items(platforms, key = { it.id }) { spec ->
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Surface(
+                        onClick = { onPlatformClick(spec) },
+                        modifier = Modifier.width(156.dp).height(82.dp),
+                        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
+                        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+                        colors = ClickableSurfaceDefaults.colors(
+                            containerColor = Color.White,
+                            focusedContainerColor = Color.White
+                        ),
+                        border = ClickableSurfaceDefaults.border(
+                            border = Border(BorderStroke(1.dp, Color.White.copy(alpha = 0.2f))),
+                            focusedBorder = Border(BorderStroke(3.dp, BixOrangeAccent))
+                        )
+                    ) {
+                        Box(
+                            modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            when (spec.id) {
+                                "netflix" -> Text(
+                                    text = "NETFLIX",
+                                    color = Color(0xFFE50914),
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.Black,
+                                    letterSpacing = 1.sp
+                                )
+                                "prime" -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(
+                                        text = "prime video",
+                                        color = Color(0xFF00A8E1),
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Black
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .width(54.dp)
+                                            .height(3.dp)
+                                            .clip(RoundedCornerShape(2.dp))
+                                            .background(Color(0xFF00A8E1))
+                                    )
+                                }
+                                "disney" -> Text(
+                                    text = "Disney+",
+                                    color = Color(0xFF113CCF),
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                                "max" -> Text(
+                                    text = "max",
+                                    color = Color(0xFF002BE7),
+                                    fontSize = 26.sp,
+                                    fontWeight = FontWeight.Black,
+                                    letterSpacing = 0.8.sp
+                                )
+                                "deportes" -> Text(
+                                    text = "⚽ DEPORTES",
+                                    color = Color(0xFF059669),
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                                else -> Text(
+                                    text = "ANIME",
+                                    color = BixOrangeAccent,
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.Black,
+                                    letterSpacing = 1.2.sp
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        text = "${spec.title} (${spec.totalCount})",
+                        color = Color.White.copy(alpha = 0.9f),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvPlatformDetailView(
+    spec: TvPlatformHubSpec,
+    onBack: () -> Unit,
+    onMovieClick: (VodMovie) -> Unit,
+    onSeriesClick: (Series) -> Unit,
+    onChannelClick: (LiveStream) -> Unit
+) {
+    var filterTab by remember(spec.id) { mutableStateOf("all") }
+    val backRequester = remember { FocusRequester() }
+    LaunchedEffect(spec.id) {
+        try { backRequester.requestFocus() } catch (_: Exception) {}
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(BixDarkBackground)
+            .padding(horizontal = 32.dp, vertical = 20.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Surface(
+                onClick = onBack,
+                modifier = Modifier.focusRequester(backRequester),
+                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(22.dp)),
+                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+                colors = ClickableSurfaceDefaults.colors(
+                    containerColor = Color(0xFF14161F),
+                    focusedContainerColor = BixOrangeAccent
+                ),
+                border = ClickableSurfaceDefaults.border(
+                    border = Border(BorderStroke(1.dp, Color(0xFF252938))),
+                    focusedBorder = Border(BorderStroke(2.dp, Color.White))
+                )
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Volver", tint = Color.White, modifier = Modifier.size(18.dp))
+                    Text("Volver", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = spec.title,
+                    color = Color.White,
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.Black
+                )
+                Text(
+                    text = "${spec.totalCount} títulos disponibles",
+                    color = BixOrangeAccent,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        val tabs = buildList {
+            add("all" to "Todo (${spec.totalCount})")
+            if (spec.movies.isNotEmpty()) add("movies" to "Películas (${spec.movies.size})")
+            if (spec.series.isNotEmpty()) add("series" to "Series (${spec.series.size})")
+            if (spec.channels.isNotEmpty()) add("channels" to "Canales (${spec.channels.size})")
+        }
+
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(vertical = 16.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            items(tabs) { (id, label) ->
+                val active = filterTab == id
+                Surface(
+                    onClick = { filterTab = id },
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(20.dp)),
+                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = if (active) BixOrangeAccent else Color(0xFF14161F),
+                        focusedContainerColor = BixOrangeAccent
+                    ),
+                    border = ClickableSurfaceDefaults.border(
+                        border = Border(BorderStroke(1.dp, if (active) BixOrangeAccent else Color(0xFF252938))),
+                        focusedBorder = Border(BorderStroke(2.dp, Color.White))
+                    )
+                ) {
+                    Text(
+                        text = label,
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp)
+                    )
+                }
+            }
+        }
+
+        if ((filterTab == "all" || filterTab == "channels") && spec.channels.isNotEmpty()) {
+            Text("Canales (${spec.channels.size})", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(10.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                items(spec.channels) { ch ->
+                    TvStreamCard(
+                        channel = ChannelUiModel(
+                            id = ch.id,
+                            streamId = ch.streamId,
+                            name = ch.name,
+                            num = ch.num,
+                            categoryName = ch.categoryName,
+                            streamIcon = ch.streamIcon,
+                            streamUrl = ch.streamUrl
+                        ),
+                        onClick = { onChannelClick(ch) }
+                    )
+                }
+            }
+            Spacer(Modifier.height(18.dp))
+        }
+
+        if ((filterTab == "all" || filterTab == "movies") && spec.movies.isNotEmpty()) {
+            Text("Películas (${spec.movies.size})", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black)
+            Spacer(Modifier.height(12.dp))
+            spec.movies.chunked(5).forEach { rowItems ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    rowItems.forEach { movie ->
+                        Box(modifier = Modifier.weight(1f)) {
+                            TvPosterMovieCard(
+                                movie = MovieUiModel(
+                                    id = movie.id,
+                                    streamId = movie.streamId,
+                                    name = movie.name,
+                                    categoryName = movie.categoryName,
+                                    streamIcon = movie.streamIcon,
+                                    rating = movie.rating ?: 0.0,
+                                    year = movie.year
+                                ),
+                                onClick = { onMovieClick(movie) }
+                            )
+                        }
+                    }
+                    repeat(5 - rowItems.size) {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                }
+            }
+        }
+
+        if ((filterTab == "all" || filterTab == "series") && spec.series.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            Text("Series (${spec.series.size})", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black)
+            Spacer(Modifier.height(12.dp))
+            spec.series.chunked(5).forEach { rowItems ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    rowItems.forEach { series ->
+                        Box(modifier = Modifier.weight(1f)) {
+                            TvPosterSeriesCard(
+                                series = SeriesUiModel(
+                                    id = series.id,
+                                    seriesId = series.seriesId,
+                                    name = series.name,
+                                    categoryName = series.categoryName,
+                                    cover = series.cover,
+                                    rating = series.rating ?: 0.0,
+                                    seasonsCount = series.seasonsCount
+                                ),
+                                onClick = { onSeriesClick(series) }
+                            )
+                        }
+                    }
+                    repeat(5 - rowItems.size) {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                }
             }
         }
     }

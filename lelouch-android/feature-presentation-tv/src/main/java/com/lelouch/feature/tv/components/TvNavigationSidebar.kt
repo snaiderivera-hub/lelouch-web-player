@@ -99,14 +99,14 @@ fun TvNavigationSidebar(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween
     ) {
-        // App Logo Icon Top (Estilo LELOUCH)
+        // App Logo Icon Top (Estilo LELOUCH Naranja)
         Box(
             modifier = Modifier
                 .size(46.dp)
                 .clip(CircleShape)
                 .background(
                     Brush.linearGradient(
-                        listOf(LelouchCyanAccent, Color(0xFF0055FF))
+                        listOf(BixOrangeAccent, Color(0xFFD9480F))
                     )
                 ),
             contentAlignment = Alignment.Center
@@ -165,22 +165,22 @@ private fun TvSidebarIconItem(
         label = "navScale"
     )
 
-    // Círculo ultra-visible: Cyan brillante si tiene foco, Cyan transparente si está seleccionado
+    // Círculo ultra-visible: Naranja si tiene foco, Naranja suave si está seleccionado
     val backgroundColor by animateColorAsState(
         targetValue = when {
-            isFocused -> LelouchCyanAccent
-            isSelected -> LelouchCyanAccent.copy(alpha = 0.25f)
+            isFocused -> BixOrangeAccent
+            isSelected -> BixOrangeAccent.copy(alpha = 0.25f)
             else -> Color.Transparent
         },
         animationSpec = tween(150),
         label = "navBg"
     )
 
-    // Icono de alto contraste: Negro puro cuando tiene foco para máxima legibilidad sobre Cyan
+    // Icono de alto contraste: Negro/Blanco cuando tiene foco para máxima legibilidad sobre Naranja
     val iconColor by animateColorAsState(
         targetValue = when {
-            isFocused -> Color.Black
-            isSelected -> LelouchCyanAccent
+            isFocused -> Color.White
+            isSelected -> BixOrangeAccent
             else -> LelouchTextSecondary
         },
         animationSpec = tween(150),

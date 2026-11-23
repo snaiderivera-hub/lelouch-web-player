@@ -1,7 +1,7 @@
 {
-  "versionName": "1.0.147",
-  "versionCode": 1000147,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.147/app-debug.apk",
-  "changelog": "- Mobile v1.0.147: eliminados chips de calidad en TV en Vivo (controles limpios dentro del reproductor al tocar), eliminadas categorías en Películas y Series con Hero Carousel deslizable + buscador que scrollean junto con la grilla.",
-  "version": "1.0.147"
+  "versionName": "1.0.148",
+  "versionCode": 1000148,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.148/app-debug.apk",
+  "changelog": "- TV Box v1.0.148: caché instantánea 24h en Inicio, Hero Carousel TMDB HD y Hub de Plataformas con catálogo completo D-Pad, Películas y Series con carrusel/buscador/botón de Micrófono scrolleables con la grilla sin categorías fijas, ficha de detalle unificada con botón Atrás/Compartir/Favoritos, Auto-Next de episodios y controles VOD naranja.",
+  "version": "1.0.148"
 }

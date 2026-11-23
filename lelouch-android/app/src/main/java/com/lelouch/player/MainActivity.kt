@@ -427,6 +427,36 @@ class MainActivity : ComponentActivity() {
             val favoriteChannels by app.channelRepository.getFavoriteChannels().collectAsStateWithLifecycle(initialValue = emptyList())
             val favoriteMovies by app.vodRepository.getFavoriteMovies().collectAsStateWithLifecycle(initialValue = emptyList())
 
+            val sourceHealthScores by app.sourceHealthManager.observeScores().collectAsStateWithLifecycle(initialValue = emptyMap())
+            val rankedSources = remember(allSources, sourceHealthScores, effectiveActiveSource?.id) {
+                app.sourceHealthManager.sortSourcesByHealth(allSources, sourceHealthScores, effectiveActiveSource?.id)
+            }
+            val enrichHeroTmdbLambda: suspend (title: String, isSeries: Boolean, year: String?) -> com.lelouch.core.model.TmdbHeroMatch? = remember(app) {
+                { title, isSeries, year ->
+                    val cached = if (isSeries) {
+                        app.tmdbMetadataCache.getOrFetchSeries(title)
+                    } else {
+                        app.tmdbMetadataCache.getOrFetchMovie(title, year)
+                    }
+                    cached?.let {
+                        com.lelouch.core.model.TmdbHeroMatch(
+                            backdropUrl = it.backdropUrl,
+                            posterUrl = it.posterUrl,
+                            overview = it.overview,
+                            rating = it.rating,
+                            year = it.releaseYear
+                        )
+                    }
+                }
+            }
+            val recordSourceHealthLambda: (SourceConfig, Boolean, Long) -> Unit = remember(app, lifecycleScope) {
+                { src, success, latencyMs ->
+                    lifecycleScope.launch {
+                        app.sourceHealthManager.recordOutcome(src.id, src.serverUrl, success, latencyMs)
+                    }
+                }
+            }
+
             if (isTv) {
                 LelouchTvTheme {
                     Surface(
@@ -436,7 +466,9 @@ class MainActivity : ComponentActivity() {
                         if (isHomeVisible && effectiveActiveSource != null) {
                             TvHomeScreen(
                                 activeSource = effectiveActiveSource,
-                                allSources = allSources,
+                                allSources = rankedSources,
+                                onRecordSourceHealth = recordSourceHealthLambda,
+                                onEnrichHeroTmdb = enrichHeroTmdbLambda,
                                 liveChannels = liveChannels,
                                 channelRepository = app.channelRepository,
                                 liveCategories = liveCategories,
@@ -548,10 +580,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             } else {
-                val sourceHealthScores by app.sourceHealthManager.observeScores().collectAsStateWithLifecycle(initialValue = emptyMap())
-                val rankedMobileSources = remember(allSources, sourceHealthScores, effectiveActiveSource?.id) {
-                    app.sourceHealthManager.sortSourcesByHealth(allSources, sourceHealthScores, effectiveActiveSource?.id)
-                }
                 LelouchTheme {
                     Surface(
                         modifier = Modifier.fillMaxSize(),
@@ -560,29 +588,10 @@ class MainActivity : ComponentActivity() {
                         if (isHomeVisible && effectiveActiveSource != null) {
                             MobileHomeScreen(
                                 activeSource = effectiveActiveSource,
-                                allSources = rankedMobileSources,
+                                allSources = rankedSources,
                                 sourceHealthScores = sourceHealthScores,
-                                onRecordSourceHealth = { src, success, latencyMs ->
-                                    lifecycleScope.launch {
-                                        app.sourceHealthManager.recordOutcome(src.id, src.serverUrl, success, latencyMs)
-                                    }
-                                },
-                                onEnrichHeroTmdb = { title, isSeries, year ->
-                                    val cached = if (isSeries) {
-                                        app.tmdbMetadataCache.getOrFetchSeries(title)
-                                    } else {
-                                        app.tmdbMetadataCache.getOrFetchMovie(title, year)
-                                    }
-                                    cached?.let {
-                                        com.lelouch.core.model.TmdbHeroMatch(
-                                            backdropUrl = it.backdropUrl,
-                                            posterUrl = it.posterUrl,
-                                            overview = it.overview,
-                                            rating = it.rating,
-                                            year = it.releaseYear
-                                        )
-                                    }
-                                },
+                                onRecordSourceHealth = recordSourceHealthLambda,
+                                onEnrichHeroTmdb = enrichHeroTmdbLambda,
                                 liveChannels = liveChannels,
                                 liveCategories = liveCategories,
                                 movies = movies,
