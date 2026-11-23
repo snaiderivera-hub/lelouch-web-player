@@ -1,7 +1,7 @@
 {
-  "versionName": "1.0.148",
-  "versionCode": 1000148,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.148/app-debug.apk",
-  "changelog": "- TV Box v1.0.148: caché instantánea 24h en Inicio, Hero Carousel TMDB HD y Hub de Plataformas con catálogo completo D-Pad, Películas y Series con carrusel/buscador/botón de Micrófono scrolleables con la grilla sin categorías fijas, ficha de detalle unificada con botón Atrás/Compartir/Favoritos, Auto-Next de episodios y controles VOD naranja.",
-  "version": "1.0.148"
+  "versionName": "1.0.149",
+  "versionCode": 1000149,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.149/app-debug.apk",
+  "changelog": "- Mobile & TV Box v1.0.149: filtro real de Plataformas (Netflix, Prime, Disney+, Max, Deportes, Anime) resolviendo carpetas/categorías Xtream por categoryId, prioridad de Guatemala primero en lista y categoría tanto en Móvil como en TV, y reproducción directa al tocar canales desde Buscador e Inicio.",
+  "version": "1.0.149"
 }

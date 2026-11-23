@@ -663,14 +663,22 @@ fun TvHomeScreen(
             .filter { isAdultModeEnabled || !it.isAdult }
             .filter { it.itemCount > 0 }
             .map { CategoryUiItem(id = it.id, name = it.name) }
-        val guatemalaCat = visibleCats.firstOrNull {
-            it.name.contains("GUATEMALA", ignoreCase = true) || it.name.contains("GT", ignoreCase = true)
+        val isGuatemalaCategory = { catName: String ->
+            val t = catName.trim()
+            t.contains("GUATEMALA", ignoreCase = true) ||
+                t.contains("GT |", ignoreCase = true) ||
+                t.contains("GT:", ignoreCase = true) ||
+                t.contains("[GT]", ignoreCase = true) ||
+                t.startsWith("GT ", ignoreCase = true) ||
+                t.equals("GT", ignoreCase = true)
         }
-        if (guatemalaCat != null) {
+        val guatemalaCats = visibleCats.filter { isGuatemalaCategory(it.name) }
+        val firstGt = guatemalaCats.firstOrNull()
+        if (firstGt != null) {
             listOf(
                 CategoryUiItem(id = "all", name = "Todos"),
-                CategoryUiItem(id = guatemalaCat.id, name = "🇬🇹 Guatemala (Eventos)")
-            ) + visibleCats.filter { it.id != guatemalaCat.id }
+                CategoryUiItem(id = firstGt.id, name = "🇬🇹 Guatemala (Eventos)")
+            ) + guatemalaCats.filter { it.id != firstGt.id } + visibleCats.filter { !isGuatemalaCategory(it.name) }
         } else {
             listOf(CategoryUiItem(id = "all", name = "Todos")) + visibleCats
         }
@@ -1229,6 +1237,49 @@ fun TvHomeScreen(
         if (media != null && nextEp != null && !isPlayingLive && isFullscreen && !isAutoNextDismissed) {
             playTvSeriesEpisode(media, nextEp)
         }
+    }
+
+    fun playLiveChannelDirect(channel: LiveStream) {
+        val userT0 = android.os.SystemClock.elapsedRealtime()
+        val resolvedCat = liveCatMap[channel.categoryId]
+            ?: channel.categoryName.takeIf { it.isNotBlank() }
+            ?: "General"
+        val streamUrl = StreamUrlResolver.resolve(
+            directUrl = channel.streamUrl,
+            source = activeSource,
+            streamId = channel.streamId,
+            kind = StreamUrlResolver.Kind.LIVE,
+            extension = channel.containerExtension.ifBlank { "m3u8" }
+        )
+        if (streamUrl.isBlank()) return
+        val uiChannel = ChannelUiModel(
+            id = channel.id,
+            streamId = channel.streamId,
+            name = channel.name,
+            num = channel.num,
+            categoryName = resolvedCat,
+            categoryId = channel.categoryId,
+            streamIcon = channel.streamIcon,
+            currentProgram = channel.epgChannelId ?: "En Directo",
+            streamUrl = streamUrl,
+            isFavorite = channel.isFavorite,
+            sourceId = channel.id
+        )
+        val idxInVisible = visibleChannels.indexOfFirst { it.streamId == channel.streamId }
+        if (idxInVisible >= 0) {
+            focusedChannelIndex = idxInVisible
+            activePlaybackChannels = visibleChannels
+            activePlaybackChannelIndex = idxInVisible
+        } else {
+            activePlaybackChannels = (listOf(uiChannel) + visibleChannels).distinctBy { it.streamId }
+            activePlaybackChannelIndex = 0
+        }
+        focusedChannelId = uiChannel.id
+        focusedChannel = uiChannel
+        isPlayingLive = true
+        lastDetailMediaBeforeVod = null
+        playerEngine.playStream(streamUrl, isLive = true, userT0 = userT0)
+        isFullscreen = true
     }
 
     LaunchedEffect(seekFeedbackText) {
@@ -1869,9 +1920,22 @@ fun TvHomeScreen(
                                 hiddenSeriesCategories = hiddenSeriesCategories,
                                 popularMovies = recentMovies.ifEmpty { movies }.take(10),
                                 onSelectChannel = { ch ->
+                                    val userT0 = android.os.SystemClock.elapsedRealtime()
                                     val idx = visibleChannels.indexOfFirst { it.streamId == ch.streamId }
-                                    if (idx >= 0) focusedChannelIndex = idx
+                                    if (idx >= 0) {
+                                        focusedChannelIndex = idx
+                                        activePlaybackChannels = visibleChannels
+                                        activePlaybackChannelIndex = idx
+                                    } else {
+                                        activePlaybackChannels = (listOf(ch) + visibleChannels).distinctBy { it.streamId }
+                                        activePlaybackChannelIndex = 0
+                                    }
+                                    focusedChannelId = ch.id
+                                    focusedChannel = ch
                                     selectedTopTab = 2
+                                    isPlayingLive = true
+                                    lastDetailMediaBeforeVod = null
+                                    playerEngine.playStream(ch.streamUrl, isLive = true, userT0 = userT0)
                                     isFullscreen = true
                                 },
                                 onSelectMovie = { mov ->
@@ -1982,11 +2046,13 @@ fun TvHomeScreen(
                                             allCleanChannels = remember(liveChannels, hiddenLiveCategories) {
                                                 liveChannels.filter { it.categoryId !in hiddenLiveCategories && it.categoryName !in hiddenLiveCategories }
                                             },
+                                            vodCatMap = vodCatMap,
+                                            seriesCatMap = seriesCatMap,
+                                            liveCatMap = liveCatMap,
                                             onEnrichHeroTmdb = onEnrichHeroTmdb,
                                             onPlatformLiveClick = { ch ->
-                                                val idx = visibleChannels.indexOfFirst { it.streamId == ch.streamId }
-                                                if (idx >= 0) focusedChannelIndex = idx
                                                 selectedTopTab = 2
+                                                playLiveChannelDirect(ch)
                                             },
                                             onChannelClick = { ch ->
                                                 val userT0 = android.os.SystemClock.elapsedRealtime()
@@ -4160,9 +4226,8 @@ fun TvHomeScreen(
                 activeSourceId = activeSource?.id,
                 initialVoiceSearch = isVoiceSearchRequested,
                 onSelectChannel = { channel ->
-                    val idx = visibleChannels.indexOfFirst { it.streamId == channel.streamId }
-                    if (idx >= 0) focusedChannelIndex = idx
                     selectedTopTab = 2
+                    playLiveChannelDirect(channel)
                     isSearchModalVisible = false
                     isVoiceSearchRequested = false
                 },

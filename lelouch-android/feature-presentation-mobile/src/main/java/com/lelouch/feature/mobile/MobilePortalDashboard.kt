@@ -3,6 +3,7 @@ package com.lelouch.feature.mobile
 import android.app.Activity
 import android.content.Intent
 import android.speech.RecognizerIntent
+import com.lelouch.core.network.StreamUrlResolver
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -379,6 +380,9 @@ fun MobilePortalDashboard(
     liveChannels: List<LiveStream> = emptyList(),
     movies: List<VodMovie> = emptyList(),
     seriesList: List<Series> = emptyList(),
+    liveCatMap: Map<String, String> = emptyMap(),
+    vodCatMap: Map<String, String> = emptyMap(),
+    seriesCatMap: Map<String, String> = emptyMap(),
     portalFeedData: PortalFeedData? = null,
     onChannelClick: (String, String) -> Unit = { _, _ -> },
     onMovieClick: (VodMovie) -> Unit = {},
@@ -401,14 +405,15 @@ fun MobilePortalDashboard(
     var isSearchExpanded by remember { mutableStateOf(false) }
     var selectedPlatform by remember { mutableStateOf<PlatformHubSpec?>(null) }
 
-    val platformHubItems = remember(movies, seriesList, liveChannels) {
-        buildPlatformHubSpecs(movies, seriesList, liveChannels)
+    val platformHubItems = remember(movies, seriesList, liveChannels, vodCatMap, seriesCatMap, liveCatMap) {
+        buildPlatformHubSpecs(movies, seriesList, liveChannels, vodCatMap, seriesCatMap, liveCatMap)
     }
 
-    if (selectedPlatform != null) {
+        if (selectedPlatform != null) {
         BackHandler { selectedPlatform = null }
         MobilePlatformDetailView(
             spec = selectedPlatform!!,
+            activeSource = activeSource,
             onBack = { selectedPlatform = null },
             onMovieClick = onMovieClick,
             onSeriesClick = onSeriesClick,
@@ -536,14 +541,23 @@ fun MobilePortalDashboard(
 
         if (searchQuery.isNotBlank()) {
             val q = searchQuery.trim()
-            val matchingChannels = remember(liveChannels, q) {
-                liveChannels.asSequence().filter { it.name.contains(q, ignoreCase = true) || it.categoryName.contains(q, ignoreCase = true) }.take(25).toList()
+            val matchingChannels = remember(liveChannels, liveCatMap, q) {
+                liveChannels.asSequence().filter {
+                    val cat = liveCatMap[it.categoryId].orEmpty().ifBlank { it.categoryName }
+                    it.name.contains(q, ignoreCase = true) || cat.contains(q, ignoreCase = true)
+                }.take(25).toList()
             }
-            val matchingMovies = remember(movies, q) {
-                movies.asSequence().filter { it.name.contains(q, ignoreCase = true) || it.categoryName.contains(q, ignoreCase = true) }.take(25).toList()
+            val matchingMovies = remember(movies, vodCatMap, q) {
+                movies.asSequence().filter {
+                    val cat = vodCatMap[it.categoryId].orEmpty().ifBlank { it.categoryName }
+                    it.name.contains(q, ignoreCase = true) || cat.contains(q, ignoreCase = true)
+                }.take(25).toList()
             }
-            val matchingSeries = remember(seriesList, q) {
-                seriesList.asSequence().filter { it.name.contains(q, ignoreCase = true) || it.categoryName.contains(q, ignoreCase = true) }.take(25).toList()
+            val matchingSeries = remember(seriesList, seriesCatMap, q) {
+                seriesList.asSequence().filter {
+                    val cat = seriesCatMap[it.categoryId].orEmpty().ifBlank { it.categoryName }
+                    it.name.contains(q, ignoreCase = true) || cat.contains(q, ignoreCase = true)
+                }.take(25).toList()
             }
             val totalResults = matchingChannels.size + matchingMovies.size + matchingSeries.size
 
@@ -611,9 +625,10 @@ fun MobilePortalDashboard(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             items(matchingChannels) { ch ->
+                                val resolvedUrl = StreamUrlResolver.resolveLive(ch.streamUrl, activeSource, ch.streamId)
                                 NativeLiveStreamCard(
                                     channel = ch,
-                                    onClick = { onChannelClick(ch.name, ch.streamUrl ?: "") }
+                                    onClick = { onChannelClick(ch.name, resolvedUrl) }
                                 )
                             }
                         }
@@ -849,9 +864,10 @@ fun MobilePortalDashboard(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     items(liveMatches) { channel ->
+                        val resolvedUrl = StreamUrlResolver.resolveLive(channel.streamUrl, activeSource, channel.streamId)
                         LiveMatchCard(
                             channel = channel,
-                            onClick = { onChannelClick(channel.name, channel.streamUrl ?: "") }
+                            onClick = { onChannelClick(channel.name, resolvedUrl) }
                         )
                     }
                 }
@@ -2291,26 +2307,29 @@ private val platformRules = listOf(
 private fun buildPlatformHubSpecs(
     movies: List<VodMovie>,
     seriesList: List<Series>,
-    liveChannels: List<LiveStream>
+    liveChannels: List<LiveStream>,
+    vodCatMap: Map<String, String> = emptyMap(),
+    seriesCatMap: Map<String, String> = emptyMap(),
+    liveCatMap: Map<String, String> = emptyMap()
 ): List<PlatformHubSpec> {
     return platformRules.mapNotNull { rule ->
         val matchedMovies = movies.filter { m ->
-            val cat = m.categoryName.lowercase()
+            val cat = vodCatMap[m.categoryId].orEmpty().ifBlank { m.categoryName }.lowercase()
             val name = m.name.lowercase()
-            rule.keywords.any { kw -> cat.contains(kw) || name.contains(kw) }
+            val genre = m.genre.orEmpty().lowercase()
+            rule.keywords.any { kw -> cat.contains(kw) || name.contains(kw) || genre.contains(kw) }
         }
         val matchedSeries = seriesList.filter { s ->
-            val cat = s.categoryName.lowercase()
+            val cat = seriesCatMap[s.categoryId].orEmpty().ifBlank { s.categoryName }.lowercase()
             val name = s.name.lowercase()
+            val genre = s.genre.orEmpty().lowercase()
+            rule.keywords.any { kw -> cat.contains(kw) || name.contains(kw) || genre.contains(kw) }
+        }
+        val matchedChannels = liveChannels.filter { ch ->
+            val cat = liveCatMap[ch.categoryId].orEmpty().ifBlank { ch.categoryName }.lowercase()
+            val name = ch.name.lowercase()
             rule.keywords.any { kw -> cat.contains(kw) || name.contains(kw) }
         }
-        val matchedChannels = if (rule.id == "deportes" || rule.id == "anime") {
-            liveChannels.filter { ch ->
-                val cat = ch.categoryName.lowercase()
-                val name = ch.name.lowercase()
-                rule.keywords.any { kw -> cat.contains(kw) || name.contains(kw) }
-            }
-        } else emptyList()
 
         val total = matchedMovies.size + matchedSeries.size + matchedChannels.size
         if (total == 0) null
@@ -2441,6 +2460,7 @@ private fun MobilePlatformHubSection(
 @Composable
 private fun MobilePlatformDetailView(
     spec: PlatformHubSpec,
+    activeSource: SourceConfig?,
     onBack: () -> Unit,
     onMovieClick: (VodMovie) -> Unit,
     onSeriesClick: (Series) -> Unit,
@@ -2518,9 +2538,10 @@ private fun MobilePlatformDetailView(
             Spacer(Modifier.height(8.dp))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(spec.channels) { ch ->
+                    val resolvedUrl = StreamUrlResolver.resolveLive(ch.streamUrl, activeSource, ch.streamId)
                     NativeLiveStreamCard(
                         channel = ch,
-                        onClick = { onChannelClick(ch.name, ch.streamUrl ?: "") }
+                        onClick = { onChannelClick(ch.name, resolvedUrl) }
                     )
                 }
             }

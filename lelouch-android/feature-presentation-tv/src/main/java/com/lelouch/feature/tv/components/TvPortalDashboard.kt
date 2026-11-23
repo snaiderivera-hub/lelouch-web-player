@@ -98,6 +98,9 @@ fun TvPortalDashboard(
     allCleanMovies: List<VodMovie> = emptyList(),
     allCleanSeries: List<Series> = emptyList(),
     allCleanChannels: List<LiveStream> = emptyList(),
+    vodCatMap: Map<String, String> = emptyMap(),
+    seriesCatMap: Map<String, String> = emptyMap(),
+    liveCatMap: Map<String, String> = emptyMap(),
     onEnrichHeroTmdb: (suspend (title: String, isSeries: Boolean, year: String?) -> TmdbHeroMatch?)? = null,
     onPlatformLiveClick: ((LiveStream) -> Unit)? = null
 ) {
@@ -127,8 +130,8 @@ fun TvPortalDashboard(
     }
 
     var selectedPlatform by remember { mutableStateOf<TvPlatformHubSpec?>(null) }
-    val platformHubItems = remember(allCleanMovies, allCleanSeries, allCleanChannels) {
-        buildTvPlatformHubSpecs(allCleanMovies, allCleanSeries, allCleanChannels)
+    val platformHubItems = remember(allCleanMovies, allCleanSeries, allCleanChannels, vodCatMap, seriesCatMap, liveCatMap) {
+        buildTvPlatformHubSpecs(allCleanMovies, allCleanSeries, allCleanChannels, vodCatMap, seriesCatMap, liveCatMap)
     }
 
     if (selectedPlatform != null) {
@@ -1690,26 +1693,29 @@ private val tvPlatformRules = listOf(
 private fun buildTvPlatformHubSpecs(
     movies: List<VodMovie>,
     seriesList: List<Series>,
-    liveChannels: List<LiveStream>
+    liveChannels: List<LiveStream>,
+    vodCatMap: Map<String, String> = emptyMap(),
+    seriesCatMap: Map<String, String> = emptyMap(),
+    liveCatMap: Map<String, String> = emptyMap()
 ): List<TvPlatformHubSpec> {
     return tvPlatformRules.mapNotNull { rule ->
         val matchedMovies = movies.filter { m ->
-            val cat = m.categoryName.lowercase()
+            val cat = vodCatMap[m.categoryId].orEmpty().ifBlank { m.categoryName }.lowercase()
             val name = m.name.lowercase()
-            rule.keywords.any { kw -> cat.contains(kw) || name.contains(kw) }
+            val genre = m.genre.orEmpty().lowercase()
+            rule.keywords.any { kw -> cat.contains(kw) || name.contains(kw) || genre.contains(kw) }
         }
         val matchedSeries = seriesList.filter { s ->
-            val cat = s.categoryName.lowercase()
+            val cat = seriesCatMap[s.categoryId].orEmpty().ifBlank { s.categoryName }.lowercase()
             val name = s.name.lowercase()
+            val genre = s.genre.orEmpty().lowercase()
+            rule.keywords.any { kw -> cat.contains(kw) || name.contains(kw) || genre.contains(kw) }
+        }
+        val matchedChannels = liveChannels.filter { ch ->
+            val cat = liveCatMap[ch.categoryId].orEmpty().ifBlank { ch.categoryName }.lowercase()
+            val name = ch.name.lowercase()
             rule.keywords.any { kw -> cat.contains(kw) || name.contains(kw) }
         }
-        val matchedChannels = if (rule.id == "deportes" || rule.id == "anime") {
-            liveChannels.filter { ch ->
-                val cat = ch.categoryName.lowercase()
-                val name = ch.name.lowercase()
-                rule.keywords.any { kw -> cat.contains(kw) || name.contains(kw) }
-            }
-        } else emptyList()
 
         val total = matchedMovies.size + matchedSeries.size + matchedChannels.size
         if (total == 0) null

@@ -1199,6 +1199,7 @@ class XtreamCatalogSyncManager private constructor(
             }
 
             // 3. Sincronizar Canales en Vivo hacia Staging (reutilizando pool de httpClient + hash SHA-256)
+            val liveCatNameMap = liveCategories.associate { it.categoryId to it.categoryName }
             emitUi(emitUiState, sourceId, SyncState.SyncingLive(0))
             if (emitUiState) appendDownloadConsoleStep(45, "Descargando canales en vivo...")
 
@@ -1221,7 +1222,10 @@ class XtreamCatalogSyncManager private constructor(
                             sourceId = sourceId,
                             batchSize = 500,
                             onBatchParsed = { batch ->
-                                val stagingBatch = batch.map { it.toStaging(syncId) }
+                                val stagingBatch = batch.map { ch ->
+                                    val resolvedCat = ch.categoryName.ifBlank { liveCatNameMap[ch.categoryId].orEmpty() }
+                                    ch.copy(categoryName = resolvedCat).toStaging(syncId)
+                                }
                                 database.catalogStagingDao().insertChannelsStaging(stagingBatch)
                                 liveCount += batch.size
                                 emitUi(emitUiState, sourceId, SyncState.SyncingLive(liveCount))
@@ -1349,6 +1353,15 @@ class XtreamCatalogSyncManager private constructor(
                     gateAcquired = true
 
                     // 4. Sincronizar Películas VOD hacia Staging (reutilizando httpClient + hash combinado)
+                    val vodCatNameMap = runCatching {
+                        database.categoryDao().getCategoriesByType("VOD", sourceId).first()
+                            .associate { it.categoryId to it.categoryName }
+                    }.getOrDefault(emptyMap())
+                    val seriesCatNameMap = runCatching {
+                        database.categoryDao().getCategoriesByType("SERIES", sourceId).first()
+                            .associate { it.categoryId to it.categoryName }
+                    }.getOrDefault(emptyMap())
+
                     emitUi(emitUiState, sourceId, SyncState.SyncingMovies(0))
                     val vodUrl = "${if (serverUrl.endsWith("/")) serverUrl else "$serverUrl/"}player_api.php?username=$user&password=$pass&action=get_vod_streams"
                     var movieCount = 0
@@ -1369,7 +1382,10 @@ class XtreamCatalogSyncManager private constructor(
                                     sourceId = sourceId,
                                     batchSize = 500,
                                     onBatchParsed = { batch ->
-                                        val stagingBatch = batch.map { it.toStaging(vodSyncId) }
+                                        val stagingBatch = batch.map { mov ->
+                                            val resolvedCat = mov.categoryName.ifBlank { vodCatNameMap[mov.categoryId].orEmpty() }
+                                            mov.copy(categoryName = resolvedCat).toStaging(vodSyncId)
+                                        }
                                         database.catalogStagingDao().insertMoviesStaging(stagingBatch)
                                         movieCount += batch.size
                                         emitUi(emitUiState, sourceId, SyncState.SyncingMovies(movieCount))
@@ -1401,7 +1417,10 @@ class XtreamCatalogSyncManager private constructor(
                                     sourceId = sourceId,
                                     batchSize = 500,
                                     onBatchParsed = { batch ->
-                                        val stagingBatch = batch.map { it.toStaging(vodSyncId) }
+                                        val stagingBatch = batch.map { ser ->
+                                            val resolvedCat = ser.categoryName.ifBlank { seriesCatNameMap[ser.categoryId].orEmpty() }
+                                            ser.copy(categoryName = resolvedCat).toStaging(vodSyncId)
+                                        }
                                         database.catalogStagingDao().insertSeriesStaging(stagingBatch)
                                         seriesCount += batch.size
                                         emitUi(emitUiState, sourceId, SyncState.SyncingSeries(seriesCount))

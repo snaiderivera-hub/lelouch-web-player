@@ -497,12 +497,30 @@ fun MobileHomeScreen(
         }
 
         withContext(Dispatchers.Default) {
+            val liveCatMap = liveCategories.associate { it.categoryId to it.categoryName }
+            val isEventCat = { name: String ->
+                val trimmed = name.trim()
+                trimmed.contains("GUATEMALA", ignoreCase = true) ||
+                trimmed.contains("GT |", ignoreCase = true) ||
+                trimmed.contains("GT:", ignoreCase = true) ||
+                trimmed.contains("[GT]", ignoreCase = true) ||
+                trimmed.startsWith("GT ", ignoreCase = true) ||
+                trimmed.equals("GT", ignoreCase = true)
+            }
+
             val cleanLive = liveChannels.filter { stream ->
+                val resolvedCat = liveCatMap[stream.categoryId].orEmpty().ifBlank { stream.categoryName }
                 (stream.streamType.isBlank() || stream.streamType.equals("live", ignoreCase = true)) &&
                 !seriesLeakRegex.containsMatchIn(stream.name) &&
-                stream.categoryId !in hiddenLiveCategories && stream.categoryName !in hiddenLiveCategories &&
-                (isAdultModeEnabled || (!stream.isAdult && !isAdultContent(stream.name, stream.categoryName, stream.categoryId, stream.streamIcon, stream.streamUrl)))
+                stream.categoryId !in hiddenLiveCategories && resolvedCat !in hiddenLiveCategories && stream.categoryName !in hiddenLiveCategories &&
+                (isAdultModeEnabled || (!stream.isAdult && !isAdultContent(stream.name, resolvedCat, stream.categoryId, stream.streamIcon, stream.streamUrl)))
             }.distinctBy { ch -> ch.streamUrl.ifBlank { ch.name } }
+                .sortedWith(
+                    compareByDescending<LiveStream> { ch ->
+                        val cat = liveCatMap[ch.categoryId].orEmpty().ifBlank { ch.categoryName }
+                        isEventCat(cat) || isEventCat(ch.name)
+                    }
+                )
 
             val cleanMovies = movies.filter {
                 it.categoryId !in hiddenMovieCategories && it.categoryName !in hiddenMovieCategories &&
@@ -520,14 +538,10 @@ fun MobileHomeScreen(
                     MobileCategoryItem(id = ch.categoryId, name = ch.categoryName)
                 } else null
             }
-            val isEventCat = { name: String ->
-                name.contains("GUATEMALA", ignoreCase = true) ||
-                name.contains("GT |", ignoreCase = true) ||
-                name.contains("GT:", ignoreCase = true) ||
-                name.contains("[GT]", ignoreCase = true)
-            }
             val liveCatIdsWithChannels = cleanLive.map { it.categoryId }.toSet()
-            val liveCatNamesWithChannels = cleanLive.map { it.categoryName.trim().lowercase() }.toSet()
+            val liveCatNamesWithChannels = cleanLive.map { ch ->
+                liveCatMap[ch.categoryId].orEmpty().ifBlank { ch.categoryName }.trim().lowercase()
+            }.filter { it.isNotEmpty() }.toSet()
 
             val combinedLive = (fromLiveDb + fromLiveChannels)
                 .filter { it.id != "all" && it.id != "events" && !it.name.equals("todos", ignoreCase = true) }
@@ -537,7 +551,10 @@ fun MobileHomeScreen(
                 .distinctBy { it.name.trim().lowercase() }
                 .sortedWith(compareByDescending<MobileCategoryItem> { isEventCat(it.name) }.thenBy { it.name })
 
-            val hasEvents = cleanLive.any { isEventCat(it.categoryName) || isEventCat(it.name) }
+            val hasEvents = cleanLive.any { ch ->
+                val cat = liveCatMap[ch.categoryId].orEmpty().ifBlank { ch.categoryName }
+                isEventCat(cat) || isEventCat(ch.name)
+            } || combinedLive.any { isEventCat(it.name) }
             val resLiveCat = mutableListOf<MobileCategoryItem>()
             resLiveCat.add(MobileCategoryItem(id = "all", name = "Todos"))
             if (hasEvents) {
@@ -972,14 +989,27 @@ fun MobileHomeScreen(
                 Box(
                     modifier = Modifier.fillMaxSize()
                 ) {
+                    val liveCatMap = remember(liveCategories) { liveCategories.associate { it.categoryId to it.categoryName } }
+                    val vodCatMap = remember(vodCategories) { vodCategories.associate { it.categoryId to it.categoryName } }
+                    val seriesCatMap = remember(seriesCategories) { seriesCategories.associate { it.categoryId to it.categoryName } }
+
                     when (selectedTab) {
                         0 -> MobileHomeTab(
                             liveChannels = cleanLiveChannels,
                             movies = filteredMovies,
                             seriesList = filteredSeriesList,
+                            liveCatMap = liveCatMap,
+                            vodCatMap = vodCatMap,
+                            seriesCatMap = seriesCatMap,
                             portalFeedData = portalFeedData,
                             activeSource = activeSource,
-                            onChannelClick = { ch, url -> activeChannelName = ch; activeContentMeta = ActiveContentMeta(ch, type = ContentType.LIVE); startPlayback(url, true) },
+                            onChannelClick = { ch, url ->
+                                activeChannelName = ch
+                                activeContentMeta = ActiveContentMeta(ch, type = ContentType.LIVE)
+                                searchQuery = ""
+                                selectedTab = 1
+                                startPlayback(url, true)
+                            },
                             onMovieClick = { openMovieDetail(it) },
                             onSeriesClick = { openSeriesDetail(it) },
                             onSeeAllLive = { selectedTab = 1 },
@@ -1030,6 +1060,7 @@ fun MobileHomeScreen(
                             activeSource = activeSource,
                             activeStreamUrl = activeStreamUrl,
                             categories = liveCategoryList,
+                            liveCatMap = liveCatMap,
                             favoriteChannels = favoriteChannels,
                             onToggleFavorite = onToggleFavoriteChannel,
                             onChannelClick = { ch, url -> activeChannelName = ch; activeContentMeta = ActiveContentMeta(ch, type = ContentType.LIVE); startPlayback(url, true) }
@@ -2151,6 +2182,9 @@ private fun MobileHomeTab(
     liveChannels: List<LiveStream>,
     movies: List<VodMovie>,
     seriesList: List<Series>,
+    liveCatMap: Map<String, String> = emptyMap(),
+    vodCatMap: Map<String, String> = emptyMap(),
+    seriesCatMap: Map<String, String> = emptyMap(),
     portalFeedData: PortalFeedData?,
     activeSource: SourceConfig?,
     onChannelClick: (String, String) -> Unit,
@@ -2202,6 +2236,9 @@ private fun MobileHomeTab(
                 liveChannels = liveChannels,
                 movies = movies,
                 seriesList = seriesList,
+                liveCatMap = liveCatMap,
+                vodCatMap = vodCatMap,
+                seriesCatMap = seriesCatMap,
                 portalFeedData = portalFeedData,
                 onChannelClick = onChannelClick,
                 onMovieClick = onMovieClick,
@@ -2246,6 +2283,7 @@ private fun MobileLiveTab(
     activeSource: SourceConfig?,
     activeStreamUrl: String? = null,
     categories: List<MobileCategoryItem> = emptyList(),
+    liveCatMap: Map<String, String> = emptyMap(),
     favoriteChannels: List<LiveStream> = emptyList(),
     onToggleFavorite: (Int, Boolean) -> Unit = { _, _ -> },
     onChannelClick: (String, String) -> Unit
@@ -2274,10 +2312,10 @@ private fun MobileLiveTab(
     }
 
     // Pre-filtrado memorizado para canales de Guatemala (Eventos)
-    val guatemalaChannels = remember(channels) {
+    val guatemalaChannels = remember(channels, liveCatMap) {
         channels.filter { ch ->
-            val cat = ch.categoryName
-            val nm = ch.name
+            val cat = liveCatMap[ch.categoryId].orEmpty().ifBlank { ch.categoryName }.trim()
+            val nm = ch.name.trim()
             cat.contains("GUATEMALA", ignoreCase = true) ||
             nm.contains("GUATEMALA", ignoreCase = true) ||
             cat.contains("GT |", ignoreCase = true) ||
@@ -2285,7 +2323,10 @@ private fun MobileLiveTab(
             cat.contains("GT:", ignoreCase = true) ||
             nm.contains("GT:", ignoreCase = true) ||
             cat.contains("[GT]", ignoreCase = true) ||
-            nm.contains("[GT]", ignoreCase = true)
+            nm.contains("[GT]", ignoreCase = true) ||
+            cat.startsWith("GT ", ignoreCase = true) ||
+            cat.equals("GT", ignoreCase = true) ||
+            nm.startsWith("GT ", ignoreCase = true)
         }
     }
 
