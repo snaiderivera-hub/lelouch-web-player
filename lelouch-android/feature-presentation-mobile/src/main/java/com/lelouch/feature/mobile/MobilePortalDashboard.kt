@@ -2359,31 +2359,61 @@ private fun MobilePlatformHubSection(
             modifier = Modifier.fillMaxWidth()
         ) {
             items(platforms, key = { it.id }) { spec ->
-                Box(
+                val logoMark = when (spec.id) {
+                    "netflix" -> "N"
+                    "prime" -> "prime"
+                    "disney" -> "D+"
+                    "max" -> "max"
+                    "deportes" -> "⚽"
+                    else -> "AN"
+                }
+                val logoFontSize = when (spec.id) {
+                    "prime", "max" -> 10.sp
+                    "deportes" -> 17.sp
+                    else -> 16.sp
+                }
+                Row(
                     modifier = Modifier
-                        .width(136.dp)
+                        .width(164.dp)
                         .height(74.dp)
                         .clip(RoundedCornerShape(14.dp))
                         .background(
                             Brush.linearGradient(
                                 listOf(
-                                    spec.accentColor.copy(alpha = 0.28f),
+                                    spec.accentColor.copy(alpha = 0.25f),
                                     Color(0xFF14161F)
                                 )
                             )
                         )
                         .border(1.dp, spec.accentColor.copy(alpha = 0.45f), RoundedCornerShape(14.dp))
                         .clickable { onPlatformClick(spec) }
-                        .padding(12.dp)
+                        .padding(horizontal = 10.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(RoundedCornerShape(11.dp))
+                            .background(spec.accentColor),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = logoMark,
+                            color = Color.White,
+                            fontSize = logoFontSize,
+                            fontWeight = FontWeight.Black,
+                            maxLines = 1
+                        )
+                    }
                     Column(
-                        modifier = Modifier.align(Alignment.CenterStart),
-                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         Text(
                             text = spec.title,
                             color = Color.White,
-                            fontSize = 14.sp,
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.Black,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -2392,7 +2422,8 @@ private fun MobilePlatformHubSection(
                             text = spec.subtitle,
                             color = spec.accentColor,
                             fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
                         )
                     }
                 }

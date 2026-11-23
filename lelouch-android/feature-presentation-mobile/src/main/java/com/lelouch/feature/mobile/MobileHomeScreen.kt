@@ -172,8 +172,8 @@ fun MobileHomeScreen(
      */
     val startPlayback: (url: String, live: Boolean) -> Unit = { url, live ->
         isLivePlayback = live
-        // Si no habia reproductor activo (o venimos de VOD/Series), abrir fullscreen; si ya estabamos navegando en mini-player, mantener mini sin rotar la pantalla
-        if (activeStreamUrl == null || !live) {
+        // En vivo arranca en vertical (MiniPlayer) hasta que el usuario pulse Pantalla Completa; VOD/Series abren fullscreen
+        if (!live) {
             isPlayerFullscreen = true
         }
         playbackRequest++
@@ -876,8 +876,14 @@ fun MobileHomeScreen(
                 }
             }
         ) { paddingValues ->
+            LaunchedEffect(selectedTab) {
+                if (selectedTab != 1 && isLivePlayback && !isPlayerFullscreen && activeStreamUrl != null) {
+                    playerEngine.stop()
+                    activeStreamUrl = null
+                }
+            }
             Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
-                if (activeStreamUrl != null && !isPlayerFullscreen) {
+                if (activeStreamUrl != null && !isPlayerFullscreen && (!isLivePlayback || selectedTab == 1)) {
                     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
                     val context = LocalContext.current
                     MiniPlayerOverlay(
@@ -5528,7 +5534,10 @@ private fun MiniPlayerOverlay(
 ) {
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
     val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val context = LocalContext.current
     val playbackState by playerEngine.playbackState.collectAsState()
+    val trackSelection by playerEngine.trackSelection.collectAsState()
+    val videoTrack by playerEngine.videoTrackInfo.collectAsState()
     val isPlaying = playbackState is PlaybackState.Playing
     var isMuted by remember { mutableStateOf(false) }
     var selectedMaxHeight by remember(channelName) { mutableStateOf<Int?>(null) }
@@ -5701,6 +5710,26 @@ private fun MiniPlayerOverlay(
                     )
                 }
             }
+            val videoTracks = trackSelection.video
+            val currentResBadge = if (videoTrack.height > 0) "${videoTrack.height}p" else null
+            if (currentResBadge != null) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color(0xFF090A0E))
+                            .border(1.dp, Color(0xFF252938), RoundedCornerShape(16.dp))
+                            .padding(horizontal = 9.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = if (videoTracks.size <= 1) "Señal: $currentResBadge" else "Actual: $currentResBadge",
+                            color = Color(0xFF10B981),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
             val qualityPresets = listOf<Pair<String, Int?>>(
                 "Calidad Auto" to null,
                 "720p" to 720,
@@ -5717,6 +5746,20 @@ private fun MiniPlayerOverlay(
                         .clickable {
                             selectedMaxHeight = cap
                             playerEngine.setVideoQualityCap(cap)
+                            if (videoTracks.size <= 1 && cap != null) {
+                                val realLabel = currentResBadge ?: "única"
+                                android.widget.Toast.makeText(
+                                    context,
+                                    "Este canal solo transmite en calidad $realLabel (pista única)",
+                                    android.widget.Toast.LENGTH_SHORT
+                                ).show()
+                            } else {
+                                android.widget.Toast.makeText(
+                                    context,
+                                    "Calidad: $label",
+                                    android.widget.Toast.LENGTH_SHORT
+                                ).show()
+                            }
                         }
                         .padding(horizontal = 10.dp, vertical = 6.dp)
                 ) {
