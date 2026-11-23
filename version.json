@@ -1,7 +1,7 @@
 {
-  "versionName": "1.0.146",
-  "versionCode": 1000146,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.146/app-debug.apk",
-  "changelog": "- Mobile v1.0.146: logotipos originales en tarjetas blancas de plataformas, contorno naranja en tarjetas de canales TV sin barra media, controles de reproductor Live dentro del video al tocarlo + chips de señal debajo, spinner naranja (sin multicolor), controles verticales en naranja, y sin barra superior Lelouch en Películas/Series para banners completos.",
-  "version": "1.0.146"
+  "versionName": "1.0.147",
+  "versionCode": 1000147,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.147/app-debug.apk",
+  "changelog": "- Mobile v1.0.147: eliminados chips de calidad en TV en Vivo (controles limpios dentro del reproductor al tocar), eliminadas categorías en Películas y Series con Hero Carousel deslizable + buscador que scrollean junto con la grilla.",
+  "version": "1.0.147"
 }

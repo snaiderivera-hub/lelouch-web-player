@@ -2446,6 +2446,8 @@ private fun MobilePlatformDetailView(
     onSeriesClick: (Series) -> Unit,
     onChannelClick: (String, String) -> Unit
 ) {
+    var filterTab by remember(spec.id) { mutableStateOf("all") }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -2475,20 +2477,47 @@ private fun MobilePlatformDetailView(
                     fontWeight = FontWeight.Black
                 )
                 Text(
-                    text = "${spec.totalCount} elementos disponibles",
-                    color = spec.accentColor,
+                    text = "${spec.totalCount} títulos disponibles",
+                    color = BixOrangeAccent,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
         }
 
-        if (spec.channels.isNotEmpty()) {
-            Spacer(Modifier.height(16.dp))
+        // Pills de filtro rápido dentro de la plataforma
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(vertical = 12.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            val tabs = buildList {
+                add("all" to "Todo (${spec.totalCount})")
+                if (spec.movies.isNotEmpty()) add("movies" to "Películas (${spec.movies.size})")
+                if (spec.series.isNotEmpty()) add("series" to "Series (${spec.series.size})")
+                if (spec.channels.isNotEmpty()) add("channels" to "Canales (${spec.channels.size})")
+            }
+            items(tabs) { (id, label) ->
+                val active = filterTab == id
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(if (active) BixOrangeAccent else Color(0xFF14161F))
+                        .border(1.dp, if (active) BixOrangeAccent else Color(0xFF252938), RoundedCornerShape(20.dp))
+                        .clickable { filterTab = id }
+                        .padding(horizontal = 14.dp, vertical = 7.dp)
+                ) {
+                    Text(label, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        if ((filterTab == "all" || filterTab == "channels") && spec.channels.isNotEmpty()) {
+            Spacer(Modifier.height(6.dp))
             Text("Canales (${spec.channels.size})", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                items(spec.channels.take(40)) { ch ->
+                items(spec.channels) { ch ->
                     NativeLiveStreamCard(
                         channel = ch,
                         onClick = { onChannelClick(ch.name, ch.streamUrl ?: "") }
@@ -2497,35 +2526,55 @@ private fun MobilePlatformDetailView(
             }
         }
 
-        if (spec.movies.isNotEmpty()) {
-            Spacer(Modifier.height(16.dp))
-            Text("Películas (${spec.movies.size})", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(8.dp))
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                items(spec.movies.take(60)) { movie ->
-                    CuratedPosterItem(
-                        title = movie.name,
-                        imageUrl = movie.streamIcon,
-                        rating = movie.rating,
-                        year = movie.year,
-                        onClick = { onMovieClick(movie) }
-                    )
+        if ((filterTab == "all" || filterTab == "movies") && spec.movies.isNotEmpty()) {
+            Spacer(Modifier.height(14.dp))
+            Text("Películas (${spec.movies.size})", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Black)
+            Spacer(Modifier.height(10.dp))
+            spec.movies.chunked(3).forEach { rowItems ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    rowItems.forEach { movie ->
+                        Box(modifier = Modifier.weight(1f)) {
+                            CuratedPosterItem(
+                                title = movie.name,
+                                imageUrl = movie.streamIcon,
+                                rating = movie.rating,
+                                year = movie.year,
+                                onClick = { onMovieClick(movie) }
+                            )
+                        }
+                    }
+                    repeat(3 - rowItems.size) {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
                 }
             }
         }
 
-        if (spec.series.isNotEmpty()) {
-            Spacer(Modifier.height(16.dp))
-            Text("Series (${spec.series.size})", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(8.dp))
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                items(spec.series.take(60)) { series ->
-                    CuratedPosterItem(
-                        title = series.name,
-                        imageUrl = series.cover,
-                        rating = series.rating,
-                        onClick = { onSeriesClick(series) }
-                    )
+        if ((filterTab == "all" || filterTab == "series") && spec.series.isNotEmpty()) {
+            Spacer(Modifier.height(14.dp))
+            Text("Series (${spec.series.size})", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Black)
+            Spacer(Modifier.height(10.dp))
+            spec.series.chunked(3).forEach { rowItems ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    rowItems.forEach { series ->
+                        Box(modifier = Modifier.weight(1f)) {
+                            CuratedPosterItem(
+                                title = series.name,
+                                imageUrl = series.cover,
+                                rating = series.rating,
+                                onClick = { onSeriesClick(series) }
+                            )
+                        }
+                    }
+                    repeat(3 - rowItems.size) {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
                 }
             }
         }

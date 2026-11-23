@@ -2402,7 +2402,8 @@ private fun MobileLiveTab(
     }
 }
 
-// TAB 2: PELÍCULAS CON HERO BANNER, BUSCADOR Y GRILLA 2:3
+// TAB 2: PELÍCULAS CON HERO CAROUSEL DESLIZABLE, BUSCADOR Y GRILLA 2:3 (SIN CATEGORÍAS NI BANNER FIJO)
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun MobileMoviesTab(
     movies: List<VodMovie>,
@@ -2419,179 +2420,200 @@ private fun MobileMoviesTab(
         return
     }
 
-    val filteredMovies = remember(selectedCategoryId, movies) {
-        if (selectedCategoryId == "all" || selectedCategoryId.isBlank()) {
-            movies
-        } else {
-            movies.filter {
-                it.categoryId.equals(selectedCategoryId, ignoreCase = true) ||
-                it.categoryName.equals(selectedCategoryId, ignoreCase = true)
+    val heroItems = remember(movies) { movies.take(8) }
+    val heroPagerState = androidx.compose.foundation.pager.rememberPagerState(pageCount = { heroItems.size.coerceAtLeast(1) })
+    val heroTmdbMap = remember { mutableStateMapOf<Int, TmdbHeroMatch?>() }
+
+    LaunchedEffect(heroItems) {
+        if (heroItems.size > 1) {
+            while (isActive) {
+                kotlinx.coroutines.delay(5500L)
+                val next = (heroPagerState.currentPage + 1) % heroItems.size
+                heroPagerState.animateScrollToPage(next)
             }
         }
     }
 
-    val featuredMovie = remember(filteredMovies) { filteredMovies.firstOrNull() }
-    var featuredTmdb by remember(featuredMovie?.streamId) { mutableStateOf<TmdbHeroMatch?>(null) }
-    LaunchedEffect(featuredMovie?.streamId, onEnrichHeroTmdb) {
-        if (featuredMovie != null && onEnrichHeroTmdb != null) {
-            featuredTmdb = onEnrichHeroTmdb(featuredMovie.name, false, featuredMovie.year)
-        }
-    }
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(100.dp),
+        contentPadding = PaddingValues(bottom = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxSize().background(BixDarkBackground)
+    ) {
+        if (heroItems.isNotEmpty() && searchQuery.isBlank()) {
+            item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(340.dp)
+                ) {
+                    androidx.compose.foundation.pager.HorizontalPager(
+                        state = heroPagerState,
+                        modifier = Modifier.fillMaxSize()
+                    ) { page ->
+                        val movie = heroItems[page]
+                        LaunchedEffect(movie.streamId, onEnrichHeroTmdb) {
+                            if (onEnrichHeroTmdb != null && !heroTmdbMap.containsKey(movie.streamId)) {
+                                heroTmdbMap[movie.streamId] = onEnrichHeroTmdb(movie.name, false, movie.year)
+                            }
+                        }
+                        val tmdb = heroTmdbMap[movie.streamId]
+                        val heroImg = tmdb?.backdropUrl?.ifBlank { null }
+                            ?: movie.backdropPath?.ifBlank { null }
+                            ?: tmdb?.posterUrl?.ifBlank { null }
+                            ?: movie.streamIcon
+                        val year = tmdb?.year?.ifBlank { null } ?: movie.year.orEmpty()
+                        val rating = tmdb?.rating?.takeIf { it > 0.0 } ?: movie.rating ?: 0.0
+                        val overview = tmdb?.overview?.ifBlank { null } ?: movie.plot.orEmpty()
 
-    Column(modifier = Modifier.fillMaxSize().background(BixDarkBackground)) {
-        if (featuredMovie != null && searchQuery.isBlank()) {
-            val heroImg = featuredTmdb?.backdropUrl?.ifBlank { null }
-                ?: featuredMovie.backdropPath?.ifBlank { null }
-                ?: featuredMovie.streamIcon
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color(0xFF090A0E))
+                                .clickable { onMovieClick(movie) }
+                        ) {
+                            if (!heroImg.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = heroImg,
+                                    contentDescription = movie.name,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        Brush.verticalGradient(
+                                            listOf(
+                                                Color.Black.copy(alpha = 0.25f),
+                                                Color.Transparent,
+                                                BixDarkBackground.copy(alpha = 0.85f),
+                                                BixDarkBackground
+                                            )
+                                        )
+                                    )
+                            )
+                            Column(
+                                modifier = Modifier
+                                    .align(Alignment.BottomStart)
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 18.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = listOfNotNull(
+                                        "Destacada • PELÍCULA",
+                                        rating.takeIf { it > 0.0 }?.let { "★ %.1f/10".format(it) },
+                                        year.takeIf { it.isNotBlank() }
+                                    ).joinToString(" • "),
+                                    color = Color.White.copy(alpha = 0.85f),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = movie.name,
+                                    color = Color.White,
+                                    fontSize = 23.sp,
+                                    fontWeight = FontWeight.Black,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    lineHeight = 27.sp
+                                )
+                                if (overview.isNotBlank()) {
+                                    Text(
+                                        text = overview,
+                                        color = Color.White.copy(alpha = 0.78f),
+                                        fontSize = 12.sp,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                Spacer(Modifier.height(4.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(22.dp))
+                                        .background(Color(0xFF1E202B).copy(alpha = 0.9f))
+                                        .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(22.dp))
+                                        .padding(horizontal = 18.dp, vertical = 9.dp)
+                                ) {
+                                    Text("▶ Ver Ahora", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+
+                    // Puntos indicadores naranjas del carrusel
+                    if (heroItems.size > 1) {
+                        Row(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(horizontal = 16.dp, vertical = 22.dp),
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            heroItems.indices.forEach { idx ->
+                                val active = heroPagerState.currentPage == idx
+                                Box(
+                                    modifier = Modifier
+                                        .height(5.dp)
+                                        .width(if (active) 18.dp else 5.dp)
+                                        .clip(CircleShape)
+                                        .background(if (active) BixOrangeAccent else Color.White.copy(alpha = 0.35f))
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Buscador pill inline (scrollea junto con la página)
+        item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 14.dp, vertical = 8.dp)
-                    .height(172.dp)
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(RoundedCornerShape(22.dp))
                     .background(Color(0xFF14161F))
-                    .border(1.dp, Color(0xFF252938), RoundedCornerShape(16.dp))
-                    .clickable { onMovieClick(featuredMovie) }
+                    .border(1.dp, if (searchQuery.isNotEmpty()) BixOrangeAccent else Color(0xFF252938), RoundedCornerShape(22.dp))
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
             ) {
-                if (!heroImg.isNullOrBlank()) {
-                    AsyncImage(
-                        model = heroImg,
-                        contentDescription = featuredMovie.name,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(Color.Transparent, Color(0xFF090A0E).copy(alpha = 0.92f))
-                            )
-                        )
-                )
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalAlignment = Alignment.Bottom,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
-                        Text(
-                            text = "DESTACADA",
-                            color = BixOrangeAccent,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                        Text(
-                            text = featuredMovie.name,
-                            color = Color.White,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Black,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        val year = featuredTmdb?.year?.ifBlank { null } ?: featuredMovie.year.orEmpty()
-                        val rating = featuredTmdb?.rating ?: featuredMovie.rating ?: 0.0
-                        if (year.isNotBlank() || rating > 0.0) {
-                            Text(
-                                text = listOfNotNull(
-                                    year.takeIf { it.isNotBlank() },
-                                    rating.takeIf { it > 0.0 }?.let { "★ %.1f".format(it) }
-                                ).joinToString(" • "),
-                                color = Color.White.copy(alpha = 0.8f),
-                                fontSize = 11.sp
-                            )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Search, contentDescription = null, tint = BixOrangeAccent, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    BasicTextField(
+                        value = searchQuery,
+                        onValueChange = onSearchChange,
+                        singleLine = true,
+                        textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
+                        cursorBrush = SolidColor(BixOrangeAccent),
+                        modifier = Modifier.weight(1f),
+                        decorationBox = { inner ->
+                            if (searchQuery.isEmpty()) Text("Buscar película en el catálogo...", color = BixTextMuted, fontSize = 13.sp)
+                            inner()
                         }
-                    }
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(BixOrangeAccent)
-                            .padding(horizontal = 14.dp, vertical = 8.dp)
-                    ) {
-                        Text("▶ Ver", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black)
-                    }
-                }
-            }
-        }
-
-        // Buscador pill inline
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 4.dp)
-                .clip(RoundedCornerShape(22.dp))
-                .background(Color(0xFF14161F))
-                .border(1.dp, if (searchQuery.isNotEmpty()) BixOrangeAccent else Color(0xFF252938), RoundedCornerShape(22.dp))
-                .padding(horizontal = 14.dp, vertical = 9.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Search, contentDescription = null, tint = BixOrangeAccent, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                BasicTextField(
-                    value = searchQuery,
-                    onValueChange = onSearchChange,
-                    singleLine = true,
-                    textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
-                    cursorBrush = SolidColor(BixOrangeAccent),
-                    modifier = Modifier.weight(1f),
-                    decorationBox = { inner ->
-                        if (searchQuery.isEmpty()) Text("Buscar película...", color = BixTextMuted, fontSize = 13.sp)
-                        inner()
-                    }
-                )
-                if (searchQuery.isNotEmpty()) {
-                    Icon(
-                        Icons.Default.Close,
-                        contentDescription = "Limpiar",
-                        tint = BixTextMuted,
-                        modifier = Modifier.size(18.dp).clickable { onSearchChange("") }
                     )
-                }
-            }
-        }
-
-        if (categories.isNotEmpty()) {
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                items(categories, key = { "cat_mov_${it.id}" }) { cat ->
-                    val isSelected = cat.id == selectedCategoryId
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(if (isSelected) BixOrangeAccent else Color(0xFF14161F))
-                            .border(1.dp, if (isSelected) BixOrangeAccent else Color(0xFF252938), RoundedCornerShape(20.dp))
-                            .clickable { onSelectCategory(cat.id) }
-                            .padding(horizontal = 14.dp, vertical = 6.dp)
-                    ) {
-                        Text(
-                            text = cat.name,
-                            color = Color.White,
-                            fontSize = 12.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                    if (searchQuery.isNotEmpty()) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "Limpiar",
+                            tint = BixTextMuted,
+                            modifier = Modifier.size(18.dp).clickable { onSearchChange("") }
                         )
                     }
                 }
             }
         }
 
-        if (filteredMovies.isEmpty()) {
-            EmptyState("Sin películas en esta categoría", "Selecciona otra categoría o ajusta tu búsqueda")
+        if (movies.isEmpty()) {
+            item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                EmptyState("Sin películas encontradas", "Ajusta tu búsqueda")
+            }
         } else {
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(100.dp),
-                contentPadding = PaddingValues(12.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                itemsIndexed(filteredMovies, key = { idx, movie -> "mobile_movie_${movie.streamId}_${movie.id}_$idx" }) { _, movie ->
+            itemsIndexed(movies, key = { idx, movie -> "mobile_movie_${movie.streamId}_${movie.id}_$idx" }) { _, movie ->
+                Box(modifier = Modifier.padding(horizontal = 4.dp)) {
                     MovieGridCard(movie = movie, onClick = { onMovieClick(movie) })
                 }
             }
@@ -2599,7 +2621,8 @@ private fun MobileMoviesTab(
     }
 }
 
-// TAB 3: SERIES CON HERO BANNER, BUSCADOR Y GRILLA 2:3
+// TAB 3: SERIES CON HERO CAROUSEL DESLIZABLE, BUSCADOR Y GRILLA 2:3 (SIN CATEGORÍAS NI BANNER FIJO)
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun MobileSeriesTab(
     seriesList: List<Series>,
@@ -2616,173 +2639,199 @@ private fun MobileSeriesTab(
         return
     }
 
-    val filteredSeries = remember(selectedCategoryId, seriesList) {
-        if (selectedCategoryId == "all" || selectedCategoryId.isBlank()) {
-            seriesList
-        } else {
-            seriesList.filter {
-                it.categoryId.equals(selectedCategoryId, ignoreCase = true) ||
-                it.categoryName.equals(selectedCategoryId, ignoreCase = true)
+    val heroItems = remember(seriesList) { seriesList.take(8) }
+    val heroPagerState = androidx.compose.foundation.pager.rememberPagerState(pageCount = { heroItems.size.coerceAtLeast(1) })
+    val heroTmdbMap = remember { mutableStateMapOf<Int, TmdbHeroMatch?>() }
+
+    LaunchedEffect(heroItems) {
+        if (heroItems.size > 1) {
+            while (isActive) {
+                kotlinx.coroutines.delay(5500L)
+                val next = (heroPagerState.currentPage + 1) % heroItems.size
+                heroPagerState.animateScrollToPage(next)
             }
         }
     }
 
-    val featuredSeries = remember(filteredSeries) { filteredSeries.firstOrNull() }
-    var featuredTmdb by remember(featuredSeries?.seriesId) { mutableStateOf<TmdbHeroMatch?>(null) }
-    LaunchedEffect(featuredSeries?.seriesId, onEnrichHeroTmdb) {
-        if (featuredSeries != null && onEnrichHeroTmdb != null) {
-            featuredTmdb = onEnrichHeroTmdb(featuredSeries.name, true, null)
-        }
-    }
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(100.dp),
+        contentPadding = PaddingValues(bottom = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxSize().background(BixDarkBackground)
+    ) {
+        if (heroItems.isNotEmpty() && searchQuery.isBlank()) {
+            item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(340.dp)
+                ) {
+                    androidx.compose.foundation.pager.HorizontalPager(
+                        state = heroPagerState,
+                        modifier = Modifier.fillMaxSize()
+                    ) { page ->
+                        val series = heroItems[page]
+                        LaunchedEffect(series.seriesId, onEnrichHeroTmdb) {
+                            if (onEnrichHeroTmdb != null && !heroTmdbMap.containsKey(series.seriesId)) {
+                                heroTmdbMap[series.seriesId] = onEnrichHeroTmdb(series.name, true, null)
+                            }
+                        }
+                        val tmdb = heroTmdbMap[series.seriesId]
+                        val heroImg = tmdb?.backdropUrl?.ifBlank { null }
+                            ?: series.backdropPath?.ifBlank { null }
+                            ?: tmdb?.posterUrl?.ifBlank { null }
+                            ?: series.cover
+                        val year = tmdb?.year?.ifBlank { null } ?: series.releaseDate.orEmpty()
+                        val rating = tmdb?.rating?.takeIf { it > 0.0 } ?: series.rating5based ?: series.rating ?: 0.0
+                        val overview = tmdb?.overview?.ifBlank { null } ?: series.plot.orEmpty()
 
-    Column(modifier = Modifier.fillMaxSize().background(BixDarkBackground)) {
-        if (featuredSeries != null && searchQuery.isBlank()) {
-            val heroImg = featuredTmdb?.backdropUrl?.ifBlank { null } ?: featuredSeries.cover
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color(0xFF090A0E))
+                                .clickable { onSeriesClick(series) }
+                        ) {
+                            if (!heroImg.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = heroImg,
+                                    contentDescription = series.name,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        Brush.verticalGradient(
+                                            listOf(
+                                                Color.Black.copy(alpha = 0.25f),
+                                                Color.Transparent,
+                                                BixDarkBackground.copy(alpha = 0.85f),
+                                                BixDarkBackground
+                                            )
+                                        )
+                                    )
+                            )
+                            Column(
+                                modifier = Modifier
+                                    .align(Alignment.BottomStart)
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 18.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = listOfNotNull(
+                                        "Destacada • SERIE",
+                                        rating.takeIf { it > 0.0 }?.let { "★ %.1f/10".format(it) },
+                                        year.takeIf { it.isNotBlank() }
+                                    ).joinToString(" • "),
+                                    color = Color.White.copy(alpha = 0.85f),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = series.name,
+                                    color = Color.White,
+                                    fontSize = 23.sp,
+                                    fontWeight = FontWeight.Black,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    lineHeight = 27.sp
+                                )
+                                if (overview.isNotBlank()) {
+                                    Text(
+                                        text = overview,
+                                        color = Color.White.copy(alpha = 0.78f),
+                                        fontSize = 12.sp,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                Spacer(Modifier.height(4.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(22.dp))
+                                        .background(Color(0xFF1E202B).copy(alpha = 0.9f))
+                                        .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(22.dp))
+                                        .padding(horizontal = 18.dp, vertical = 9.dp)
+                                ) {
+                                    Text("▶ Ver Ahora", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+
+                    if (heroItems.size > 1) {
+                        Row(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(horizontal = 16.dp, vertical = 22.dp),
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            heroItems.indices.forEach { idx ->
+                                val active = heroPagerState.currentPage == idx
+                                Box(
+                                    modifier = Modifier
+                                        .height(5.dp)
+                                        .width(if (active) 18.dp else 5.dp)
+                                        .clip(CircleShape)
+                                        .background(if (active) BixOrangeAccent else Color.White.copy(alpha = 0.35f))
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Buscador pill inline (scrollea junto con la página)
+        item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 14.dp, vertical = 8.dp)
-                    .height(172.dp)
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(RoundedCornerShape(22.dp))
                     .background(Color(0xFF14161F))
-                    .border(1.dp, Color(0xFF252938), RoundedCornerShape(16.dp))
-                    .clickable { onSeriesClick(featuredSeries) }
+                    .border(1.dp, if (searchQuery.isNotEmpty()) BixOrangeAccent else Color(0xFF252938), RoundedCornerShape(22.dp))
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
             ) {
-                if (!heroImg.isNullOrBlank()) {
-                    AsyncImage(
-                        model = heroImg,
-                        contentDescription = featuredSeries.name,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(Color.Transparent, Color(0xFF090A0E).copy(alpha = 0.92f))
-                            )
-                        )
-                )
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalAlignment = Alignment.Bottom,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
-                        Text(
-                            text = "SERIE DESTACADA",
-                            color = BixOrangeAccent,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                        Text(
-                            text = featuredSeries.name,
-                            color = Color.White,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Black,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        val rating = featuredTmdb?.rating ?: featuredSeries.rating ?: 0.0
-                        if (rating > 0.0) {
-                            Text(
-                                text = "★ %.1f".format(rating),
-                                color = Color.White.copy(alpha = 0.8f),
-                                fontSize = 11.sp
-                            )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Search, contentDescription = null, tint = BixOrangeAccent, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    BasicTextField(
+                        value = searchQuery,
+                        onValueChange = onSearchChange,
+                        singleLine = true,
+                        textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
+                        cursorBrush = SolidColor(BixOrangeAccent),
+                        modifier = Modifier.weight(1f),
+                        decorationBox = { inner ->
+                            if (searchQuery.isEmpty()) Text("Buscar serie en el catálogo...", color = BixTextMuted, fontSize = 13.sp)
+                            inner()
                         }
-                    }
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(BixOrangeAccent)
-                            .padding(horizontal = 14.dp, vertical = 8.dp)
-                    ) {
-                        Text("▶ Ver", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black)
-                    }
-                }
-            }
-        }
-
-        // Buscador pill inline
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 4.dp)
-                .clip(RoundedCornerShape(22.dp))
-                .background(Color(0xFF14161F))
-                .border(1.dp, if (searchQuery.isNotEmpty()) BixOrangeAccent else Color(0xFF252938), RoundedCornerShape(22.dp))
-                .padding(horizontal = 14.dp, vertical = 9.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Search, contentDescription = null, tint = BixOrangeAccent, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                BasicTextField(
-                    value = searchQuery,
-                    onValueChange = onSearchChange,
-                    singleLine = true,
-                    textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
-                    cursorBrush = SolidColor(BixOrangeAccent),
-                    modifier = Modifier.weight(1f),
-                    decorationBox = { inner ->
-                        if (searchQuery.isEmpty()) Text("Buscar serie...", color = BixTextMuted, fontSize = 13.sp)
-                        inner()
-                    }
-                )
-                if (searchQuery.isNotEmpty()) {
-                    Icon(
-                        Icons.Default.Close,
-                        contentDescription = "Limpiar",
-                        tint = BixTextMuted,
-                        modifier = Modifier.size(18.dp).clickable { onSearchChange("") }
                     )
-                }
-            }
-        }
-
-        if (categories.isNotEmpty()) {
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                items(categories, key = { "cat_ser_${it.id}" }) { cat ->
-                    val isSelected = cat.id == selectedCategoryId
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(if (isSelected) BixOrangeAccent else Color(0xFF14161F))
-                            .border(1.dp, if (isSelected) BixOrangeAccent else Color(0xFF252938), RoundedCornerShape(20.dp))
-                            .clickable { onSelectCategory(cat.id) }
-                            .padding(horizontal = 14.dp, vertical = 6.dp)
-                    ) {
-                        Text(
-                            text = cat.name,
-                            color = Color.White,
-                            fontSize = 12.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                    if (searchQuery.isNotEmpty()) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "Limpiar",
+                            tint = BixTextMuted,
+                            modifier = Modifier.size(18.dp).clickable { onSearchChange("") }
                         )
                     }
                 }
             }
         }
 
-        if (filteredSeries.isEmpty()) {
-            EmptyState("Sin series en esta categoría", "Selecciona otra categoría o ajusta tu búsqueda")
+        if (seriesList.isEmpty()) {
+            item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                EmptyState("Sin series encontradas", "Ajusta tu búsqueda")
+            }
         } else {
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(100.dp),
-                contentPadding = PaddingValues(12.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                itemsIndexed(filteredSeries, key = { idx, s -> "mobile_series_${s.seriesId}_$idx" }) { _, s ->
+            itemsIndexed(seriesList, key = { idx, s -> "mobile_series_${s.seriesId}_$idx" }) { _, s ->
+                Box(modifier = Modifier.padding(horizontal = 4.dp)) {
                     SeriesGridCard(series = s, onClick = { onSeriesClick(s) })
                 }
             }
@@ -5767,78 +5816,6 @@ private fun MiniPlayerOverlay(
                             fontWeight = FontWeight.Bold
                         )
                     }
-                }
-            }
-        }
-
-        // Tira de chips de señal / calidad debajo del reproductor
-        LazyRow(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color(0xFF0A0B0F))
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            val videoTracks = trackSelection.video
-            val currentResBadge = if (videoTrack.height > 0) "${videoTrack.height}p" else null
-            if (currentResBadge != null) {
-                item {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color(0xFF14161F))
-                            .border(1.dp, Color(0xFF252938), RoundedCornerShape(12.dp))
-                            .padding(horizontal = 10.dp, vertical = 7.dp)
-                    ) {
-                        Text(
-                            text = if (videoTracks.size <= 1) "Señal: $currentResBadge" else "Actual: $currentResBadge",
-                            color = Color(0xFF10B981),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-            val qualityPresets = listOf<Pair<String, Int?>>(
-                "Calidad Auto" to null,
-                "720p" to 720,
-                "480p" to 480,
-                "360p" to 360
-            )
-            items(qualityPresets) { (label, cap) ->
-                val active = selectedMaxHeight == cap
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(if (active) BixOrangeAccent else Color(0xFF14161F))
-                        .border(1.dp, if (active) BixOrangeAccent else Color(0xFF252938), RoundedCornerShape(12.dp))
-                        .clickable {
-                            selectedMaxHeight = cap
-                            playerEngine.setVideoQualityCap(cap)
-                            if (videoTracks.size <= 1 && cap != null) {
-                                val realLabel = currentResBadge ?: "única"
-                                android.widget.Toast.makeText(
-                                    context,
-                                    "Este canal solo transmite en calidad $realLabel (pista única)",
-                                    android.widget.Toast.LENGTH_SHORT
-                                ).show()
-                            } else {
-                                android.widget.Toast.makeText(
-                                    context,
-                                    "Calidad: $label",
-                                    android.widget.Toast.LENGTH_SHORT
-                                ).show()
-                            }
-                        }
-                        .padding(horizontal = 12.dp, vertical = 7.dp)
-                ) {
-                    Text(
-                        text = label,
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = if (active) FontWeight.Bold else FontWeight.Medium
-                    )
                 }
             }
         }
