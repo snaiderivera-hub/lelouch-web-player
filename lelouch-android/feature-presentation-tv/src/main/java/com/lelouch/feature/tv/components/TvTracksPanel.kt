@@ -47,6 +47,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.tv.foundation.lazy.list.TvLazyColumn
 import androidx.tv.foundation.lazy.list.items
+import com.lelouch.core.designsystem.BixOrangeAccent
 import com.lelouch.core.designsystem.LelouchBorder
 import com.lelouch.core.designsystem.LelouchCardFocused
 import com.lelouch.core.designsystem.LelouchCyanAccent
@@ -69,6 +70,8 @@ fun TvTracksPanel(
     engine: LelouchPlayerEngine,
     currentResizeMode: Int = AspectRatioFrameLayout.RESIZE_MODE_FIT,
     onResizeModeChanged: ((Int) -> Unit)? = null,
+    isCineZoom: Boolean = false,
+    onCineZoomChanged: ((Boolean) -> Unit)? = null,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -124,8 +127,8 @@ fun TvTracksPanel(
             modifier = Modifier
                 .width(490.dp)
                 .fillMaxHeight()
-                .background(LelouchSurface.copy(alpha = 0.98f))
-                .border(width = 1.dp, color = LelouchCyanAccent.copy(alpha = 0.35f))
+                .background(Color(0xF5090A0E))
+                .border(width = 1.dp, color = BixOrangeAccent.copy(alpha = 0.5f))
         ) {
             TvLazyColumn(
                 modifier = Modifier
@@ -137,7 +140,7 @@ fun TvTracksPanel(
                 item {
                     Text(
                         text = "CONFIGURACIÓN DE REPRODUCCIÓN",
-                        color = LelouchCyanAccent,
+                        color = BixOrangeAccent,
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Black
                     )
@@ -158,26 +161,46 @@ fun TvTracksPanel(
                     TrackRow(
                         title = "Ajustar (Original)",
                         subtitle = "Proporción original con barras si corresponde",
-                        isSelected = currentResizeMode == AspectRatioFrameLayout.RESIZE_MODE_FIT,
+                        isSelected = !isCineZoom && currentResizeMode == AspectRatioFrameLayout.RESIZE_MODE_FIT,
                         focusRequester = firstRowFocus,
                         isFirstItem = true,
-                        onClick = { onResizeModeChanged?.invoke(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
+                        onClick = {
+                            onCineZoomChanged?.invoke(false)
+                            onResizeModeChanged?.invoke(AspectRatioFrameLayout.RESIZE_MODE_FIT)
+                        }
                     )
                 }
                 item {
                     TrackRow(
                         title = "Llenar Pantalla (Zoom)",
-                        subtitle = "Ocupa toda la pantalla sin distorsión (recorte suave)",
-                        isSelected = currentResizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
-                        onClick = { onResizeModeChanged?.invoke(AspectRatioFrameLayout.RESIZE_MODE_ZOOM) }
+                        subtitle = "Recorte suave para videos 21:9 nativos",
+                        isSelected = !isCineZoom && currentResizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
+                        onClick = {
+                            onCineZoomChanged?.invoke(false)
+                            onResizeModeChanged?.invoke(AspectRatioFrameLayout.RESIZE_MODE_ZOOM)
+                        }
                     )
                 }
                 item {
                     TrackRow(
                         title = "Estirar a Pantalla Completa (16:9)",
-                        subtitle = "Estira al 100% de la pantalla eliminando barras negras",
-                        isSelected = currentResizeMode == AspectRatioFrameLayout.RESIZE_MODE_FILL,
-                        onClick = { onResizeModeChanged?.invoke(AspectRatioFrameLayout.RESIZE_MODE_FILL) }
+                        subtitle = "Estira al 100% del alto y ancho de la pantalla",
+                        isSelected = !isCineZoom && currentResizeMode == AspectRatioFrameLayout.RESIZE_MODE_FILL,
+                        onClick = {
+                            onCineZoomChanged?.invoke(false)
+                            onResizeModeChanged?.invoke(AspectRatioFrameLayout.RESIZE_MODE_FILL)
+                        }
+                    )
+                }
+                item {
+                    TrackRow(
+                        title = "Cine Zoom (1.33×)",
+                        subtitle = "Elimina franjas negras grabadas en películas 16:9",
+                        isSelected = isCineZoom,
+                        onClick = {
+                            onResizeModeChanged?.invoke(AspectRatioFrameLayout.RESIZE_MODE_ZOOM)
+                            onCineZoomChanged?.invoke(true)
+                        }
                     )
                 }
 
@@ -359,8 +382,8 @@ private fun TrackRow(
             .clickable { onClick() }
             .background(
                 color = when {
-                    isFocused -> LelouchCardFocused
-                    isSelected -> LelouchSurfaceVariant
+                    isFocused -> BixOrangeAccent
+                    isSelected -> Color(0xFF14161F)
                     else -> Color.Transparent
                 },
                 shape = RoundedCornerShape(9.dp)
@@ -369,8 +392,8 @@ private fun TrackRow(
                 width = if (isFocused) 2.5.dp else 1.dp,
                 color = when {
                     isFocused -> Color.White
-                    isSelected -> LelouchCyanAccent.copy(alpha = 0.5f)
-                    else -> LelouchBorder
+                    isSelected -> BixOrangeAccent.copy(alpha = 0.7f)
+                    else -> Color(0xFF252938)
                 },
                 shape = RoundedCornerShape(9.dp)
             )
@@ -382,9 +405,9 @@ private fun TrackRow(
                 .size(10.dp)
                 .background(
                     color = when {
-                        isSelected -> LelouchCyanAccent
-                        isFocused -> Color.White
-                        else -> LelouchBorder
+                        isFocused -> Color.Black
+                        isSelected -> BixOrangeAccent
+                        else -> Color(0xFF252938)
                     },
                     shape = CircleShape
                 )
@@ -397,8 +420,8 @@ private fun TrackRow(
             Text(
                 text = title,
                 color = when {
-                    isFocused -> Color.White
-                    isSelected -> LelouchTextPrimary
+                    isFocused -> Color.Black
+                    isSelected -> Color.White
                     else -> LelouchTextSecondary
                 },
                 fontSize = 15.sp,
@@ -407,7 +430,7 @@ private fun TrackRow(
             if (!subtitle.isNullOrBlank()) {
                 Text(
                     text = subtitle,
-                    color = if (isFocused) Color.White.copy(alpha = 0.85f) else LelouchTextMuted,
+                    color = if (isFocused) Color.Black.copy(alpha = 0.8f) else LelouchTextMuted,
                     fontSize = 11.sp
                 )
             }

@@ -7,12 +7,14 @@ import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -29,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -88,6 +91,7 @@ fun LelouchVideoPlayer(
     resizeMode: Int = AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
     isLive: Boolean = true,
     useOrangeSpinner: Boolean = false,
+    extraZoomScale: Float = 1f,
     overlayContent: @Composable () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -122,13 +126,21 @@ fun LelouchVideoPlayer(
         }
     }
 
-    Box(
+    val safeScale = if (!isLive) extraZoomScale.coerceIn(1f, 2f) else 1f
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .clipToBounds()
+            .background(Color.Black),
+        contentAlignment = Alignment.Center
     ) {
+        val videoModifier = if (safeScale > 1.01f) {
+            Modifier.requiredSize(maxWidth * safeScale, maxHeight * safeScale)
+        } else {
+            Modifier.fillMaxSize()
+        }
         AndroidView(
-            modifier = Modifier.fillMaxSize(),
+            modifier = videoModifier,
             factory = { ctx ->
                 PlayerView(ctx).apply {
                     layoutParams = ViewGroup.LayoutParams(
@@ -145,8 +157,13 @@ fun LelouchVideoPlayer(
             },
             update = { playerView ->
                 playerView.keepScreenOn = true
-                playerView.player = playerEngine.exoPlayer
-                playerView.resizeMode = resizeMode
+                if (playerView.player !== playerEngine.exoPlayer) {
+                    playerView.player = playerEngine.exoPlayer
+                }
+                if (playerView.resizeMode != resizeMode) {
+                    playerView.resizeMode = resizeMode
+                    playerView.requestLayout()
+                }
             }
         )
 

@@ -408,7 +408,12 @@ fun TvHomeScreen(
     var isFullscreen by remember { mutableStateOf(false) }
     var isHudVisible by remember { mutableStateOf(false) }
     var isTracksPanelVisible by remember { mutableStateOf(false) }
-    var vodResizeMode by remember { mutableStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
+    var vodResizeMode by remember {
+        mutableIntStateOf(hiddenPrefs.getInt("tv_vod_resize_mode", AspectRatioFrameLayout.RESIZE_MODE_FIT))
+    }
+    var vodCineZoom by remember {
+        mutableStateOf(hiddenPrefs.getBoolean("tv_vod_cine_zoom", false))
+    }
 
     var isPlayingLive by remember { mutableStateOf(true) }
     var currentPlayingTitle by remember { mutableStateOf<String?>(null) }
@@ -1239,33 +1244,11 @@ fun TvHomeScreen(
         }
     }
 
-    fun playLiveChannelDirect(channel: LiveStream) {
-        val userT0 = android.os.SystemClock.elapsedRealtime()
-        val resolvedCat = liveCatMap[channel.categoryId]
-            ?: channel.categoryName.takeIf { it.isNotBlank() }
-            ?: "General"
-        val streamUrl = StreamUrlResolver.resolve(
-            directUrl = channel.streamUrl,
-            source = activeSource,
-            streamId = channel.streamId,
-            kind = StreamUrlResolver.Kind.LIVE,
-            extension = channel.containerExtension.ifBlank { "m3u8" }
-        )
+    fun playLiveChannelDirect(uiChannel: ChannelUiModel) {
+        val streamUrl = uiChannel.streamUrl
         if (streamUrl.isBlank()) return
-        val uiChannel = ChannelUiModel(
-            id = channel.id,
-            streamId = channel.streamId,
-            name = channel.name,
-            num = channel.num,
-            categoryName = resolvedCat,
-            categoryId = channel.categoryId,
-            streamIcon = channel.streamIcon,
-            currentProgram = channel.epgChannelId ?: "En Directo",
-            streamUrl = streamUrl,
-            isFavorite = channel.isFavorite,
-            sourceId = channel.id
-        )
-        val idxInVisible = visibleChannels.indexOfFirst { it.streamId == channel.streamId }
+        val userT0 = android.os.SystemClock.elapsedRealtime()
+        val idxInVisible = visibleChannels.indexOfFirst { it.streamId == uiChannel.streamId }
         if (idxInVisible >= 0) {
             focusedChannelIndex = idxInVisible
             activePlaybackChannels = visibleChannels
@@ -1280,6 +1263,35 @@ fun TvHomeScreen(
         lastDetailMediaBeforeVod = null
         playerEngine.playStream(streamUrl, isLive = true, userT0 = userT0)
         isFullscreen = true
+    }
+
+    fun playLiveChannelDirect(channel: LiveStream) {
+        val resolvedCat = liveCatMap[channel.categoryId]
+            ?: channel.categoryName.takeIf { it.isNotBlank() }
+            ?: "General"
+        val streamUrl = StreamUrlResolver.resolve(
+            directUrl = channel.streamUrl,
+            source = activeSource,
+            streamId = channel.streamId,
+            kind = StreamUrlResolver.Kind.LIVE,
+            extension = channel.containerExtension.ifBlank { "m3u8" }
+        )
+        if (streamUrl.isBlank()) return
+        playLiveChannelDirect(
+            ChannelUiModel(
+                id = channel.id,
+                streamId = channel.streamId,
+                name = channel.name,
+                num = channel.num,
+                categoryName = resolvedCat,
+                categoryId = channel.categoryId,
+                streamIcon = channel.streamIcon,
+                currentProgram = channel.epgChannelId ?: "En Directo",
+                streamUrl = streamUrl,
+                isFavorite = channel.isFavorite,
+                sourceId = channel.id
+            )
+        )
     }
 
     LaunchedEffect(seekFeedbackText) {
@@ -1874,7 +1886,8 @@ fun TvHomeScreen(
                     modifier = Modifier.fillMaxSize(),
                     resizeMode = if (isPlayingLive) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else vodResizeMode,
                     isLive = isPlayingLive,
-                    useOrangeSpinner = !isPlayingLive
+                    useOrangeSpinner = !isPlayingLive,
+                    extraZoomScale = if (!isPlayingLive && vodCineZoom) 1.33f else 1f
                 )
             }
         }
@@ -1920,23 +1933,8 @@ fun TvHomeScreen(
                                 hiddenSeriesCategories = hiddenSeriesCategories,
                                 popularMovies = recentMovies.ifEmpty { movies }.take(10),
                                 onSelectChannel = { ch ->
-                                    val userT0 = android.os.SystemClock.elapsedRealtime()
-                                    val idx = visibleChannels.indexOfFirst { it.streamId == ch.streamId }
-                                    if (idx >= 0) {
-                                        focusedChannelIndex = idx
-                                        activePlaybackChannels = visibleChannels
-                                        activePlaybackChannelIndex = idx
-                                    } else {
-                                        activePlaybackChannels = (listOf(ch) + visibleChannels).distinctBy { it.streamId }
-                                        activePlaybackChannelIndex = 0
-                                    }
-                                    focusedChannelId = ch.id
-                                    focusedChannel = ch
                                     selectedTopTab = 2
-                                    isPlayingLive = true
-                                    lastDetailMediaBeforeVod = null
-                                    playerEngine.playStream(ch.streamUrl, isLive = true, userT0 = userT0)
-                                    isFullscreen = true
+                                    playLiveChannelDirect(ch)
                                 },
                                 onSelectMovie = { mov ->
                                     activeDetailMedia = MediaDetailUiModel(
@@ -4025,6 +4023,59 @@ fun TvHomeScreen(
                                 }
                             }
 
+                            // 📐 Pantalla / Zoom (Original -> Llenar -> Estirar -> Cine Zoom 1.33x)
+                            Surface(
+                                onClick = {
+                                    val (nextMode, nextZoom, label) = when {
+                                        vodCineZoom -> Triple(AspectRatioFrameLayout.RESIZE_MODE_FIT, false, "Original")
+                                        vodResizeMode == AspectRatioFrameLayout.RESIZE_MODE_FIT -> Triple(AspectRatioFrameLayout.RESIZE_MODE_ZOOM, false, "Llenar (Zoom)")
+                                        vodResizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> Triple(AspectRatioFrameLayout.RESIZE_MODE_FILL, false, "Estirar (16:9)")
+                                        else -> Triple(AspectRatioFrameLayout.RESIZE_MODE_ZOOM, true, "Cine Zoom 1.33×")
+                                    }
+                                    vodResizeMode = nextMode
+                                    vodCineZoom = nextZoom
+                                    hiddenPrefs.edit()
+                                        .putInt("tv_vod_resize_mode", nextMode)
+                                        .putBoolean("tv_vod_cine_zoom", nextZoom)
+                                        .apply()
+                                    seekFeedbackText = "📐 Pantalla: $label"
+                                },
+                                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+                                colors = ClickableSurfaceDefaults.colors(
+                                    containerColor = LelouchSurfaceVariant,
+                                    focusedContainerColor = BixOrangeAccent
+                                ),
+                                border = ClickableSurfaceDefaults.border(
+                                    focusedBorder = Border(BorderStroke(2.dp, Color.White))
+                                )
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.AspectRatio,
+                                        contentDescription = "Formato de pantalla",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    val scaleLabel = when {
+                                        vodCineZoom -> "Zoom 1.33×"
+                                        vodResizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Llenar"
+                                        vodResizeMode == AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Estirar"
+                                        else -> "Pantalla"
+                                    }
+                                    Text(
+                                        text = scaleLabel,
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
                             // 💬 Audio / Subtítulos
                             Surface(
                                 onClick = {
@@ -4204,7 +4255,15 @@ fun TvHomeScreen(
             TvTracksPanel(
                 engine = playerEngine,
                 currentResizeMode = vodResizeMode,
-                onResizeModeChanged = { vodResizeMode = it },
+                onResizeModeChanged = { mode ->
+                    vodResizeMode = mode
+                    hiddenPrefs.edit().putInt("tv_vod_resize_mode", mode).apply()
+                },
+                isCineZoom = vodCineZoom,
+                onCineZoomChanged = { zoom ->
+                    vodCineZoom = zoom
+                    hiddenPrefs.edit().putBoolean("tv_vod_cine_zoom", zoom).apply()
+                },
                 onDismiss = {
                     isTracksPanelVisible = false
                     try {
