@@ -906,20 +906,7 @@ fun MobileHomeScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
             containerColor = BixDarkBackground,
-            topBar = {
-                if (selectedTab != 0) {
-                    MobileTopBar(
-                        activeSource = activeSource,
-                        showSearch = selectedTab != 4,
-                        searchQuery = searchQuery,
-                        onSearchChange = { searchQuery = it },
-                        onSettingsTap = { selectedTab = 4 },
-                        onOpenAccountSwitcher = { isAccountSwitcherOpen = true },
-                        selectedTab = selectedTab,
-                        onBackTap = { selectedTab = 0 }
-                    )
-                }
-            },
+            topBar = {},
             bottomBar = {
                 if (!isPlayerFullscreen) {
                     MobileBottomNavBar(
@@ -929,10 +916,18 @@ fun MobileHomeScreen(
                 }
             }
         ) { paddingValues ->
-            LaunchedEffect(selectedTab) {
+            LaunchedEffect(selectedTab, cleanLiveChannels) {
                 if (selectedTab != 1 && isLivePlayback && !isPlayerFullscreen && activeStreamUrl != null) {
                     playerEngine.stop()
                     activeStreamUrl = null
+                } else if (selectedTab == 1 && activeStreamUrl == null && !isPlayerFullscreen && cleanLiveChannels.isNotEmpty()) {
+                    val firstChannel = cleanLiveChannels.first()
+                    val firstUrl = StreamUrlResolver.resolveLive(firstChannel.streamUrl, activeSource, firstChannel.streamId)
+                    if (firstUrl.isNotBlank()) {
+                        activeChannelName = firstChannel.name
+                        activeContentMeta = ActiveContentMeta(firstChannel.name, type = ContentType.LIVE)
+                        startPlayback(firstUrl, true)
+                    }
                 }
             }
             Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
@@ -1033,6 +1028,7 @@ fun MobileHomeScreen(
                             channels = if (searchQuery.isBlank()) cleanLiveChannels
                                        else cleanLiveChannels.filter { it.name.contains(searchQuery, ignoreCase = true) },
                             activeSource = activeSource,
+                            activeStreamUrl = activeStreamUrl,
                             categories = liveCategoryList,
                             favoriteChannels = favoriteChannels,
                             onToggleFavorite = onToggleFavoriteChannel,
@@ -1304,6 +1300,7 @@ fun MobileHomeScreen(
                     playerEngine = playerEngine,
                     isLive = isLivePlayback,
                     resizeMode = mobileResizeMode,
+                    useOrangeSpinner = true,
                     modifier = Modifier.fillMaxSize()
                 )
 
@@ -1388,13 +1385,13 @@ fun MobileHomeScreen(
                                     Box(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(6.dp))
-                                            .border(1.dp, Color(0xFFFFC107), RoundedCornerShape(6.dp))
-                                            .background(Color(0xFFFFC107).copy(alpha = 0.15f))
+                                            .border(1.dp, Color(0xFFFF6B00), RoundedCornerShape(6.dp))
+                                            .background(Color(0xFFFF6B00).copy(alpha = 0.15f))
                                             .padding(horizontal = 7.dp, vertical = 2.dp)
                                     ) {
                                         Text(
                                             text = serverLabel,
-                                            color = Color(0xFFFFC107),
+                                            color = Color(0xFFFF6B00),
                                             fontSize = 10.sp,
                                             fontWeight = FontWeight.Black
                                         )
@@ -1663,14 +1660,14 @@ fun MobileHomeScreen(
                                         .size(82.dp)
                                         .clip(CircleShape)
                                         .background(Color.Black.copy(alpha = 0.65f))
-                                        .border(3.5.dp, Color(0xFFFFC107), CircleShape)
+                                        .border(3.5.dp, Color(0xFFFF6B00), CircleShape)
                                         .clickable { playerEngine.togglePlayPause() },
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
                                         imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                         contentDescription = "Play/Pausa",
-                                        tint = Color(0xFFFFC107),
+                                        tint = Color(0xFFFF6B00),
                                         modifier = Modifier.size(44.dp)
                                     )
                                 }
@@ -1747,8 +1744,8 @@ fun MobileHomeScreen(
                                     .weight(1f)
                                     .padding(horizontal = 10.dp),
                                 colors = SliderDefaults.colors(
-                                    thumbColor = Color(0xFFFFC107),
-                                    activeTrackColor = Color(0xFFFFC107),
+                                    thumbColor = Color(0xFFFF6B00),
+                                    activeTrackColor = Color(0xFFFF6B00),
                                     inactiveTrackColor = Color.White.copy(0.3f)
                                 )
                             )
@@ -1791,7 +1788,7 @@ fun MobileHomeScreen(
                             ) {
                                 Text(
                                     text = "${currentPlaybackSpeed}x",
-                                    color = Color(0xFFFFC107),
+                                    color = Color(0xFFFF6B00),
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp
                                 )
@@ -2247,6 +2244,7 @@ private fun MobileHomeTab(
 private fun MobileLiveTab(
     channels: List<LiveStream>,
     activeSource: SourceConfig?,
+    activeStreamUrl: String? = null,
     categories: List<MobileCategoryItem> = emptyList(),
     favoriteChannels: List<LiveStream> = emptyList(),
     onToggleFavorite: (Int, Boolean) -> Unit = { _, _ -> },
@@ -2395,6 +2393,7 @@ private fun MobileLiveTab(
                 ChannelListItem(
                     channel = ch,
                     isFavorite = isFav,
+                    isSelected = activeStreamUrl == url,
                     onToggleFavorite = { onToggleFavorite(ch.streamId, !isFav) },
                     onClick = { onChannelClick(ch.name, url) }
                 )
@@ -5576,6 +5575,7 @@ private fun MiniPlayerOverlay(
     val isPlaying = playbackState is PlaybackState.Playing
     var isMuted by remember { mutableStateOf(false) }
     var selectedMaxHeight by remember(channelName) { mutableStateOf<Int?>(null) }
+    var showControls by remember(channelName) { mutableStateOf(false) }
 
     val resizeLabel = when (resizeMode) {
         AspectRatioFrameLayout.RESIZE_MODE_FIT -> "Ajustar"
@@ -5594,11 +5594,16 @@ private fun MiniPlayerOverlay(
                 .fillMaxWidth()
                 .then(if (isLandscape) Modifier.height(180.dp) else Modifier.aspectRatio(16f / 9f))
                 .background(Color.Black)
+                .clickable(
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                    indication = null
+                ) { showControls = !showControls }
         ) {
             LelouchVideoPlayer(
                 playerEngine = playerEngine,
                 isLive = isLive,
                 resizeMode = resizeMode,
+                useOrangeSpinner = true,
                 modifier = Modifier.fillMaxSize()
             )
 
@@ -5615,146 +5620,176 @@ private fun MiniPlayerOverlay(
                 )
             }
 
-            Row(
-                modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                IconButton(
-                    onClick = onCopyUrl,
-                    modifier = Modifier.size(34.dp).background(Color.Black.copy(0.6f), CircleShape)
-                ) {
-                    Icon(Icons.Default.Share, contentDescription = "Copiar Enlace", tint = Color.White, modifier = Modifier.size(16.dp))
-                }
-                IconButton(
-                    onClick = onToggleFullscreen,
-                    modifier = Modifier.size(34.dp).background(Color.Black.copy(0.6f), CircleShape)
-                ) {
-                    Icon(Icons.Default.Fullscreen, contentDescription = "Pantalla Completa", tint = Color.White, modifier = Modifier.size(18.dp))
-                }
-                IconButton(
-                    onClick = onClose,
-                    modifier = Modifier.size(34.dp).background(Color.Black.copy(0.6f), CircleShape)
-                ) {
-                    Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = Color.White, modifier = Modifier.size(16.dp))
-                }
-            }
-            Row(
-                modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth()
-                    .background(Color.Black.copy(0.65f)).padding(horizontal = 12.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(channelName, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                Spacer(Modifier.width(8.dp))
-                Box(
+            if (showControls) {
+                // Cabecera superior dentro del reproductor
+                Row(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(if (isLive) LelouchLiveRed else BixOrangeAccent)
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                        .align(Alignment.TopStart)
+                        .fillMaxWidth()
+                        .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.78f), Color.Transparent)))
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = if (isLive) "EN VIVO" else "VOD",
-                        color = Color.White,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Black
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(if (isLive) LelouchLiveRed else BixOrangeAccent)
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = if (isLive) "EN VIVO" else "VOD",
+                                color = Color.White,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = channelName,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        IconButton(
+                            onClick = onCopyUrl,
+                            modifier = Modifier.size(32.dp).background(Color.Black.copy(0.6f), CircleShape)
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = "Copiar Enlace", tint = Color.White, modifier = Modifier.size(15.dp))
+                        }
+                        IconButton(
+                            onClick = onClose,
+                            modifier = Modifier.size(32.dp).background(Color.Black.copy(0.6f), CircleShape)
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = Color.White, modifier = Modifier.size(15.dp))
+                        }
+                    }
+                }
+
+                // Controles inferiores DENTRO del reproductor (Play/Pause, Recargar, Mute, Auto, Pantalla Completa)
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))))
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(BixOrangeAccent)
+                                .clickable { playerEngine.togglePlayPause() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = "Play/Pausa",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.65f))
+                                .border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape)
+                                .clickable { onReload() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Recargar",
+                                tint = Color.White,
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(if (isMuted) BixOrangeAccent.copy(alpha = 0.35f) else Color.Black.copy(alpha = 0.65f))
+                                .border(1.dp, if (isMuted) BixOrangeAccent else Color.White.copy(alpha = 0.2f), CircleShape)
+                                .clickable {
+                                    isMuted = !isMuted
+                                    playerEngine.setMuted(isMuted)
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
+                                contentDescription = "Silenciar",
+                                tint = if (isMuted) BixOrangeAccent else Color.White,
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(Color.Black.copy(alpha = 0.65f))
+                                .border(1.dp, BixOrangeAccent.copy(alpha = 0.65f), RoundedCornerShape(16.dp))
+                                .clickable { onCycleResizeMode() }
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = "Auto: $resizeLabel",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color.Black.copy(alpha = 0.7f))
+                            .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(16.dp))
+                            .clickable { onToggleFullscreen() }
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = "Pantalla Completa",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }
 
-        // Barra integrada de controles Live / MiniPlayer (sin abrir modal)
+        // Tira de chips de señal / calidad debajo del reproductor
         LazyRow(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color(0xFF14161F))
-                .border(0.5.dp, Color(0xFF252938))
-                .padding(horizontal = 10.dp, vertical = 8.dp),
+                .background(Color(0xFF0A0B0F))
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            item {
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(CircleShape)
-                        .background(BixOrangeAccent)
-                        .clickable { playerEngine.togglePlayPause() },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = "Play/Pausa",
-                        tint = Color.White,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
-            item {
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF1E202B))
-                        .border(1.dp, Color(0xFF252938), CircleShape)
-                        .clickable { onReload() },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = "Recargar",
-                        tint = Color.White,
-                        modifier = Modifier.size(17.dp)
-                    )
-                }
-            }
-            item {
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(CircleShape)
-                        .background(if (isMuted) BixOrangeAccent.copy(alpha = 0.25f) else Color(0xFF1E202B))
-                        .border(1.dp, if (isMuted) BixOrangeAccent else Color(0xFF252938), CircleShape)
-                        .clickable {
-                            isMuted = !isMuted
-                            playerEngine.setMuted(isMuted)
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = if (isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
-                        contentDescription = "Silenciar",
-                        tint = if (isMuted) BixOrangeAccent else Color.White,
-                        modifier = Modifier.size(17.dp)
-                    )
-                }
-            }
-            item {
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0xFF1E202B))
-                        .border(1.dp, BixOrangeAccent.copy(alpha = 0.55f), RoundedCornerShape(16.dp))
-                        .clickable { onCycleResizeMode() }
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
-                ) {
-                    Text(
-                        text = "Auto: $resizeLabel",
-                        color = BixOrangeAccent,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
             val videoTracks = trackSelection.video
             val currentResBadge = if (videoTrack.height > 0) "${videoTrack.height}p" else null
             if (currentResBadge != null) {
                 item {
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(Color(0xFF090A0E))
-                            .border(1.dp, Color(0xFF252938), RoundedCornerShape(16.dp))
-                            .padding(horizontal = 9.dp, vertical = 6.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFF14161F))
+                            .border(1.dp, Color(0xFF252938), RoundedCornerShape(12.dp))
+                            .padding(horizontal = 10.dp, vertical = 7.dp)
                     ) {
                         Text(
                             text = if (videoTracks.size <= 1) "Señal: $currentResBadge" else "Actual: $currentResBadge",
@@ -5775,9 +5810,9 @@ private fun MiniPlayerOverlay(
                 val active = selectedMaxHeight == cap
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(if (active) BixOrangeAccent else Color(0xFF1E202B))
-                        .border(1.dp, if (active) BixOrangeAccent else Color(0xFF252938), RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (active) BixOrangeAccent else Color(0xFF14161F))
+                        .border(1.dp, if (active) BixOrangeAccent else Color(0xFF252938), RoundedCornerShape(12.dp))
                         .clickable {
                             selectedMaxHeight = cap
                             playerEngine.setVideoQualityCap(cap)
@@ -5796,30 +5831,13 @@ private fun MiniPlayerOverlay(
                                 ).show()
                             }
                         }
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                        .padding(horizontal = 12.dp, vertical = 7.dp)
                 ) {
                     Text(
                         text = label,
                         color = Color.White,
                         fontSize = 11.sp,
                         fontWeight = if (active) FontWeight.Bold else FontWeight.Medium
-                    )
-                }
-            }
-            item {
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0xFF1E202B))
-                        .border(1.dp, Color(0xFF252938), RoundedCornerShape(16.dp))
-                        .clickable { onToggleFullscreen() }
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
-                ) {
-                    Text(
-                        text = "Pantalla Completa",
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold
                     )
                 }
             }
@@ -5990,268 +6008,162 @@ private fun MobileMovieDetailView(
         } catch (_: Exception) {}
     }
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(BixDarkBackground)
     ) {
-        // TOP APP BAR
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(LelouchSurface)
-                .statusBarsPadding()
-                .padding(horizontal = 8.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
+        // CONTENIDO PRINCIPAL UNIFICADO (SIN PANEL SUPERIOR NI FICHA TÉCNICA)
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 96.dp)
         ) {
-            IconButton(onClick = onBack) {
-                Icon(
-                    Icons.Default.ArrowBack,
-                    contentDescription = "Volver",
-                    tint = Color.White
-                )
-            }
-            Spacer(Modifier.width(4.dp))
-            Text(
-                text = movieState.name,
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                fontSize = 17.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
-            IconButton(onClick = onToggleFavorite) {
-                Icon(
-                    imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                    contentDescription = if (isFavorite) "Quitar de favoritos" else "Añadir a favoritos",
-                    tint = if (isFavorite) Color(0xFFFF4081) else Color.White
-                )
-            }
-        }
-
-        HorizontalDivider(color = LelouchBorder, thickness = 1.dp)
-
-        // PESTAÑAS: RESUMEN | FICHA TECNICA
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(BixSurfaceCard)
-                .padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            val tabs = listOf(
-                "resumen" to "Resumen",
-                "detalles" to "Ficha Técnica"
-            )
-
-            tabs.forEach { (tabId, tabTitle) ->
-                val isSelected = selectedTab == tabId
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
+            item {
+                Box(
                     modifier = Modifier
-                        .clickable { selectedTab = tabId }
-                        .padding(top = 12.dp, bottom = 8.dp)
+                        .fillMaxWidth()
+                        .height(340.dp)
+                        .background(LelouchSurfaceVariant)
                 ) {
-                    Text(
-                        text = tabTitle,
-                        color = if (isSelected) LelouchLiveRed else LelouchTextSecondary,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                        fontSize = 14.sp
-                    )
-                    Spacer(Modifier.height(6.dp))
+                    val heroImg = movieState.backdropPath ?: movieState.streamIcon
+                    if (!heroImg.isNullOrBlank()) {
+                        AsyncImage(
+                            model = heroImg,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
                     Box(
                         modifier = Modifier
-                            .height(2.5.dp)
-                            .width(if (isSelected) 40.dp else 0.dp)
-                            .background(if (isSelected) LelouchLiveRed else Color.Transparent, RoundedCornerShape(2.dp))
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        Color.Black.copy(alpha = 0.45f),
+                                        Color.Transparent,
+                                        BixDarkBackground.copy(alpha = 0.78f),
+                                        BixDarkBackground
+                                    )
+                                )
+                            )
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(
+                            onClick = onBack,
+                            modifier = Modifier
+                                .size(42.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.52f))
+                        ) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Volver", tint = Color.White)
+                        }
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            IconButton(
+                                onClick = {
+                                    if (streamUrl.isNotBlank()) {
+                                        clipboard.setText(androidx.compose.ui.text.AnnotatedString(streamUrl))
+                                        android.widget.Toast.makeText(context, "📋 Enlace copiado: ${movieState.name}", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Black.copy(alpha = 0.52f))
+                            ) {
+                                Icon(Icons.Default.Share, contentDescription = "Compartir", tint = Color.White, modifier = Modifier.size(19.dp))
+                            }
+                            IconButton(
+                                onClick = onToggleFavorite,
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Black.copy(alpha = 0.52f))
+                            ) {
+                                Icon(
+                                    imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                    contentDescription = if (isFavorite) "Quitar de favoritos" else "Añadir a favoritos",
+                                    tint = if (isFavorite) BixOrangeAccent else Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
+                Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                    Text(
+                        text = movieState.name,
+                        color = Color.White,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 24.sp,
+                        lineHeight = 28.sp
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val r = movieState.rating ?: 0.0
+                        if (r > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0xFFE5A00D))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    "★ %.1f".format(r),
+                                    color = Color.Black,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        if (!movieState.year.isNullOrBlank()) {
+                            Text(movieState.year!!, color = LelouchTextSecondary, fontSize = 12.sp)
+                        }
+                        if (!movieState.genre.isNullOrBlank()) {
+                            Text(movieState.genre!!, color = BixOrangeAccent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        if (movieState.durationFormatted.isNotBlank()) {
+                            Text(movieState.durationFormatted, color = LelouchTextSecondary, fontSize = 12.sp)
+                        }
+                    }
+
+                    if (!movieState.plot.isNullOrBlank()) {
+                        Spacer(Modifier.height(14.dp))
+                        Text(
+                            text = movieState.plot!!,
+                            color = Color.White.copy(alpha = 0.84f),
+                            fontSize = 13.5.sp,
+                            lineHeight = 20.sp
+                        )
+                    }
+
+                    CastAndCrewSection(
+                        director = movieState.director,
+                        cast = movieState.cast
                     )
                 }
             }
         }
 
-        HorizontalDivider(color = Color(0xFF1E2229), thickness = 0.8.dp)
-
-        // CONTENEDOR PRINCIPAL
-        Box(
+        // BARRA FLOTANTE FIJA INFERIOR: REPRODUCIR | DESCARGAR | COMPARTIR
+        Row(
             modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-        ) {
-            when (selectedTab) {
-                "resumen" -> {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(bottom = 90.dp)
-                    ) {
-                        // Hero Backdrop 16:9
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(210.dp)
-                                    .background(LelouchSurfaceVariant)
-                            ) {
-                                val heroImg = movieState.backdropPath ?: movieState.streamIcon
-                                if (!heroImg.isNullOrBlank()) {
-                                    AsyncImage(
-                                        model = heroImg,
-                                        contentDescription = null,
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .background(
-                                                Brush.verticalGradient(
-                                                    listOf(
-                                                        Color.Transparent,
-                                                        BixDarkBackground.copy(alpha = 0.85f),
-                                                        BixDarkBackground
-                                                    )
-                                                )
-                                            )
-                                    )
-                                }
-                            }
-                        }
-
-                        // Info y metadatos
-                        item {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Text(
-                                    text = movieState.name,
-                                    color = LelouchTextPrimary,
-                                    fontWeight = FontWeight.Black,
-                                    fontSize = 22.sp
-                                )
-                                Spacer(Modifier.height(8.dp))
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    val r = movieState.rating ?: 0.0
-                                    if (r > 0) {
-                                        Box(
-                                            modifier = Modifier
-                                                .clip(RoundedCornerShape(4.dp))
-                                                .background(Color(0xFFE5A00D))
-                                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                                        ) {
-                                            Text(
-                                                "★ %.1f".format(r),
-                                                color = Color.Black,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                    }
-                                    if (!movieState.year.isNullOrBlank()) {
-                                        Text(movieState.year!!, color = LelouchTextSecondary, fontSize = 12.sp)
-                                    }
-                                    if (!movieState.genre.isNullOrBlank()) {
-                                        Text(movieState.genre!!, color = LelouchCyanAccent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                                    }
-                                    if (movieState.durationFormatted.isNotBlank()) {
-                                        Text(movieState.durationFormatted, color = LelouchTextSecondary, fontSize = 12.sp)
-                                    }
-                                }
-
-                                if (!movieState.plot.isNullOrBlank()) {
-                                    Spacer(Modifier.height(14.dp))
-                                    Text(
-                                        text = "Sinopsis Oficial",
-                                        color = LelouchTextPrimary,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 15.sp
-                                    )
-                                    Spacer(Modifier.height(6.dp))
-                                    Text(
-                                        text = movieState.plot!!,
-                                        color = LelouchTextSecondary,
-                                        fontSize = 13.sp,
-                                        lineHeight = 19.sp
-                                    )
-                                } else {
-                                    Spacer(Modifier.height(14.dp))
-                                    Text(
-                                        text = "Sinopsis en proceso de sincronización con TMDB / Catálogo.",
-                                        color = LelouchTextMuted,
-                                        fontSize = 12.sp,
-                                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
-                                    )
-                                }
-
-                                CastAndCrewSection(
-                                    director = movieState.director,
-                                    cast = movieState.cast
-                                )
-
-                                Spacer(Modifier.height(18.dp))
-                                TmdbAttributionCard()
-                            }
-                        }
-                    }
-                }
-
-                "detalles" -> {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(16.dp),
-                        contentPadding = PaddingValues(bottom = 90.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        item {
-                            Text(
-                                text = "Ficha Técnica y Transmisión",
-                                color = LelouchTextPrimary,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp,
-                                modifier = Modifier.padding(bottom = 6.dp)
-                            )
-                        }
-
-                        val specs = listOfNotNull(
-                            "Título Original / Búsqueda" to com.lelouch.core.network.tmdb.TmdbEnricher.cleanTitle(movieState.name),
-                            if (!movieState.director.isNullOrBlank()) "Dirección" to movieState.director!! else null,
-                            if (!movieState.cast.isNullOrBlank()) "Reparto Principal" to movieState.cast!! else null,
-                            "Calidad de Video" to "Full HD 1080p / 4K Ultra HD",
-                            "Formato / Contenedor" to movieState.containerExtension.ifBlank { "MP4" }.uppercase(),
-                            "Duración" to if (movieState.durationFormatted.isNotBlank()) movieState.durationFormatted else "Estándar VOD",
-                            "Buffer VOD" to "Motor Lelouch 15s calibrado",
-                            "Servidor IPTV" to (activeSource?.name ?: "IPTV Provider")
-                        )
-
-                        items(specs) { (label, value) ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(BixSurfaceCard)
-                                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(label, color = LelouchTextSecondary, fontSize = 13.sp)
-                                Text(value, color = LelouchTextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                            }
-                        }
-
-                        item {
-                            Spacer(Modifier.height(8.dp))
-                            TmdbAttributionCard()
-                        }
-                    }
-                }
-            }
-
-            // BARRA FLOTANTE FIJA INFERIOR: REPRODUCIR | DESCARGAR | COMPARTIR
-            Row(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
+                .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .background(
                         Brush.verticalGradient(
@@ -6419,7 +6331,6 @@ private fun MobileMovieDetailView(
             }
         }
     }
-}
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -6509,516 +6420,359 @@ private fun MobileSeriesDetailView(
         currentEpisodes.firstOrNull() ?: episodes.firstOrNull()
     }
 
-    Column(
+    var isSeriesFavorite by remember(series.seriesId) { mutableStateOf(false) }
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(BixDarkBackground)
     ) {
-        // TOP APP BAR
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(LelouchSurface)
-                .statusBarsPadding()
-                .padding(horizontal = 8.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
+        // PANTALLA UNIFICADA DE SERIE (HERO + RESUMEN + TEMPORADAS + EPISODIOS, SIN PANEL SUPERIOR NI DETALLES)
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 96.dp)
         ) {
-            IconButton(onClick = onBack) {
-                Icon(
-                    Icons.Default.ArrowBack,
-                    contentDescription = "Volver",
-                    tint = Color.White
-                )
-            }
-            Spacer(Modifier.width(4.dp))
-            Text(
-                text = series.name,
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                fontSize = 17.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
-        }
-
-        HorizontalDivider(color = Color(0xFF1E2229), thickness = 0.8.dp)
-
-        // CONTENEDOR DESLIZABLE (RESUMEN <-> TEMPORADAS <-> DETALLES) CON BARRA CTA INFERIOR
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-        ) {
-            androidx.compose.foundation.pager.HorizontalPager(
-                state = detailPagerState,
-                modifier = Modifier.fillMaxSize()
-            ) { page ->
-                when (page) {
-                    0 -> {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(bottom = 80.dp)
-                    ) {
-                        // Hero Backdrop
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(200.dp)
-                                    .background(LelouchSurfaceVariant)
-                            ) {
-                                val heroImg = seriesState.backdropPath ?: seriesState.cover
-                                if (!heroImg.isNullOrBlank()) {
-                                    AsyncImage(
-                                        model = heroImg,
-                                        contentDescription = null,
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .background(
-                                                Brush.verticalGradient(
-                                                    listOf(
-                                                        Color.Transparent,
-                                                        BixDarkBackground.copy(alpha = 0.85f),
-                                                        BixDarkBackground
-                                                    )
-                                                )
-                                            )
-                                    )
-                                }
-                            }
-                        }
-
-                        // Información principal de la serie
-                        item {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Text(
-                                    text = series.name,
-                                    color = LelouchTextPrimary,
-                                    fontWeight = FontWeight.Black,
-                                    fontSize = 22.sp
-                                )
-                                Spacer(Modifier.height(8.dp))
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    val r = seriesState.rating5based ?: seriesState.rating ?: 0.0
-                                    if (r > 0) {
-                                        Box(
-                                            modifier = Modifier
-                                                .clip(RoundedCornerShape(4.dp))
-                                                .background(Color(0xFFE5A00D))
-                                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                                        ) {
-                                            Text(
-                                                "★ %.1f".format(r),
-                                                color = Color.Black,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                    }
-                                    if (!series.releaseDate.isNullOrBlank()) {
-                                        Text(series.releaseDate!!, color = LelouchTextSecondary, fontSize = 12.sp)
-                                    }
-                                    if (!series.genre.isNullOrBlank()) {
-                                        Text(series.genre!!, color = LelouchCyanAccent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                                    }
-                                    if (series.seasonsCount > 0) {
-                                        Text("${series.seasonsCount} Temporadas", color = LelouchTextSecondary, fontSize = 12.sp)
-                                    }
-                                }
-
-                                if (!seriesState.plot.isNullOrBlank()) {
-                                    Spacer(Modifier.height(14.dp))
-                                    Text(
-                                        text = "Sinopsis Oficial",
-                                        color = LelouchTextPrimary,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 15.sp
-                                    )
-                                    Spacer(Modifier.height(6.dp))
-                                    Text(
-                                        text = seriesState.plot!!,
-                                        color = LelouchTextSecondary,
-                                        fontSize = 13.sp,
-                                        lineHeight = 19.sp
-                                    )
-                                } else {
-                                    Spacer(Modifier.height(14.dp))
-                                    Text(
-                                        text = "Sinopsis en proceso de sincronización con TMDB / Catálogo.",
-                                        color = LelouchTextMuted,
-                                        fontSize = 12.sp,
-                                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
-                                    )
-                                }
-
-                                CastAndCrewSection(
-                                    director = seriesState.director,
-                                    cast = seriesState.cast
-                                )
-
-                                Spacer(Modifier.height(18.dp))
-                                TmdbAttributionCard()
-                            }
-                        }
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(340.dp)
+                        .background(LelouchSurfaceVariant)
+                ) {
+                    val heroImg = seriesState.backdropPath ?: seriesState.cover
+                    if (!heroImg.isNullOrBlank()) {
+                        AsyncImage(
+                            model = heroImg,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
                     }
-                }
-
-                2 -> {
-                    LazyColumn(
+                    Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(16.dp),
-                        contentPadding = PaddingValues(bottom = 80.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        item {
-                            Text(
-                                text = "Ficha Técnica y Transmisión",
-                                color = LelouchTextPrimary,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp,
-                                modifier = Modifier.padding(bottom = 6.dp)
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        Color.Black.copy(alpha = 0.45f),
+                                        Color.Transparent,
+                                        BixDarkBackground.copy(alpha = 0.78f),
+                                        BixDarkBackground
+                                    )
+                                )
                             )
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(
+                            onClick = onBack,
+                            modifier = Modifier
+                                .size(42.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.52f))
+                        ) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Volver", tint = Color.White)
                         }
 
-                        val specs = listOfNotNull(
-                            "Título Original / Búsqueda" to com.lelouch.core.network.tmdb.TmdbEnricher.cleanTitle(seriesState.name),
-                            if (!seriesState.director.isNullOrBlank()) "Dirección / Creador" to seriesState.director!! else null,
-                            if (!seriesState.cast.isNullOrBlank()) "Reparto Principal" to seriesState.cast!! else null,
-                            "Temporadas Disponibles" to "${if (series.seasonsCount > 0) series.seasonsCount else seasons.size} temporada(s)",
-                            "Total de Capítulos" to "${episodes.size} episodios listados",
-                            "Calidad de Video" to "Full HD 1080p / H.264 High Profile",
-                            "Formato / Códec" to "HLS Progresivo / MP4 Audio Estéreo",
-                            "Buffer VOD" to "Motor Lelouch 15s calibrado",
-                            "Servidor IPTV" to (activeSource?.name ?: "IPTV Provider")
-                        )
-
-                        items(specs) { (label, value) ->
-                            Row(
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            IconButton(
+                                onClick = {
+                                    val shareTarget = firstOrNextEpisode?.let { ep ->
+                                        StreamUrlResolver.resolve(
+                                            directUrl = ep.streamUrl,
+                                            source = activeSource,
+                                            streamId = ep.episodeId,
+                                            kind = StreamUrlResolver.Kind.SERIES,
+                                            extension = ep.containerExtension.ifBlank { "mp4" }
+                                        )
+                                    }.orEmpty()
+                                    if (shareTarget.isNotBlank()) {
+                                        clipboard.setText(androidx.compose.ui.text.AnnotatedString(shareTarget))
+                                        android.widget.Toast.makeText(context, "📋 Enlace copiado: ${series.name}", android.widget.Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        clipboard.setText(androidx.compose.ui.text.AnnotatedString(series.name))
+                                        android.widget.Toast.makeText(context, "📋 Copiado: ${series.name}", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                },
                                 modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(BixSurfaceCard)
-                                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                    .size(42.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Black.copy(alpha = 0.52f))
                             ) {
-                                Text(label, color = LelouchTextSecondary, fontSize = 13.sp)
-                                Text(value, color = LelouchTextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                Icon(Icons.Default.Share, contentDescription = "Compartir", tint = Color.White, modifier = Modifier.size(19.dp))
                             }
-                        }
-
-                        item {
-                            Spacer(Modifier.height(8.dp))
-                            TmdbAttributionCard()
+                            IconButton(
+                                onClick = {
+                                    isSeriesFavorite = !isSeriesFavorite
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        if (isSeriesFavorite) "❤️ Guardada en favoritos" else "Quitada de favoritos",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                },
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Black.copy(alpha = 0.52f))
+                            ) {
+                                Icon(
+                                    imageVector = if (isSeriesFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                    contentDescription = "Favoritos",
+                                    tint = if (isSeriesFavorite) BixOrangeAccent else Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
                     }
                 }
+            }
 
-                else -> {
-                    if (isLoading) {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(color = LelouchLiveRed, modifier = Modifier.size(36.dp))
+            item {
+                Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                    Text(
+                        text = series.name,
+                        color = Color.White,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 24.sp,
+                        lineHeight = 28.sp
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "${if (series.seasonsCount > 0) series.seasonsCount else seasons.size} Temporada(s)",
+                            color = Color.White.copy(alpha = 0.85f),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        if (!series.releaseDate.isNullOrBlank()) {
+                            Text(series.releaseDate!!, color = LelouchTextSecondary, fontSize = 12.sp)
                         }
-                    } else if (loadError != null || episodes.isEmpty()) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(24.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(LelouchSurface)
-                                .border(
-                                    1.dp,
-                                    if (loadError != null) Color(0xFFEF4444).copy(alpha = 0.6f) else LelouchBorder,
-                                    RoundedCornerShape(10.dp)
-                                )
-                                .padding(20.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Text(
-                                text = loadError ?: "No se encontraron episodios disponibles para esta serie.",
-                                color = if (loadError != null) Color(0xFFFCA5A5) else LelouchTextSecondary,
-                                fontSize = 13.sp
-                            )
-                            Button(
-                                onClick = { retryTrigger++ },
-                                colors = ButtonDefaults.buttonColors(containerColor = LelouchLiveRed),
-                                shape = RoundedCornerShape(8.dp)
+                        val r = seriesState.rating5based ?: seriesState.rating ?: 0.0
+                        if (r > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0xFFE5A00D))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
                                 Text(
-                                    text = "Reintentar",
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp
+                                    "★ %.1f".format(r),
+                                    color = Color.Black,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
                                 )
                             }
                         }
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(bottom = 85.dp)
-                        ) {
-                            // Selector de temporadas tipo pills si hay más de 1
-                            if (seasons.size > 1) {
-                                item {
-                                    LazyRow(
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        items(seasons) { sNum ->
-                                            val isSelected = sNum == selectedSeason
-                                            Box(
-                                                modifier = Modifier
-                                                    .clip(RoundedCornerShape(14.dp))
-                                                    .background(if (isSelected) BixOrangeAccent else Color(0xFF14161F))
-                                                    .border(
-                                                        1.dp,
-                                                        if (isSelected) BixOrangeAccent else Color(0xFF252938),
-                                                        RoundedCornerShape(14.dp)
-                                                    )
-                                                    .clickable { selectedSeason = sNum }
-                                                    .padding(horizontal = 12.dp, vertical = 6.dp)
-                                            ) {
-                                                Text(
-                                                    text = "Temporada $sNum",
-                                                    color = if (isSelected) Color.White else LelouchTextPrimary,
-                                                    fontSize = 12.sp,
-                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                        if (!seriesState.genre.isNullOrBlank()) {
+                            Text(
+                                text = seriesState.genre!!,
+                                color = BixOrangeAccent,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
 
-                            // Contador de episodios de la temporada activa
-                            item {
-                                Row(
+                    if (!seriesState.plot.isNullOrBlank()) {
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            text = seriesState.plot!!,
+                            color = Color.White.copy(alpha = 0.84f),
+                            fontSize = 13.5.sp,
+                            lineHeight = 20.sp
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                }
+            }
+
+            if (isLoading) {
+                item {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(color = BixOrangeAccent, modifier = Modifier.size(34.dp))
+                    }
+                }
+            } else if (loadError != null || episodes.isEmpty()) {
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFF14161F))
+                            .border(1.dp, Color(0xFF252938), RoundedCornerShape(12.dp))
+                            .padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            text = loadError ?: "No se encontraron episodios disponibles para esta serie.",
+                            color = if (loadError != null) Color(0xFFFCA5A5) else LelouchTextSecondary,
+                            fontSize = 13.sp
+                        )
+                        Button(
+                            onClick = { retryTrigger++ },
+                            colors = ButtonDefaults.buttonColors(containerColor = BixOrangeAccent),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("Reintentar", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+                    }
+                }
+            } else {
+                if (seasons.size > 1) {
+                    item {
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            items(seasons) { sNum ->
+                                val isSelected = sNum == selectedSeason
+                                Box(
                                     modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                                        .clip(RoundedCornerShape(20.dp))
+                                        .background(if (isSelected) BixOrangeAccent else Color(0xFF14161F))
+                                        .border(1.dp, if (isSelected) BixOrangeAccent else Color(0xFF252938), RoundedCornerShape(20.dp))
+                                        .clickable { selectedSeason = sNum }
+                                        .padding(horizontal = 16.dp, vertical = 8.dp)
                                 ) {
                                     Text(
-                                        text = "Temporada ${selectedSeason ?: 1} (${currentEpisodes.size} episodios)",
-                                        color = LelouchTextPrimary,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 14.sp
+                                        text = "Temporada $sNum",
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
                                     )
                                 }
                             }
+                        }
+                    }
+                }
 
-                            // Lista enriquecida de episodios (Diseño Idéntico a la imagen de referencia)
-                            items(
-                                currentEpisodes,
-                                key = { "${it.seasonNumber}_${it.episodeNumber}_${it.episodeId}_${it.id}" }
-                            ) { ep ->
-                                val streamUrl = StreamUrlResolver.resolve(
-                                    directUrl = ep.streamUrl,
-                                    source = activeSource,
-                                    streamId = ep.episodeId,
-                                    kind = StreamUrlResolver.Kind.SERIES,
-                                    extension = ep.containerExtension.ifBlank { "mp4" }
+                item {
+                    Text(
+                        text = "Temporada ${selectedSeason ?: 1} • ${currentEpisodes.size} episodios",
+                        color = Color.White.copy(alpha = 0.9f),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
+
+                items(
+                    currentEpisodes,
+                    key = { "${it.seasonNumber}_${it.episodeNumber}_${it.episodeId}_${it.id}" }
+                ) { ep ->
+                    val streamUrl = StreamUrlResolver.resolve(
+                        directUrl = ep.streamUrl,
+                        source = activeSource,
+                        streamId = ep.episodeId,
+                        kind = StreamUrlResolver.Kind.SERIES,
+                        extension = ep.containerExtension.ifBlank { "mp4" }
+                    )
+                    val epCode = "S${ep.seasonNumber.toString().padStart(2, '0')}E${ep.episodeNumber.toString().padStart(2, '0')}"
+                    val epFullTitle = "$epCode - ${ep.title.ifBlank { "Episodio ${ep.episodeNumber}" }}"
+                    val epLabelShort = "EP ${ep.episodeNumber.toString().padStart(2, '0')}"
+                    val epImage = ep.cover ?: series.cover
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Color(0xFF14161F))
+                            .border(1.dp, Color(0xFF252938), RoundedCornerShape(14.dp))
+                            .clickable {
+                                onSeriesQueueResolved?.invoke(episodes)
+                                onPlayEpisode(streamUrl, "${series.name} - $epFullTitle", ep)
+                            }
+                            .padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .width(114.dp)
+                                .height(68.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFF090A0E)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (!epImage.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = epImage,
+                                    contentDescription = null,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
                                 )
-                                val epCode = "S${ep.seasonNumber.toString().padStart(2, '0')}E${ep.episodeNumber.toString().padStart(2, '0')}"
-                                val epFullTitle = "$epCode - ${ep.title.ifBlank { "Episodio ${ep.episodeNumber}" }}"
-                                val epImage = ep.cover ?: series.cover
-
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            onSeriesQueueResolved?.invoke(episodes)
-                                            onPlayEpisode(streamUrl, "${series.name} - $epFullTitle", ep)
-                                        }
-                                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                                ) {
-                                    // Fila superior: Miniatura 16:9 + Título y Metadatos + Acciones
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        // Miniatura con duración y botón play
-                                        Box(
-                                            modifier = Modifier
-                                                .width(105.dp)
-                                                .height(64.dp)
-                                                .clip(RoundedCornerShape(6.dp))
-                                                .background(LelouchSurfaceVariant),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            if (!epImage.isNullOrBlank()) {
-                                                AsyncImage(
-                                                    model = epImage,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.fillMaxSize(),
-                                                    contentScale = ContentScale.Crop
-                                                )
-                                                Box(
-                                                    modifier = Modifier
-                                                        .fillMaxSize()
-                                                        .background(
-                                                            Brush.verticalGradient(
-                                                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.5f))
-                                                            )
-                                                        )
-                                                )
-                                            }
-                                            // Play icon flotante central
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(24.dp)
-                                                    .clip(CircleShape)
-                                                    .background(Color.Black.copy(alpha = 0.6f)),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(
-                                                    Icons.Default.PlayArrow,
-                                                    contentDescription = null,
-                                                    tint = Color.White,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                            }
-                                        }
-
-                                        Spacer(Modifier.width(12.dp))
-
-                                        // Código + Título + Metadatos
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = epFullTitle,
-                                                color = Color.White,
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 13.sp,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            Spacer(Modifier.height(3.dp))
-                                            Text(
-                                                text = "${if (ep.durationFormatted.isNotBlank()) ep.durationFormatted else "45m"} • ${ep.containerExtension.ifBlank { "MP4" }.uppercase()}",
-                                                color = LelouchTextSecondary,
-                                                fontSize = 11.sp
-                                            )
-                                        }
-
-                                        // Icono de Descarga Rápida (Estilo captura oficial)
-                                        IconButton(
-                                            onClick = {
-                                                try {
-                                                    if (streamUrl.isNotBlank()) {
-                                                        val cleanName = "${series.name}_$epFullTitle".replace(Regex("[^a-zA-Z0-9.-]"), "_")
-                                                        val ext = if (ep.containerExtension.isNotBlank()) ep.containerExtension.trimStart('.') else "mp4"
-                                                        val fileName = "LelouchPlus_${cleanName}.${ext}"
-                                                        LelouchDownloadService.startDownload(
-                                                            context = context,
-                                                            url = streamUrl,
-                                                            title = "${series.name} - $epFullTitle",
-                                                            fileName = fileName
-                                                        )
-                                                        android.widget.Toast.makeText(
-                                                            context,
-                                                            "📥 Descargando en segundo plano: ${series.name} - $epFullTitle",
-                                                            android.widget.Toast.LENGTH_LONG
-                                                        ).show()
-                                                    }
-                                                } catch (e: Exception) {
-                                                    android.widget.Toast.makeText(context, "Error al descargar: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
-                                                }
-                                            },
-                                            modifier = Modifier.size(34.dp)
-                                        ) {
-                                            Icon(
-                                                Icons.Default.Download,
-                                                contentDescription = "Descargar Episodio",
-                                                tint = Color(0xFF4CAF50),
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                        }
-                                    }
-
-                                    // Sinopsis detallada del episodio
-                                    val plotText = ep.plot?.ifBlank { series.plot.orEmpty() } ?: series.plot.orEmpty()
-                                    if (plotText.isNotBlank()) {
-                                        Spacer(Modifier.height(6.dp))
-                                        Text(
-                                            text = plotText,
-                                            color = Color(0xFFB0B3B8),
-                                            fontSize = 11.5.sp,
-                                            lineHeight = 16.sp,
-                                            maxLines = 4,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-
-                                    Spacer(Modifier.height(8.dp))
-                                    HorizontalDivider(color = Color(0xFF1E2229), thickness = 0.8.dp)
-                                }
                             }
-
-                            // Carpetas de otras temporadas al final (Estilo captura oficial: Temporada 02, 03 con icono rojo y chevron)
-                            val otherSeasons = seasons.filter { it != selectedSeason }
-                            if (otherSeasons.isNotEmpty()) {
-                                item {
-                                    Spacer(Modifier.height(10.dp))
-                                }
-                                items(otherSeasons) { otherS ->
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 16.dp, vertical = 6.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(BixSurfaceCard)
-                                            .clickable { selectedSeason = otherS }
-                                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(
-                                                Icons.Default.Folder,
-                                                contentDescription = null,
-                                                tint = LelouchLiveRed,
-                                                modifier = Modifier.size(22.dp)
-                                            )
-                                            Spacer(Modifier.width(12.dp))
-                                            Text(
-                                                text = "Temporada ${otherS.toString().padStart(2, '0')}",
-                                                color = Color.White,
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 14.sp
-                                            )
-                                        }
-                                        Icon(
-                                            Icons.Default.ExpandMore,
-                                            contentDescription = "Expandir temporada",
-                                            tint = LelouchLiveRed,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                }
+                            Box(
+                                modifier = Modifier
+                                    .size(26.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Black.copy(alpha = 0.6f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = BixOrangeAccent, modifier = Modifier.size(16.dp))
                             }
+                        }
+
+                        Spacer(Modifier.width(12.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = epLabelShort,
+                                color = BixOrangeAccent,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                            Text(
+                                text = ep.title.ifBlank { "Episodio ${ep.episodeNumber}" },
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                text = if (ep.durationFormatted.isNotBlank()) ep.durationFormatted else ep.containerExtension.ifBlank { "MP4" }.uppercase(),
+                                color = BixTextMuted,
+                                fontSize = 11.sp
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF1E202B))
+                                .border(1.dp, BixOrangeAccent.copy(alpha = 0.5f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = "Reproducir", tint = BixOrangeAccent, modifier = Modifier.size(18.dp))
                         }
                     }
                 }
             }
-            }
+        }
 
-            // BARRA FLOTANTE INFERIOR FIJA: CONTINUAR / REPRODUCIR (CTA)
-            if (firstOrNextEpisode != null) {
+        // BARRA FLOTANTE INFERIOR FIJA: CONTINUAR / REPRODUCIR (CTA)
+        if (firstOrNextEpisode != null) {
                 val nextStreamUrl = StreamUrlResolver.resolve(
                     directUrl = firstOrNextEpisode.streamUrl,
                     source = activeSource,
@@ -7087,48 +6841,7 @@ private fun MobileSeriesDetailView(
                 }
             }
         }
-
-        // BARRA DE PESTAÑAS ABAJO (DESLIZABLE: RESUMEN | TEMPORADAS | DETALLES)
-        HorizontalDivider(color = Color(0xFF252938), thickness = 1.dp)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color(0xFF14161F))
-                .navigationBarsPadding()
-                .padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            val tabs = listOf(0 to "Resumen", 1 to "Temporadas", 2 to "Detalles")
-            tabs.forEach { (pageIdx, tabTitle) ->
-                val isSelected = detailPagerState.currentPage == pageIdx
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable {
-                            detailScope.launch { detailPagerState.animateScrollToPage(pageIdx) }
-                        }
-                        .padding(top = 10.dp, bottom = 10.dp)
-                ) {
-                    Text(
-                        text = tabTitle,
-                        color = if (isSelected) BixOrangeAccent else LelouchTextSecondary,
-                        fontWeight = if (isSelected) FontWeight.Black else FontWeight.Medium,
-                        fontSize = 13.sp
-                    )
-                    Spacer(Modifier.height(5.dp))
-                    Box(
-                        modifier = Modifier
-                            .height(3.dp)
-                            .width(if (isSelected) 36.dp else 0.dp)
-                            .background(if (isSelected) BixOrangeAccent else Color.Transparent, RoundedCornerShape(2.dp))
-                    )
-                }
-            }
-        }
     }
-}
 
 // TARJETAS
 @Composable
@@ -7289,6 +7002,7 @@ private fun ChannelListItem(
     channel: LiveStream,
     onClick: () -> Unit,
     isFavorite: Boolean = false,
+    isSelected: Boolean = false,
     onToggleFavorite: (() -> Unit)? = null
 ) {
     Column(
@@ -7296,7 +7010,11 @@ private fun ChannelListItem(
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(Color(0xFF14161F))
-            .border(1.dp, Color(0xFF252938), RoundedCornerShape(12.dp))
+            .border(
+                width = if (isSelected) 1.5.dp else 1.dp,
+                color = if (isSelected) BixOrangeAccent else BixOrangeAccent.copy(alpha = 0.25f),
+                shape = RoundedCornerShape(12.dp)
+            )
             .clickable(onClick = onClick)
             .padding(12.dp)
     ) {
@@ -7384,22 +7102,6 @@ private fun ChannelListItem(
             ) {
                 Text("EN VIVO", color = BixOrangeAccent, fontSize = 9.sp, fontWeight = FontWeight.Black)
             }
-        }
-        Spacer(Modifier.height(8.dp))
-        // Barra EPG visual inferior
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(2.5.dp)
-                .clip(RoundedCornerShape(2.dp))
-                .background(Color.White.copy(alpha = 0.08f))
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(0.45f)
-                    .height(2.5.dp)
-                    .background(BixOrangeAccent)
-            )
         }
     }
 }

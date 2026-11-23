@@ -87,6 +87,7 @@ fun LelouchVideoPlayer(
     modifier: Modifier = Modifier,
     resizeMode: Int = AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
     isLive: Boolean = true,
+    useOrangeSpinner: Boolean = false,
     overlayContent: @Composable () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -191,10 +192,18 @@ fun LelouchVideoPlayer(
                             .background(Color.Black.copy(alpha = 0.35f)),
                         contentAlignment = Alignment.Center
                     ) {
-                        com.lelouch.core.designsystem.components.LelouchCyberpunkLoader(
-                            size = 68.dp,
-                            strokeWidth = 4.5.dp
-                        )
+                        if (useOrangeSpinner) {
+                            CircularProgressIndicator(
+                                color = Color(0xFFFF6B00),
+                                strokeWidth = 4.dp,
+                                modifier = Modifier.size(46.dp)
+                            )
+                        } else {
+                            com.lelouch.core.designsystem.components.LelouchCyberpunkLoader(
+                                size = 68.dp,
+                                strokeWidth = 4.5.dp
+                            )
+                        }
                     }
                 }
             }

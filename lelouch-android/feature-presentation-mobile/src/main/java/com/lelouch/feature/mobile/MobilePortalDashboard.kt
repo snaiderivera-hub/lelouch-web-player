@@ -2359,73 +2359,79 @@ private fun MobilePlatformHubSection(
             modifier = Modifier.fillMaxWidth()
         ) {
             items(platforms, key = { it.id }) { spec ->
-                val logoMark = when (spec.id) {
-                    "netflix" -> "N"
-                    "prime" -> "prime"
-                    "disney" -> "D+"
-                    "max" -> "max"
-                    "deportes" -> "⚽"
-                    else -> "AN"
-                }
-                val logoFontSize = when (spec.id) {
-                    "prime", "max" -> 10.sp
-                    "deportes" -> 17.sp
-                    else -> 16.sp
-                }
-                Row(
-                    modifier = Modifier
-                        .width(164.dp)
-                        .height(74.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(
-                            Brush.linearGradient(
-                                listOf(
-                                    spec.accentColor.copy(alpha = 0.25f),
-                                    Color(0xFF14161F)
-                                )
-                            )
-                        )
-                        .border(1.dp, spec.accentColor.copy(alpha = 0.45f), RoundedCornerShape(14.dp))
-                        .clickable { onPlatformClick(spec) }
-                        .padding(horizontal = 10.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.clickable { onPlatformClick(spec) }
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(42.dp)
-                            .clip(RoundedCornerShape(11.dp))
-                            .background(spec.accentColor),
+                            .width(118.dp)
+                            .height(64.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Color.White)
+                            .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
+                            .padding(horizontal = 10.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = logoMark,
-                            color = Color.White,
-                            fontSize = logoFontSize,
-                            fontWeight = FontWeight.Black,
-                            maxLines = 1
-                        )
+                        when (spec.id) {
+                            "netflix" -> Text(
+                                text = "NETFLIX",
+                                color = Color(0xFFE50914),
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 0.8.sp
+                            )
+                            "prime" -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = "prime video",
+                                    color = Color(0xFF00A8E1),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .width(42.dp)
+                                        .height(2.5.dp)
+                                        .clip(RoundedCornerShape(2.dp))
+                                        .background(Color(0xFF00A8E1))
+                                )
+                            }
+                            "disney" -> Text(
+                                text = "Disney+",
+                                color = Color(0xFF113CCF),
+                                fontSize = 19.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                            "max" -> Text(
+                                text = "max",
+                                color = Color(0xFF002BE7),
+                                fontSize = 23.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 0.5.sp
+                            )
+                            "deportes" -> Text(
+                                text = "⚽ DEPORTES",
+                                color = Color(0xFF059669),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                            else -> Text(
+                                text = "ANIME",
+                                color = BixOrangeAccent,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 1.sp
+                            )
+                        }
                     }
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        Text(
-                            text = spec.title,
-                            color = Color.White,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Black,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = spec.subtitle,
-                            color = spec.accentColor,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1
-                        )
-                    }
+                    Text(
+                        text = spec.title,
+                        color = Color.White.copy(alpha = 0.88f),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1
+                    )
                 }
             }
         }
