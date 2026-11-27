@@ -3,6 +3,7 @@ package com.lelouch.core.network.tmdb
 import com.lelouch.core.model.Episode
 import com.lelouch.core.model.VodMovie
 import com.lelouch.core.model.Series
+import com.lelouch.core.network.security.ClientSecretVault
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -14,8 +15,8 @@ import java.util.concurrent.TimeUnit
 
 object TmdbEnricher {
 
-    private const val TMDB_API_KEY = "d10dcabb94ff39a850b212ec0bcb845d"
-    private const val TMDB_BEARER_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJkMTBkY2FiYjk0ZmYzOWE4NTBiMjEyZWMwYmNiODQ1ZCIsIm5iZiI6MTc5MzU5MjMwMy4xMzkwMDAyLCJzdWIiOiI2YWU4MGJlZjEwZDhiNDViMGZmMWM2OWQiLCJzY29wZXMiOlsiYXBpX3JlYWQiXSwidmVyc2lvbiI6MX0.cc0EDwLmlZmu4KGiig39H6AiqlVgjzfKOsDybFtJtE8"
+    private val TMDB_API_KEY: String get() = ClientSecretVault.tmdbApiKey()
+    private val TMDB_BEARER_TOKEN: String get() = ClientSecretVault.tmdbBearerToken()
     private const val BASE_URL = "https://api.themoviedb.org/3"
     private const val IMAGE_BASE_W500 = "https://image.tmdb.org/t/p/w500"
     private const val IMAGE_BASE_W780 = "https://image.tmdb.org/t/p/w780"

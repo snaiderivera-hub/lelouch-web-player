@@ -21,6 +21,7 @@ import com.lelouch.core.domain.repository.PlaybackHistoryRepository
 import com.lelouch.core.domain.repository.SeriesRepository
 import com.lelouch.core.domain.repository.VodRepository
 import com.lelouch.core.network.diagnostics.IptvDiagnostics
+import com.lelouch.player.security.ReleaseIntegrityGuard
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -70,6 +71,7 @@ class LelouchApplication : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        ReleaseIntegrityGuard.verifyOrTerminate(this)
         instance = this
         com.lelouch.core.network.dns.LelouchDnsManager.init(this)
 

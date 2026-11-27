@@ -6,6 +6,7 @@ import com.lelouch.core.domain.repository.AuthRepository
 import com.lelouch.core.model.SourceConfig
 import com.lelouch.core.model.SourceType
 import com.lelouch.core.network.NetworkClient
+import com.lelouch.core.network.security.ClientSecretVault
 import com.lelouch.core.network.sync.CategoryFilterSyncManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -27,8 +28,11 @@ class AuthRepositoryImpl(
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         .build(),
-    private val supabaseBaseUrl: String = "https://rotupbdeljgfddywryhk.supabase.co"
+    private val supabaseBaseUrl: String = ClientSecretVault.supabaseBaseUrl()
 ) : AuthRepository {
+
+    private val supabaseKey: String
+        get() = ClientSecretVault.supabaseKey()
 
     override var isLastSyncFromCache: Boolean = false
         private set
@@ -59,7 +63,6 @@ class AuthRepositoryImpl(
         if (isRetiredCustomSource(sourceId, "")) return
         withContext(Dispatchers.IO) {
             try {
-                val supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvdHVwYmRlbGpnZmRkeXdyeWhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzNjA2MzksImV4cCI6MjEwNTkzNjYzOX0.zDVgrQo_IU5FhfSMpl0-MbS9Eod43czS21TBi5Z3Lvo"
                 // Las filas de `playlists` usan un UUID, pero el dispositivo conserva el id
                 // local del catálogo. Se localiza la fila por identidad, no por id.
                 val filter = when {
@@ -193,7 +196,6 @@ class AuthRepositoryImpl(
 
     private fun saveToCloudPlaylists(source: SourceConfig) {
         try {
-            val supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvdHVwYmRlbGpnZmRkeXdyeWhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzNjA2MzksImV4cCI6MjEwNTkzNjYzOX0.zDVgrQo_IU5FhfSMpl0-MbS9Eod43czS21TBi5Z3Lvo"
             val cleanBase = source.serverUrl.trimEnd('/')
             val fullUrl = if (source.type == SourceType.XTREAM && source.username.isNotBlank()) {
                 "$cleanBase/get.php?username=${encode(source.username)}&password=${encode(source.password)}&type=m3u_plus&output=ts"
@@ -226,7 +228,6 @@ class AuthRepositoryImpl(
     override suspend fun syncCloudSources(): List<SourceConfig> = withContext(Dispatchers.IO) {
         // Las fuentes locales se leen DESPUÉS de la red (no al entrar): así una lista agregada
         // mientras el bootstrap está en vuelo no se pierde al reconciliar con una foto vieja.
-        val supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvdHVwYmRlbGpnZmRkeXdyeWhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzNjA2MzksImV4cCI6MjEwNTkzNjYzOX0.zDVgrQo_IU5FhfSMpl0-MbS9Eod43czS21TBi5Z3Lvo"
         val cloudSources = mutableListOf<SourceConfig>()
         var atLeastOneEndpointSuccessful = false
 

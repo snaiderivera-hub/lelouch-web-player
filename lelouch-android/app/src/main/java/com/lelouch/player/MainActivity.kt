@@ -36,6 +36,7 @@ import com.lelouch.player.bootstrap.SourceBootstrapState
 import com.lelouch.player.bootstrap.SourceBootstrapViewModel
 import com.lelouch.feature.tv.components.TvBootstrapRecoveryScreen
 import com.lelouch.feature.tv.components.TvAdminPanelModal
+import com.lelouch.player.security.ReleaseIntegrityGuard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
@@ -58,6 +59,7 @@ class MainActivity : ComponentActivity() {
         get() = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        ReleaseIntegrityGuard.verifyOrTerminate(this)
         super.onCreate(savedInstanceState)
 
         val app = LelouchApplication.instance

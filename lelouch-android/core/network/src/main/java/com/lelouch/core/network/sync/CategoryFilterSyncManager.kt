@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.lelouch.core.model.SourceConfig
 import com.lelouch.core.model.SourceType
+import com.lelouch.core.network.security.ClientSecretVault
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -28,8 +29,8 @@ import java.util.concurrent.TimeUnit
 object CategoryFilterSyncManager {
     private const val TAG = "CategoryFilterSync"
     private const val PREFS_NAME = "iptv_hidden_categories"
-    private const val SUPABASE_BASE_URL = "https://rotupbdeljgfddywryhk.supabase.co"
-    private const val SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvdHVwYmRlbGpnZmRkeXdyeWhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzNjA2MzksImV4cCI6MjEwNTkzNjYzOX0.zDVgrQo_IU5FhfSMpl0-MbS9Eod43czS21TBi5Z3Lvo"
+    private val SUPABASE_BASE_URL: String get() = ClientSecretVault.supabaseBaseUrl()
+    private val SUPABASE_KEY: String get() = ClientSecretVault.supabaseKey()
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)

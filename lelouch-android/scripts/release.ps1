@@ -19,7 +19,7 @@ $ScriptDir   = $PSScriptRoot
 $AndroidDir  = Split-Path $ScriptDir -Parent
 $BuildGradle = Join-Path $AndroidDir "app\build.gradle.kts"
 $VersionJson = Join-Path (Split-Path $AndroidDir -Parent) "version.json"
-$ApkPath     = Join-Path $AndroidDir "app\build\outputs\apk\debug\app-debug.apk"
+$ApkPath     = Join-Path $AndroidDir "app\build\outputs\apk\release\app-release.apk"
 $GithubRepo  = "snaiderivera-hub/lelouch-web-player"
 $GithubApi   = "https://api.github.com"
 
@@ -57,10 +57,10 @@ Set-Content -Path $BuildGradle -Value $content -NoNewline -Encoding UTF8
 Write-Host "   OK: versionCode=$newVersionCode, versionName=`"$newVersionName`"" -ForegroundColor Gray
 
 # ── 4. Compilar APK ─────────────────────────────────────────────────────────
-Write-Host "[4/6] Compilando APK (assembleDebug)..." -ForegroundColor Cyan
+Write-Host "[4/6] Compilando APK (assembleRelease)..." -ForegroundColor Cyan
 Push-Location $AndroidDir
 try {
-    & .\gradlew assembleDebug
+    & .\gradlew assembleRelease
     if ($LASTEXITCODE -ne 0) { throw "Gradle fallo con codigo $LASTEXITCODE" }
 } finally {
     Pop-Location
@@ -113,7 +113,7 @@ if ([string]::IsNullOrWhiteSpace($GithubToken)) {
     $uploadUrl = $release.upload_url -replace '\{\?name,label\}', ''
     $apkBytes  = [System.IO.File]::ReadAllBytes($ApkPath)
     Invoke-RestMethod `
-        -Uri "$($uploadUrl)?name=app-debug.apk&label=app-debug.apk" `
+        -Uri "$($uploadUrl)?name=app-release.apk&label=app-release.apk" `
         -Method POST `
         -Headers $headers `
         -Body $apkBytes `
@@ -122,7 +122,7 @@ if ([string]::IsNullOrWhiteSpace($GithubToken)) {
 
     # Actualizar version.json
     Write-Host "[6/6] Actualizando version.json..." -ForegroundColor Cyan
-    $apkUrl = "https://github.com/$GithubRepo/releases/download/$newTag/app-debug.apk"
+    $apkUrl = "https://github.com/$GithubRepo/releases/download/$newTag/app-release.apk"
     $vJson = @{
         versionName = $newVersionName
         versionCode = $newVersionCode

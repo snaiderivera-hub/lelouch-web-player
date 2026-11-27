@@ -111,7 +111,6 @@ class XtreamCatalogSyncManager private constructor(
         const val VOD_DEFAULT_TTL_MS: Long = 3L * 24 * 60 * 60 * 1000L // 3 días para VOD y Series
         const val M3U_DEFAULT_TTL_MS: Long = 24 * 60 * 60 * 1000L // 24 horas para M3U genérico
         private const val HOST_COOLDOWN_MS: Long = 12 * 60 * 1000L // 12 min circuit breaker por host caído
-        private const val SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvdHVwYmRlbGpnZmRkeXdyeWhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzNjA2MzksImV4cCI6MjEwNTkzNjYzOX0.zDVgrQo_IU5FhfSMpl0-MbS9Eod43czS21TBi5Z3Lvo"
     }
 
     private class TransientHttpException(val code: Int, message: String) : IOException(message)

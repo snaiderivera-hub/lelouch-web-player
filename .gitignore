@@ -30,3 +30,10 @@ node-env/
 lelouch-desktop/node_modules/
 lelouch-desktop/dist/
 Lelouch_Setup.exe
+lelouch-dotnet/
+
+# Private Android signing keystores (NEVER commit)
+*.jks
+*.keystore
+lelouch-android/keystore/
+lelouch-android/keystore.properties
