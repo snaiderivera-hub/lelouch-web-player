@@ -20,13 +20,13 @@ interface MovieDao {
     @Query("SELECT * FROM movies WHERE categoryId = :categoryId AND streamIcon IS NOT NULL AND streamIcon != '' AND streamIcon LIKE 'http%' ORDER BY rating DESC, added DESC")
     fun getMoviesByCategoryPaging(categoryId: String): PagingSource<Int, MovieEntity>
 
-    @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND streamIcon IS NOT NULL AND streamIcon != '' AND streamIcon LIKE 'http%' GROUP BY name ORDER BY name ASC, id ASC")
+    @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND streamIcon IS NOT NULL AND streamIcon != '' AND streamIcon LIKE 'http%' GROUP BY name ORDER BY (CASE WHEN COALESCE(year, '') = strftime('%Y', 'now') OR name LIKE '%' || strftime('%Y', 'now') || '%' THEN 0 ELSE 1 END) ASC, name ASC, id ASC")
     fun getPagingMoviesBySource(sourceId: String): PagingSource<Int, MovieEntity>
 
-    @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND categoryId = :categoryId AND streamIcon IS NOT NULL AND streamIcon != '' AND streamIcon LIKE 'http%' GROUP BY name ORDER BY name ASC, id ASC")
+    @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND categoryId = :categoryId AND streamIcon IS NOT NULL AND streamIcon != '' AND streamIcon LIKE 'http%' GROUP BY name ORDER BY (CASE WHEN COALESCE(year, '') = strftime('%Y', 'now') OR name LIKE '%' || strftime('%Y', 'now') || '%' THEN 0 ELSE 1 END) ASC, name ASC, id ASC")
     fun getPagingMoviesBySourceAndCategory(sourceId: String, categoryId: String): PagingSource<Int, MovieEntity>
 
-    @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND categoryId NOT IN (:hiddenCategoryIds) AND streamIcon IS NOT NULL AND streamIcon != '' AND streamIcon LIKE 'http%' GROUP BY name ORDER BY name ASC, id ASC")
+    @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND categoryId NOT IN (:hiddenCategoryIds) AND streamIcon IS NOT NULL AND streamIcon != '' AND streamIcon LIKE 'http%' GROUP BY name ORDER BY (CASE WHEN COALESCE(year, '') = strftime('%Y', 'now') OR name LIKE '%' || strftime('%Y', 'now') || '%' THEN 0 ELSE 1 END) ASC, name ASC, id ASC")
     fun getPagingMoviesExcludingCategories(sourceId: String, hiddenCategoryIds: List<String>): PagingSource<Int, MovieEntity>
 
     @Query("SELECT * FROM movies WHERE streamIcon IS NOT NULL AND streamIcon != '' AND streamIcon LIKE 'http%' ORDER BY added DESC LIMIT :limit")
@@ -35,7 +35,7 @@ interface MovieDao {
     @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND streamIcon IS NOT NULL AND streamIcon != '' AND streamIcon LIKE 'http%' ORDER BY added DESC LIMIT :limit")
     fun getRecentlyAddedMoviesBySource(sourceId: String, limit: Int = 20): Flow<List<MovieEntity>>
 
-    @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND streamIcon IS NOT NULL AND streamIcon != '' AND streamIcon LIKE 'http%' ORDER BY added DESC, rating DESC LIMIT :limit")
+    @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND streamIcon IS NOT NULL AND streamIcon != '' AND streamIcon LIKE 'http%' ORDER BY (CASE WHEN COALESCE(year, '') = strftime('%Y', 'now') OR name LIKE '%' || strftime('%Y', 'now') || '%' THEN 0 ELSE 1 END) ASC, added DESC, rating DESC LIMIT :limit")
     fun getMoviesSampleBySource(sourceId: String, limit: Int = 500): Flow<List<MovieEntity>>
 
     @Query("SELECT * FROM movies WHERE rating >= 7.5 AND streamIcon IS NOT NULL AND streamIcon != '' AND streamIcon LIKE 'http%' ORDER BY rating DESC LIMIT :limit")
@@ -56,13 +56,13 @@ interface MovieDao {
     @Query("UPDATE movies SET isFavorite = :isFavorite WHERE streamId = :streamId")
     suspend fun updateFavoriteStatus(streamId: Int, isFavorite: Boolean)
 
-    @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND streamIcon IS NOT NULL AND streamIcon != '' AND streamIcon LIKE 'http%' GROUP BY name ORDER BY name ASC")
+    @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND streamIcon IS NOT NULL AND streamIcon != '' AND streamIcon LIKE 'http%' GROUP BY name ORDER BY (CASE WHEN COALESCE(year, '') = strftime('%Y', 'now') OR name LIKE '%' || strftime('%Y', 'now') || '%' THEN 0 ELSE 1 END) ASC, name ASC")
     fun getAllMoviesBySource(sourceId: String): Flow<List<MovieEntity>>
 
-    @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND categoryId = :categoryId AND streamIcon IS NOT NULL AND streamIcon != '' AND streamIcon LIKE 'http%' GROUP BY name ORDER BY name ASC")
+    @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND categoryId = :categoryId AND streamIcon IS NOT NULL AND streamIcon != '' AND streamIcon LIKE 'http%' GROUP BY name ORDER BY (CASE WHEN COALESCE(year, '') = strftime('%Y', 'now') OR name LIKE '%' || strftime('%Y', 'now') || '%' THEN 0 ELSE 1 END) ASC, name ASC")
     fun getMoviesByCategory(sourceId: String, categoryId: String): Flow<List<MovieEntity>>
 
-    @Query("SELECT * FROM movies WHERE streamIcon IS NOT NULL AND streamIcon != '' AND streamIcon LIKE 'http%' GROUP BY name ORDER BY name ASC")
+    @Query("SELECT * FROM movies WHERE streamIcon IS NOT NULL AND streamIcon != '' AND streamIcon LIKE 'http%' GROUP BY name ORDER BY (CASE WHEN COALESCE(year, '') = strftime('%Y', 'now') OR name LIKE '%' || strftime('%Y', 'now') || '%' THEN 0 ELSE 1 END) ASC, name ASC")
     fun getAllMovies(): Flow<List<MovieEntity>>
 
     @Query("DELETE FROM movies WHERE sourceId = :sourceId")

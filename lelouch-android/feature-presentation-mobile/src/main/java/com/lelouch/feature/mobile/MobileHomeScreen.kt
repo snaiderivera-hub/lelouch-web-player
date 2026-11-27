@@ -522,15 +522,27 @@ fun MobileHomeScreen(
                     }
                 )
 
+            val currentYearStr = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR).toString()
+
             val cleanMovies = movies.filter {
                 it.categoryId !in hiddenMovieCategories && it.categoryName !in hiddenMovieCategories &&
                 (isAdultModeEnabled || !isAdultContent(it.name, it.categoryName, it.categoryId))
             }.distinctBy { it.name.trim().lowercase() }
+                .sortedWith(
+                    compareByDescending<VodMovie> {
+                        it.year?.trim()?.startsWith(currentYearStr) == true || it.name.contains(currentYearStr)
+                    }
+                )
 
             val cleanSeries = seriesList.filter {
                 it.categoryId !in hiddenSeriesCategories && it.categoryName !in hiddenSeriesCategories &&
                 (isAdultModeEnabled || !isAdultContent(it.name, it.categoryName, it.categoryId))
             }.distinctBy { it.name.trim().lowercase() }
+                .sortedWith(
+                    compareByDescending<Series> {
+                        it.releaseDate?.trim()?.startsWith(currentYearStr) == true || it.name.contains(currentYearStr)
+                    }
+                )
 
             val fromLiveDb = liveCategories.map { MobileCategoryItem(id = it.categoryId, name = it.categoryName) }
             val fromLiveChannels = cleanLive.mapNotNull { ch ->
@@ -752,6 +764,7 @@ fun MobileHomeScreen(
     var isDownloadsDialogOpen by remember { mutableStateOf(false) }
     var diagnosticsTargetSource by remember { mutableStateOf<SourceConfig?>(null) }
     var activeCuratedSection by remember(activeSource?.id) { mutableStateOf<CuratedSectionType?>(null) }
+    var selectedPlatformId by remember(activeSource?.id) { mutableStateOf<String?>(null) }
     var isAccountSwitcherOpen by remember { mutableStateOf(false) }
 
     // Comprobación automática silenciosa e inmediata de nueva versión (periódica cada 60s y al reanudar)
@@ -928,7 +941,14 @@ fun MobileHomeScreen(
                 if (!isPlayerFullscreen) {
                     MobileBottomNavBar(
                         selectedTab = selectedTab,
-                        onTabChange = { selectedTab = it }
+                        onTabChange = { newTab ->
+                            if (newTab == 0) {
+                                selectedPlatformId = null
+                                activeCuratedSection = null
+                                searchQuery = ""
+                            }
+                            selectedTab = newTab
+                        }
                     )
                 }
             }
@@ -1003,6 +1023,8 @@ fun MobileHomeScreen(
                             seriesCatMap = seriesCatMap,
                             portalFeedData = portalFeedData,
                             activeSource = activeSource,
+                            selectedPlatformId = selectedPlatformId,
+                            onSelectPlatformId = { selectedPlatformId = it },
                             onChannelClick = { ch, url ->
                                 activeChannelName = ch
                                 activeContentMeta = ActiveContentMeta(ch, type = ContentType.LIVE)
@@ -2138,48 +2160,68 @@ private fun MobileTopBar(
     }
 }
 
-// BOTTOM NAV (ESTILO CAPTURAS - 5 PESTAÑAS CON PILL NARANJA)
+// BOTTOM NAV (BARRA LIMPIA - PÍLDORA UNIFORME PARA ÍCONO Y TEXTO COMPLETO)
 @Composable
 private fun MobileBottomNavBar(selectedTab: Int, onTabChange: (Int) -> Unit) {
-    NavigationBar(
-        containerColor = Color(0xFF0E1017),
+    Surface(
+        color = Color(0xFF0E1017),
         tonalElevation = 8.dp
     ) {
-        val navItems = listOf(
-            Triple(Icons.Default.Home, "Inicio", 0),
-            Triple(Icons.Default.LiveTv, "TV en Vivo", 1),
-            Triple(Icons.Default.Movie, "Películas", 2),
-            Triple(Icons.Default.VideoLibrary, "Series", 3),
-            Triple(Icons.Default.Settings, "Ajustes", 4)
-        )
-        navItems.forEach { (icon, label, index) ->
-            val isSelected = selectedTab == index
-            NavigationBarItem(
-                selected = isSelected,
-                onClick = { onTabChange(index) },
-                icon = {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = label,
-                        modifier = Modifier.size(22.dp)
-                    )
-                },
-                label = {
-                    Text(
-                        text = label,
-                        maxLines = 1,
-                        fontSize = 10.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                    )
-                },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = BixOrangeAccent,
-                    selectedTextColor = BixOrangeAccent,
-                    indicatorColor = BixOrangeAccent.copy(alpha = 0.20f),
-                    unselectedIconColor = BixTextMuted,
-                    unselectedTextColor = BixTextMuted
+        Column(modifier = Modifier.fillMaxWidth().navigationBarsPadding()) {
+            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF1E2230)))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(64.dp)
+                    .padding(horizontal = 6.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val navItems = listOf(
+                    Triple(Icons.Default.Home, "Inicio", 0),
+                    Triple(Icons.Default.LiveTv, "TV en Vivo", 1),
+                    Triple(Icons.Default.Movie, "Películas", 2),
+                    Triple(Icons.Default.VideoLibrary, "Series", 3),
+                    Triple(Icons.Default.Settings, "Ajustes", 4)
                 )
-            )
+                navItems.forEach { (icon, label, index) ->
+                    val isSelected = selectedTab == index
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(
+                                if (isSelected) BixOrangeAccent.copy(alpha = 0.16f)
+                                else Color.Transparent
+                            )
+                            .then(
+                                if (isSelected) Modifier.border(1.dp, BixOrangeAccent.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
+                                else Modifier
+                            )
+                            .clickable { onTabChange(index) }
+                            .padding(horizontal = 4.dp, vertical = 4.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = label,
+                            tint = if (isSelected) BixOrangeAccent else BixTextMuted,
+                            modifier = Modifier.size(21.dp)
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            text = label,
+                            color = if (isSelected) BixOrangeAccent else BixTextMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            fontSize = 10.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -2195,6 +2237,8 @@ private fun MobileHomeTab(
     seriesCatMap: Map<String, String> = emptyMap(),
     portalFeedData: PortalFeedData?,
     activeSource: SourceConfig?,
+    selectedPlatformId: String? = null,
+    onSelectPlatformId: (String?) -> Unit = {},
     onChannelClick: (String, String) -> Unit,
     onMovieClick: (VodMovie) -> Unit,
     onSeriesClick: (Series) -> Unit,
@@ -2216,6 +2260,25 @@ private fun MobileHomeTab(
 ) {
     val context = LocalContext.current
     val sportsCount = portalFeedData?.sportsCount ?: 0
+
+    val activePlatformSpec = remember(selectedPlatformId, movies, seriesList, liveChannels, vodCatMap, seriesCatMap, liveCatMap) {
+        val pid = selectedPlatformId ?: return@remember null
+        buildPlatformHubSpecs(movies, seriesList, liveChannels, vodCatMap, seriesCatMap, liveCatMap)
+            .firstOrNull { it.id == pid }
+    }
+
+    if (activePlatformSpec != null) {
+        BackHandler { onSelectPlatformId(null) }
+        MobilePlatformDetailView(
+            spec = activePlatformSpec,
+            activeSource = activeSource,
+            onBack = { onSelectPlatformId(null) },
+            onMovieClick = onMovieClick,
+            onSeriesClick = onSeriesClick,
+            onChannelClick = onChannelClick
+        )
+        return
+    }
 
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         item {
@@ -2251,6 +2314,7 @@ private fun MobileHomeTab(
                 onChannelClick = onChannelClick,
                 onMovieClick = onMovieClick,
                 onSeriesClick = onSeriesClick,
+                onOpenPlatform = { pid -> onSelectPlatformId(pid) },
                 continueWatchingItems = continueWatchingItems,
                 onResumeContinueWatching = onResumeContinueWatching,
                 onRemoveContinueWatching = onRemoveContinueWatching,

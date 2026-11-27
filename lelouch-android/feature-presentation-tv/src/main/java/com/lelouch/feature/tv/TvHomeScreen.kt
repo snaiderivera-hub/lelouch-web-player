@@ -2414,8 +2414,13 @@ fun TvHomeScreen(
                         3 -> {
                             // 🎬 PELÍCULAS: HERO CAROUSEL HD + BUSCADOR/MICRÓFONO + GRILLA TODO SCROLLEABLE (SIN CATEGORÍAS NI BANNER FIJO)
                             val isMovieSearchActive = movieSearchQuery.trim().length >= 2
-                            val heroMoviePool = remember(recentMovies, movies) {
-                                (recentMovies.ifEmpty { movies }).take(8)
+                            val currentYearStr = remember { java.util.Calendar.getInstance().get(java.util.Calendar.YEAR).toString() }
+                            val heroMoviePool = remember(recentMovies, movies, currentYearStr) {
+                                (recentMovies.ifEmpty { movies })
+                                    .sortedWith(compareByDescending {
+                                        it.year?.trim()?.startsWith(currentYearStr) == true || it.name.contains(currentYearStr)
+                                    })
+                                    .take(8)
                             }
                             if (!isMovieSearchActive && pagedMovies.itemCount == 0 && pagedMovies.loadState.refresh !is androidx.paging.LoadState.Loading) {
                                 Box(
@@ -2592,8 +2597,13 @@ fun TvHomeScreen(
 
                         4 -> {
                             // 📺 SERIES: HERO CAROUSEL HD + BUSCADOR/MICRÓFONO + GRILLA TODO SCROLLEABLE (SIN CATEGORÍAS NI BANNER FIJO)
-                            val heroSeriesPool = remember(featuredSeries, seriesList) {
-                                (featuredSeries.ifEmpty { seriesList }).take(8)
+                            val currentYearStr = remember { java.util.Calendar.getInstance().get(java.util.Calendar.YEAR).toString() }
+                            val heroSeriesPool = remember(featuredSeries, seriesList, currentYearStr) {
+                                (featuredSeries.ifEmpty { seriesList })
+                                    .sortedWith(compareByDescending {
+                                        it.releaseDate?.trim()?.startsWith(currentYearStr) == true || it.name.contains(currentYearStr)
+                                    })
+                                    .take(8)
                             }
                             if (pagedSeries.itemCount == 0 && pagedSeries.loadState.refresh !is androidx.paging.LoadState.Loading) {
                                 Box(

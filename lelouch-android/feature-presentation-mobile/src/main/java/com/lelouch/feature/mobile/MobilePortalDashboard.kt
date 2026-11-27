@@ -12,6 +12,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -387,6 +388,7 @@ fun MobilePortalDashboard(
     onChannelClick: (String, String) -> Unit = { _, _ -> },
     onMovieClick: (VodMovie) -> Unit = {},
     onSeriesClick: (Series) -> Unit = {},
+    onOpenPlatform: ((String) -> Unit)? = null,
     continueWatchingItems: List<ContinueWatchingItem> = emptyList(),
     onResumeContinueWatching: (ContinueWatchingItem) -> Unit = {},
     onRemoveContinueWatching: (ContinueWatchingItem) -> Unit = {}
@@ -403,23 +405,9 @@ fun MobilePortalDashboard(
     val animItems = portalFeedData?.animItems ?: emptyList()
 
     var isSearchExpanded by remember { mutableStateOf(false) }
-    var selectedPlatform by remember { mutableStateOf<PlatformHubSpec?>(null) }
 
     val platformHubItems = remember(movies, seriesList, liveChannels, vodCatMap, seriesCatMap, liveCatMap) {
         buildPlatformHubSpecs(movies, seriesList, liveChannels, vodCatMap, seriesCatMap, liveCatMap)
-    }
-
-        if (selectedPlatform != null) {
-        BackHandler { selectedPlatform = null }
-        MobilePlatformDetailView(
-            spec = selectedPlatform!!,
-            activeSource = activeSource,
-            onBack = { selectedPlatform = null },
-            onMovieClick = onMovieClick,
-            onSeriesClick = onSeriesClick,
-            onChannelClick = onChannelClick
-        )
-        return
     }
 
     Column(
@@ -815,7 +803,7 @@ fun MobilePortalDashboard(
             if (platformHubItems.isNotEmpty()) {
                 MobilePlatformHubSection(
                     platforms = platformHubItems,
-                    onPlatformClick = { selectedPlatform = it }
+                    onPlatformClick = { spec -> onOpenPlatform?.invoke(spec.id) }
                 )
                 Spacer(modifier = Modifier.height(20.dp))
             }
@@ -2275,7 +2263,7 @@ private fun NativeLiveStreamCard(
 // HUB VISUAL POR PLATAFORMAS / CATEGORÍAS REALES + VISTA DEDICADA
 // ══════════════════════════════════════════════════════════════════════════════
 
-private data class PlatformHubSpec(
+internal data class PlatformHubSpec(
     val id: String,
     val title: String,
     val subtitle: String,
@@ -2304,7 +2292,11 @@ private val platformRules = listOf(
     PlatformMatchRule("anime", "Anime", "Series y Películas", Color(0xFFFF6B00), listOf("anime", "crunchyroll", "animación", "animacion"))
 )
 
-private fun buildPlatformHubSpecs(
+private fun isCurrentYearRelease(yearOrDate: String?, title: String, currentYearStr: String): Boolean {
+    return yearOrDate?.trim()?.startsWith(currentYearStr) == true || title.contains(currentYearStr)
+}
+
+internal fun buildPlatformHubSpecs(
     movies: List<VodMovie>,
     seriesList: List<Series>,
     liveChannels: List<LiveStream>,
@@ -2312,19 +2304,20 @@ private fun buildPlatformHubSpecs(
     seriesCatMap: Map<String, String> = emptyMap(),
     liveCatMap: Map<String, String> = emptyMap()
 ): List<PlatformHubSpec> {
+    val currentYearStr = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR).toString()
     return platformRules.mapNotNull { rule ->
         val matchedMovies = movies.filter { m ->
             val cat = vodCatMap[m.categoryId].orEmpty().ifBlank { m.categoryName }.lowercase()
             val name = m.name.lowercase()
             val genre = m.genre.orEmpty().lowercase()
             rule.keywords.any { kw -> cat.contains(kw) || name.contains(kw) || genre.contains(kw) }
-        }
+        }.sortedWith(compareByDescending { isCurrentYearRelease(it.year, it.name, currentYearStr) })
         val matchedSeries = seriesList.filter { s ->
             val cat = seriesCatMap[s.categoryId].orEmpty().ifBlank { s.categoryName }.lowercase()
             val name = s.name.lowercase()
             val genre = s.genre.orEmpty().lowercase()
             rule.keywords.any { kw -> cat.contains(kw) || name.contains(kw) || genre.contains(kw) }
-        }
+        }.sortedWith(compareByDescending { isCurrentYearRelease(it.releaseDate, it.name, currentYearStr) })
         val matchedChannels = liveChannels.filter { ch ->
             val cat = liveCatMap[ch.categoryId].orEmpty().ifBlank { ch.categoryName }.lowercase()
             val name = ch.name.lowercase()
@@ -2458,7 +2451,7 @@ private fun MobilePlatformHubSection(
 }
 
 @Composable
-private fun MobilePlatformDetailView(
+internal fun MobilePlatformDetailView(
     spec: PlatformHubSpec,
     activeSource: SourceConfig?,
     onBack: () -> Unit,
@@ -2470,136 +2463,178 @@ private fun MobilePlatformDetailView(
 
     Column(
         modifier = Modifier
-            .fillMaxWidth()
+            .fillMaxSize()
             .background(BixDarkBackground)
-            .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        // Cabecera FIJA superior (nunca se pierde al hacer scroll en Netflix / Prime / Disney+ / Max)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF0B0D13))
+                .padding(horizontal = 16.dp, vertical = 10.dp)
         ) {
-            IconButton(
-                onClick = onBack,
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF14161F))
-                    .border(1.dp, Color(0xFF252938), CircleShape)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Volver", tint = Color.White, modifier = Modifier.size(18.dp))
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = spec.title,
-                    color = Color.White,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Black
-                )
-                Text(
-                    text = "${spec.totalCount} títulos disponibles",
-                    color = BixOrangeAccent,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-
-        // Pills de filtro rápido dentro de la plataforma
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(vertical = 12.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            val tabs = buildList {
-                add("all" to "Todo (${spec.totalCount})")
-                if (spec.movies.isNotEmpty()) add("movies" to "Películas (${spec.movies.size})")
-                if (spec.series.isNotEmpty()) add("series" to "Series (${spec.series.size})")
-                if (spec.channels.isNotEmpty()) add("channels" to "Canales (${spec.channels.size})")
-            }
-            items(tabs) { (id, label) ->
-                val active = filterTab == id
-                Box(
+                Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(20.dp))
-                        .background(if (active) BixOrangeAccent else Color(0xFF14161F))
-                        .border(1.dp, if (active) BixOrangeAccent else Color(0xFF252938), RoundedCornerShape(20.dp))
-                        .clickable { filterTab = id }
-                        .padding(horizontal = 14.dp, vertical = 7.dp)
+                        .background(Color(0xFF14161F))
+                        .border(1.dp, BixOrangeAccent.copy(alpha = 0.65f), RoundedCornerShape(20.dp))
+                        .clickable { onBack() }
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text(label, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Volver", tint = BixOrangeAccent, modifier = Modifier.size(16.dp))
+                    Text("Regresar", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
-            }
-        }
 
-        if ((filterTab == "all" || filterTab == "channels") && spec.channels.isNotEmpty()) {
-            Spacer(Modifier.height(6.dp))
-            Text("Canales (${spec.channels.size})", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(8.dp))
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                items(spec.channels) { ch ->
-                    val resolvedUrl = StreamUrlResolver.resolveLive(ch.streamUrl, activeSource, ch.streamId)
-                    NativeLiveStreamCard(
-                        channel = ch,
-                        onClick = { onChannelClick(ch.name, resolvedUrl) }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = spec.title,
+                        color = Color.White,
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Black,
+                        maxLines = 1
+                    )
+                    Text(
+                        text = "${spec.totalCount} títulos disponibles",
+                        color = BixOrangeAccent,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }
-        }
 
-        if ((filterTab == "all" || filterTab == "movies") && spec.movies.isNotEmpty()) {
-            Spacer(Modifier.height(14.dp))
-            Text("Películas (${spec.movies.size})", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Black)
-            Spacer(Modifier.height(10.dp))
-            spec.movies.chunked(3).forEach { rowItems ->
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    rowItems.forEach { movie ->
-                        Box(modifier = Modifier.weight(1f)) {
-                            CuratedPosterItem(
-                                title = movie.name,
-                                imageUrl = movie.streamIcon,
-                                rating = movie.rating,
-                                year = movie.year,
-                                onClick = { onMovieClick(movie) }
-                            )
-                        }
-                    }
-                    repeat(3 - rowItems.size) {
-                        Spacer(modifier = Modifier.weight(1f))
+            // Pills fijas de filtro rápido dentro de la plataforma
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(top = 10.dp, bottom = 2.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                val tabs = buildList {
+                    add("all" to "Todo (${spec.totalCount})")
+                    if (spec.movies.isNotEmpty()) add("movies" to "Películas (${spec.movies.size})")
+                    if (spec.series.isNotEmpty()) add("series" to "Series (${spec.series.size})")
+                    if (spec.channels.isNotEmpty()) add("channels" to "Canales (${spec.channels.size})")
+                }
+                items(tabs) { (id, label) ->
+                    val active = filterTab == id
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(if (active) BixOrangeAccent else Color(0xFF14161F))
+                            .border(1.dp, if (active) BixOrangeAccent else Color(0xFF252938), RoundedCornerShape(20.dp))
+                            .clickable { filterTab = id }
+                            .padding(horizontal = 14.dp, vertical = 7.dp)
+                    ) {
+                        Text(label, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
         }
+        Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF1F2330)))
 
-        if ((filterTab == "all" || filterTab == "series") && spec.series.isNotEmpty()) {
-            Spacer(Modifier.height(14.dp))
-            Text("Series (${spec.series.size})", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Black)
-            Spacer(Modifier.height(10.dp))
-            spec.series.chunked(3).forEach { rowItems ->
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    rowItems.forEach { series ->
-                        Box(modifier = Modifier.weight(1f)) {
-                            CuratedPosterItem(
-                                title = series.name,
-                                imageUrl = series.cover,
-                                rating = series.rating,
-                                onClick = { onSeriesClick(series) }
-                            )
+        // Lista reciclable independiente debajo de la cabecera fija
+        LazyColumn(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
+        ) {
+            if ((filterTab == "all" || filterTab == "channels") && spec.channels.isNotEmpty()) {
+                item(key = "channels_section") {
+                    Column(modifier = Modifier.padding(bottom = 14.dp)) {
+                        Text("Canales (${spec.channels.size})", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(8.dp))
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            items(spec.channels) { ch ->
+                                val resolvedUrl = StreamUrlResolver.resolveLive(ch.streamUrl, activeSource, ch.streamId)
+                                NativeLiveStreamCard(
+                                    channel = ch,
+                                    onClick = { onChannelClick(ch.name, resolvedUrl) }
+                                )
+                            }
                         }
-                    }
-                    repeat(3 - rowItems.size) {
-                        Spacer(modifier = Modifier.weight(1f))
                     }
                 }
             }
-        }
 
-        Spacer(Modifier.height(24.dp))
+            if ((filterTab == "all" || filterTab == "movies") && spec.movies.isNotEmpty()) {
+                item(key = "movies_header") {
+                    Text(
+                        "Películas (${spec.movies.size})",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Black,
+                        modifier = Modifier.padding(bottom = 10.dp)
+                    )
+                }
+                val movieRows = spec.movies.chunked(3)
+                items(movieRows.size, key = { idx -> "mov_row_$idx" }) { rowIdx ->
+                    val rowItems = movieRows[rowIdx]
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        rowItems.forEach { movie ->
+                            Box(modifier = Modifier.weight(1f)) {
+                                CuratedPosterItem(
+                                    title = movie.name,
+                                    imageUrl = movie.streamIcon,
+                                    rating = movie.rating,
+                                    year = movie.year,
+                                    onClick = { onMovieClick(movie) }
+                                )
+                            }
+                        }
+                        repeat(3 - rowItems.size) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+
+            if ((filterTab == "all" || filterTab == "series") && spec.series.isNotEmpty()) {
+                item(key = "series_header") {
+                    Text(
+                        "Series (${spec.series.size})",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Black,
+                        modifier = Modifier.padding(top = 6.dp, bottom = 10.dp)
+                    )
+                }
+                val seriesRows = spec.series.chunked(3)
+                items(seriesRows.size, key = { idx -> "ser_row_$idx" }) { rowIdx ->
+                    val rowItems = seriesRows[rowIdx]
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        rowItems.forEach { series ->
+                            Box(modifier = Modifier.weight(1f)) {
+                                CuratedPosterItem(
+                                    title = series.name,
+                                    imageUrl = series.cover,
+                                    rating = series.rating,
+                                    onClick = { onSeriesClick(series) }
+                                )
+                            }
+                        }
+                        repeat(3 - rowItems.size) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+
+            item(key = "bottom_pad") {
+                Spacer(Modifier.height(16.dp))
+            }
+        }
     }
 }

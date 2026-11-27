@@ -1690,6 +1690,10 @@ private val tvPlatformRules = listOf(
     TvPlatformMatchRule("anime", "Anime", Color(0xFFFF6B00), listOf("anime", "crunchyroll", "animación", "animacion"))
 )
 
+private fun isTvCurrentYear(yearOrDate: String?, title: String, currentYearStr: String): Boolean {
+    return yearOrDate?.trim()?.startsWith(currentYearStr) == true || title.contains(currentYearStr)
+}
+
 private fun buildTvPlatformHubSpecs(
     movies: List<VodMovie>,
     seriesList: List<Series>,
@@ -1698,19 +1702,20 @@ private fun buildTvPlatformHubSpecs(
     seriesCatMap: Map<String, String> = emptyMap(),
     liveCatMap: Map<String, String> = emptyMap()
 ): List<TvPlatformHubSpec> {
+    val currentYearStr = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR).toString()
     return tvPlatformRules.mapNotNull { rule ->
         val matchedMovies = movies.filter { m ->
             val cat = vodCatMap[m.categoryId].orEmpty().ifBlank { m.categoryName }.lowercase()
             val name = m.name.lowercase()
             val genre = m.genre.orEmpty().lowercase()
             rule.keywords.any { kw -> cat.contains(kw) || name.contains(kw) || genre.contains(kw) }
-        }
+        }.sortedWith(compareByDescending { isTvCurrentYear(it.year, it.name, currentYearStr) })
         val matchedSeries = seriesList.filter { s ->
             val cat = seriesCatMap[s.categoryId].orEmpty().ifBlank { s.categoryName }.lowercase()
             val name = s.name.lowercase()
             val genre = s.genre.orEmpty().lowercase()
             rule.keywords.any { kw -> cat.contains(kw) || name.contains(kw) || genre.contains(kw) }
-        }
+        }.sortedWith(compareByDescending { isTvCurrentYear(it.releaseDate, it.name, currentYearStr) })
         val matchedChannels = liveChannels.filter { ch ->
             val cat = liveCatMap[ch.categoryId].orEmpty().ifBlank { ch.categoryName }.lowercase()
             val name = ch.name.lowercase()

@@ -20,13 +20,13 @@ interface SeriesDao {
     @Query("SELECT * FROM series WHERE categoryId = :categoryId ORDER BY rating DESC")
     fun getSeriesByCategoryPaging(categoryId: String): PagingSource<Int, SeriesEntity>
 
-    @Query("SELECT * FROM series WHERE sourceId = :sourceId GROUP BY name ORDER BY name ASC, id ASC")
+    @Query("SELECT * FROM series WHERE sourceId = :sourceId GROUP BY name ORDER BY (CASE WHEN substr(COALESCE(releaseDate, ''), 1, 4) = strftime('%Y', 'now') OR name LIKE '%' || strftime('%Y', 'now') || '%' THEN 0 ELSE 1 END) ASC, name ASC, id ASC")
     fun getPagingSeriesBySource(sourceId: String): PagingSource<Int, SeriesEntity>
 
-    @Query("SELECT * FROM series WHERE sourceId = :sourceId AND categoryId = :categoryId GROUP BY name ORDER BY name ASC, id ASC")
+    @Query("SELECT * FROM series WHERE sourceId = :sourceId AND categoryId = :categoryId GROUP BY name ORDER BY (CASE WHEN substr(COALESCE(releaseDate, ''), 1, 4) = strftime('%Y', 'now') OR name LIKE '%' || strftime('%Y', 'now') || '%' THEN 0 ELSE 1 END) ASC, name ASC, id ASC")
     fun getPagingSeriesBySourceAndCategory(sourceId: String, categoryId: String): PagingSource<Int, SeriesEntity>
 
-    @Query("SELECT * FROM series WHERE sourceId = :sourceId AND categoryId NOT IN (:hiddenCategoryIds) GROUP BY name ORDER BY name ASC, id ASC")
+    @Query("SELECT * FROM series WHERE sourceId = :sourceId AND categoryId NOT IN (:hiddenCategoryIds) GROUP BY name ORDER BY (CASE WHEN substr(COALESCE(releaseDate, ''), 1, 4) = strftime('%Y', 'now') OR name LIKE '%' || strftime('%Y', 'now') || '%' THEN 0 ELSE 1 END) ASC, name ASC, id ASC")
     fun getPagingSeriesExcludingCategories(sourceId: String, hiddenCategoryIds: List<String>): PagingSource<Int, SeriesEntity>
 
     @Query("SELECT * FROM series WHERE isFavorite = 1 ORDER BY name ASC")
@@ -35,10 +35,10 @@ interface SeriesDao {
     @Query("SELECT * FROM series ORDER BY rating DESC, name ASC LIMIT :limit")
     fun getFeaturedSeries(limit: Int = 30): Flow<List<SeriesEntity>>
 
-    @Query("SELECT * FROM series WHERE sourceId = :sourceId ORDER BY rating DESC, name ASC LIMIT :limit")
+    @Query("SELECT * FROM series WHERE sourceId = :sourceId ORDER BY (CASE WHEN substr(COALESCE(releaseDate, ''), 1, 4) = strftime('%Y', 'now') OR name LIKE '%' || strftime('%Y', 'now') || '%' THEN 0 ELSE 1 END) ASC, rating DESC, name ASC LIMIT :limit")
     fun getFeaturedSeriesBySource(sourceId: String, limit: Int = 30): Flow<List<SeriesEntity>>
 
-    @Query("SELECT * FROM series WHERE sourceId = :sourceId ORDER BY rating DESC, name ASC LIMIT :limit")
+    @Query("SELECT * FROM series WHERE sourceId = :sourceId ORDER BY (CASE WHEN substr(COALESCE(releaseDate, ''), 1, 4) = strftime('%Y', 'now') OR name LIKE '%' || strftime('%Y', 'now') || '%' THEN 0 ELSE 1 END) ASC, rating DESC, name ASC LIMIT :limit")
     fun getSeriesSampleBySource(sourceId: String, limit: Int = 300): Flow<List<SeriesEntity>>
 
 
@@ -54,10 +54,10 @@ interface SeriesDao {
     @Query("UPDATE series SET isFavorite = :isFavorite WHERE seriesId = :seriesId")
     suspend fun updateFavoriteStatus(seriesId: Int, isFavorite: Boolean)
 
-    @Query("SELECT * FROM series WHERE sourceId = :sourceId ORDER BY name ASC")
+    @Query("SELECT * FROM series WHERE sourceId = :sourceId ORDER BY (CASE WHEN substr(COALESCE(releaseDate, ''), 1, 4) = strftime('%Y', 'now') OR name LIKE '%' || strftime('%Y', 'now') || '%' THEN 0 ELSE 1 END) ASC, name ASC")
     fun getAllSeriesBySource(sourceId: String): Flow<List<SeriesEntity>>
 
-    @Query("SELECT * FROM series ORDER BY name ASC")
+    @Query("SELECT * FROM series ORDER BY (CASE WHEN substr(COALESCE(releaseDate, ''), 1, 4) = strftime('%Y', 'now') OR name LIKE '%' || strftime('%Y', 'now') || '%' THEN 0 ELSE 1 END) ASC, name ASC")
     fun getAllSeries(): Flow<List<SeriesEntity>>
 
     @Query("DELETE FROM series WHERE sourceId = :sourceId")

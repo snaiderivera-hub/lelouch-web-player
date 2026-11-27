@@ -1,7 +1,7 @@
 {
-  "versionName": "1.0.151",
-  "versionCode": 1000151,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.151/app-debug.apk",
-  "changelog": "- Live TV Recovery v1.0.151: auto-recuperación rápida en vivo (congelamiento 8s->4s, buffering 10s->5s, timeout lectura 12s->7s y failover HTTP rápido a Hard Flush Amlogic) + botón directo Reconectar en reproductor Live de TV Box y Móvil.",
-  "version": "1.0.151"
+  "versionName": "1.0.152",
+  "versionCode": 1000152,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.152/app-debug.apk",
+  "changelog": "- Mobile & TV v1.0.152: botón Regresar fijo arriba al entrar y hacer scroll en Plataformas (Netflix/Prime/Disney+/Max), botón Inicio regresa directo al Dashboard principal, barra inferior con píldora naranja acoplada completa para ícono+texto, y prioridad automática de películas/series del año actual arriba del catálogo.",
+  "version": "1.0.152"
 }
