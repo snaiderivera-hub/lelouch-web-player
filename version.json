@@ -1,7 +1,7 @@
 {
-  "versionName": "1.0.154",
-  "versionCode": 1000154,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.154/app-release.apk",
-  "changelog": "- v1.0.154 Mobile & TV Box: pantalla de carga CARGANDO 100% estática con barra real de progreso de catálogo, botón Corazón de Favoritos en cabecera del Panel de Inicio y categoría Favoritos en En Vivo, prioridad de canales Guatemala arriba en TV Box, streaming HLS (.m3u8) en TV Box como en teléfono (corrige canales HD como Fox 542/543), y avance/retroceso rápido continuo al mantener presionado en VOD/Series.",
-  "version": "1.0.154"
+  "versionName": "1.0.155",
+  "versionCode": 1000155,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.155/app-release.apk",
+  "changelog": "- v1.0.155 TV Box & Mobile: fallback automático por canal a decodificador Software (c2.android.avc.decoder) cuando el chip hardware Amlogic rechaza un stream (ej. Fox 542/543) + modo SW real vía MediaCodecSelector y rollback automático seguro.",
+  "version": "1.0.155"
 }

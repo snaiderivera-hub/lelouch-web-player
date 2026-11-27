@@ -27,6 +27,7 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.LoadEventInfo
 import androidx.media3.exoplayer.source.MediaLoadData
@@ -206,28 +207,47 @@ class LelouchPlayerEngine(
             .build()
     }
 
-    private val renderersFactory by lazy {
+    private fun createRenderersFactory(useSoftwareVideo: Boolean): DefaultRenderersFactory {
         val decoderMode = com.lelouch.core.network.dns.LelouchDnsManager.getVideoDecoderMode()
-        DefaultRenderersFactory(context).apply {
+        val forceSw = useSoftwareVideo || decoderMode == com.lelouch.core.network.dns.LelouchDnsManager.VideoDecoderMode.SW_ONLY
+        return DefaultRenderersFactory(context).apply {
             setEnableDecoderFallback(true)
-            when (decoderMode) {
-                com.lelouch.core.network.dns.LelouchDnsManager.VideoDecoderMode.SW_ONLY -> {
-                    setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
-                }
-                com.lelouch.core.network.dns.LelouchDnsManager.VideoDecoderMode.HW_ONLY -> {
-                    setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
-                }
-                com.lelouch.core.network.dns.LelouchDnsManager.VideoDecoderMode.HW_PLUS -> {
-                    setExtensionRendererMode(
-                        if (config.enableHardwareAcceleration) DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
-                        else DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF
+            if (forceSw) {
+                setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+                setMediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
+                    val defaultList = MediaCodecSelector.DEFAULT.getDecoderInfos(
+                        mimeType,
+                        requiresSecureDecoder,
+                        requiresTunnelingDecoder
                     )
+                    if (mimeType.startsWith("video/")) {
+                        defaultList.sortedBy { info ->
+                            if (info.softwareOnly || !info.hardwareAccelerated) 0 else 1
+                        }
+                    } else {
+                        defaultList
+                    }
+                }
+            } else {
+                when (decoderMode) {
+                    com.lelouch.core.network.dns.LelouchDnsManager.VideoDecoderMode.HW_ONLY -> {
+                        setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
+                    }
+                    com.lelouch.core.network.dns.LelouchDnsManager.VideoDecoderMode.HW_PLUS -> {
+                        setExtensionRendererMode(
+                            if (config.enableHardwareAcceleration) DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
+                            else DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF
+                        )
+                    }
+                    else -> Unit
                 }
             }
         }
     }
 
-    private val trackSelector by lazy {
+    private var trackSelector: DefaultTrackSelector = createTrackSelector()
+
+    private fun createTrackSelector(): DefaultTrackSelector {
         // ABR adaptativo optimizado para IPTV y redes domésticas:
         // - minDurationForQualityIncreaseMs = 15s para subir de resolución con estabilidad
         // - maxDurationForQualityDecreaseMs = 2s (si el buffer decae a menos de 2s, baja de calidad inmediatamente para evitar cortes)
@@ -239,7 +259,7 @@ class LelouchPlayerEngine(
             2_000,
             0.85f
         )
-        DefaultTrackSelector(context, adaptiveTrackSelectionFactory).also { selector ->
+        return DefaultTrackSelector(context, adaptiveTrackSelectionFactory).also { selector ->
             selector.setParameters(
                 selector.buildUponParameters()
                     .setMaxVideoBitrate(Int.MAX_VALUE)
@@ -377,17 +397,62 @@ class LelouchPlayerEngine(
         }
     }
 
-    val exoPlayer: ExoPlayer by lazy {
-        ExoPlayer.Builder(context)
-            .setRenderersFactory(renderersFactory)
+    private val _playerInstanceVersion = MutableStateFlow(0)
+    val playerInstanceVersion: StateFlow<Int> = _playerInstanceVersion.asStateFlow()
+
+    private val softwareFallbackUrls = mutableSetOf<String>()
+    private var activeUseSoftwareVideo: Boolean = false
+    private var hardwareDecoderFailureCount: Int = 0
+    private var softwareRecoveryCount: Int = 0
+    private var _exoPlayer: ExoPlayer? = null
+
+    val exoPlayer: ExoPlayer
+        get() = _exoPlayer ?: buildExoPlayer(shouldUseSoftwareDecoder(null)).also { _exoPlayer = it }
+
+    private fun shouldUseSoftwareDecoder(url: String?, isLive: Boolean = isCurrentStreamLive): Boolean {
+        val mode = com.lelouch.core.network.dns.LelouchDnsManager.getVideoDecoderMode()
+        if (mode == com.lelouch.core.network.dns.LelouchDnsManager.VideoDecoderMode.HW_ONLY) {
+            softwareFallbackUrls.clear()
+            return false
+        }
+        if (mode == com.lelouch.core.network.dns.LelouchDnsManager.VideoDecoderMode.SW_ONLY) return true
+        return isLive && url != null && url in softwareFallbackUrls
+    }
+
+    private fun buildExoPlayer(useSoftwareVideo: Boolean): ExoPlayer {
+        activeUseSoftwareVideo = useSoftwareVideo
+        val selector = createTrackSelector()
+        trackSelector = selector
+        return ExoPlayer.Builder(context)
+            .setRenderersFactory(createRenderersFactory(useSoftwareVideo))
             .setLoadControl(loadControl)
-            .setTrackSelector(trackSelector)
+            .setTrackSelector(selector)
             .setSeekParameters(SeekParameters.CLOSEST_SYNC)
             .build().apply {
                 playWhenReady = true
+                volume = if (_isMuted.value) 0f else 1f
                 addListener(playerListener)
                 addAnalyticsListener(analyticsListener)
             }
+    }
+
+    private fun ensurePlayerMode(useSoftwareVideo: Boolean) {
+        if (_exoPlayer == null) {
+            _exoPlayer = buildExoPlayer(useSoftwareVideo)
+            return
+        }
+        if (activeUseSoftwareVideo == useSoftwareVideo) return
+        val oldPlayer = _exoPlayer
+        _exoPlayer = buildExoPlayer(useSoftwareVideo)
+        _playerInstanceVersion.value++
+        if (oldPlayer != null) {
+            runCatching {
+                oldPlayer.removeListener(playerListener)
+                oldPlayer.removeAnalyticsListener(analyticsListener)
+                oldPlayer.stop()
+                oldPlayer.release()
+            }
+        }
     }
 
     private var isCurrentStreamLive: Boolean = false
@@ -416,6 +481,8 @@ class LelouchPlayerEngine(
         }
         lastFreezeRecoveryTimestampMs = 0L
         isRecoveringLive = false
+        hardwareDecoderFailureCount = 0
+        softwareRecoveryCount = 0
         autoRetryAttemptsLeft = config.autoRetryCount
         recoverLiveStream("Reconexión manual del usuario")
     }
@@ -440,10 +507,44 @@ class LelouchPlayerEngine(
 
         scope.launch {
             try {
-                // HARD FLUSH: Detener y limpiar ítems para forzar a Android y al chip Amlogic
-                // a liberar los buffers saturados en MediaCodec (BufferPoolAccessor2.0)
-                exoPlayer.stop()
-                exoPlayer.clearMediaItems()
+                val decoderMode = com.lelouch.core.network.dns.LelouchDnsManager.getVideoDecoderMode()
+                val renderedNow = runCatching { exoPlayer.videoDecoderCounters?.renderedOutputBufferCount ?: -1 }.getOrDefault(-1)
+                val hasVideoFormat = runCatching { exoPlayer.videoFormat != null }.getOrDefault(false)
+                if (renderedNow <= 0) {
+                    hardwareDecoderFailureCount++
+                }
+                if (activeUseSoftwareVideo) {
+                    softwareRecoveryCount++
+                }
+                val canSwitchToSw = decoderMode != com.lelouch.core.network.dns.LelouchDnsManager.VideoDecoderMode.HW_ONLY &&
+                    !activeUseSoftwareVideo &&
+                    renderedNow <= 0 &&
+                    (hasVideoFormat || reason.contains("0 frames", ignoreCase = true) || hardwareDecoderFailureCount >= 2)
+
+                if (canSwitchToSw) {
+                    softwareFallbackUrls.add(url)
+                    softwareRecoveryCount = 0
+                    android.util.Log.w("LelouchDiag", "[LIVE_SW_DECODER_FALLBACK] Activando decodificador Software (CPU) para canal incompatible con HW...")
+                    ensurePlayerMode(true)
+                } else if (activeUseSoftwareVideo && softwareRecoveryCount >= 2) {
+                    android.util.Log.e("LelouchDiag", "[LIVE_SW_ABORT] Decodificador Software incapaz de sostener tiempo real tras $softwareRecoveryCount intentos. Deteniendo bucle.")
+                    exoPlayer.stop()
+                    exoPlayer.clearMediaItems()
+                    ensurePlayerMode(false)
+                    isRecoveringLive = false
+                    triggerChannelUnavailable("Señal incompatible con el decodificador de este dispositivo.")
+                    return@launch
+                } else if (activeUseSoftwareVideo && hardwareDecoderFailureCount >= 3 && renderedNow <= 0) {
+                    // Doble fallback: si SW tampoco pudo renderizar frames, regresar a HW para evitar quedar atrapado
+                    softwareFallbackUrls.remove(url)
+                    android.util.Log.w("LelouchDiag", "[LIVE_SW_ROLLBACK] Revirtiendo a Hardware tras fallos en SW.")
+                    ensurePlayerMode(false)
+                } else {
+                    // HARD FLUSH: Detener y limpiar ítems para forzar a Android y al chip Amlogic
+                    // a liberar los buffers saturados en MediaCodec (BufferPoolAccessor2.0)
+                    exoPlayer.stop()
+                    exoPlayer.clearMediaItems()
+                }
 
                 val attempt = playbackTracker.startAttempt(url, PlaybackMediaType.LIVE_CHANNEL, PlayerStartType.WARM_SWITCH)
                 currentAttemptId = attempt.attemptId
@@ -754,6 +855,9 @@ class LelouchPlayerEngine(
         }
 
         // Cancelar buffer previo, liberar conexión HTTP previa para evitar 429/503 y reiniciar contador de reintentos
+        ensurePlayerMode(shouldUseSoftwareDecoder(url, isLive))
+        hardwareDecoderFailureCount = 0
+        softwareRecoveryCount = 0
         exoPlayer.stop()
         exoPlayer.clearMediaItems()
         _currentUrl.value = url
@@ -898,14 +1002,15 @@ class LelouchPlayerEngine(
 
                     if (isFrameStalled || isNotPlayingStalled) {
                         silentStallCounter++
-                        if (silentStallCounter >= 4) { // 4 segundos consecutivos sin renderizar fotogramas reales
+                        val stallThreshold = if (activeUseSoftwareVideo) 8 else 4
+                        if (silentStallCounter >= stallThreshold) { // 4s en HW (8s en SW CPU) sin renderizar fotogramas reales
                             silentStallCounter = 0
                             lastTrackedPositionMs = -1L
                             lastRenderedFrames = -1
                             recoverLiveStream(
                                 when {
-                                    isFrameStalled -> "Video congelado (0 frames renderizados en 4s, decodificador bloqueado)"
-                                    else -> "ExoPlayer detenido en STATE_READY (isPlaying=false por 4s)"
+                                    isFrameStalled -> "Video congelado (0 frames renderizados en ${stallThreshold}s, decodificador bloqueado)"
+                                    else -> "ExoPlayer detenido en STATE_READY (isPlaying=false por ${stallThreshold}s)"
                                 }
                             )
                         }
@@ -1281,8 +1386,12 @@ class LelouchPlayerEngine(
         playbackTracker.onUserCancel(currentAttemptId)
         stopBufferingWatchdog()
         stopProgressTracking()
-        exoPlayer.removeListener(playerListener)
-        exoPlayer.release()
+        _exoPlayer?.let { player ->
+            player.removeListener(playerListener)
+            player.removeAnalyticsListener(analyticsListener)
+            player.release()
+        }
+        _exoPlayer = null
         _playbackState.value = PlaybackState.Idle
     }
 }

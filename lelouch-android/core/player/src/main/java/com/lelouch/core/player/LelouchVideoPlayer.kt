@@ -113,6 +113,7 @@ fun LelouchVideoPlayer(
     // de canal (o al reintentar) hay que retirarlo y volver a contar el margen del nuevo enlace;
     // si no, seguiría tapando la pantalla aunque el canal nuevo ya estuviera cargando.
     val currentUrl by playerEngine.currentUrl.collectAsState()
+    val playerInstanceVersion by playerEngine.playerInstanceVersion.collectAsState()
 
     LaunchedEffect(currentUrl, playbackState, isLive) {
         if (playbackState is PlaybackState.Buffering) {
@@ -157,7 +158,9 @@ fun LelouchVideoPlayer(
             },
             update = { playerView ->
                 playerView.keepScreenOn = true
-                if (playerView.player !== playerEngine.exoPlayer) {
+                val targetVersion = playerInstanceVersion
+                if (playerView.player !== playerEngine.exoPlayer || playerView.tag != targetVersion) {
+                    playerView.tag = targetVersion
                     playerView.player = playerEngine.exoPlayer
                 }
                 if (playerView.resizeMode != resizeMode) {
