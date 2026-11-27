@@ -96,6 +96,21 @@ class MainActivity : ComponentActivity() {
                 syncState is SyncState.Error -> (syncState as SyncState.Error).message
                 else -> ""
             }
+            val syncProgress = when {
+                syncState is SyncState.Completed ||
+                    syncState is SyncState.UpToDate ||
+                    syncState is SyncState.TtlFresh ||
+                    syncState is SyncState.OfflineUsingCache -> 1.0f
+                syncState is SyncState.SyncingSeries -> 0.90f
+                syncState is SyncState.SyncingMovies -> 0.76f
+                syncState is SyncState.SyncingLive -> 0.58f
+                syncState is SyncState.SyncingCategories -> 0.42f
+                syncState is SyncState.Authenticating -> 0.28f
+                syncState is SyncState.Checking -> 0.18f
+                bootstrapState is SourceBootstrapState.UsingLocalCache -> 0.85f
+                bootstrapState is SourceBootstrapState.Ready -> 0.50f
+                else -> 0.12f
+            }
 
             LaunchedEffect(syncState) {
                 when (val state = syncState) {
@@ -523,6 +538,7 @@ class MainActivity : ComponentActivity() {
                                 is SourceBootstrapState.UsingLocalCache -> {
                                     LelouchRedLoadingScreen(
                                         statusText = if (syncStatusText.isNotBlank()) syncStatusText else "Preparando el contenido...",
+                                        progress = syncProgress,
                                         isTv = true
                                     )
                                 }
@@ -650,6 +666,7 @@ class MainActivity : ComponentActivity() {
                                 is SourceBootstrapState.UsingLocalCache -> {
                                     LelouchRedLoadingScreen(
                                         statusText = if (syncStatusText.isNotBlank()) syncStatusText else "Preparando el contenido...",
+                                        progress = syncProgress,
                                         isTv = false
                                     )
                                 }

@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Mic
@@ -762,11 +763,11 @@ fun MobilePortalDashboard(
                                 .size(38.dp)
                                 .clip(CircleShape)
                                 .background(Color(0xFF14161F).copy(alpha = 0.85f))
-                                .border(1.dp, Color.White.copy(alpha = 0.14f), CircleShape)
+                                .border(1.dp, Color(0xFFFF4081).copy(alpha = 0.45f), CircleShape)
                                 .clickable { onOpenFavorites() },
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(Icons.Default.FavoriteBorder, contentDescription = "Favoritos", tint = Color.White, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.Favorite, contentDescription = "Favoritos", tint = Color(0xFFFF4081), modifier = Modifier.size(18.dp))
                         }
                         Box(
                             modifier = Modifier

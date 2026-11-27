@@ -448,6 +448,7 @@ fun TvHomeScreen(
     var seekFeedbackText by remember { mutableStateOf<String?>(null) }
     var pendingSeekTargetMs by remember { mutableStateOf<Long?>(null) }
     var seekDebounceJob by remember { mutableStateOf<Job?>(null) }
+    var isDpadScrubbing by remember { mutableStateOf(false) }
     var isVoiceSearchRequested by remember { mutableStateOf(false) }
 
     LaunchedEffect(isHardwareVoiceSearch) {
@@ -585,12 +586,10 @@ fun TvHomeScreen(
                 val resolvedCategoryName = liveCatMap[channel.categoryId]
                     ?: channel.categoryName.takeIf { it.isNotBlank() }
                     ?: "General"
-                val streamUrl = StreamUrlResolver.resolve(
+                val streamUrl = StreamUrlResolver.resolveLive(
                     directUrl = channel.streamUrl,
                     source = activeSource,
-                    streamId = channel.streamId,
-                    kind = StreamUrlResolver.Kind.LIVE,
-                    extension = channel.containerExtension.ifBlank { "m3u8" }
+                    streamId = channel.streamId
                 )
                 ChannelUiModel(
                     id = channel.id,
@@ -679,15 +678,18 @@ fun TvHomeScreen(
                 t.equals("GT", ignoreCase = true)
         }
         val guatemalaCats = visibleCats.filter { isGuatemalaCategory(it.name) }
-        val firstGt = guatemalaCats.firstOrNull()
-        if (firstGt != null) {
-            listOf(
-                CategoryUiItem(id = "all", name = "Todos"),
-                CategoryUiItem(id = firstGt.id, name = "🇬🇹 Guatemala (Eventos)")
-            ) + guatemalaCats.filter { it.id != firstGt.id } + visibleCats.filter { !isGuatemalaCategory(it.name) }
+        val baseList = mutableListOf(
+            CategoryUiItem(id = "all", name = "Todos"),
+            CategoryUiItem(id = "favs", name = "⭐ Favoritos")
+        )
+        if (guatemalaCats.isNotEmpty()) {
+            baseList.add(CategoryUiItem(id = "events", name = "🇬🇹 Guatemala (Eventos)"))
+            baseList.addAll(guatemalaCats)
+            baseList.addAll(visibleCats.filter { !isGuatemalaCategory(it.name) })
         } else {
-            listOf(CategoryUiItem(id = "all", name = "Todos")) + visibleCats
+            baseList.addAll(visibleCats)
         }
+        baseList
     }
     var selectedChannelCategoryId by remember { mutableStateOf("all") }
     val activeChannelCatName = remember(channelCategoryList, selectedChannelCategoryId) {
@@ -718,12 +720,10 @@ fun TvHomeScreen(
                         val resolvedCategoryName = liveCatMap[channel.categoryId]
                             ?: channel.categoryName.takeIf { it.isNotBlank() }
                             ?: "General"
-                        val streamUrl = StreamUrlResolver.resolve(
+                        val streamUrl = StreamUrlResolver.resolveLive(
                             directUrl = channel.streamUrl,
                             source = activeSource,
-                            streamId = channel.streamId,
-                            kind = StreamUrlResolver.Kind.LIVE,
-                            extension = channel.containerExtension.ifBlank { "m3u8" }
+                            streamId = channel.streamId
                         )
                         ChannelUiModel(
                             id = channel.id,
@@ -1050,12 +1050,10 @@ fun TvHomeScreen(
                         val resolvedCat = liveCatMap[liveStream.categoryId]
                             ?: liveStream.categoryName.takeIf { it.isNotBlank() }
                             ?: "General"
-                        val streamUrl = StreamUrlResolver.resolve(
+                        val streamUrl = StreamUrlResolver.resolveLive(
                             directUrl = liveStream.streamUrl,
                             source = activeSource,
-                            streamId = liveStream.streamId,
-                            kind = StreamUrlResolver.Kind.LIVE,
-                            extension = liveStream.containerExtension.ifBlank { "m3u8" }
+                            streamId = liveStream.streamId
                         )
                         val ch = ChannelUiModel(
                             id = liveStream.id,
@@ -1270,12 +1268,10 @@ fun TvHomeScreen(
         val resolvedCat = liveCatMap[channel.categoryId]
             ?: channel.categoryName.takeIf { it.isNotBlank() }
             ?: "General"
-        val streamUrl = StreamUrlResolver.resolve(
+        val streamUrl = StreamUrlResolver.resolveLive(
             directUrl = channel.streamUrl,
             source = activeSource,
-            streamId = channel.streamId,
-            kind = StreamUrlResolver.Kind.LIVE,
-            extension = channel.containerExtension.ifBlank { "m3u8" }
+            streamId = channel.streamId
         )
         if (streamUrl.isBlank()) return
         playLiveChannelDirect(
@@ -1484,6 +1480,9 @@ fun TvHomeScreen(
             activePlayingEpisodeId = null
             isAutoNextDismissed = false
             isPlayingLive = false
+            seekDebounceJob?.cancel()
+            pendingSeekTargetMs = null
+            isDpadScrubbing = false
             playerEngine.stop()
             if (returnDetail != null) {
                 activeDetailMedia = returnDetail
@@ -1522,9 +1521,9 @@ fun TvHomeScreen(
         }
     }
 
-    // Auto-ocultar info badge HUD tras 3.5 segundos de inactividad
-    LaunchedEffect(isHudVisible, isTracksPanelVisible) {
-        if (isTracksPanelVisible) return@LaunchedEffect
+    // Auto-ocultar info badge HUD tras 3.5 segundos de inactividad (no robar foco ni ocultar mientras se mantiene presionado adelantar/retroceder)
+    LaunchedEffect(isHudVisible, isTracksPanelVisible, isDpadScrubbing) {
+        if (isTracksPanelVisible || isDpadScrubbing) return@LaunchedEffect
         if (isHudVisible) {
             delay(120L)
             try {
@@ -1535,11 +1534,13 @@ fun TvHomeScreen(
                 }
             } catch (_: Exception) {}
             delay(3500L)
-            isHudVisible = false
-            if (!isTracksPanelVisible) {
-                try {
-                    playerFocusRequester.requestFocus()
-                } catch (_: Exception) {}
+            if (!isDpadScrubbing) {
+                isHudVisible = false
+                if (!isTracksPanelVisible) {
+                    try {
+                        playerFocusRequester.requestFocus()
+                    } catch (_: Exception) {}
+                }
             }
         } else {
             if (!isTracksPanelVisible) {
@@ -1622,23 +1623,92 @@ fun TvHomeScreen(
                         }
                     }
                     .onKeyEvent { keyEvent ->
-                        if (keyEvent.type != KeyEventType.KeyDown) return@onKeyEvent false
                         // FASE 36: con el panel de pistas abierto, el D-pad y las teclas del mando
-                        // pertenecen al panel (navegar pistas, AZUL/BACK para cerrar). Si no se libera
-                        // aquí, ARRIBA/ABAJO zappearía canales mientras se elige una pista.
+                        // pertenecen al panel (navegar pistas, AZUL/BACK para cerrar).
                         if (isTracksPanelVisible) return@onKeyEvent false
                         val isLiveStream = isPlayingLive
-                        when (keyEvent.nativeKeyEvent.keyCode) {
+                        val code = keyEvent.nativeKeyEvent.keyCode
+                        val isSeekLeftKey = code in setOf(
+                            KeyEvent.KEYCODE_DPAD_LEFT,
+                            KeyEvent.KEYCODE_MEDIA_REWIND,
+                            KeyEvent.KEYCODE_MEDIA_SKIP_BACKWARD,
+                            KeyEvent.KEYCODE_MEDIA_STEP_BACKWARD,
+                            KeyEvent.KEYCODE_MEDIA_PREVIOUS,
+                            KeyEvent.KEYCODE_BUTTON_L1
+                        )
+                        val isSeekRightKey = code in setOf(
+                            KeyEvent.KEYCODE_DPAD_RIGHT,
+                            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD,
+                            KeyEvent.KEYCODE_MEDIA_SKIP_FORWARD,
+                            KeyEvent.KEYCODE_MEDIA_STEP_FORWARD,
+                            KeyEvent.KEYCODE_MEDIA_NEXT,
+                            KeyEvent.KEYCODE_BUTTON_R1
+                        )
+                        fun handleVodSeek(direction: Int): Boolean {
+                            if (isLiveStream) {
+                                return if (isHudVisible) false else {
+                                    isHudVisible = true
+                                    true
+                                }
+                            }
+                            val repeat = keyEvent.nativeKeyEvent.repeatCount
+                            val basePos = pendingSeekTargetMs ?: playerEngine.currentPositionMs
+                            val stepMs = when {
+                                repeat > 10 -> 60_000L
+                                repeat > 4 -> 30_000L
+                                repeat > 0 -> 20_000L
+                                else -> 10_000L
+                            }
+                            val totalDur = playerEngine.durationMs
+                            val target = (basePos + direction * stepMs)
+                                .coerceIn(0L, if (totalDur > 0L) totalDur else Long.MAX_VALUE)
+                            isDpadScrubbing = true
+                            pendingSeekTargetMs = target
+                            val diffSec = (target - playerEngine.currentPositionMs) / 1000L
+                            val sign = if (diffSec >= 0) "+" else ""
+                            val posMin = (target / 1000) / 60
+                            val posSec = (target / 1000) % 60
+                            val arrow = if (direction < 0) "⏪" else "⏩"
+                            seekFeedbackText = String.format("%s %02d:%02d (%s%ds)", arrow, posMin, posSec, sign, diffSec)
+                            isHudVisible = true
+                            seekDebounceJob?.cancel()
+                            seekDebounceJob = coroutineScope.launch {
+                                delay(650L)
+                                playerEngine.seekTo(target)
+                                pendingSeekTargetMs = null
+                                isDpadScrubbing = false
+                            }
+                            return true
+                        }
+                        // Al soltar IZQUIERDA/DERECHA en VOD, aplicar el salto acumulado suavemente
+                        if (keyEvent.type == KeyEventType.KeyUp) {
+                            if (!isLiveStream && (isSeekLeftKey || isSeekRightKey) && isDpadScrubbing) {
+                                val commitTarget = pendingSeekTargetMs
+                                seekDebounceJob?.cancel()
+                                seekDebounceJob = coroutineScope.launch {
+                                    delay(160L)
+                                    if (commitTarget != null) {
+                                        playerEngine.seekTo(commitTarget)
+                                    }
+                                    pendingSeekTargetMs = null
+                                    isDpadScrubbing = false
+                                }
+                                return@onKeyEvent true
+                            }
+                            return@onKeyEvent false
+                        }
+                        if (keyEvent.type != KeyEventType.KeyDown) return@onKeyEvent false
+                        if (isSeekLeftKey) return@onKeyEvent handleVodSeek(-1)
+                        if (isSeekRightKey) return@onKeyEvent handleVodSeek(1)
+                        when (code) {
                             KeyEvent.KEYCODE_DPAD_UP,
                             KeyEvent.KEYCODE_CHANNEL_UP,
                             KeyEvent.KEYCODE_PAGE_UP -> {
                                 if (isLiveStream && activePlaybackChannels.isNotEmpty()) {
                                     val userT0 = android.os.SystemClock.elapsedRealtime()
-                                    // D-Pad UP: cambia para adelante al siguiente canal (+1)
                                     val nextIndex = if (activePlaybackChannelIndex < activePlaybackChannels.lastIndex) activePlaybackChannelIndex + 1 else 0
                                     activePlaybackChannelIndex = nextIndex
                                     val ch = activePlaybackChannels[nextIndex]
-                                    // Actualizar focusedChannelIndex en la lista global para coherencia visual
                                     focusedChannelIndex = visibleChannels.indexOfFirst { it.streamId == ch.streamId }.coerceAtLeast(0)
                                     focusedChannel = ch
                                     isPlayingLive = true
@@ -1655,7 +1725,6 @@ fun TvHomeScreen(
                             KeyEvent.KEYCODE_PAGE_DOWN -> {
                                 if (isLiveStream && activePlaybackChannels.isNotEmpty()) {
                                     val userT0 = android.os.SystemClock.elapsedRealtime()
-                                    // D-Pad DOWN: retrocede al canal anterior (-1)
                                     val prevIndex = if (activePlaybackChannelIndex > 0) activePlaybackChannelIndex - 1 else activePlaybackChannels.lastIndex
                                     activePlaybackChannelIndex = prevIndex
                                     val ch = activePlaybackChannels[prevIndex]
@@ -1670,78 +1739,6 @@ fun TvHomeScreen(
                                         isHudVisible = true
                                     } else {
                                         try { hudPlayPauseRequester.requestFocus() } catch (_: Exception) {}
-                                    }
-                                    true
-                                }
-                            }
-                            KeyEvent.KEYCODE_DPAD_LEFT,
-                            KeyEvent.KEYCODE_MEDIA_REWIND,
-                            KeyEvent.KEYCODE_MEDIA_SKIP_BACKWARD,
-                            KeyEvent.KEYCODE_MEDIA_STEP_BACKWARD,
-                            KeyEvent.KEYCODE_MEDIA_PREVIOUS,
-                            KeyEvent.KEYCODE_BUTTON_L1 -> {
-                                if (isLiveStream) {
-                                    if (isHudVisible) {
-                                        // Con el HUD visible, permitir que el D-pad IZQUIERDA navegue naturalmente entre los botones
-                                        false
-                                    } else {
-                                        isHudVisible = true
-                                        true
-                                    }
-                                } else {
-                                    val repeat = keyEvent.nativeKeyEvent.repeatCount
-                                    val basePos = pendingSeekTargetMs ?: playerEngine.currentPositionMs
-                                    val stepMs = if (repeat > 6) 60_000L else if (repeat > 2) 30_000L else 10_000L
-                                    val totalDur = playerEngine.durationMs
-                                    val target = (basePos - stepMs).coerceIn(0L, if (totalDur > 0L) totalDur else Long.MAX_VALUE)
-                                    pendingSeekTargetMs = target
-                                    val diffSec = (target - playerEngine.currentPositionMs) / 1000L
-                                    val sign = if (diffSec >= 0) "+" else ""
-                                    val posMin = (target / 1000) / 60
-                                    val posSec = (target / 1000) % 60
-                                    seekFeedbackText = String.format("⏪ %02d:%02d (%s%ds)", posMin, posSec, sign, diffSec)
-                                    isHudVisible = true
-                                    seekDebounceJob?.cancel()
-                                    seekDebounceJob = coroutineScope.launch {
-                                        delay(400L)
-                                        playerEngine.seekTo(target)
-                                        pendingSeekTargetMs = null
-                                    }
-                                    true
-                                }
-                            }
-                            KeyEvent.KEYCODE_DPAD_RIGHT,
-                            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD,
-                            KeyEvent.KEYCODE_MEDIA_SKIP_FORWARD,
-                            KeyEvent.KEYCODE_MEDIA_STEP_FORWARD,
-                            KeyEvent.KEYCODE_MEDIA_NEXT,
-                            KeyEvent.KEYCODE_BUTTON_R1 -> {
-                                if (isLiveStream) {
-                                    if (isHudVisible) {
-                                        // Con el HUD visible, permitir que el D-pad DERECHA navegue naturalmente entre los botones
-                                        false
-                                    } else {
-                                        isHudVisible = true
-                                        true
-                                    }
-                                } else {
-                                    val repeat = keyEvent.nativeKeyEvent.repeatCount
-                                    val basePos = pendingSeekTargetMs ?: playerEngine.currentPositionMs
-                                    val stepMs = if (repeat > 6) 60_000L else if (repeat > 2) 30_000L else 10_000L
-                                    val totalDur = playerEngine.durationMs
-                                    val target = (basePos + stepMs).coerceIn(0L, if (totalDur > 0L) totalDur else Long.MAX_VALUE)
-                                    pendingSeekTargetMs = target
-                                    val diffSec = (target - playerEngine.currentPositionMs) / 1000L
-                                    val sign = if (diffSec >= 0) "+" else ""
-                                    val posMin = (target / 1000) / 60
-                                    val posSec = (target / 1000) % 60
-                                    seekFeedbackText = String.format("⏩ %02d:%02d (%s%ds)", posMin, posSec, sign, diffSec)
-                                    isHudVisible = true
-                                    seekDebounceJob?.cancel()
-                                    seekDebounceJob = coroutineScope.launch {
-                                        delay(400L)
-                                        playerEngine.seekTo(target)
-                                        pendingSeekTargetMs = null
                                     }
                                     true
                                 }
@@ -2098,12 +2095,15 @@ fun TvHomeScreen(
                                             fontWeight = FontWeight.Black,
                                             letterSpacing = 1.sp
                                         )
-                                        val displayCount = remember(selectedChannelCategoryId, liveCategoryItemModels, liveCategories) {
-                                            if (selectedChannelCategoryId == "all") {
-                                                val total = liveCategories.sumOf { it.itemCount }
-                                                if (total > 0) total else pagedChannels.itemCount
-                                            } else {
-                                                liveCategoryItemModels.find { it.id == selectedChannelCategoryId }?.itemCount ?: pagedChannels.itemCount
+                                        val displayCount = remember(selectedChannelCategoryId, liveCategoryItemModels, liveCategories, favoriteChannels.size, pagedChannels.itemCount) {
+                                            when (selectedChannelCategoryId) {
+                                                "all" -> {
+                                                    val total = liveCategories.sumOf { it.itemCount }
+                                                    if (total > 0) total else pagedChannels.itemCount
+                                                }
+                                                "favs" -> favoriteChannels.size
+                                                "events" -> pagedChannels.itemCount
+                                                else -> liveCategoryItemModels.find { it.id == selectedChannelCategoryId }?.itemCount ?: pagedChannels.itemCount
                                             }
                                         }
                                         Text(

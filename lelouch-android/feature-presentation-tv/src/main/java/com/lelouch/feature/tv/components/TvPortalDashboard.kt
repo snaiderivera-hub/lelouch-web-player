@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -148,6 +149,7 @@ fun TvPortalDashboard(
 
     val accountPillFocusRequester = remember { FocusRequester() }
     val headerFocusRequester = remember { FocusRequester() }
+    val favoritesFocusRequester = remember { FocusRequester() }
     val settingsFocusRequester = remember { FocusRequester() }
 
     // Una cuenta sin películas ni series destacadas no compone el hero. Sus FocusRequester
@@ -298,7 +300,7 @@ fun TvPortalDashboard(
                         .focusRequester(headerFocusRequester)
                         .focusProperties {
                             left = if (activeSource != null) accountPillFocusRequester else androidx.compose.ui.focus.FocusRequester.Cancel
-                            right = settingsFocusRequester
+                            right = favoritesFocusRequester
                             down = heroPlayTarget
                         },
                     shape = ClickableSurfaceDefaults.shape(CircleShape),
@@ -326,14 +328,52 @@ fun TvPortalDashboard(
                     }
                 }
 
-                // 2. Engranaje (Ajustes & Opciones)
+                // 2. Corazón (Favoritos) arriba en el Panel de Inicio
+                Surface(
+                    onClick = onNavigateToFavorites,
+                    modifier = Modifier
+                        .size(44.dp)
+                        .focusRequester(favoritesFocusRequester)
+                        .focusProperties {
+                            left = headerFocusRequester
+                            right = settingsFocusRequester
+                            down = heroPlayTarget
+                        },
+                    shape = ClickableSurfaceDefaults.shape(CircleShape),
+                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.15f),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = Color(0xFF1A1C23),
+                        focusedContainerColor = Color(0xFFFF4081)
+                    ),
+                    border = ClickableSurfaceDefaults.border(
+                        border = Border(BorderStroke(1.dp, Color(0xFFFF4081).copy(alpha = 0.5f))),
+                        focusedBorder = Border(BorderStroke(2.dp, Color.White))
+                    )
+                ) {
+                    var isFavBtnFocused by remember { mutableStateOf(false) }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .onFocusChanged { isFavBtnFocused = it.isFocused },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Favorite,
+                            contentDescription = "Favoritos",
+                            tint = if (isFavBtnFocused) Color.White else Color(0xFFFF4081),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
+                // 3. Engranaje (Ajustes & Opciones)
                 Surface(
                     onClick = onOpenSettings,
                     modifier = Modifier
                         .size(44.dp)
                         .focusRequester(settingsFocusRequester)
                         .focusProperties {
-                            left = headerFocusRequester
+                            left = favoritesFocusRequester
                             down = heroPlayTarget
                         },
                     shape = ClickableSurfaceDefaults.shape(CircleShape),

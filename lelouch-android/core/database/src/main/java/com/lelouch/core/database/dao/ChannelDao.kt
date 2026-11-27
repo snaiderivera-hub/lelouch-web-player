@@ -32,13 +32,80 @@ interface ChannelDao {
     @Query("SELECT * FROM channels WHERE sourceId = :sourceId ORDER BY num ASC, name ASC, id ASC")
     fun getAllChannelsBySourcePaging(sourceId: String): PagingSource<Int, ChannelEntity>
 
-    @Query("SELECT * FROM channels WHERE sourceId = :sourceId ORDER BY num ASC, name ASC, id ASC")
+    @Query(
+        """
+        SELECT * FROM channels
+        WHERE sourceId = :sourceId
+        ORDER BY
+            CASE
+                WHEN UPPER(categoryName) LIKE '%GUATEMALA%'
+                  OR UPPER(name) LIKE '%GUATEMALA%'
+                  OR UPPER(categoryName) LIKE '%GT |%'
+                  OR UPPER(name) LIKE '%GT |%'
+                  OR UPPER(categoryName) LIKE '%GT:%'
+                  OR UPPER(name) LIKE '%GT:%'
+                  OR UPPER(categoryName) LIKE '%[GT]%'
+                  OR UPPER(name) LIKE '%[GT]%'
+                  OR UPPER(categoryName) LIKE 'GT %'
+                  OR UPPER(categoryName) = 'GT'
+                  OR UPPER(name) LIKE 'GT %'
+                THEN 0 ELSE 1
+            END ASC,
+            num ASC, name ASC, id ASC
+        """
+    )
     fun getPagingChannelsBySource(sourceId: String): PagingSource<Int, ChannelEntity>
 
     @Query("SELECT * FROM channels WHERE sourceId = :sourceId AND categoryId = :categoryId ORDER BY num ASC, name ASC, id ASC")
     fun getPagingChannelsBySourceAndCategory(sourceId: String, categoryId: String): PagingSource<Int, ChannelEntity>
 
-    @Query("SELECT * FROM channels WHERE sourceId = :sourceId AND categoryId NOT IN (:hiddenCategoryIds) ORDER BY num ASC, name ASC, id ASC")
+    @Query("SELECT * FROM channels WHERE sourceId = :sourceId AND isFavorite = 1 ORDER BY num ASC, name ASC, id ASC")
+    fun getPagingFavoriteChannelsBySource(sourceId: String): PagingSource<Int, ChannelEntity>
+
+    @Query(
+        """
+        SELECT * FROM channels
+        WHERE sourceId = :sourceId
+          AND (
+              UPPER(categoryName) LIKE '%GUATEMALA%'
+              OR UPPER(name) LIKE '%GUATEMALA%'
+              OR UPPER(categoryName) LIKE '%GT |%'
+              OR UPPER(name) LIKE '%GT |%'
+              OR UPPER(categoryName) LIKE '%GT:%'
+              OR UPPER(name) LIKE '%GT:%'
+              OR UPPER(categoryName) LIKE '%[GT]%'
+              OR UPPER(name) LIKE '%[GT]%'
+              OR UPPER(categoryName) LIKE 'GT %'
+              OR UPPER(categoryName) = 'GT'
+              OR UPPER(name) LIKE 'GT %'
+          )
+        ORDER BY num ASC, name ASC, id ASC
+        """
+    )
+    fun getPagingGuatemalaChannelsBySource(sourceId: String): PagingSource<Int, ChannelEntity>
+
+    @Query(
+        """
+        SELECT * FROM channels
+        WHERE sourceId = :sourceId AND categoryId NOT IN (:hiddenCategoryIds)
+        ORDER BY
+            CASE
+                WHEN UPPER(categoryName) LIKE '%GUATEMALA%'
+                  OR UPPER(name) LIKE '%GUATEMALA%'
+                  OR UPPER(categoryName) LIKE '%GT |%'
+                  OR UPPER(name) LIKE '%GT |%'
+                  OR UPPER(categoryName) LIKE '%GT:%'
+                  OR UPPER(name) LIKE '%GT:%'
+                  OR UPPER(categoryName) LIKE '%[GT]%'
+                  OR UPPER(name) LIKE '%[GT]%'
+                  OR UPPER(categoryName) LIKE 'GT %'
+                  OR UPPER(categoryName) = 'GT'
+                  OR UPPER(name) LIKE 'GT %'
+                THEN 0 ELSE 1
+            END ASC,
+            num ASC, name ASC, id ASC
+        """
+    )
     fun getPagingChannelsExcludingCategories(sourceId: String, hiddenCategoryIds: List<String>): PagingSource<Int, ChannelEntity>
 
     @Query("SELECT * FROM channels ORDER BY num ASC, name ASC")

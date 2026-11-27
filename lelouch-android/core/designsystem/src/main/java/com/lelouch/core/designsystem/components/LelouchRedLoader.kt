@@ -121,17 +121,13 @@ fun LelouchRedSpinner(
 fun LelouchRedLoadingScreen(
     modifier: Modifier = Modifier,
     statusText: String = "PREPARANDO EL CONTENIDO...",
+    progress: Float = 0.25f,
     isTv: Boolean = true
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "AuraPulseTransition")
-    val auraScale by infiniteTransition.animateFloat(
-        initialValue = 0.92f,
-        targetValue = 1.08f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2400, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "auraScale"
+    val animatedProgress by animateFloatAsState(
+        targetValue = progress.coerceIn(0.05f, 1f),
+        animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
+        label = "loadingProgress"
     )
 
     Box(
@@ -145,14 +141,16 @@ fun LelouchRedLoadingScreen(
             verticalArrangement = Arrangement.Center,
             modifier = Modifier.padding(24.dp)
         ) {
-            // Emblema Central con Halo Rojizo Trasero (Idéntico a Zona-Pirata)
+            // Emblema Central con Halo Rojizo Trasero estático (sin mover el texto CARGANDO)
             Box(
-                modifier = Modifier.padding(bottom = if (isTv) 24.dp else 16.dp),
+                modifier = Modifier
+                    .size(width = if (isTv) 380.dp else 290.dp, height = if (isTv) 260.dp else 200.dp)
+                    .padding(bottom = if (isTv) 16.dp else 12.dp),
                 contentAlignment = Alignment.Center
             ) {
-                // 1. Halo Rojizo Circular Trasero (Backlight Aura)
+                // 1. Halo Rojizo Circular Trasero fijo
                 Canvas(
-                    modifier = Modifier.size((if (isTv) 280.dp else 210.dp) * auraScale)
+                    modifier = Modifier.size(if (isTv) 260.dp else 196.dp)
                 ) {
                     drawCircle(
                         brush = Brush.radialGradient(
@@ -198,31 +196,38 @@ fun LelouchRedLoadingScreen(
 
             Spacer(modifier = Modifier.height(if (isTv) 10.dp else 8.dp))
 
-            // Subtítulo con el estado de sincronización actual
-            Text(
-                text = statusText.uppercase(),
-                color = Color(0xFF8E8E98),
-                fontSize = if (isTv) 12.sp else 11.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 3.sp,
-                textAlign = TextAlign.Center,
-                maxLines = 2
-            )
+            // Subtítulo con altura fija para que no desplace el título CARGANDO al cambiar texto
+            Box(
+                modifier = Modifier
+                    .widthIn(max = if (isTv) 520.dp else 320.dp)
+                    .height(if (isTv) 38.dp else 34.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = statusText.uppercase(),
+                    color = Color(0xFF8E8E98),
+                    fontSize = if (isTv) 12.sp else 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 3.sp,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2
+                )
+            }
 
-            Spacer(modifier = Modifier.height(if (isTv) 20.dp else 16.dp))
+            Spacer(modifier = Modifier.height(if (isTv) 16.dp else 12.dp))
 
-            // Barra de progreso neón rojo estilizada
+            // Barra de progreso real de carga de lista antes de mostrar Inicio
             Box(
                 modifier = Modifier
                     .width(if (isTv) 280.dp else 200.dp)
-                    .height(4.dp)
+                    .height(5.dp)
                     .clip(RoundedCornerShape(4.dp))
                     .background(Color(0xFF1A1A1A))
             ) {
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
-                        .fillMaxWidth(0.6f)
+                        .fillMaxWidth(animatedProgress)
                         .clip(RoundedCornerShape(4.dp))
                         .background(
                             Brush.horizontalGradient(

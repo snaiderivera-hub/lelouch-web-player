@@ -569,6 +569,7 @@ fun MobileHomeScreen(
             } || combinedLive.any { isEventCat(it.name) }
             val resLiveCat = mutableListOf<MobileCategoryItem>()
             resLiveCat.add(MobileCategoryItem(id = "all", name = "Todos"))
+            resLiveCat.add(MobileCategoryItem(id = "favs", name = "⭐ Favoritos"))
             if (hasEvents) {
                 resLiveCat.add(MobileCategoryItem(id = "events", name = "🇬🇹 Canales Guatemala (Eventos)"))
             }

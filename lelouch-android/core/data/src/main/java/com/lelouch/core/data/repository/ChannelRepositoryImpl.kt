@@ -79,6 +79,12 @@ class ChannelRepositoryImpl(
             config = com.lelouch.core.domain.paging.PagingConfigs.liveChannels
         ) {
             when {
+                categoryId == "favs" -> {
+                    channelDao.getPagingFavoriteChannelsBySource(sourceId)
+                }
+                categoryId == "events" -> {
+                    channelDao.getPagingGuatemalaChannelsBySource(sourceId)
+                }
                 !categoryId.isNullOrBlank() && categoryId != "all" -> {
                     channelDao.getPagingChannelsBySourceAndCategory(sourceId, categoryId)
                 }
