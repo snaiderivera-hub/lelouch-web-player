@@ -1,7 +1,7 @@
 {
-  "versionName": "1.0.155",
-  "versionCode": 1000155,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.155/app-release.apk",
-  "changelog": "- v1.0.155 TV Box & Mobile: fallback automático por canal a decodificador Software (c2.android.avc.decoder) cuando el chip hardware Amlogic rechaza un stream (ej. Fox 542/543) + modo SW real vía MediaCodecSelector y rollback automático seguro.",
-  "version": "1.0.155"
+  "versionName": "1.0.156",
+  "versionCode": 1000156,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.156/app-release.apk",
+  "changelog": "- v1.0.156 Móvil y TV Box: corrige el indicador de versión en Ajustes del teléfono para leer dinámicamente la versión y compilación reales del sistema (antes mostraba texto fijo 1.0.135) + incluye fallback SW/HW y todas las mejoras de v1.0.155.",
+  "version": "1.0.156"
 }

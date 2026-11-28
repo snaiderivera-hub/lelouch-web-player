@@ -4771,8 +4771,23 @@ private fun MobileSettingsTab(
                                 fontSize = 16.sp
                             )
                             Spacer(Modifier.height(2.dp))
+                            val appVersionLabel = remember(context) {
+                                try {
+                                    val info = context.packageManager.getPackageInfo(context.packageName, 0)
+                                    val vName = info.versionName ?: "1.0.0"
+                                    val vCode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                                        info.longVersionCode
+                                    } else {
+                                        @Suppress("DEPRECATION")
+                                        info.versionCode.toLong()
+                                    }
+                                    "Versión $vName (Compilación $vCode)"
+                                } catch (_: Exception) {
+                                    "Lelouch Plus"
+                                }
+                            }
                             Text(
-                                "Versión 1.0.135 (Compilación 1000135)",
+                                appVersionLabel,
                                 color = LelouchCyanAccent,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp
