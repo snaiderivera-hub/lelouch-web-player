@@ -10,6 +10,7 @@ tvMaterial = "1.0.0-alpha10"
 tvFoundation = "1.0.0-alpha10"
 navigationCompose = "2.7.7"
 media3 = "1.4.0"
+libvlc = "3.6.5"
 room = "2.6.1"
 paging = "3.3.1"
 datastore = "1.1.1"
@@ -48,6 +49,9 @@ androidx-media3-exoplayer-hls = { group = "androidx.media3", name = "media3-exop
 androidx-media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "media3" }
 androidx-media3-session = { group = "androidx.media3", name = "media3-session", version.ref = "media3" }
 androidx-media3-datasource-okhttp = { group = "androidx.media3", name = "media3-datasource-okhttp", version.ref = "media3" }
+
+# LibVLC (fallback automático para streams 1080i PAFF / H.264 incompatibles con extractor Media3)
+videolan-libvlc = { group = "org.videolan.android", name = "libvlc-all", version.ref = "libvlc" }
 
 # Room
 androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }

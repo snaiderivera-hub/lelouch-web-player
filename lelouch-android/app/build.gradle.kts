@@ -22,12 +22,16 @@ android {
         applicationId = "com.lelouch.player"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1000156
-        versionName = "1.0.156"
+        versionCode = 1000157
+        versionName = "1.0.157"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
+        }
+        ndk {
+            // Incluir solo arquitecturas reales de Android TV / Móvil (excluye x86/x86_64 de emulador y recorta ~105 MB)
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a")
         }
     }
 

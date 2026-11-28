@@ -1,14 +1,21 @@
 package com.lelouch.core.player
 
 import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.widget.Toast
 import androidx.annotation.OptIn
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -32,7 +39,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -114,6 +127,7 @@ fun LelouchVideoPlayer(
     // si no, seguiría tapando la pantalla aunque el canal nuevo ya estuviera cargando.
     val currentUrl by playerEngine.currentUrl.collectAsState()
     val playerInstanceVersion by playerEngine.playerInstanceVersion.collectAsState()
+    val useLibVlcFallback by playerEngine.useLibVlcFallback.collectAsState()
 
     LaunchedEffect(currentUrl, playbackState, isLive) {
         if (playbackState is PlaybackState.Buffering) {
@@ -140,40 +154,68 @@ fun LelouchVideoPlayer(
         } else {
             Modifier.fillMaxSize()
         }
-        AndroidView(
-            modifier = videoModifier,
-            factory = { ctx ->
-                PlayerView(ctx).apply {
-                    layoutParams = ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT
-                    )
-                    useController = false
-                    isFocusable = true
-                    isFocusableInTouchMode = false
-                    keepScreenOn = true
-                    this.resizeMode = resizeMode
-                    player = playerEngine.exoPlayer
+        if (useLibVlcFallback) {
+            AndroidView(
+                modifier = videoModifier,
+                factory = { ctx ->
+                    org.videolan.libvlc.util.VLCVideoLayout(ctx).apply {
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                        keepScreenOn = true
+                        playerEngine.attachLibVlcView(this)
+                    }
+                },
+                update = {
+                    playerEngine.updateLibVlcScale(resizeMode)
+                },
+                onRelease = {
+                    playerEngine.detachLibVlcView()
                 }
-            },
-            update = { playerView ->
-                playerView.keepScreenOn = true
-                val targetVersion = playerInstanceVersion
-                if (playerView.player !== playerEngine.exoPlayer || playerView.tag != targetVersion) {
-                    playerView.tag = targetVersion
-                    playerView.player = playerEngine.exoPlayer
+            )
+        } else {
+            AndroidView(
+                modifier = videoModifier,
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                        useController = false
+                        isFocusable = true
+                        isFocusableInTouchMode = false
+                        keepScreenOn = true
+                        this.resizeMode = resizeMode
+                        player = playerEngine.exoPlayer
+                    }
+                },
+                update = { playerView ->
+                    playerView.keepScreenOn = true
+                    val targetVersion = playerInstanceVersion
+                    if (playerView.player !== playerEngine.exoPlayer || playerView.tag != targetVersion) {
+                        playerView.tag = targetVersion
+                        playerView.player = playerEngine.exoPlayer
+                    }
+                    if (playerView.resizeMode != resizeMode) {
+                        playerView.resizeMode = resizeMode
+                        playerView.requestLayout()
+                    }
                 }
-                if (playerView.resizeMode != resizeMode) {
-                    playerView.resizeMode = resizeMode
-                    playerView.requestLayout()
-                }
-            }
-        )
+            )
+        }
 
         // Custom overlay slot (HUD, gradients, watermark, indicators)
         overlayContent()
 
         // ── FASE 33 & 34: Overlay de estado — error visible / fuera de línea + loader discreto ──
+        val externalLauncher = currentUrl?.takeIf { it.isNotBlank() }?.let { url ->
+            {
+                playerEngine.pause()
+                openStreamInExternalPlayer(context, url)
+            }
+        }
         when (val state = playbackState) {
             is PlaybackState.Error -> ErrorOverlay(
                 message = if (!isLive && state.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS) {
@@ -187,6 +229,7 @@ fun LelouchVideoPlayer(
                 errorCode = state.errorCode,
                 canRetry = state.canRetry,
                 onRetry = { playerEngine.retry() },
+                onOpenExternal = externalLauncher,
                 modifier = Modifier.fillMaxSize()
             )
             PlaybackState.Buffering -> {
@@ -203,6 +246,7 @@ fun LelouchVideoPlayer(
                             isBufferTimeout = false
                             playerEngine.retry()
                         },
+                        onOpenExternal = externalLauncher,
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {
@@ -232,6 +276,23 @@ fun LelouchVideoPlayer(
     }
 }
 
+private fun openStreamInExternalPlayer(context: Context, streamUrl: String) {
+    val baseIntent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(Uri.parse(streamUrl), "video/*")
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    try {
+        val vlcIntent = Intent(baseIntent).setPackage("org.videolan.vlc")
+        context.startActivity(vlcIntent)
+    } catch (_: ActivityNotFoundException) {
+        try {
+            context.startActivity(Intent.createChooser(baseIntent, "Abrir señal con..."))
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(context, "Instala VLC para abrir esta señal externa.", Toast.LENGTH_SHORT).show()
+        }
+    }
+}
+
 /**
  * Panel de error legible con el mensaje del motor y el código de ExoPlayer (FASE 33).
  * Sin esto, un fallo de reproducción se traducía en pantalla negra silenciosa.
@@ -242,6 +303,7 @@ private fun ErrorOverlay(
     errorCode: Int,
     canRetry: Boolean,
     onRetry: () -> Unit,
+    onOpenExternal: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -279,17 +341,75 @@ private fun ErrorOverlay(
                     textAlign = TextAlign.Center
                 )
             }
-            if (canRetry) {
+            if (canRetry || onOpenExternal != null) {
+                val retryFocusRequester = remember { FocusRequester() }
+                val externalFocusRequester = remember { FocusRequester() }
+                var retryFocused by remember { mutableStateOf(false) }
+                var externalFocused by remember { mutableStateOf(false) }
+
+                LaunchedEffect(canRetry, onOpenExternal) {
+                    kotlinx.coroutines.delay(150L)
+                    try {
+                        if (canRetry) retryFocusRequester.requestFocus()
+                        else externalFocusRequester.requestFocus()
+                    } catch (_: Exception) {}
+                }
+
                 Spacer(modifier = Modifier.height(20.dp))
-                Button(
-                    onClick = onRetry,
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF00E5FF),
-                        contentColor = Color.Black
-                    )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.onKeyEvent { keyEvent ->
+                        if (keyEvent.type != KeyEventType.KeyDown) return@onKeyEvent false
+                        when (keyEvent.nativeKeyEvent.keyCode) {
+                            android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                if (onOpenExternal != null) {
+                                    try { externalFocusRequester.requestFocus() } catch (_: Exception) {}
+                                }
+                                true
+                            }
+                            android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
+                                if (canRetry) {
+                                    try { retryFocusRequester.requestFocus() } catch (_: Exception) {}
+                                }
+                                true
+                            }
+                            else -> false
+                        }
+                    }
                 ) {
-                    Text(text = "🔄 REINTENTAR", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    if (canRetry) {
+                        Button(
+                            onClick = onRetry,
+                            shape = RoundedCornerShape(10.dp),
+                            border = if (retryFocused) BorderStroke(3.dp, Color.White) else null,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF00E5FF),
+                                contentColor = Color.Black
+                            ),
+                            modifier = Modifier
+                                .focusRequester(retryFocusRequester)
+                                .onFocusChanged { retryFocused = it.isFocused }
+                        ) {
+                            Text(text = "🔄 REINTENTAR", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        }
+                    }
+                    if (onOpenExternal != null) {
+                        Button(
+                            onClick = onOpenExternal,
+                            shape = RoundedCornerShape(10.dp),
+                            border = if (externalFocused) BorderStroke(3.dp, Color.White) else null,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFFFF6B00),
+                                contentColor = Color.White
+                            ),
+                            modifier = Modifier
+                                .focusRequester(externalFocusRequester)
+                                .onFocusChanged { externalFocused = it.isFocused }
+                        ) {
+                            Text(text = "🎬 ABRIR EN VLC", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        }
+                    }
                 }
             }
         }

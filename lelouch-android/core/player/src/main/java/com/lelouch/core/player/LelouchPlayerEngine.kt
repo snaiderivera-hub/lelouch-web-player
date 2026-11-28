@@ -144,11 +144,13 @@ class LelouchPlayerEngine(
 
     /** Posición actual en ms (0 si el reproductor aún no está listo). */
     val currentPositionMs: Long
-        get() = runCatching { exoPlayer.currentPosition.coerceAtLeast(0L) }.getOrDefault(0L)
+        get() = if (_useLibVlcFallback.value) libVlcController.currentPositionMs
+        else runCatching { exoPlayer.currentPosition.coerceAtLeast(0L) }.getOrDefault(0L)
 
     /** Duración conocida en ms; 0 en vivo o mientras el contenedor no la declare. */
     val durationMs: Long
-        get() = runCatching { exoPlayer.duration.coerceAtLeast(0L) }.getOrDefault(0L)
+        get() = if (_useLibVlcFallback.value) libVlcController.durationMs
+        else runCatching { exoPlayer.duration.coerceAtLeast(0L) }.getOrDefault(0L)
 
     private val streamingOkHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
@@ -400,6 +402,75 @@ class LelouchPlayerEngine(
     private val _playerInstanceVersion = MutableStateFlow(0)
     val playerInstanceVersion: StateFlow<Int> = _playerInstanceVersion.asStateFlow()
 
+    private val _useLibVlcFallback = MutableStateFlow(false)
+    val useLibVlcFallback: StateFlow<Boolean> = _useLibVlcFallback.asStateFlow()
+
+    private val libVlcFallbackUrls = mutableSetOf<String>()
+    private val libVlcFailedUrls = mutableSetOf<String>()
+    private val libVlcController: LibVlcFallbackController by lazy {
+        LibVlcFallbackController(
+            context = context,
+            onStateChanged = { state ->
+                if (_useLibVlcFallback.value) {
+                    _playbackState.value = state
+                    if (state is PlaybackState.Playing) {
+                        playbackTracker.onRenderedFirstFrame(currentAttemptId)
+                    }
+                }
+            },
+            onVideoInfoChanged = { info ->
+                if (_useLibVlcFallback.value) {
+                    _videoTrackInfo.value = info
+                }
+            },
+            onProgressChanged = { pos, dur, playing ->
+                if (_useLibVlcFallback.value) {
+                    _progress.value = PlaybackProgress(
+                        positionMs = pos,
+                        durationMs = dur,
+                        isLive = isCurrentStreamLive,
+                        isPlaying = playing
+                    )
+                }
+            },
+            onFatalError = { msg ->
+                val failedUrl = _currentUrl.value
+                android.util.Log.e("LelouchDiag", "[LIVE_LIBVLC_ERROR] $msg")
+                if (failedUrl != null) {
+                    libVlcFallbackUrls.remove(failedUrl)
+                    libVlcFailedUrls.add(failedUrl)
+                }
+                _useLibVlcFallback.value = false
+                triggerChannelUnavailable("Señal incompatible con el decodificador de este dispositivo.")
+            }
+        )
+    }
+
+    fun attachLibVlcView(layout: org.videolan.libvlc.util.VLCVideoLayout) {
+        libVlcController.attachView(layout)
+    }
+
+    fun detachLibVlcView() {
+        libVlcController.detachView()
+    }
+
+    fun updateLibVlcScale(resizeMode: Int) {
+        libVlcController.setResizeMode(resizeMode)
+    }
+
+    private fun switchToLibVlc(url: String) {
+        stopBufferingWatchdog()
+        stopProgressTracking()
+        runCatching {
+            exoPlayer.stop()
+            exoPlayer.clearMediaItems()
+        }
+        _useLibVlcFallback.value = true
+        _playbackState.value = PlaybackState.Buffering
+        val ua = com.lelouch.core.network.dns.LelouchDnsManager.resolveActiveUserAgent(config.userAgent)
+        libVlcController.play(url, ua, _isMuted.value, isCurrentStreamLive)
+    }
+
     private val softwareFallbackUrls = mutableSetOf<String>()
     private var activeUseSoftwareVideo: Boolean = false
     private var hardwareDecoderFailureCount: Int = 0
@@ -475,8 +546,13 @@ class LelouchPlayerEngine(
      * sin alterar la interfaz ni deseleccionar el canal actual.
      */
     fun manualReconnect() {
-        if (!isCurrentStreamLive || _currentUrl.value == null) {
+        val url = _currentUrl.value
+        if (!isCurrentStreamLive || url == null) {
             retry()
+            return
+        }
+        if (_useLibVlcFallback.value) {
+            switchToLibVlc(url)
             return
         }
         lastFreezeRecoveryTimestampMs = 0L
@@ -521,7 +597,12 @@ class LelouchPlayerEngine(
                     renderedNow <= 0 &&
                     (hasVideoFormat || reason.contains("0 frames", ignoreCase = true) || hardwareDecoderFailureCount >= 2)
 
-                if (canSwitchToSw) {
+                if (canSwitchToSw && url !in libVlcFailedUrls) {
+                    libVlcFallbackUrls.add(url)
+                    android.util.Log.w("LelouchDiag", "[LIVE_LIBVLC_FALLBACK] Activando motor interno LibVLC (MediaCodec) para canal incompatible con extractor Media3...")
+                    switchToLibVlc(url)
+                    return@launch
+                } else if (canSwitchToSw) {
                     softwareFallbackUrls.add(url)
                     softwareRecoveryCount = 0
                     android.util.Log.w("LelouchDiag", "[LIVE_SW_DECODER_FALLBACK] Activando decodificador Software (CPU) para canal incompatible con HW...")
@@ -855,6 +936,25 @@ class LelouchPlayerEngine(
         }
 
         // Cancelar buffer previo, liberar conexión HTTP previa para evitar 429/503 y reiniciar contador de reintentos
+        if (_useLibVlcFallback.value) {
+            libVlcController.stop()
+            _useLibVlcFallback.value = false
+        }
+        val decoderModeNow = com.lelouch.core.network.dns.LelouchDnsManager.getVideoDecoderMode()
+        if (decoderModeNow == com.lelouch.core.network.dns.LelouchDnsManager.VideoDecoderMode.HW_PLUS &&
+            isLive &&
+            url in libVlcFallbackUrls &&
+            url !in libVlcFailedUrls
+        ) {
+            _currentUrl.value = url
+            isCurrentStreamLive = true
+            hardwareDecoderFailureCount = 0
+            softwareRecoveryCount = 0
+            autoRetryAttemptsLeft = config.autoRetryCount
+            _progress.value = PlaybackProgress(isLive = true)
+            switchToLibVlc(url)
+            return
+        }
         ensurePlayerMode(shouldUseSoftwareDecoder(url, isLive))
         hardwareDecoderFailureCount = 0
         softwareRecoveryCount = 0
@@ -1081,6 +1181,10 @@ class LelouchPlayerEngine(
             )
             return
         }
+        if (_useLibVlcFallback.value || (isCurrentStreamLive && url in libVlcFallbackUrls && url !in libVlcFailedUrls)) {
+            switchToLibVlc(url)
+            return
+        }
         val isLive = isCurrentStreamLive
         // FASE 37: conservar la posición al reintentar (antes volvía al inicio de la película).
         val resumePositionMs = if (isLive) 0L else exoPlayer.currentPosition.coerceAtLeast(0L)
@@ -1100,12 +1204,30 @@ class LelouchPlayerEngine(
     }
 
     fun pause() {
+        if (_useLibVlcFallback.value) {
+            libVlcController.pause()
+            _playbackState.value = PlaybackState.Paused(
+                positionMs = libVlcController.currentPositionMs,
+                durationMs = libVlcController.durationMs,
+                isLive = isCurrentStreamLive
+            )
+            return
+        }
         exoPlayer.playWhenReady = false
         updateState(false)
         stopProgressTracking()
     }
 
     fun resume() {
+        if (_useLibVlcFallback.value) {
+            libVlcController.resume()
+            _playbackState.value = PlaybackState.Playing(
+                positionMs = libVlcController.currentPositionMs,
+                durationMs = libVlcController.durationMs,
+                isLive = isCurrentStreamLive
+            )
+            return
+        }
         if (exoPlayer.playbackState == Player.STATE_IDLE || exoPlayer.playerError != null) {
             _currentUrl.value?.let { playStream(it, isCurrentStreamLive) }
         } else {
@@ -1127,6 +1249,10 @@ class LelouchPlayerEngine(
     }
 
     fun togglePlayPause() {
+        if (_useLibVlcFallback.value) {
+            if (libVlcController.isPlaying) pause() else resume()
+            return
+        }
         if (exoPlayer.playWhenReady) {
             pause()
         } else {
@@ -1136,7 +1262,11 @@ class LelouchPlayerEngine(
 
     fun setMuted(muted: Boolean) {
         _isMuted.value = muted
-        exoPlayer.volume = if (muted) 0f else 1f
+        if (_useLibVlcFallback.value) {
+            libVlcController.setMuted(muted)
+        } else {
+            exoPlayer.volume = if (muted) 0f else 1f
+        }
     }
 
     fun setPlaybackSpeed(speed: Float) {
@@ -1372,11 +1502,18 @@ class LelouchPlayerEngine(
         // FASE 37: conservar la última posición en el flujo antes de detener; las pantallas
         // la leen al cerrar el reproductor para persistir el avance.
         _progress.value = _progress.value.copy(
-            positionMs = runCatching { exoPlayer.currentPosition.coerceAtLeast(0L) }.getOrDefault(_progress.value.positionMs),
+            positionMs = runCatching {
+                if (_useLibVlcFallback.value) libVlcController.currentPositionMs
+                else exoPlayer.currentPosition.coerceAtLeast(0L)
+            }.getOrDefault(_progress.value.positionMs),
             isPlaying = false
         )
         playbackTracker.onUserCancel(currentAttemptId)
         stopBufferingWatchdog()
+        if (_useLibVlcFallback.value) {
+            libVlcController.stop()
+            _useLibVlcFallback.value = false
+        }
         exoPlayer.stop()
         stopProgressTracking()
         _playbackState.value = PlaybackState.Idle
@@ -1386,6 +1523,8 @@ class LelouchPlayerEngine(
         playbackTracker.onUserCancel(currentAttemptId)
         stopBufferingWatchdog()
         stopProgressTracking()
+        runCatching { libVlcController.release() }
+        _useLibVlcFallback.value = false
         _exoPlayer?.let { player ->
             player.removeListener(playerListener)
             player.removeAnalyticsListener(analyticsListener)

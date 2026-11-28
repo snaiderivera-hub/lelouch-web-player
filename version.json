@@ -1,7 +1,7 @@
 {
-  "versionName": "1.0.156",
-  "versionCode": 1000156,
-  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.156/app-release.apk",
-  "changelog": "- v1.0.156 Móvil y TV Box: corrige el indicador de versión en Ajustes del teléfono para leer dinámicamente la versión y compilación reales del sistema (antes mostraba texto fijo 1.0.135) + incluye fallback SW/HW y todas las mejoras de v1.0.155.",
-  "version": "1.0.156"
+  "versionName": "1.0.157",
+  "versionCode": 1000157,
+  "apkUrl": "https://github.com/snaiderivera-hub/lelouch-web-player/releases/download/ver.1.0.157/app-release.apk",
+  "changelog": "- v1.0.157 TV Box & Móvil: motor de respaldo automático con LibVLC (MediaCodec hardware) integrado cuando ExoPlayer/Media3 falla en señales entrelazadas 1080i PAFF (corrige canales HD como Fox 542/543 en Xiaomi TV Box) + botón «Abrir en VLC».",
+  "version": "1.0.157"
 }

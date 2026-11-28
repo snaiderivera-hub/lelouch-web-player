@@ -50,3 +50,7 @@
 -keepclassmembers class * implements android.os.Parcelable {
     public static final ** CREATOR;
 }
+
+# LibVLC JNI & Event callbacks
+-keep class org.videolan.libvlc.** { *; }
+-dontwarn org.videolan.libvlc.**
